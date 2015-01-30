@@ -1,0 +1,22 @@
+.PHONY: all
+
+all: boot/boot.bin kernel/kernel.exe
+	cp boot/boot.bin kernel/kernel.exe ../img/bochs
+	cp boot/boot.bin kernel/kernel.exe ../img/vmware
+
+include $(DEPS)
+
+%.bin: %.asm
+	$(NASM) -f bin -l $*.lst -o $@ $<
+
+kernel/kernel.exe: $(OBJS)
+	$(LD) $(LDFLAGS) -o $@ $^
+	cp $@ kernel/kernel.dbg
+	$(NM) -a $@ > kernel/kernel.nm
+	$(STRIP) -s -R .eh_frame $@
+
+%.o: %.S
+	$(CC) $(CFLAGS) -D__ASSEMBLY__ -o $@ $<
+
+%.o: %.c
+	$(CC) $(CFLAGS) -o $@ $<
