@@ -15,9 +15,6 @@ CFLAGS  :=-c -nostdinc -ffreestanding $(INCLUDE) -ggdb -Wall -O1
 .PHONY: all depend clean clean-all
 
 OBJS    :=$(addsuffix .o,$(basename $(wildcard */*.[Sc])))
-# Make kernel/start.o the 1st object file
-OBJS    :=$(filter-out kernel/start.o,$(OBJS))
-OBJS    :=kernel/start.o $(OBJS)
 
 DEPS    :=$(patsubst %.o,%.dep,$(OBJS))
 
@@ -31,7 +28,7 @@ all: depend
 	@echo \:\)
 endif
 
-# When file(s) added in, deleted or renamed, `make depend'
+# `make depend' when file(s) added in
 depend: $(DEPS)
 	@touch .depend
 

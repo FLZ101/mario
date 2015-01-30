@@ -14,6 +14,7 @@
 #define MB_FLAG_MEM     0x001
 #define MB_FLAG_DEVICE  0x002
 #define MB_FLAG_CMDLINE 0x004
+#define MB_FLAG_MODULE  0x008
 #define MB_FLAG_MMAP    0x040
 #define MB_FLAG_LOADER  0x100
 #define MB_FLAG_VBE     0x400

@@ -1,7 +1,7 @@
 #include <multiboot.h>
 #include <mm.h>
 
-	.text
+	.section .multiboot
 	.balign 4
 multiboot:
 	.long MB_MAGIC
@@ -14,6 +14,7 @@ multiboot:
 	.long __ebss
 	.long start
 	
+	.text
 	.globl start
 start:
 	cli

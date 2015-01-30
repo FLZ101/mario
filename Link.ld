@@ -4,31 +4,34 @@ ENTRY(start)
 
 SECTIONS
 {
-	.text 0x00100000 :
+	. = 0x00100000;
+
+	__text = .;
+	.text :
 	{
-		__text = .;
+		*(.multiboot)
 		*(.text)
 		*(.rdata)
-		__etext = .;
-
 		. = ALIGN(0x1000);
 	}
+	__etext = .;
 
+	__data = .;
 	.data :
 	{
-		__data = .;
+		
 		*(.data)
-		__edata = .;
 	}
+	__edata = .;
 
 	. = ALIGN(0x1000);
 
+	__bss = .;
 	.bss :
 	{
-		__bss = .;
 		*(.bss)
-		__ebss = .;
 	}
+	__ebss = .;
 
 	.eh_frame :
 	{

@@ -1,6 +1,7 @@
 #include <types.h>
 #include <multiboot.h>
 #include <text.h>
+#include <string.h>
 
 void mario(__u32 eax, struct multiboot_info *ebx)
 {
@@ -44,5 +45,21 @@ void mario(__u32 eax, struct multiboot_info *ebx)
 	if (MB_FLAG_MEM & ebx->flags)
 		printf("Low %u KB/Upper %u KB\n", ebx->mem_lower, \
 			ebx->mem_upper);
+
+	if (MB_FLAG_MODULE & ebx->flags) {
+		printf("%d module(s) in module list at %x\n", \
+			ebx->mods_count, ebx->mods_addr);
+		struct multiboot_mod_list *mod = (struct multiboot_mod_list \
+			*)ebx->mods_addr;
+		while (ebx->mods_count) {
+			char *s = (char *)mod->string;
+			s[7] = '\0';
+			if (!strcmp("/initrd", s))
+				printf("start: %x, end: %x\n\t%s\n", mod->mod_start, \
+					mod->mod_end, (char *)mod->mod_start);
+			ebx->mods_count--;
+			mod++;
+		}
+	}
 }
 

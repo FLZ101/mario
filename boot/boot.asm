@@ -167,8 +167,9 @@ _fat32:
 ;If find is done, ie we find it or we are sure 
 ;it is not here, CF is set
 ;eax is changed only if find is done and 
-;if eax = 0 it's not found, else eax is the first
-;cluster number of it
+;if it's not found eax = 0, else eax is the first
+;cluster number of it and [file_size] contains the
+;size of that file
 for_find:
     mov cx, [fat32_SecPerClus]
     shl cx, 4
@@ -392,6 +393,10 @@ mv_to           equ     116;dword
 
 PE_EntryPoint   equ     120;dword
 
+;Where we'll put INITRD 
+INITRD_START    equ     124;dword
+INITRD_END      equ     128;dword
+
 Buffer          equ     256
 
 ;----------------------------------------------------
@@ -438,7 +443,7 @@ init2:
     mov [BytesPerClus], ax
 
     call load_next_clus
-        ;if KERNEL_EXE is an empty file, we won't be back.
+    jnc $    ;Is KERNEL_EXE an empty file?
     mov word [loaded_L], 0  
         ;[loaded_H] is already set to [BytesPerClus]
 
@@ -568,6 +573,11 @@ init2:
     add eax, [PE_ImagBase]
     mov [PE_MovToBss], eax
 
+    add eax, [PE_VirSzBss]
+    add eax, 0xfff
+    and eax, ~0xfff
+    mov [INITRD_START], eax  ;INITRD_START should be page aligned
+
     mov eax, [Buffer + 80 + 36]
     and eax, 0xc0000080
     cmp eax, 0xc0000080
@@ -623,6 +633,49 @@ A20:
     call print_str
     call new_line
 
+;Loading initrd .........
+    mov bp, Str2
+    mov cx, Len2
+    call print_str
+
+;find INITRD 
+    mov cx, 11
+    mov si, INITRD
+    mov di, BOOT_BIN
+    rep movsb
+ 
+    mov eax, [fat32_RootClus]
+    call find_it
+    jnc $   ;INITRD not found, we stop here
+
+;Now eax is the fisrt cluster number of INITRD
+    mov [ClusNumber], eax
+
+;Load initrd
+    mov [read_L], dword 0
+    ;[file_size] contains the size of INITRD
+    mov eax, [file_size]
+    mov [read_H], eax
+
+    mov eax, [INITRD_START]
+    mov [mv_to], eax
+    add eax, [file_size]
+    mov [INITRD_END], eax
+
+    call load_next_clus
+
+    mov [loaded_L], dword 0
+    mov eax, [BytesPerClus]
+    mov [loaded_H], eax
+
+    call load_section
+
+;Done
+    mov bp, Str1
+    mov cx, Len1
+    call print_str
+    call new_line
+    
 ;Let's make the Multiboot_Information_Structure our
 ;kernel needs, we'll put it at ds:off_DBR. Refer to 
 ;Multiboot Specification version 0.6.96.
@@ -630,6 +683,8 @@ A20:
 flag               equ  off_DBR      ;dword
 mem_lower          equ  off_DBR + 4  ;dword
 mem_upper          equ  off_DBR + 8  ;dword
+mods_count         equ  off_DBR + 20 ;dword
+mods_addr          equ  off_DBR + 24 ;dword
 mmap_length        equ  off_DBR + 44 ;dword
 mmap_addr          equ  off_DBR + 48 ;dword
 boot_loader_name   equ  off_DBR + 64 ;dword
@@ -672,7 +727,7 @@ HighMem:
     and eax, 0xffff
     and ebx, 0xffff
 
-    cmp ax, 0x3c00  ;Is there a ISA hole ?
+    cmp ax, 0x3c00  ;Is there an ISA hole ?
     jb .e801_1
 
     shl ebx, 6  ;2^6 = 64
@@ -721,6 +776,18 @@ HighMem:
     mov [mem_upper], ax
 .done:
     or [flag], byte 1
+
+modules            equ  flag + 256
+
+    mov eax, [INITRD_START]
+    mov [modules], eax
+    mov eax, [INITRD_END]
+    mov [modules + 4], eax
+    mov [modules + 8], dword 0x7800 + OFFSET + INITRD_STR
+
+    mov [mods_count], byte 1
+    mov [mods_addr], dword 0x7800 + OFFSET + modules
+    or [flag], byte 8
 
 ;the e820 memory map will lie at ds:(flag + 512)
 mmap               equ  flag + 512
@@ -800,13 +867,14 @@ load_section:
     mov ecx, [loaded_H]
     mov [read_L], ecx
     call load_next_clus
+    jnc ._ret
     jmp .mv
 ._1:
     mov ecx, [read_H]
     sub ecx, [read_L]
     mov [mv_ecx], ecx
     call move_bytes
-    
+._ret: 
     ret
 
 ;Read no more than 256 byte(s) to Buffer
@@ -869,7 +937,8 @@ shift_window:
 .done:
     ret
 
-;Load next cluster
+;Load next cluster; If there is no more cluster to load, 
+;cf is cleared
 ;NOTE:
 ;   1. make sure [DAP_off] is set properly before the call
 ;   2. [ClusNumber] [loaded_L] [loaded_H] will be updated
@@ -877,7 +946,7 @@ shift_window:
 load_next_clus:
     mov eax, [ClusNumber]
     cmp eax, 0x0ffffff8
-    jae $       ;There is no more cluster to load
+    jae .bad
     push eax        
     call read_clus
     pop eax
@@ -887,16 +956,26 @@ load_next_clus:
     mov eax, [BytesPerClus]
     add [loaded_L], eax
     add [loaded_H], eax
+    stc
+.bad:
     ret
 
 KERNEL_EXE db "KERNEL  EXE"
             ;short name of 'kernel.exe' in a FAT32 partition
+
+INITRD     db "INITRD     "
+            ;short name of 'initrd' in a FAT32 partition
+
+INITRD_STR db "/initrd", 0
 
 Str0    db  "Loading kernel ......... "
 Len0    equ $ - Str0
 
 Str1    db  "Done"
 Len1    equ $ - Str1
+
+Str2    db  "Loading initrd ......... "
+Len2    equ $ - Str2
 
 Name    dw  0x3f00  ;This magic number indicates that the kernel 
                     ;is loaded by our bootloader.
