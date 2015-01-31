@@ -10,6 +10,10 @@ SECTIONS
 	.text :
 	{
 		*(.multiboot)
+		*(.tinit)
+		*(.dinit)
+		__einit = .;
+
 		*(.text)
 		*(.rdata)
 		. = ALIGN(0x1000);

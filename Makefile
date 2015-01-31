@@ -32,6 +32,8 @@ endif
 depend: $(DEPS)
 	@touch .depend
 
+clean:	OBJS:=$(wildcard */*.o)
+clean:	DEPS:=$(wildcard */*.dep)
 clean:
 	$(RM) $(OBJS) $(DEPS) .depend
 

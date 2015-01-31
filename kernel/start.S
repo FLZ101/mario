@@ -41,15 +41,14 @@ start:
 	.data
 _gdt:
 	.quad 0x0000000000000000	/* NULL descriptor */
-	.quad 0x0000000000000000	/* not used */
-	.quad 0x00cf9a000000ffff	/* 0x10 kernel 4GB code at 0x00000000 */
-	.quad 0x00cf92000000ffff	/* 0x18 kernel 4GB data at 0x00000000 */
-	.quad 0x00cffa000000ffff	/* 0x23 user   4GB code at 0x00000000 */
-	.quad 0x00cff2000000ffff	/* 0x2b user   4GB data at 0x00000000 */
-	.quad 0x0
+	.quad 0x0000000000000000	/* tss */
+	.quad 0x00cf9a000000ffff	/* 0x10, 0 ~ 4GB kernel code */
+	.quad 0x00cf92000000ffff	/* 0x18, 0 ~ 4GB kernel data */
+	.quad 0x00cffa000000ffff	/* 0x23, 0 ~ 4GB user code */
+	.quad 0x00cff2000000ffff	/* 0x2b, 0 ~ 4GB user data */
 
 _gdtr:
-	.word 7 * 8 - 1
+	.word 6 * 8 - 1
 	.long _gdt
 
 	.bss

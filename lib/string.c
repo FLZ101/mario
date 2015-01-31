@@ -11,7 +11,7 @@ int memcmp(const void *ptr1, const void *ptr2, size_t num)
 			"movb -1(%1), %%al\n\t"
 			"subb -1(%2), %%al"
 			:"=a"(n)
-			:"D"(ptr1),"S"(ptr2), "c"(num)
+			:"D"(ptr1), "S"(ptr2), "c"(num)
 			:);
 	return n;
 }

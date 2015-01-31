@@ -12,7 +12,7 @@ include $(DEPS)
 kernel/kernel.exe: $(OBJS)
 	$(LD) $(LDFLAGS) -o $@ $^
 	cp $@ kernel/kernel.dbg
-	$(NM) -a $@ > kernel/kernel.nm
+	$(NM) -g $@ > kernel/kernel.nm
 	$(STRIP) -s -R .eh_frame $@
 
 %.o: %.S
