@@ -58,7 +58,7 @@ struct multiboot_info {
 	__u16 vbe_interface_len;
 } __attribute__((gcc_struct, packed));  /* !!! */
 
-struct multiboot_mod_list
+struct multiboot_module
 {
 	__u32 mod_start;
 	__u32 mod_end;

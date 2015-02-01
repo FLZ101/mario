@@ -1,6 +1,6 @@
 #include <stdarg.h>
 #include <string.h>
-#include <kernel.h>
+#include <misc.h>
 #include <io.h>
 
 #define COLOR 0x07
@@ -49,12 +49,10 @@ void __tinit put_c(unsigned char c)
 	if (c == '\t') {
 		pos_x += 8;
 		pos_x &= ~7;
-	}
-	else if (c == '\n') {
+	} else if (c == '\n') {
 		pos_x = 0;
 		pos_y++;
-	}
-	else if (c >= ' ') {
+	} else if (c >= ' ') {
 		*((short *)0xb8000 + 80*pos_y + pos_x) = MAKEC(c);
 		pos_x++;
 	}
@@ -91,8 +89,7 @@ void __tinit put_x(unsigned int n)
 				s[i] = j + '0';
 			else
 				s[i] = j - 10 + 'a';
-		}
-		else {
+		} else {
 			s[i] = '0';
 		}
 	}
@@ -114,8 +111,7 @@ void __tinit put_u(unsigned int n)
 			j = n;
 			n = n/10;
 			s[i] = j - n*10 + '0';
-		}
-		else {
+		} else {
 			break;
 		}
 	}
@@ -155,4 +151,18 @@ void __tinit early_print(const char *fmt, ...)
 		put_c(c);
 	}
 	va_end(ap);		
+}
+
+#include <multiboot.h>
+
+void __tinit early_print_init(struct multiboot_info *m)
+{
+	unsigned char *s = (unsigned char *)m->boot_loader_name;
+
+	if (MB_FLAG_LOADER & m->flags && (0x3f00 == *(unsigned short *)s)) {
+		set_pos(s[2], s[3]);
+		early_print("%s\n", s + 4);
+	} else {
+		cls();
+	}
 }

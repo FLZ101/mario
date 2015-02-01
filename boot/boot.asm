@@ -966,7 +966,7 @@ KERNEL_EXE db "KERNEL  EXE"
 INITRD     db "INITRD     "
             ;short name of 'initrd' in a FAT32 partition
 
-INITRD_STR db "/initrd", 0
+INITRD_STR db "MARIO", 0
 
 Str0    db  "Loading kernel ......... "
 Len0    equ $ - Str0
@@ -980,7 +980,7 @@ Len2    equ $ - Str2
 Name    dw  0x3f00  ;This magic number indicates that the kernel 
                     ;is loaded by our bootloader.
 CurPos  dw  0       ;We want to tell kernel the cursor position :)
-        db  "boot.bin", 0
+        db  "Good to see you :)", 0
 
 ;Print a string
 ;IN:

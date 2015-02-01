@@ -28,13 +28,12 @@ start:
 	movw %cx, %gs
 
 	movw %cx, %ss
-	movl $sys_stack, %esp
+	movl $_sys_stack, %esp
+
+	cmpl $MB_MAGIC_EAX, %eax
+	jne .
 
 	pushl %ebx
-	pushl %eax
-
-	
-	
 	call _mario
 	jmp .
 
@@ -48,9 +47,9 @@ _gdt:
 	.quad 0x00cff2000000ffff	/* 0x2b, 0 ~ 4GB user data */
 
 _gdtr:
-	.word 6 * 8 - 1
+	.word 6*8 - 1
 	.long _gdt
 
 	.bss
 	.space 8192
-sys_stack:
+_sys_stack:
