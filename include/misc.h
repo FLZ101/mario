@@ -12,6 +12,11 @@
 void early_print_init(struct multiboot_info *m);
 void early_print(const char *fmt, ...);
 
+#define early_hang(...) do {\
+	early_print(__VA_ARGS__);\
+	__asm__ __volatile__ ("cli; 1:hlt; jmp 1b");\
+} while (0)
+
 
 
 #endif	/* _MISC_H */

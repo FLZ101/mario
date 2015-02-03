@@ -1,5 +1,6 @@
 #include <multiboot.h>
-#include <mm.h>
+
+#include <mm/mm.h>
 
 	.section .multiboot
 	.balign 4
@@ -17,8 +18,13 @@ multiboot:
 	.text
 	.globl start
 start:
+	/*
+	 * It seems that gcc always assumes that DF is cleared when it 
+	 * assembles C source code. Keep this in mind :)
+	 */
+	cld
 	cli
-	lgdt _gdtr
+	lgdt gdtr
 	ljmp $KERNEL_CS, $1f
 1:
 	movw $KERNEL_DS, %cx
@@ -38,7 +44,7 @@ start:
 	jmp .
 
 	.data
-_gdt:
+gdt:
 	.quad 0x0000000000000000	/* NULL descriptor */
 	.quad 0x0000000000000000	/* tss */
 	.quad 0x00cf9a000000ffff	/* 0x10, 0 ~ 4GB kernel code */
@@ -46,9 +52,9 @@ _gdt:
 	.quad 0x00cffa000000ffff	/* 0x23, 0 ~ 4GB user code */
 	.quad 0x00cff2000000ffff	/* 0x2b, 0 ~ 4GB user data */
 
-_gdtr:
+gdtr:
 	.word 6*8 - 1
-	.long _gdt
+	.long gdt
 
 	.bss
 	.space 8192

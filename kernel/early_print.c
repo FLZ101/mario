@@ -9,8 +9,8 @@
 
 #define SPACE MAKEC(' ')
 
-int __dinit pos_x = 0;
-int __dinit pos_y = 0;
+int pos_x __dinit = 0;
+int pos_y __dinit = 0;
 
 void __tinit move_cursor(void)
 {
@@ -85,10 +85,7 @@ void __tinit put_x(unsigned int n)
 			j = n;
 			n = n >> 4;
 			j = j - (n << 4);
-			if (j < 10)
-				s[i] = j + '0';
-			else
-				s[i] = j - 10 + 'a';
+			s[i] = j + (j < 10 ? '0' : -10 + 'a');
 		} else {
 			s[i] = '0';
 		}
@@ -99,14 +96,14 @@ void __tinit put_x(unsigned int n)
 void __tinit put_u(unsigned int n)
 {
 	int i, j;
-	char s[9] = {0};
+	char s[11] = {0};
 	
 	if (n == 0) {
 		put_c('0');
 		return;
 	}
 	
-	for (i = 7; i >= 0; i--) {
+	for (i = 9; i >= 0; i--) {
 		if (n) {
 			j = n;
 			n = n/10;
@@ -118,8 +115,18 @@ void __tinit put_u(unsigned int n)
 	put_s(s + i + 1);
 }
 
+void __tinit put_d(int n)
+{
+	if (0 <= n) {
+		put_u(n);
+	} else {
+		put_c('-');
+		put_u(-n);
+	}
+}
+
 /*
- * %u, %x, %c, %s
+ * %u, %d, %x, %c, %s
  */
 void __tinit early_print(const char *fmt, ...)
 {	
@@ -133,6 +140,9 @@ void __tinit early_print(const char *fmt, ...)
 			switch (c) {
 			case 'u':
 				put_u(va_arg(ap, unsigned int));
+				break;
+			case 'd':
+				put_d(va_arg(ap, int));
 				break;
 			case 'x':
 				put_x(va_arg(ap, unsigned int));

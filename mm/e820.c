@@ -1,9 +1,32 @@
 #include <multiboot.h>
+#include <string.h>
 #include <types.h>
 #include <misc.h>
-#include <e820.h>
 
-struct e820map __dinit e820;
+#include <mm/e820.h>
+#include <mm/mm.h>
+
+/*
+ * Build an e820 map based on the information the bootloader passed to us
+ */
+
+struct e820map e820;
+
+/*
+ * Used to fake an e820 map if we don't get one from the bootloader
+ */
+#define LOWER_MEM	0x080000	/* 512 KB */
+#define UPPER_MEM	0xe00000	/* 14 MB */
+
+/*
+ * Minimum physical memory our kernel needs
+ */
+#define MIN_MEMORY	0x800000	/* 8M */
+
+/*
+ * Maximum physical memory supported
+ */
+#define MAX_MEMORY  USER_BASE
 
 void __tinit add_memory_region(__u64 addr, __u64 len, __u32 type)
 {
@@ -72,7 +95,7 @@ void __tinit make_e820_map(struct multiboot_info *m)
 	 * is 1M ~ XXOO
 	 */
 	if (e820.nr_map >= 2)
-		goto done;
+		return;
 	else
 		e820.nr_map = 0;
 
@@ -82,17 +105,70 @@ void __tinit make_e820_map(struct multiboot_info *m)
 	}
 
 	if (e820.nr_map == 2)
-		goto done;
+		return;
 	else
 		e820.nr_map = 0;
 
 	/*
 	 * We did not get a reliable memory map, let's fake one
 	 */
-	add_memory_region(0, FAKE_LOWER_MEM, E820_RAM);
-	add_memory_region(0x100000, FAKE_UPPER_MEM, E820_RAM);
+	add_memory_region(0, LOWER_MEM, E820_RAM);
+	add_memory_region(0x100000, UPPER_MEM, E820_RAM);
+}
 
-done:
+extern unsigned long rd_start, rd_end, end, max_pfn;
+
+void __tinit setup_memory_region(struct multiboot_info *m)
+{
+	int i;
+
+	make_e820_map(m);
+
 	print_e820_map();
+
+	/*
+	 * Find number of highest page frame of type E820_RAM
+	 */
+	max_pfn = 0;
+	for (i = 0; i < e820.nr_map; i++) {
+		unsigned long j, k;
+		j = PFN_UP(e820.map[i].addr);
+		k = PFN_DOWN(e820.map[i].addr + e820.map[i].len);
+		if (j >= k)
+			continue;
+		if (k > max_pfn)
+			max_pfn = k;
+	}
+	early_print("max_pfn=%x\n", max_pfn);
+
+	if (max_pfn < PFN_DOWN(MIN_MEMORY))
+		early_hang("More physical memory required!\n");
+	
+	rd_start = rd_end = 0;
+	if (MB_FLAG_MODULE & m->flags && m->mods_count) {
+		struct multiboot_module *mod = 
+			(struct multiboot_module *)m->mods_addr;
+
+		/*
+		 * The first module should be initrd
+		 */
+		if (strstr((char *)mod->string, "MARIO")) {
+			rd_start = mod->mod_start;
+			rd_end = mod->mod_end;
+		}
+	}
+
+	/*
+	 * We assume that the bootloader will load modules to memory area 
+	 * next to our kernel
+	 */
+	if (rd_start) {
+		early_print("initrd:\n");
+		early_print("rd_start=%x, rd_end=%x\n", rd_start, rd_end);
+	} else {
+		early_hang("initrd not loaded!\n");
+	}
+
+	end = rd_end;
 }
 
