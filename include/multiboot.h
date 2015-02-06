@@ -2,7 +2,7 @@
 #define _MULTIBOOT_H
 
 /*
- * Refer to Multiboot Specification version 0.6.96.
+ * Refer to Multiboot Specification version 0.6.96
  */
 
 #define MB_MAGIC 0x1badb002

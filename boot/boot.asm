@@ -1,18 +1,17 @@
-;bootloader for mario
+;<bootloader for mario>
 ;
 ;first 512 Bytes (stage_1) of BOOT_BIN (boot.bin) should be 
 ;chainloaded to 0x7c00 by grub4dos, bootmgr, ...
 ;
 ;stage_1:
 ;   Search all fat32 partitions for BOOT_BIN and if we 
-;   find it we load it to 0x7c00 + OFFSET and jmp
-;   to stage_2
+;   find it we load it to 0x7c00 + OFFSET and jmp to stage_2
 ;
 ;known bug(s):
 ;   0:
 ;   when the volume id of a fat32 partition is 'BOOT    BIN'
 ;   (the short name of boot.bin in a fat32 partition), the 
-;   boot.bin in that partition may be missed.
+;   boot.bin in that partition may be missed
 
 extpr               equ 0   ;dword
 
@@ -36,7 +35,7 @@ off_MBR             equ 0x0400 + 512
 off_EBR             equ off_MBR + 512 
             ;EBR will be loaded to DS:off_EBR
 
-off_DBR             equ 0x0400 + 4096 
+off_DBR             equ 0x0400 + 2048 
             ;DBR will be loaded to DS:off_DBR
     
 org  0x0400
@@ -118,8 +117,8 @@ _extp:
 .nwod:
     pop si
     ;mov [BOOT_AT + 1], byte 0
-    ;Don't forget to uncomment last line if you want 
-    ;to tell kernel the 'boot_device' :)
+    ;Don't forget to uncomment last line if you want to tell 
+    ;kernel the 'boot_device' :)
     ret
     
 _fat32:
@@ -153,7 +152,7 @@ _fat32:
     ;!!!
     ;We should make sure BPB_BytsPerSec is 512, and 
     ;BPB_SecPerClus is no more than 64, but there is 
-    ;no space for this.
+    ;no space for this
 
     ;Now [DAP_off] is off_DBR
     call find_it
@@ -163,13 +162,17 @@ _fat32:
     pop si
     ret
 
-;Used by find_it. Search one cluster for BOOT_BIN
-;If find is done, ie we find it or we are sure 
-;it is not here, CF is set
-;eax is changed only if find is done and 
-;if it's not found eax = 0, else eax is the first
-;cluster number of it and [file_size] contains the
-;size of that file
+;Used by find_it. Search one cluster for BOOT_BIN. If 
+;find is done, ie we find it or we are sure it is not 
+;here, CF is set. 
+;if find is done
+;   if it's not found
+;       eax = 0
+;   else
+;       eax = the first cluster number of it
+;       [file_size] contains the size of that file
+;else
+;   eax is unchanged
 for_find:
     mov cx, [fat32_SecPerClus]
     shl cx, 4
@@ -187,7 +190,7 @@ for_find:
     pop cx
     jne .cont           ;not match
 
-;To fix bug 0, uncomment following 2 lines, that 
+;To fix bug 0, uncomment the following 2 lines, that 
 ;would require few more bytes
 
     ;test byte [si + 11], 0x18
@@ -234,9 +237,7 @@ for_load:
     add [DAP_off], ax
     pop ax                  
     
-    ;BOOT_BIN won't be bigger than OFFSET bytes.
-    ;If BOOT_BIN is bigger than we expected, we
-    ;can modify off_DBR
+    ;BOOT_BIN won't be bigger than OFFSET bytes
     cmp word [DAP_off], off_DBR + OFFSET
     cmc
     ret
@@ -253,16 +254,15 @@ load_it:
 
 ;NOTE:
 ;   stage_1 is chainloaded to DS:0x0400 (0x7c00), while 
-;   BOOT_BIN is loaded to DS:off_DBR.
+;   BOOT_BIN is loaded to DS:off_DBR
 OFFSET equ off_DBR - 0x0400
 
 
-;Go through a file/directory cluster by cluster, 
-;and the operation performed on each cluster is 
-;depended upon [idrt_call]
-;cf is cleared if there is no more cluster
-;CF is set if there is no need to go on, for exapmle 
-;we've found the file we intended to find
+;Go through a file/directory cluster by cluster, and the 
+;operation performed on each cluster is [idrt_call]. cf is 
+;cleared if there is no more cluster, CF is set if there 
+;is no need to go on, for exapmle we've found the file we 
+;intended to find
 ;IN:
 ;   eax - first cluster number of file/directory
 go_through_it:
@@ -298,8 +298,8 @@ read_clus:
     call read_one_sector
     ret
 
-;Given a cluster number, find the number of the next
-;cluster in the FAT chain
+;Given a cluster number, find number of the next cluster in 
+;the FAT chain
 ;IN:
 ;   eax - cluster
 ;OUT:
@@ -345,8 +345,10 @@ DAP_seg:
 DAP_lba:
     dq 0
 
-;Read one sector if [DAP_cnt] is not specified
-;else read [DAP_cnt] sector(s)
+;if [DAP_cnt] is not specified
+;   read one sector
+;else
+;   read [DAP_cnt] sector(s)
 read_one_sector:
     push si
     mov ah, 0x42
@@ -363,52 +365,62 @@ times 510-($-$$) \
     db 0xaa
 
 ;------------------------------------------------------
+;stage_2:
+;   Search the fat32 partitions where BOOT_BIN was found 
+;   for KERNEL_EXE and if we find it we multiboot it
+;
+;NOTE:
+;   Refer to Multiboot Specification version 0.6.96
 
-read_L          equ     40 ;dword
-read_H          equ     44 ;dword
-loaded_L        equ     48 ;dword
-loaded_H        equ     52 ;dword
+read_L           equ     40 ;dword
+read_H           equ     44 ;dword
+loaded_L         equ     48 ;dword
+loaded_H         equ     52 ;dword
 
-ClusNumber      equ     56 ;dword
-BytesPerClus    equ     60 ;dword
+ClusNumber       equ     56 ;dword
+BytesPerClus     equ     60 ;dword
 
-PE_NumOfSec     equ     64 ; word
-PE_SecTable     equ     68 ;dword
-PE_ImagBase     equ     72 ;dword
+;Offset of the multiboot header in KERNEL_EXE
+MB_header        equ     64 ;dowrd
+;The Multiboot header
+MB_magic         equ     68 ;dword
+MB_flags         equ     72 ;dword
+MB_checksum      equ     76 ;dword
+MB_header_addr   equ     80 ;dword
+MB_load_addr     equ     84 ;dword
+MB_load_end_addr equ     88 ;dword
+MB_bss_end_addr  equ     92 ;dword
+MB_entry_addr    equ     96 ;dword
 
-PE_MovToTxt     equ     76 ;dword
-PE_RawSzTxt     equ     80 ;dword
-PE_PotToTxt     equ     84 ;dword
+mv_from          equ     100;dword
+mv_ecx           equ     104;dword
+mv_to            equ     108;dword
 
-PE_MovToDta     equ     88 ;dword
-PE_RawSzDta     equ     92 ;dword
-PE_PotToDta     equ     96 ;dword
+;We'll load INITRD to rd_start ~ rd_end
+rd_start         equ     112;dword
+rd_end           equ     116;dword
 
-PE_VirSzBss     equ     100;dword
-PE_MovToBss     equ     104;dword
+;used as file pointer
+fp               equ     120;dword
 
-mv_from         equ     108;dword
-mv_ecx          equ     112;dword
-mv_to           equ     116;dword
+;Temporary variable(s)
+tmp0             equ     124;dword
 
-PE_EntryPoint   equ     120;dword
+Buffer           equ     256
 
-;Where we'll put INITRD 
-INITRD_START    equ     124;dword
-INITRD_END      equ     128;dword
-
-Buffer          equ     256
+MB_MAGIC         equ     0x1badb002
+MB_MAGIC_EAX     equ     0x2badb002
 
 ;----------------------------------------------------
-
 stage_2:
     jmp ((0x7800 + OFFSET) >> 4):init2
 
 init2:
+    ;Copy variables & a sector of FAT we've read
     mov cx, 1024
     xor si, si
     mov di, OFFSET
-    rep movsb           ;Copy variables & a sector of read FAT
+    rep movsb
 
     mov ax, cs
     mov ds, ax
@@ -416,178 +428,15 @@ init2:
     mov sp, 0x7800 + OFFSET
 
     mov [DAP_seg], ax
-    mov word [DAP_off], off_DBR
+    mov word [DAP_off], off_DBR ;Bytes will be read to DS:off_DBR
 
-    call clear_screen
-    
-;find KERNEL_EXE 
-    mov cx, 11
-    mov si, KERNEL_EXE
-    mov di, BOOT_BIN
-    rep movsb
- 
-    mov eax, [fat32_RootClus]
-    call find_it    ;find_it will read cluster(s) to ds:(0x0400 + OFFSET) 
-                    ;so BOOT_BIN can not be bigger than OFFSET bytes.
-    jnc $           ;KERNEL_EXE not found, we stop here
-
-;Check KERNEL_EXE.
-;Refer to pecoff_v83.pdf
-
-;Now eax is the fisrt cluster number of KERNEL_EXE
-    mov [ClusNumber], eax
-
-;Get BytesPerClus, which should be no more than 32k
+    ;Get BytesPerClus, which should be no more than 32k
     mov ax, [fat32_SecPerClus]
     shl ax, 9
     mov [BytesPerClus], ax
 
-    call load_next_clus
-    jnc $    ;Is KERNEL_EXE an empty file?
-    mov word [loaded_L], 0  
-        ;[loaded_H] is already set to [BytesPerClus]
+    call clear_screen
 
-    mov byte [read_L], 0x3c
-    mov byte [read_H], 0x3c + 4
-    call read_bytes
-;Read PE Signature
-    mov eax, [Buffer]
-    mov [read_L], eax
-    add eax, 4
-    mov [read_H], eax
-    call read_bytes
-
-    cmp dword [Buffer], 0x00004550
-    jne $       ;Not a valid PE file
-
-;Read COFF File Header
-    mov eax, [read_H]
-    mov [read_L], eax
-    add eax, 20
-    mov [read_H], eax
-    call read_bytes
-
-    cmp word [Buffer], 0x014c
-    jne $       ;Not Intel 386 or later processors and
-                ;compatible processors
-
-    mov ax, word [Buffer + 2]
-    cmp ax, 3
-    jb $        ;the number of sections is less than 3
-    mov [PE_NumOfSec], ax
-
-    xor eax, eax
-    mov ax, [Buffer + 16]
-    cmp ax, 96
-    jb $        ;SizeOfOptionalHeader is less than 96 bytes
-    add eax,[read_H]
-    mov [PE_SecTable], eax 
-
-
-    mov ax, [Buffer + 18]
-    and ax, 0x0102
-    cmp ax, 0x0102
-    jne $       ;Machine is not based on a 32-bit-word architecture
-                ;or this PE file is not an executable image
-
-;Read Optional Header
-    mov eax, [read_H]
-    mov [read_L], eax
-    add eax, 96
-    mov [read_H], eax
-    call read_bytes
-
-    cmp word [Buffer], 0x010b
-    jne $       ;PE format is not PE32
-
-    mov eax, [Buffer + 28]
-    mov [PE_ImagBase], eax
-    add eax, [Buffer + 16]
-    mov [PE_EntryPoint], eax    ;EntryPoint
-
-
-    cmp word [Buffer + 68], 3
-    jne $       ;Subsystem is not console
-
-;Read Section Table
-    mov eax, [PE_SecTable]
-    mov [read_L], eax
-    add eax, 40 * 3     ;Read first 3 SectionEntries
-    mov [read_H], eax
-    call read_bytes
-
-;.text
-    cmp dword [Buffer], 0x7865742e
-    jne $
-    cmp dword [Buffer + 4], 0x00000074
-    jne $       ;1st section is not .text
-
-	mov eax, [Buffer + 12]
-    add eax, [PE_ImagBase]
-	mov [PE_MovToTxt], eax
-	cmp eax, 0x00100000
-	jne $       ;VirtualAddress of .text section is not 0x00100000
-    
-    mov eax, [Buffer + 16]
-    mov [PE_RawSzTxt], eax   
-
-    mov eax, [Buffer + 20]
-    mov [PE_PotToTxt], eax
-
-    mov eax, [Buffer + 36]
-    and eax, 0x60000020
-    cmp eax, 0x60000020
-    jne $   	;.text can not be executed as code
-
-;.data
-    cmp dword [Buffer + 40], 0x7461642e
-    jne $
-    cmp dword [Buffer + 40 + 4], 0x00000061
-    jne $       ;2nd section is not .data
-
-    mov eax, [Buffer + 40 + 12]
-    add eax, [PE_ImagBase]
-    mov [PE_MovToDta], eax
-
-    mov eax, [Buffer + 40 + 16]
-    mov [PE_RawSzDta], eax   
-
-    mov eax, [Buffer + 40 + 20]
-    mov [PE_PotToDta], eax
-
-    mov eax, [Buffer + 40 + 36]
-    and eax, 0xc0000040
-    cmp eax, 0xc0000040
-    jne $       ;.data is not an initialized data section
-    
-;.bss
-    cmp dword [Buffer + 80], 0x7373622e
-    jne $
-    cmp dword [Buffer + 80 + 4], 0
-    jne $       ;3rd section is not .bss
-
-    mov eax, [Buffer + 80 + 8]
-    mov [PE_VirSzBss], eax
-    
-    mov eax, [Buffer + 80 + 12]
-    add eax, [PE_ImagBase]
-    mov [PE_MovToBss], eax
-
-    add eax, [PE_VirSzBss]
-    add eax, 0xfff
-    and eax, ~0xfff
-    mov [INITRD_START], eax  ;INITRD_START should be page aligned
-
-    mov eax, [Buffer + 80 + 36]
-    and eax, 0xc0000080
-    cmp eax, 0xc0000080
-    jne $       ;.bss is not an uninitialized data section
-
-;Loading kernel ......... 
-    mov bp, Str0
-    mov cx, Len0
-    call print_str
-    
     lgdt [gdtr]
 
 ;Enable A20
@@ -604,36 +453,144 @@ A20:
     mov cr0, eax
     jmp dword 8:(0x7800 + OFFSET + check_A20)
 ._ret:
-    
-;Load .text
-    mov eax, [PE_MovToTxt]
-    mov [mv_to], eax
 
-    mov eax, [PE_PotToTxt]
+;find KERNEL_EXE 
+    mov cx, 11
+    mov si, KERNEL_EXE
+    mov di, BOOT_BIN
+    rep movsb
+ 
+    mov eax, [fat32_RootClus]
+    call find_it
+    jnc $   ;KERNEL_EXE not found, we stop here
+
+;Now eax is the fisrt cluster number of KERNEL_EXE
+    mov [ClusNumber], eax
+
+    call load_next_clus
+    jnc $   ;Is KERNEL_EXE an empty file?
+    mov [loaded_L], word 0  ;[loaded_H] is already set to [BytesPerClus]
+
+;find Multiboot header
+;NOTE:
+;   The Multiboot header must be contained completely within the first 
+;   8192 bytes of the OS image, and must be 4 bytes aligned.
+    mov ax, [BytesPerClus]
+    add ax, off_DBR
+    mov [tmp0], ax
+
+    mov si, off_DBR
+    mov di, Buffer
+
+find_multiboot_header:
+    call getl
+    cmp eax, MB_MAGIC
+    jne find_multiboot_header
+    mov [MB_magic], eax
+
+    mov eax, [fp]
+    sub eax, 4
+    mov [MB_header], eax
+
+    call getl
+    mov [MB_flags], eax
+    call getl
+    mov [MB_checksum], eax
+
+    mov eax, [MB_magic]
+    add eax, [MB_flags]
+    add eax, [MB_checksum]
+    jz multiboot_header_found
+
+    mov eax, [MB_checksum]
+    call ungetl
+    mov eax, [MB_flags]
+    call ungetl
+
+    jmp find_multiboot_header
+
+getl:
+    cmp dword [fp], 8192
+    je $    ;multiboot header not found
+    add dword [fp], 4
+
+    cmp di, Buffer
+    je .next_0
+    sub di, 4
+    mov eax, [di]
+    ret
+.next_0:
+    cmp si, [tmp0]
+    je .next_1
+    mov eax, [si]
+    add si, 4
+    ret
+.next_1:
+    push di ; !!!
+    call load_next_clus
+    jnc $   ;We've gone through the entire file
+    pop di
+    mov si, off_DBR
+    jmp .next_0
+
+ungetl:
+    sub dword [fp], 4
+
+    mov [di], eax
+    add di, 4
+    ret
+
+multiboot_header_found:
+    ;Check whether the multiboot header contains the address fields
+    mov eax, [MB_flags]
+    and eax, 0x00010000
+    je $
+    call getl
+    mov [MB_header_addr], eax
+    call getl
+    mov [MB_load_addr], eax
+    call getl
+    mov [MB_load_end_addr], eax
+    call getl
+    mov [MB_bss_end_addr], eax
+    add eax, 0xfff
+    and eax, ~0xfff
+    mov [rd_start], eax     ;rd_start should be page aligned
+    call getl
+    mov [MB_entry_addr], eax
+
+load_kernel:
+    mov bp, Str0
+    mov cx, Len0
+    call print_str
+
+    mov eax, [MB_load_addr]
+    mov [mv_to], eax
+    sub eax, [MB_header_addr]
+    add eax, [MB_header]
     mov [read_L], eax
-    add eax, [PE_RawSzTxt]
+
+    ;Make sure that [read_L] <= [loaded_L]
+    cmp eax, [loaded_L]
+    jbe .next_0
+    call load_next_clus
+    mov [loaded_L], dword 0
+    mov eax, [BytesPerClus]
+    mov [loaded_H], eax
+.next_0:
+    mov eax, [MB_load_end_addr]
+    sub eax, [MB_header_addr]
+    add eax, [MB_header]
     mov [read_H], eax
 
-    call load_section
+    call load
 
-;Load .data
-    mov eax, [PE_MovToDta]
-    mov [mv_to], eax
-
-    mov eax, [PE_PotToDta]
-    mov [read_L], eax
-    add eax, [PE_RawSzDta]
-    mov [read_H], eax
-
-    call load_section
-
-;Done
     mov bp, Str1
     mov cx, Len1
     call print_str
     call new_line
 
-;Loading initrd .........
+load_initrd:
     mov bp, Str2
     mov cx, Len2
     call print_str
@@ -651,34 +608,29 @@ A20:
 ;Now eax is the fisrt cluster number of INITRD
     mov [ClusNumber], eax
 
-;Load initrd
     mov [read_L], dword 0
-    ;[file_size] contains the size of INITRD
     mov eax, [file_size]
     mov [read_H], eax
 
-    mov eax, [INITRD_START]
+    mov eax, [rd_start]
     mov [mv_to], eax
     add eax, [file_size]
-    mov [INITRD_END], eax
+    mov [rd_end], eax
 
     call load_next_clus
-
     mov [loaded_L], dword 0
     mov eax, [BytesPerClus]
     mov [loaded_H], eax
 
-    call load_section
+    call load
 
-;Done
     mov bp, Str1
     mov cx, Len1
     call print_str
     call new_line
     
 ;Let's make the Multiboot_Information_Structure our
-;kernel needs, we'll put it at ds:off_DBR. Refer to 
-;Multiboot Specification version 0.6.96.
+;kernel needs, we'll put it at ds:off_DBR
 
 flag               equ  off_DBR      ;dword
 mem_lower          equ  off_DBR + 4  ;dword
@@ -779,9 +731,9 @@ HighMem:
 
 modules            equ  flag + 256
 
-    mov eax, [INITRD_START]
+    mov eax, [rd_start]
     mov [modules], eax
-    mov eax, [INITRD_END]
+    mov eax, [rd_end]
     mov [modules + 4], eax
     mov [modules + 8], dword 0x7800 + OFFSET + INITRD_STR
 
@@ -844,12 +796,14 @@ jump_to_kernel:
     mov cr0, ecx
     jmp 8:(0x7800 + OFFSET + for_jump_to_kernel)
 
-;load a section
+;Load offset read_L ~ read_H of KERNEL_EXE to physical address mv_to
 ;IN:
 ;   mv_to
 ;   read_L
 ;   read_H
-load_section:
+;NOTE:
+;   make sure read_L >= loaded_L before the call 
+load:
     call shift_window
 .mv:
     mov eax, [read_L]
@@ -875,49 +829,6 @@ load_section:
     mov [mv_ecx], ecx
     call move_bytes
 ._ret: 
-    ret
-
-;Read no more than 256 byte(s) to Buffer
-;IN:
-;   read_L
-;   read_H
-;NOTE:
-;   read_L, read_H, loaded_L, loaded_H are all File-Pointer
-;   read_L ~ (read_H - 1) is the bytes we want to read
-;   loaded_L ~ (loaded_H - 1) is the bytes we've loaded
-
-read_bytes:
-    call shift_window
-
-    cmp eax, [read_H]
-    jae .next_0
-
-    mov ecx, [loaded_H]
-    sub ecx, [read_L]
-    push cx
-    mov  di, Buffer
-    call .move_to_buffer
-
-    mov eax, [loaded_H]
-    mov [read_L], eax
-
-    call load_next_clus
-
-    mov ecx, [read_H]
-    sub ecx, [read_L]
-    pop di
-    add di, Buffer
-    jmp .move_to_buffer
-
-.next_0:
-    mov ecx, [read_H]
-    sub ecx, [read_L]
-    mov  di, Buffer
-.move_to_buffer:
-    mov esi, [read_L]
-    sub esi, [loaded_L]
-    add  si, off_DBR
-    rep movsb
     ret
 
 ;Load cluster(s) until [loaded_H] > [read_L]
@@ -1130,17 +1041,17 @@ for_jump_to_kernel:
     mov ss, cx
     mov esp, 0x7800 + OFFSET
 
-    mov edi, [0x7800 + OFFSET + PE_MovToBss]
-    mov ecx, [0x7800 + OFFSET + PE_VirSzBss]
-    xor  al, al
+    mov edi, [0x7800 + OFFSET + MB_load_end_addr]
+    mov ecx, [0x7800 + OFFSET + MB_bss_end_addr]
+    sub ecx, edi
+    xor al, al
     rep stosb
 
-    ;MB_MAGIC_EAX
-    mov eax, 0x2badb002     
+    mov eax, MB_MAGIC_EAX    
     ;physical address of the Multiboot_Information_Structure
     mov ebx, 0x7800 + OFFSET + flag 
 
-    mov ecx, [0x7800 + OFFSET + PE_EntryPoint]
+    mov ecx, [0x7800 + OFFSET + MB_entry_addr]
     jmp ecx
 
 magic dw 0xdead

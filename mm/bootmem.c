@@ -1,6 +1,6 @@
 #include <misc.h>
 
-#include <mm/mm.h>
+#include <mm/bootmem.h>
 
 /*
  * Very simple boot-time physical memory allocator

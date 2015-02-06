@@ -1,10 +1,9 @@
-#include <multiboot.h>
-#include <string.h>
-#include <types.h>
-#include <misc.h>
+#include <lib/string.h>
 
 #include <mm/e820.h>
-#include <mm/mm.h>
+
+#include <types.h>
+#include <misc.h>
 
 /*
  * Build an e820 map based on the information the bootloader passed to us

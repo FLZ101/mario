@@ -1,5 +1,5 @@
-#include <string.h>
-#include <stddef.h>
+#include <lib/string.h>
+#include <lib/stddef.h>
 
 int memcmp(const void *ptr1, const void *ptr2, size_t num)
 {
@@ -46,6 +46,10 @@ void *memcpy(void *dst, const void *src, size_t num)
 	return dst;
 }
 
+/*
+ * It seems that gcc always assumes that DF is cleared when it 
+ * assembles C source code. Keep this in mind :)
+ */
 void *memmove(void *dst, const void *src, size_t num)
 {
 	__asm__ (
@@ -185,7 +189,7 @@ char *strrchr(const char *string, int c)
 }
 
 /*
- * If string2 is a NULL string, string1 is returned.
+ * If string2 is a NULL string, string1 is returned
  */
 char *strstr(const char *string1, const char *string2)
 {
@@ -320,6 +324,3 @@ size_t strcspn(const char *string1, const char *string2)
 {
 	return 0;
 }
-
-
-

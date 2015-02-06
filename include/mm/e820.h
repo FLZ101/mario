@@ -1,6 +1,7 @@
 #ifndef _E820_H
 #define _E820_H
 
+#include <multiboot.h>
 #include <types.h>
 
 #define E820MAX	32
@@ -17,5 +18,7 @@ struct e820map {
 };
 
 extern struct e820map e820;
+
+void setup_memory_region(struct multiboot_info *m);
 
 #endif	/* _E820_H */

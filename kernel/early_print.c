@@ -1,7 +1,8 @@
-#include <stdarg.h>
-#include <string.h>
 #include <misc.h>
 #include <io.h>
+
+#include <lib/stdarg.h>
+#include <lib/string.h>
 
 #define COLOR 0x07
 
