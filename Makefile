@@ -20,13 +20,11 @@ DEPS    :=$(patsubst %.o,%.dep,$(OBJS))
 
 ifeq (.depend,$(wildcard .depend))
 all:
-	@$(MAKE) -f Makeit
-	@echo \:\)
 else
 all: depend
+endif
 	@$(MAKE) -f Makeit
 	@echo \:\)
-endif
 
 # `make depend' when file(s) added in
 depend: $(DEPS)

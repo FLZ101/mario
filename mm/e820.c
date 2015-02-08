@@ -159,7 +159,7 @@ void __tinit setup_memory_region(struct multiboot_info *m)
 
 	/*
 	 * We assume that the bootloader will load modules to memory area 
-	 * next to our kernel
+	 * next to the kernel
 	 */
 	if (rd_start) {
 		early_print("initrd:\n");

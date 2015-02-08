@@ -7,18 +7,20 @@ multiboot:
 	.long MB_MAGIC
 	.long MB_FLAGS
 	.long MB_CHECK
-	
+
 	.long multiboot
 	.long __text
 	.long __einit
 	.long __ebss
 	.long start
-	
+
 	.text
 	.globl start
 start:
 	cli
 	lgdt gdtr
+	jmp 1f
+1:
 	ljmp $KERNEL_CS, $1f
 1:
 	movw $KERNEL_DS, %cx
@@ -33,8 +35,8 @@ start:
 	popfl
 
 	/*
-	 * A multiboot-compliant bootloader sets eax to MB_MAGIC_EAX and 
-	 * ebx to the physical address of the Multiboot information 
+	 * A multiboot-compliant bootloader sets eax to MB_MAGIC_EAX and
+	 * ebx to the physical address of the Multiboot information
 	 * structure before it jumps to the kernel.
 	 */
 	cmpl $MB_MAGIC_EAX, %eax
@@ -58,7 +60,7 @@ set_idt:
 	loopne set_idt
 
 	lidt idtr
-	
+
 	/*
 	 * Load tss, is it too early?
 	 */
@@ -74,7 +76,7 @@ set_idt:
 	addl %ebx, gdt + 12
 	movw $8, %ax
 	ltr %ax
-	
+
 	call _mario
 	jmp .
 
@@ -83,7 +85,7 @@ set_idt:
  */
 ignore_int:
 	iret
-	
+
 	.data
 	.balign 8
 gdt:

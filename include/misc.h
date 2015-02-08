@@ -38,6 +38,9 @@ void early_print(const char *fmt, ...);
 	__asm__ __volatile__ ("cli; 1:hlt; jmp 1b");\
 } while (0)
 
+#define cli() __asm__ __volatile__ ("cli": : :"memory")
+#define sti() __asm__ __volatile__ ("sti": : :"memory")
+
 #endif	/* __ASSEMBLY__ */
 
 #endif	/* _MISC_H */

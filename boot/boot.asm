@@ -35,7 +35,7 @@ off_MBR             equ 0x0400 + 512
 off_EBR             equ off_MBR + 512 
             ;EBR will be loaded to DS:off_EBR
 
-off_DBR             equ 0x0400 + 2048 
+off_DBR             equ 0x0400 + 4096 
             ;DBR will be loaded to DS:off_DBR
     
 org  0x0400

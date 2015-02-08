@@ -31,3 +31,4 @@ void __tinit set_system_gate(unsigned int n, void *addr)
 {
 	_set_gate(n,15,3,addr);
 }
+

@@ -1,14 +1,15 @@
 #include <misc.h>
+#include <trap.h>
 #include <idt.h>
 
 void divide_error(void);
 
-void __tinit isr_init(void)
+void __tinit trap_init(void)
 {
 	set_trap_gate(0, divide_error);
 }
 
-char *divide_error_msg = "Divide error\n";
+char *divide_error_msg = "Divide Error\n";
 
 __asm__(
 		"_divide_error:\n\t"
