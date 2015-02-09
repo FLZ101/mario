@@ -1,5 +1,40 @@
 #include <misc.h>
 
+/*
+ * Stack layout when 'trap_ret':
+ * 
+ *   0(%esp) - ebx
+ *   4(%esp) - ecx
+ *   8(%esp) - edx
+ *   c(%esp) - esi
+ *  10(%esp) - edi
+ *  14(%esp) - ebp
+ *  18(%esp) - eax
+ *  1c(%esp) - ods
+ *  20(%esp) - oes
+ *  24(%esp) - error_code
+ *  28(%esp) - eip
+ *  2c(%esp) - ocs
+ *  30(%esp) - eflags
+ *  34(%esp) - esp
+ *  38(%esp) - oss
+ */
+
+EBX		= 0x00
+ECX		= 0x04
+EDX		= 0x08
+ESI		= 0x0c
+EDI		= 0x10
+EBP		= 0x14
+EAX		= 0x18
+ODS		= 0x1c
+OES		= 0x20
+ERROR_CODE	= 0x24
+EIP		= 0x28
+OCS		= 0x2c
+EFLAGS		= 0x30
+ESP		= 0x34
+OSS		= 0x38
 	.text
 
 #define SAVE_ALL \
@@ -29,6 +64,95 @@
 	popl %es; \
 	addl $4, %esp; \
 	iret
+ 
+ENTRY(divide_error)
+	pushl $0
+	pushl $_do_divide_error
+	jmp trap_common
+ENTRY(debug)
+	pushl $0
+	pushl $_do_debug
+	jmp trap_common
+ENTRY(nmi)
+	pushl $0
+	pushl $_do_nmi
+	jmp trap_common
+ENTRY(int3)
+	pushl $0
+	pushl $_do_int3
+	jmp trap_common
+ENTRY(overflow)
+	pushl $0
+	pushl $_do_overflow
+	jmp trap_common
+ENTRY(bounds)
+	pushl $0
+	pushl $_do_bounds
+	jmp trap_common
+ENTRY(invalid_op)
+	pushl $0
+	pushl $_do_invalid_op
+	jmp trap_common
+ENTRY(device_not_available)
+	pushl $0
+	pushl $_do_device_not_available
+	jmp trap_common
+ENTRY(double_fault)
+	pushl $_do_double_fault
+	jmp trap_common
+ENTRY(coprocessor_segment_overrun)
+	pushl $0
+	pushl $_do_coprocessor_segment_overrun
+	jmp trap_common
+ENTRY(invalid_TSS)
+	pushl $_do_invalid_TSS
+	jmp trap_common
+ENTRY(segment_not_present)
+	pushl $_do_segment_not_present
+	jmp trap_common
+ENTRY(stack_segment)
+	pushl $_do_stack_segment
+	jmp trap_common
+ENTRY(general_protection)
+	pushl $_do_general_protection
+	jmp trap_common
+ENTRY(page_fault)
+	pushl $_do_page_fault
+	jmp trap_common
+ENTRY(spurious_interrupt_bug)
+	pushl $0
+	pushl $_do_spurious_interrupt_bug
+	jmp trap_common
+ENTRY(coprocessor_error)
+	pushl $0
+	pushl $_do_coprocessor_error
+	jmp trap_common
+ENTRY(system_call)
+	pushl %eax
+	pushl $_do_system_call
+	jmp trap_common
+
+trap_common:
+	cld; \
+	pushl %ds; \
+	pushl %eax; \
+	pushl %ebp; \
+	pushl %edi; \
+	pushl %esi; \
+	pushl %edx; \
+	pushl %ecx; \
+	pushl %ebx; \
+	movl OES(%esp), %edi; \
+	movw %es, OES(%esp); \
+	movw $KERNEL_DS, %ax; \
+	movw %ax, %es; \
+	movw %ax, %ds
+	pushl $trap_ret
+	jmp *%edi
+
+trap_ret:
+	RESTORE_ALL
+
 
 /****************
  * IRQ handlers *

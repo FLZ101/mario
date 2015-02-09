@@ -20,6 +20,12 @@
 #define PFN_DOWN(x)	((x) >> PAGE_SHIFT)
 #define PFN_PHYS(x)	((x) << PAGE_SHIFT)
 
+#define SYSCALL_VECTOR	0x80
+
+#define ENTRY(name) \
+ 	.globl _##name; \
+ 	_##name##:
+
 #ifndef __ASSEMBLY__
 
 /*
