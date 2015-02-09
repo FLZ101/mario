@@ -378,33 +378,34 @@ loaded_L         equ     48 ;dword
 loaded_H         equ     52 ;dword
 
 ClusNumber       equ     56 ;dword
-BytesPerClus     equ     60 ;dword
+ClusNumber2      equ     60 ;dword
+BytesPerClus     equ     64 ;dword
 
 ;Offset of the multiboot header in KERNEL_EXE
-MB_header        equ     64 ;dowrd
+MB_header        equ     68 ;dowrd
 ;The Multiboot header
-MB_magic         equ     68 ;dword
-MB_flags         equ     72 ;dword
-MB_checksum      equ     76 ;dword
-MB_header_addr   equ     80 ;dword
-MB_load_addr     equ     84 ;dword
-MB_load_end_addr equ     88 ;dword
-MB_bss_end_addr  equ     92 ;dword
-MB_entry_addr    equ     96 ;dword
+MB_magic         equ     72 ;dword
+MB_flags         equ     76 ;dword
+MB_checksum      equ     80 ;dword
+MB_header_addr   equ     84 ;dword
+MB_load_addr     equ     88 ;dword
+MB_load_end_addr equ     92 ;dword
+MB_bss_end_addr  equ     96 ;dword
+MB_entry_addr    equ     100;dword
 
-mv_from          equ     100;dword
-mv_ecx           equ     104;dword
-mv_to            equ     108;dword
+mv_from          equ     104;dword
+mv_ecx           equ     108;dword
+mv_to            equ     112;dword
 
 ;We'll load INITRD to rd_start ~ rd_end
-rd_start         equ     112;dword
-rd_end           equ     116;dword
+rd_start         equ     116;dword
+rd_end           equ     120;dword
 
 ;used as file pointer
-fp               equ     120;dword
+fp               equ     124;dword
 
 ;Temporary variable(s)
-tmp0             equ     124;dword
+tmp0             equ     128;dword
 
 Buffer           equ     256
 
@@ -466,7 +467,7 @@ A20:
 
 ;Now eax is the fisrt cluster number of KERNEL_EXE
     mov [ClusNumber], eax
-
+    mov [ClusNumber2], eax
     call load_next_clus
     jnc $   ;Is KERNEL_EXE an empty file?
     mov [loaded_L], word 0  ;[loaded_H] is already set to [BytesPerClus]
@@ -570,9 +571,12 @@ load_kernel:
     add eax, [MB_header]
     mov [read_L], eax
 
-    ;Make sure that [read_L] <= [loaded_L]
+    ;Make sure that [read_L] >= [loaded_L]
     cmp eax, [loaded_L]
-    jbe .next_0
+    jae .next_0
+    ;Re-read KERNEL_EXE
+    mov eax, [ClusNumber2]
+    mov [ClusNumber], eax
     call load_next_clus
     mov [loaded_L], dword 0
     mov eax, [BytesPerClus]
