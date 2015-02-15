@@ -13,7 +13,7 @@ void * __tinit __alloc_bootmem(unsigned long size, unsigned long p2align)
 	unsigned long tmp;
 
 	tmp = (1UL << p2align) - 1;
-	tmp = end = (end + tmp) & tmp;
+	tmp = end = (end + tmp) & ~tmp;
 	end = end + size;
 
 	return (void *)tmp;

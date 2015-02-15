@@ -10,14 +10,14 @@
  *  10(%esp) - edi
  *  14(%esp) - ebp
  *  18(%esp) - eax
- *  1c(%esp) - ods
- *  20(%esp) - oes
+ *  1c(%esp) - ds
+ *  20(%esp) - es
  *  24(%esp) - error_code
  *  28(%esp) - eip
- *  2c(%esp) - ocs
+ *  2c(%esp) - cs
  *  30(%esp) - eflags
  *  34(%esp) - esp
- *  38(%esp) - oss
+ *  38(%esp) - ss
  */
 
 EBX		= 0x00
@@ -27,14 +27,14 @@ ESI		= 0x0c
 EDI		= 0x10
 EBP		= 0x14
 EAX		= 0x18
-ODS		= 0x1c
-OES		= 0x20
+DS		= 0x1c
+ES		= 0x20
 ERROR_CODE	= 0x24
 EIP		= 0x28
-OCS		= 0x2c
+CS		= 0x2c
 EFLAGS		= 0x30
 ESP		= 0x34
-OSS		= 0x38
+SS		= 0x38
 	.text
 
 #define SAVE_ALL \
@@ -142,8 +142,8 @@ trap_common:
 	pushl %edx; \
 	pushl %ecx; \
 	pushl %ebx; \
-	movl OES(%esp), %edi; \
-	movw %es, OES(%esp); \
+	movl ES(%esp), %edi; \
+	movw %es, ES(%esp); \
 	movw $KERNEL_DS, %ax; \
 	movw %ax, %es; \
 	movw %ax, %ds

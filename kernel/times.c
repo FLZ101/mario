@@ -21,11 +21,12 @@ void __tinit time_init(void)
 	i8253_init();
 }
 
+#include <mm/page_alloc.h>
+
 void irq_PIT(void)
 {
-	if (jiffies % 100)
-		;
-	else
-		early_print("%u,", jiffies/100);
-	jiffies++;	
+	if (!(jiffies % 100)) {
+		early_print("%u, ", jiffies/100);
+	}
+	jiffies++;
 }

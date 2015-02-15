@@ -22,9 +22,9 @@ void *memchr(const void *ptr, int c, size_t num)
 		"repne scasb\n\t"
 		"je 1f\n\t"
 		"xorl %0, %0\n\t"
-		"jmp 2f\n\t"
+		"jmp 2f\n"
 		"1:\n\t"
-		"decl %0\n\t"
+		"decl %0\n"
 		"2:"
 		:"=D"(p)
 		:"D"(ptr), "a"(c), "c"(num)
@@ -60,9 +60,9 @@ void *memmove(void *dst, const void *src, size_t num)
 		"addl %2, %1\n\t"
 		"decl %1\n\t"
 		"std\n\t"
-		"jmp 2f\n\t"
+		"jmp 2f\n"
 		"1:\n\t"
-		"cld\n\t"
+		"cld\n"
 		"2:\n\t"
 		"rep movsb\n\t"
 		"cld"	/* !!! */
@@ -106,14 +106,14 @@ int strcmp(const char *string1, const char *string2)
 {
 	int n;
 	__asm__ (
-		"xorl %0, %0\n\t"
+		"xorl %0, %0\n"
 		"1:\n\t"
 		"cmpb $0, (%1)\n\t"
 		"je 2f\n\t"
 		"cmpsb\n\t"
 		"je 1b\n\t"
 		"decl %1\n\t"
-		"decl %2\n\t"
+		"decl %2\n"
 		"2:\n\t"
 		"movb (%1), %%al\n\t"
 		"subb (%2), %%al\n\t"
@@ -129,14 +129,14 @@ int strncmp(const char *string1, const char *string2, size_t num)
 {
 	int n;
 	__asm__ (
-		"xorl %0, %0\n\t"
+		"xorl %0, %0\n"
 		"1:\n\t"
 		"cmpb $0, (%1)\n\t"
 		"je 2f\n\t"
 		"cmpsb\n\t"
 		"loope 1b\n\t"
 		"decl %1\n\t"
-		"decl %2\n\t"
+		"decl %2\n"
 		"2:\n\t"
 		"movb (%1), %%al\n\t"
 		"subb (%2), %%al\n\t"
@@ -158,9 +158,9 @@ char *strchr(const char *string, int c)
 		"scasb\n\t"
 		"jne 1b\n\t"
 		"decl %1\n\t"
-		"jmp 3f\n\t"
+		"jmp 3f\n"
 		"2:\n\t"
-		"xorl %1, %1\n\t"
+		"xorl %1, %1\n"
 		"3:"
 		:"=D"(p)
 		:"D"(string), "a"(c)
@@ -172,7 +172,7 @@ char *strrchr(const char *string, int c)
 {
 	char *p;
 	__asm__ (
-		"xorl %0, %0\n\t"
+		"xorl %0, %0\n"
 		"1:\n\t"
 		"cmpb $0, (%1)\n\t"
 		"je 2f\n\t"
@@ -180,7 +180,7 @@ char *strrchr(const char *string, int c)
 		"jne 1b\n\t"
 		"movl %1, %0\n\t"
 		"decl %0\n\t"
-		"jmp 1b\n\t"
+		"jmp 1b\n"
 		"2:"
 		:"=S"(p)
 		:"D"(string), "a"(c)
@@ -196,12 +196,12 @@ char *strstr(const char *string1, const char *string2)
 	char *p;
 	__asm__ (
 		"movl %1, %%ebx\n\t"
-		"movl %2, %%ecx\n\t"
+		"movl %2, %%ecx\n"
 		"1:\n\t"
 		"movl %%ebx, %1\n\t"
 		"cmpb $0, (%1)\n\t"
 		"je 2f\n\t"
-		"movl %%ecx, %2\n\t"
+		"movl %%ecx, %2\n"
 		"3:\n\t"
 		"lodsb\n\t"
 		"testb %%al, %%al\n\t"
@@ -209,9 +209,9 @@ char *strstr(const char *string1, const char *string2)
 		"scasb\n\t"
 		"je 3b\n\t"
 		"incl %%ebx\n\t"
-		"jmp 1b\n\t"
+		"jmp 1b\n"
 		"2:\n\t"
-		"xorl %%ebx, %%ebx\n\t"
+		"xorl %%ebx, %%ebx\n"
 		"4:"
 		:"=b"(p)
 		:"D"(string1), "S"(string2)
@@ -227,7 +227,7 @@ char *strcpy(char *dst, const char *src)
 		"testb %%al, %%al\n\t"
 		"je 2f\n\t"
 		"stosb\n\t"
-		"jmp 1b\n\t"
+		"jmp 1b\n"
 		"2:"
 		:
 		:"D"(dst), "S"(src)
@@ -243,7 +243,7 @@ char *strncpy(char *dst, const char *src, size_t num)
 		"testb %%al, %%al\n\t"
 		"je 2f\n\t"
 		"stosb\n\t"
-		"loop 1b\n\t"
+		"loop 1b\n"
 		"2:"
 		:
 		:"D"(dst), "S"(src), "c"(num)
@@ -254,17 +254,17 @@ char *strncpy(char *dst, const char *src, size_t num)
 char *strcat(char *dst, const char *src)
 {
 	__asm__ (
-		"xorb %%al, %%al\n\t"
+		"xorb %%al, %%al\n"
 		"1:\n\t"
 		"scasb\n\t"
 		"jne 1b\n\t"
-		"decl %0\n\t"
+		"decl %0\n"
 		"1:\n\t"
 		"lodsb\n\t"
 		"testb %%al, %%al\n\t"
 		"je 2f\n\t"
 		"stosb\n\t"
-		"jmp 1b\n\t"
+		"jmp 1b\n"
 		"2:\n\t"
 		"movb $0, (%0)"
 		:
@@ -276,17 +276,17 @@ char *strcat(char *dst, const char *src)
 char *strncat(char *dst, const char *src, size_t num)
 {
 	__asm__ (
-		"xorb %%al, %%al\n\t"
+		"xorb %%al, %%al\n"
 		"1:\n\t"
 		"scasb\n\t"
 		"jne 1b\n\t"
-		"decl %0\n\t"
+		"decl %0\n"
 		"1:\n\t"
 		"lodsb\n\t"
 		"testb %%al, %%al\n\t"
 		"je 2f\n\t"
 		"stosb\n\t"
-		"loop 1b\n\t"
+		"loop 1b\n"
 		"2:\n\t"
 		"movb $0, (%0)"
 		:

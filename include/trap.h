@@ -10,14 +10,14 @@ struct trap_frame {
 	edi,
 	ebp,
 	eax,
-	ods,
-	oes,
+	ds,
+	es,
 	error_code,
 	eip,
-	ocs,
+	cs,
 	eflags,
 	esp,
-	oss;
+	ss;
 };
 
 void trap_init(void);

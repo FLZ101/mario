@@ -94,6 +94,19 @@ void __tinit put_x(unsigned int n)
 	put_s(s);
 }
 
+void __tinit put_b(unsigned int n)
+{
+	int i, j;
+	char s[33] = {0};
+
+	for (i = 31; i >= 0; i--) {
+		j = n;
+		n = n >> 1;
+		s[i] = '0' + j - (n << 1);
+	}
+	put_s(s);
+}
+
 void __tinit put_u(unsigned int n)
 {
 	int i, j;
@@ -127,7 +140,7 @@ void __tinit put_d(int n)
 }
 
 /*
- * %u, %d, %x, %c, %s
+ * %u, %d, %x, %c, %s, %b
  */
 void __tinit early_print(const char *fmt, ...)
 {	
@@ -153,6 +166,9 @@ void __tinit early_print(const char *fmt, ...)
 				break;
 			case 's':
 				put_s(va_arg(ap, char *));
+				break;
+			case 'b':
+				put_b(va_arg(ap, unsigned int));
 				break;
 			default:
 				break;

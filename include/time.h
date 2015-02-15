@@ -7,6 +7,4 @@ void time_init(void);
 
 extern volatile unsigned long jiffies;
 
-
-
 #endif	/* _TIME_H */
