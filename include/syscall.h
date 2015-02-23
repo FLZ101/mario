@@ -27,4 +27,6 @@ __asm__ volatile ("int $0x80" \
 __syscall_return(type,__res); \
 }
 
+_syscall0(int, fork)
+
 #endif	/* _SYSCALL_H */

@@ -16,16 +16,14 @@ void sys_putc(struct trap_frame tr)
 	put_c(tr.ebx);
 }
 
-#define putchar(c) \
-	__asm__ __volatile__("int $0x80"::"a"(0), "b"(c));
-
 /*
-Think about why the putchar below is wrong :)
+ * gcc might treat putchar as an inline function (when -O2); we need to
+ * let gcc know that eax is changed (by int $0x80) !!!
+ */
 void putchar(unsigned char c)
 {
-	__asm__ __volatile__("int $0x80"::"a"(0), "b"(c));
+    __asm__ __volatile__("xorl %%eax, %%eax; int $0x80": :"b"(c): "eax");
 }
-*/
 
 volatile unsigned long ABC = 3;
 
@@ -51,13 +49,9 @@ void B(void)
 
 void init(void)
 {
-	int pid;
-
-	asm volatile("int $0x80; movl %%eax, %0":"=m"(pid):"a"(1));
-	if (!pid)
+	if (!fork())
 		A();
-	asm volatile("int $0x80; movl %%eax, %0":"=m"(pid):"a"(1));
-	if (!pid)
+	if (!fork())
 		B();
 
 	while (1) {
@@ -103,9 +97,7 @@ void mario(struct multiboot_info *m)
 	sti();
 
 	move_to_user_mode();
-	int pid;
-	asm volatile("int $0x80; movl %%eax, %0":"=m"(pid):"a"(1));
-	if (!pid)
+	if (!fork())
 		init();
 
 	for (;;);
