@@ -47,6 +47,23 @@ void early_print(const char *fmt, ...);
 #define cli() __asm__ __volatile__ ("cli": : :"memory")
 #define sti() __asm__ __volatile__ ("sti": : :"memory")
 
+/*
+ * On the Intel 386, the fastcall attribute causes the compiler to pass 
+ * the first argument (if of integral type) in the register ECX and the 
+ * second argument (if of integral type) in the register EDX. Subsquent 
+ * and other typed arguments are passed on the stack. The called function 
+ * will pop the arguments off the stack. If the number of arguments is 
+ * variable all arguments are pushed on the stack. 
+ * Refer to 'Using the GNU Compiler Collection (For GCC version 4.7.1)'.
+ */
+#define FASTCALL __attribute__((fastcall))
+
+#define save_segment(seg,value) \
+	asm volatile("movw %%" #seg ",%0" :"=m"(*(unsigned short *)&(value)))
+
+#define load_segment(seg,value) \
+	asm volatile("movw %0, %%" #seg : :"m"(*(unsigned short *)&(value)))
+
 #endif	/* __ASSEMBLY__ */
 
 #endif	/* _MISC_H */

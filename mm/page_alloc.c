@@ -101,21 +101,21 @@ struct page *alloc_page(void)
 unsigned long pages_alloc(unsigned long order)
 {
 	struct page *page = alloc_pages(order);
-	if (page) {
+
+	if (page)
 		return PAGE_TO_PHY(page);
-	} else {
+	else
 		return INVALID_PHY;
-	}
 }
 
 unsigned long page_alloc(void)
 {
 	struct page *page = alloc_page();
-	if (page) {
+	
+	if (page)
 		return PAGE_TO_PHY(page);
-	} else {
+	else
 		return INVALID_PHY;
-	}
 }
 
 struct page *expand(struct page *page, unsigned long order)
@@ -123,11 +123,10 @@ struct page *expand(struct page *page, unsigned long order)
 	unsigned long nr = PAGE_TO_PFN(page) >> (order + 1) << (order + 1);
 	struct page *res = PFN_TO_PAGE(nr);
 
-	if (page == res) {
+	if (page == res)
 		__free_list_del(page + (1 << order));
-	} else {
+	else
 		__free_list_del(page - (1 << order));
-	}
 
 	return res;
 }

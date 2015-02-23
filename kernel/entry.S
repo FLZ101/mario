@@ -2,7 +2,7 @@
 
 /*
  * Stack layout when 'trap_ret':
- * 
+ *
  *   0(%esp) - ebx
  *   4(%esp) - ecx
  *   8(%esp) - edx
@@ -35,6 +35,7 @@ CS		= 0x2c
 EFLAGS		= 0x30
 ESP		= 0x34
 SS		= 0x38
+
 	.text
 
 #define SAVE_ALL \
@@ -48,9 +49,9 @@ SS		= 0x38
 	pushl %edx; \
 	pushl %ecx; \
 	pushl %ebx; \
-	movw $KERNEL_DS, %ax; \
-	movw %ax, %es; \
-	movw %ax, %ds
+	movw $KERNEL_DS, %dx; \
+	movw %dx, %es; \
+	movw %dx, %ds
 
 #define RESTORE_ALL \
 	popl %ebx; \
@@ -64,7 +65,25 @@ SS		= 0x38
 	popl %es; \
 	addl $4, %esp; \
 	iret
- 
+
+ENTRY(fork_ret)
+	jmp ret_with_reschedule
+
+ENTRY(system_call)
+	pushl %eax	/* the system call number */
+	SAVE_ALL
+	call *_sys_call_table(, %eax, 4)
+	movl %eax, EAX(%esp)	/* save the return value */
+
+ret_with_reschedule:
+	cmpl $0, _need_resched
+	jne reschedule
+	jmp restore_all
+
+reschedule:
+	call _schedule
+	jmp restore_all
+
 ENTRY(divide_error)
 	pushl $0
 	pushl $_do_divide_error
@@ -127,10 +146,6 @@ ENTRY(coprocessor_error)
 	pushl $0
 	pushl $_do_coprocessor_error
 	jmp trap_common
-ENTRY(system_call)
-	pushl %eax
-	pushl $_do_system_call
-	jmp trap_common
 
 trap_common:
 	cld; \
@@ -147,12 +162,11 @@ trap_common:
 	movw $KERNEL_DS, %ax; \
 	movw %ax, %es; \
 	movw %ax, %ds
-	pushl $trap_ret
+	pushl $restore_all
 	jmp *%edi
 
-trap_ret:
+restore_all:
 	RESTORE_ALL
-
 
 /****************
  * IRQ handlers *
@@ -179,13 +193,15 @@ _irq0:
 	SAVE_ALL
 	call _irq_PIT
 	EOI_MASTER
-	RESTORE_ALL
+
+irq_ret:
+	jmp ret_with_reschedule
 
 _irq1:
 	pushl $0
 	SAVE_ALL
 	EOI_MASTER
-	RESTORE_ALL
+	jmp restore_all
 
 _irq2:
 _irq3:
@@ -220,7 +236,7 @@ _irqe:
 	EOI_SLAVE
 	popl %eax
 	iret
-	
+
 _irqf:
 	pushl %eax
 	movb $0x0b, %al		/* read ISR of slave PIC */
@@ -233,3 +249,8 @@ _irqf:
 	popl %eax
 	iret
 
+	.data
+
+ENTRY(sys_call_table)
+	.long _sys_putc
+	.long _sys_fork

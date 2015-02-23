@@ -10,7 +10,7 @@ do {\
 		"movl %%eax, (%%edi)\n\t"\
 		"movl %%edx, 4(%%edi)"\
 		:\
-		:"D"((void *)(idt+n)),\
+		:"D"((unsigned long)(idt+n)),\
 		 "a"(((((unsigned long)dpl<<5)+0x80+type)<<8) + \
 		 	((unsigned long)KERNEL_CS<<16)),\
 		 "d"(offset)\

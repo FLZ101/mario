@@ -27,4 +27,6 @@ struct tss_struct {
 	unsigned short	trace, bitmap;
 } __attribute__((gcc_struct, packed));
 
+extern struct tss_struct init_tss;
+
 #endif	/* _TSS_H */

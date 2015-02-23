@@ -16,7 +16,7 @@ int pos_y __dinit = 0;
 void __tinit move_cursor(void)
 {
 	unsigned int pos = 80*pos_y + pos_x;
-	
+
 	outb(0x3d4, 14);
 	outb(0x3d5, pos >> 8);
 	outb(0x3d4, 15);
@@ -57,7 +57,7 @@ void __tinit put_c(unsigned char c)
 		*((short *)0xb8000 + 80*pos_y + pos_x) = MAKEC(c);
 		pos_x++;
 	}
-	
+
 	if (pos_x >= 80) {
 		pos_x = 0;
 		pos_y++;
@@ -111,12 +111,12 @@ void __tinit put_u(unsigned int n)
 {
 	int i, j;
 	char s[11] = {0};
-	
+
 	if (n == 0) {
 		put_c('0');
 		return;
 	}
-	
+
 	for (i = 9; i >= 0; i--) {
 		if (n) {
 			j = n;
@@ -143,10 +143,10 @@ void __tinit put_d(int n)
  * %u, %d, %x, %c, %s, %b
  */
 void __tinit early_print(const char *fmt, ...)
-{	
+{
 	va_list ap;
 	va_start(ap, fmt);
-	
+
 	char c;
 	while ((c = *(fmt++))) {
 		if (c == '%') {
@@ -177,7 +177,7 @@ void __tinit early_print(const char *fmt, ...)
 		}
 		put_c(c);
 	}
-	va_end(ap);		
+	va_end(ap);
 }
 
 #include <multiboot.h>

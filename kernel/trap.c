@@ -27,14 +27,14 @@ void __tinit trap_init(void)
 {
 	set_trap_gate(0, divide_error);
 	set_trap_gate(1, debug);
-	set_intr_gate(2, nmi);
+	set_trap_gate(2, nmi);
 	/*
 	 * int3~5 can be triggered from userland
 	 */
 	set_system_gate(3, int3);
 	set_system_gate(4, overflow);
 	set_system_gate(5, bounds);
-	set_trap_gate(6, invalid_op);
+	set_intr_gate(6, invalid_op);
 	set_trap_gate(7, device_not_available);
 	set_trap_gate(8, double_fault);
 	set_trap_gate(9, coprocessor_segment_overrun);
@@ -81,7 +81,7 @@ void do_bounds(struct trap_frame *tr)
 
 void do_invalid_op(struct trap_frame *tr)
 {
-	early_print("Invalid Opcode\n");
+	early_hang("Invalid Opcode\n");
 }
 
 void do_device_not_available(struct trap_frame *tr)
@@ -116,7 +116,7 @@ void do_stack_segment(struct trap_frame *tr)
 
 void do_general_protection(struct trap_frame *tr)
 {
-	early_print("General Protection\n");
+	early_hang("General Protection\n");
 }
 
 void do_page_fault(struct trap_frame *tr)
@@ -132,9 +132,4 @@ void do_spurious_interrupt_bug(struct trap_frame *tr)
 void do_coprocessor_error(struct trap_frame *tr)
 {
 	early_print("Coprocessor Error\n");
-}
-
-void do_system_call(struct trap_frame *tr)
-{
-	early_print("System Call\n");
 }

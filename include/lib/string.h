@@ -25,5 +25,4 @@ char *strtok(char *string1, const char *string2);
 size_t strlen(const char *string);
 size_t strspn(const char *string1, const char *string2);
 size_t strcspn(const char *string1, const char *string2);
-
 #endif	/* _STRING_H */
