@@ -3,7 +3,6 @@
 
 #include <errno.h>
 
-#define __NR_exit	0
 #define __NR_fork	1
 
 /* user-visible error numbers are in the range -1 ~ -1 */
@@ -27,6 +26,6 @@ __asm__ volatile ("int $0x80" \
 __syscall_return(type,__res); \
 }
 
-_syscall0(int, fork)
+static inline __attribute__((always_inline)) _syscall0(int, fork)
 
 #endif	/* _SYSCALL_H */

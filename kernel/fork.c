@@ -15,16 +15,7 @@ static int get_pid(void)
 	return ++last_pid;
 }
 
-/*
- * We need to dump the stack because COW is not implemented now.
- */
-unsigned long dump_stack(unsigned long old_esp)
-{
-	unsigned long stack = (unsigned long)alloc_task_struct();
-	unsigned long esp = (old_esp & 8191UL) + stack;
-	memcpy((void *)esp, (void *)old_esp, stack + 8192 - esp);
-	return esp;
-}
+#define new_stack() (pages_alloc(1) + 8192)
 
 extern void fork_ret(void);
 void copy_thread(struct task_struct *p, struct trap_frame *tr)
@@ -33,7 +24,11 @@ void copy_thread(struct task_struct *p, struct trap_frame *tr)
 	tr0 = (struct trap_frame *)(KSTACK_SIZE + (unsigned long)p) - 1;
 	*tr0 = *tr;
 	tr0->eax = 0;
-	tr0->esp = dump_stack(tr->esp);
+	/*
+	 * we need to allocate a user stack for the new task, because 
+	 * COW is not implemented now
+	 */
+	tr0->esp = new_stack();
 
 	p->thread.esp = (unsigned long)tr0;
 	p->thread.esp0 = (unsigned long)(tr0 + 1);

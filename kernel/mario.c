@@ -79,13 +79,10 @@ void init(void)
 	}
 }
 
-extern unsigned long dump_stack(unsigned long old_esp);
-
 #define move_to_user_mode() \
 do { \
 	unsigned long esp; \
 	__asm__ __volatile__ ("movl %%esp, %0":"=m"(esp)); \
-	esp = dump_stack(esp); \
 	__asm__ __volatile__ ( \
 	"pushl $0x2b\n\t" \
 	"pushl %%eax\n\t" \
@@ -121,7 +118,6 @@ void test_mm(void)
 	x = page_alloc();
 	early_print("%x\n", x);
 	page_free(x);
-	/* test page_malloc */
 
 	/* test kmalloc */
 	void *p;
@@ -131,7 +127,6 @@ void test_mm(void)
 	p = kmalloc(123);
 	early_print("%x\n", (unsigned int)p);
 	kfree(p);
-	/* test kmalloc */
 }
 
 void mario(struct multiboot_info *m)
@@ -139,12 +134,13 @@ void mario(struct multiboot_info *m)
 	early_print_init(m);
 	setup_memory_region(m);
 	page_alloc_init();
+	test_mm();
 	trap_init();
 	irq_init();
 	time_init();
 	sched_init();
 	sti();
-	test_mm();
+
 	move_to_user_mode();
 	if (!fork())
 		init();
