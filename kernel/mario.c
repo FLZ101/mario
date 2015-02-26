@@ -7,22 +7,33 @@
 #include <irq.h>
 
 #include <mm/page_alloc.h>
+#include <mm/kmalloc.h>
 #include <mm/e820.h>
 
-void put_c(unsigned char c);
+#include <lib/stdarg.h>
 
-void sys_putc(struct trap_frame tr)
+void printf(const char *fmt, ...);
+
+void *sys_malloc(struct trap_frame tr)
 {
-	put_c(tr.ebx);
+	return kmalloc(tr.ebx);
 }
 
-/*
- * gcc might treat putchar as an inline function (when -O2); we need to
- * let gcc know that eax is changed (by int $0x80) !!!
- */
-void putchar(unsigned char c)
+void *malloc(size_t size)
 {
-    __asm__ __volatile__("xorl %%eax, %%eax; int $0x80": :"b"(c): "eax");
+	void *p = NULL;
+	asm volatile("int $0x80":"=a"(p):"0"(2), "b"(size));
+	return p;
+}
+
+void sys_free(struct trap_frame tr)
+{
+	kfree((void *)tr.ebx);
+}
+
+void free(void *p)
+{
+	asm volatile("movl $3, %%eax; int $0x80"::"b"(p):"eax");
 }
 
 volatile unsigned long ABC = 3;
@@ -31,7 +42,9 @@ void A(void)
 {
 	while (1) {
 		if (1 == ABC) {
-			putchar('A');
+			void *p = malloc(123);
+			printf("A: %x\n", (unsigned int)p);
+			free(p);
 			ABC = 3;
 		}
 	}
@@ -41,7 +54,9 @@ void B(void)
 {
 	while (1) {
 		if (2 == ABC) {
-			putchar('B');
+			void *p = malloc(123);
+			printf("B: %x\n", (unsigned int)p);
+			free(p);
 			ABC = 1;
 		}
 	}
@@ -56,7 +71,9 @@ void init(void)
 
 	while (1) {
 		if (3 == ABC) {
-			putchar('C');
+			void *p = malloc(123);
+			printf("C: %x\n", (unsigned int)p);
+			free(p);
 			ABC = 2;
 		}
 	}
@@ -85,6 +102,38 @@ do { \
 	::"a"(esp)); \
 } while (0)
 
+void page_alloc_print(void)
+{
+	int i;
+	for (i = 3; i >= 0; i--)
+		free_list_print(i);
+}
+
+void test_mm(void)
+{
+	/* test page_malloc */
+	unsigned long x;
+	page_alloc_print();
+	x = page_alloc();
+	early_print("%x\n", x);
+	page_free(x);
+	page_alloc_print();
+	x = page_alloc();
+	early_print("%x\n", x);
+	page_free(x);
+	/* test page_malloc */
+
+	/* test kmalloc */
+	void *p;
+	p = kmalloc(123);
+	early_print("%x\n", (unsigned int)p);
+	kfree(p);
+	p = kmalloc(123);
+	early_print("%x\n", (unsigned int)p);
+	kfree(p);
+	/* test kmalloc */
+}
+
 void mario(struct multiboot_info *m)
 {
 	early_print_init(m);
@@ -95,7 +144,7 @@ void mario(struct multiboot_info *m)
 	time_init();
 	sched_init();
 	sti();
-
+	test_mm();
 	move_to_user_mode();
 	if (!fork())
 		init();

@@ -252,5 +252,7 @@ _irqf:
 	.data
 
 ENTRY(sys_call_table)
-	.long _sys_putc
+	.long _sys_write
 	.long _sys_fork
+	.long _sys_malloc
+	.long _sys_free

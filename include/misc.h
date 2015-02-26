@@ -15,6 +15,7 @@
 
 #define PAGE_SHIFT	12
 #define PAGE_SIZE	(1UL << PAGE_SHIFT)
+#define PAGE_MASK	(~(PAGE_SIZE-1))
 
 #define PFN_UP(x)	(((unsigned long)(x) + PAGE_SIZE-1) >> PAGE_SHIFT)
 #define PFN_DOWN(x)	((unsigned long)(x) >> PAGE_SHIFT)
@@ -47,6 +48,12 @@ void early_print(const char *fmt, ...);
 #define cli() __asm__ __volatile__ ("cli": : :"memory")
 #define sti() __asm__ __volatile__ ("sti": : :"memory")
 
+#define save_flags(x) \
+__asm__ __volatile__("pushfl; popl %0":"=g"(x): :"memory")
+
+#define restore_flags(x) \
+__asm__ __volatile__("pushl %0; popfl": :"g"(x):"memory")
+
 /*
  * On the Intel 386, the fastcall attribute causes the compiler to pass 
  * the first argument (if of integral type) in the register ECX and the 
@@ -59,10 +66,10 @@ void early_print(const char *fmt, ...);
 #define FASTCALL __attribute__((fastcall))
 
 #define save_segment(seg,value) \
-	asm volatile("movw %%" #seg ",%0" :"=m"(*(unsigned short *)&(value)))
+	asm volatile("movw %%" #seg ",%0" :"=m"(value))
 
 #define load_segment(seg,value) \
-	asm volatile("movw %0, %%" #seg : :"m"(*(unsigned short *)&(value)))
+	asm volatile("movw %0, %%" #seg : :"m"(value))
 
 #endif	/* __ASSEMBLY__ */
 

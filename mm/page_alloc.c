@@ -75,7 +75,10 @@ void __tinit page_alloc_init(void)
 
 struct page *alloc_pages(unsigned long order)
 {
-	unsigned long n;
+	unsigned long flags, n;
+	save_flags(flags);
+	cli();
+
 	for (n = order; list_empty(&free_area[n].free_list); n++)
 		if (n == MAX_ORDER - 1)
 			return NULL;
@@ -90,6 +93,7 @@ struct page *alloc_pages(unsigned long order)
 		n--;
 		__free_list_add(page + (1 << n), n);
 	}
+	restore_flags(flags);
 	return page;
 }
 
@@ -133,6 +137,10 @@ struct page *expand(struct page *page, unsigned long order)
 
 void free_pages(struct page *page, unsigned long order)
 {
+	unsigned long flags;
+	save_flags(flags);
+	cli();
+
 	while (1) {
 		unsigned long nr = PAGE_TO_PFN(page) >> (order + 1);
 		if (!test_and_change_bit(nr, free_area[order].map))
@@ -143,6 +151,8 @@ void free_pages(struct page *page, unsigned long order)
 		order++;
 	}
 	__free_list_add(page, order);
+
+	restore_flags(flags);
 }
 
 void free_page(struct page *page)
@@ -161,7 +171,7 @@ void page_free(unsigned long phy)
 }
 
 extern unsigned long _init, _bss;
-void free_init_area(void)
+void __tinit free_init_area(void)
 {
 	unsigned long i;
 	for (i = PFN_UP(&_init); i < PFN_DOWN(&_bss); i++)

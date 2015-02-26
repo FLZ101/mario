@@ -45,7 +45,7 @@ void __tinit scroll_one_line(void)
 	memsetw((void *)(0xb8000 + 80*2*24), SPACE, 80);
 }
 
-void __tinit put_c(unsigned char c)
+void __tinit write_c(unsigned char c)
 {
 	if (c == '\t') {
 		pos_x += 8;
@@ -69,14 +69,27 @@ void __tinit put_c(unsigned char c)
 	move_cursor();
 }
 
-void __tinit put_s(char *str)
+void __tinit write_s(char *str)
 {
 	char c;
 	while ((c = *(str++)))
-		put_c(c);
+		write_c(c);
 }
 
-void __tinit put_x(unsigned int n)
+void __tinit sput_c(char **buf, char c)
+{
+	*((*buf)++) = c;
+	**buf = '\0';
+}
+
+void __tinit sput_s(char **buf, char *str)
+{
+	char c;
+	while ((c = *(str++)))
+		sput_c(buf, c);
+}
+
+void __tinit sput_x(char **buf, unsigned int n)
 {
 	int i, j;
 	char s[11] = {'0', 'x'};
@@ -91,29 +104,16 @@ void __tinit put_x(unsigned int n)
 			s[i] = '0';
 		}
 	}
-	put_s(s);
+	sput_s(buf, s);
 }
 
-void __tinit put_b(unsigned int n)
-{
-	int i, j;
-	char s[33] = {0};
-
-	for (i = 31; i >= 0; i--) {
-		j = n;
-		n = n >> 1;
-		s[i] = '0' + j - (n << 1);
-	}
-	put_s(s);
-}
-
-void __tinit put_u(unsigned int n)
+void __tinit sput_u(char **buf, unsigned int n)
 {
 	int i, j;
 	char s[11] = {0};
 
 	if (n == 0) {
-		put_c('0');
+		sput_s(buf, "0");
 		return;
 	}
 
@@ -126,58 +126,68 @@ void __tinit put_u(unsigned int n)
 			break;
 		}
 	}
-	put_s(s + i + 1);
+	sput_s(buf, s + i + 1);
 }
 
-void __tinit put_d(int n)
+void __tinit sput_d(char **buf, int n)
 {
 	if (0 <= n) {
-		put_u(n);
+		sput_u(buf, n);
 	} else {
-		put_c('-');
-		put_u(-n);
+		sput_s(buf, "-");
+		sput_u(buf, -n);
 	}
 }
 
 /*
- * %u, %d, %x, %c, %s, %b
+ * %u, %d, %x, %c, %s
  */
-void __tinit early_print(const char *fmt, ...)
+void __tinit vsprint(char *__buf, const char *fmt, va_list ap)
 {
-	va_list ap;
-	va_start(ap, fmt);
-
-	char c;
+	char c, **buf = &__buf;
 	while ((c = *(fmt++))) {
 		if (c == '%') {
 			c = *(fmt++);
 			switch (c) {
 			case 'u':
-				put_u(va_arg(ap, unsigned int));
+				sput_u(buf, va_arg(ap, unsigned int));
 				break;
 			case 'd':
-				put_d(va_arg(ap, int));
+				sput_d(buf, va_arg(ap, int));
 				break;
 			case 'x':
-				put_x(va_arg(ap, unsigned int));
+				sput_x(buf, va_arg(ap, unsigned int));
 				break;
 			case 'c':
-				put_c(va_arg(ap, char));
+				sput_c(buf, va_arg(ap, char));
 				break;
 			case 's':
-				put_s(va_arg(ap, char *));
-				break;
-			case 'b':
-				put_b(va_arg(ap, unsigned int));
+				sput_s(buf, va_arg(ap, char *));
 				break;
 			default:
 				break;
 			}
 			continue;
 		}
-		put_c(c);
+		sput_c(buf, c);
 	}
+}
+
+char print_buf[1024] = {0};
+
+void __tinit early_print(const char *fmt, ...)
+{
+	unsigned long flags;
+	save_flags(flags);
+	cli();
+
+	va_list ap;
+	va_start(ap, fmt);
+	vsprint(print_buf, fmt, ap);
 	va_end(ap);
+
+	write_s(print_buf);
+	restore_flags(flags);
 }
 
 #include <multiboot.h>
@@ -192,4 +202,38 @@ void __tinit early_print_init(struct multiboot_info *m)
 	} else {
 		cls();
 	}
+}
+
+#include <trap.h>
+void sys_write(struct trap_frame tr)
+{
+	unsigned long flags;
+	save_flags(flags);
+	cli();
+	write_s((char *)tr.ebx);
+	restore_flags(flags);
+}
+
+/*
+ * Used in userland.
+ * gcc might treat puts as an inline function (when -O2); we need to 
+ * tell gcc that eax is changed (by int $0x80)
+ */
+void puts(char *s)
+{
+	asm volatile("xorl %%eax, %%eax; int $0x80"::"b"(s):"eax");
+}
+
+/*
+ * Used in userland
+ */
+void printf(const char *fmt, ...)
+{
+	char buf[128];
+	va_list ap;
+	va_start(ap, fmt);
+	vsprint(buf, fmt, ap);
+	va_end(ap);
+
+	puts(buf);
 }
