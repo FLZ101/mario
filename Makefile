@@ -14,8 +14,10 @@ CFLAGS  :=-c -nostdinc -ffreestanding $(INCLUDE) -ggdb -Wall -O0
 
 .PHONY: all depend clean clean-all
 
+# make kernel/start.o the first object file
 OBJS    :=$(addsuffix .o,$(basename $(wildcard */*.[Sc])))
-
+OBJS    :=$(filter-out start.o,$(OBJS))
+OBJS    :=kernel/start.o $(OBJS)
 DEPS    :=$(patsubst %.o,%.dep,$(OBJS))
 
 ifeq (.depend,$(wildcard .depend))

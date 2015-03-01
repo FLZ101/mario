@@ -7,11 +7,29 @@
 #define USER_CS     0x23
 #define USER_DS     0x2b
 
+#ifdef __ASSEMBLY__
+
+#define KERNEL_BASE 0x80000000
+
+#define __phy(x)	((x) - KERNEL_BASE)
+#define __vir(x)	((x) + KERNEL_BASE)
+
+#define ENTRY(name) \
+ 	.globl _##name; \
+ 	_##name##:
+
+#else /* __ASSEMBLY__ */
+
 /*
- * kernel space: 0 ~ 2G-1
- * user space: 2G ~ 4G-1
+ * user space: 0 ~ 2G-1
+ * kernel space: 2G ~ 4G-1
  */
-#define USER_BASE	0x80000000UL	/* 2G */
+#define KERNEL_BASE	0x80000000UL /* 2G */
+
+/* convert in kernel space virtual address to physical address */
+#define __phy(x)	((unsigned long)(x) - KERNEL_BASE)
+/* convert in kernel space physical address to virtual address */
+#define __vir(x)	((unsigned long)(x) + KERNEL_BASE)
 
 #define PAGE_SHIFT	12
 #define PAGE_SIZE	(1UL << PAGE_SHIFT)
@@ -19,20 +37,12 @@
 
 #define PFN_UP(x)	(((unsigned long)(x) + PAGE_SIZE-1) >> PAGE_SHIFT)
 #define PFN_DOWN(x)	((unsigned long)(x) >> PAGE_SHIFT)
-#define PFN_PHYS(x)	((unsigned long)(x) << PAGE_SHIFT)
 
 #define SYSCALL_VECTOR	0x80
 
-#define ENTRY(name) \
- 	.globl _##name; \
- 	_##name##:
-
-#ifndef __ASSEMBLY__
-
-/*
- * Mark a function (variable) as being only used at initialization time
- */
+/* Mark code as being only used at initialization time */
 #define __tinit __attribute__ ((section (".tinit")))
+/* Mark data as being only used at initialization time */
 #define __dinit __attribute__ ((section (".dinit")))
 
 #include <multiboot.h>

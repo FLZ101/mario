@@ -42,7 +42,7 @@ void copy_thread(struct task_struct *p, struct trap_frame *tr)
 int do_fork(struct trap_frame *tr)
 {
 	struct task_struct *p = alloc_task_struct();
-	if (!PHY_VALID(p))
+	if (!p)
 		return -ENOMEM;
 
 	*p = *current;

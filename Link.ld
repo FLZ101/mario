@@ -9,12 +9,11 @@ ENTRY(start)
  */
 SECTIONS
 {
-	. = 0x00100000;
+	. = 0x80000000 + 0x00100000;
 
 	__text = .;
 	.text : 
 	{
-		*(.multiboot)
 		*(.text)
 		*(.rdata)
 		. = ALIGN(0x1000);

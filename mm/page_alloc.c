@@ -107,19 +107,13 @@ unsigned long pages_alloc(unsigned long order)
 	struct page *page = alloc_pages(order);
 
 	if (page)
-		return PAGE_TO_PHY(page);
-	else
-		return INVALID_PHY;
+		return PAGE_TO_VIR(page);
+	return 0;
 }
 
 unsigned long page_alloc(void)
 {
-	struct page *page = alloc_page();
-	
-	if (page)
-		return PAGE_TO_PHY(page);
-	else
-		return INVALID_PHY;
+	return pages_alloc(0);
 }
 
 struct page *expand(struct page *page, unsigned long order)
@@ -160,14 +154,14 @@ void free_page(struct page *page)
 	free_pages(page, 0);
 }
 
-void pages_free(unsigned long phy, unsigned long order)
+void pages_free(unsigned long vir, unsigned long order)
 {
-	free_pages(PHY_TO_PAGE(phy), order);
+	free_pages(VIR_TO_PAGE(vir), order);
 }
 
-void page_free(unsigned long phy)
+void page_free(unsigned long vir)
 {
-	free_page(PHY_TO_PAGE(phy));
+	free_page(VIR_TO_PAGE(vir));
 }
 
 extern unsigned long _init, _bss;

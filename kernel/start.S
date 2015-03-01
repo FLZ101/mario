@@ -1,27 +1,24 @@
 #include <multiboot.h>
 #include <misc.h>
 
-	.section .multiboot
+	.text
 	.balign 4
 multiboot:
 	.long MB_MAGIC
 	.long MB_FLAGS
 	.long MB_CHECK
 
-	.long multiboot
-	.long __text
-	.long __einit
-	.long __ebss
-	.long start
+	.long __phy(multiboot)
+	.long __phy(__text)
+	.long __phy(__einit)
+	.long __phy(__ebss)
+	.long __phy(start)
 
-	.text
 	.globl start
 start:
 	cli
-	lgdt gdtr
-	jmp 1f
-1:
-	ljmp $KERNEL_CS, $1f
+	lgdt __phy(gdtr)
+	ljmp $KERNEL_CS, $1f - KERNEL_BASE
 1:
 	movw $KERNEL_DS, %cx
 	movw %cx, %ds
@@ -29,6 +26,39 @@ start:
 	movw %cx, %fs
 	movw %cx, %gs
 
+	/*
+	 * initialize swapper_pg_dir (the first page directory)
+	 */
+	movl $__phy(_pg0)+007, __phy(_swapper_pg_dir)
+	movl $__phy(_pg1)+007, __phy(_swapper_pg_dir)+4
+	movl $__phy(_pg0)+007, __phy(_swapper_pg_dir)+2048
+	movl $__phy(_pg1)+007, __phy(_swapper_pg_dir)+2048+4
+
+	/*
+	 * initialize page tables
+	 */
+	movl $__phy(_pg0), %edi
+	movl $007, %ecx	/* 007 means PRESENT+RW+USER */
+1:
+	movl %ecx, (%edi)
+	add $4, %edi
+	add $0x1000, %ecx
+	cmp $__phy(_empty_zero_page), %edi
+	jne 1b
+
+	/*
+	 * enable paging
+	 */
+	movl $__phy(_swapper_pg_dir), %ecx
+	movl %ecx, %cr3
+	movl %cr0, %ecx
+	orl $0x80000000, %ecx
+	movl %ecx, %cr0
+	jmp 1f
+1:
+	movl $1f, %ecx
+	jmp *%ecx
+1:
 	lss stack_start, %esp
 
 	pushl $0
@@ -98,7 +128,7 @@ gdt:
 
 gdtr:
 	.word 6*8 - 1
-	.long gdt
+	.long __phy(gdt)
 
 stack_start:
 	.long _init_task_union + 8192
@@ -107,3 +137,17 @@ stack_start:
 idtr:
 	.word 256*8 - 1
 	.long _idt
+
+	.bss
+ENTRY(swapper_pg_dir)
+
+	.org 0x1000
+ENTRY(pg0)
+
+	.org 0x2000
+ENTRY(pg1)
+
+	.org 0x3000
+ENTRY(empty_zero_page)
+
+	.org 0x4000

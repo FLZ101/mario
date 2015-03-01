@@ -14,13 +14,12 @@ struct page {
 extern struct page *mem_map;
 
 #define PAGE_TO_PFN(x)	(unsigned long)((x)-mem_map)
-#define PAGE_TO_PHY(x)	PAGE_TO_PFN(x) << PAGE_SHIFT
+#define PAGE_TO_PHY(x)	(PAGE_TO_PFN(x) << PAGE_SHIFT)
+#define PAGE_TO_VIR(x)	__vir(PAGE_TO_PHY(x))
 
 #define PFN_TO_PAGE(x)	((unsigned long)(x)+mem_map)
 #define PHY_TO_PAGE(x)	PFN_TO_PAGE((unsigned long)(x) >> PAGE_SHIFT)
-
-#define INVALID_PHY	USER_BASE
-#define PHY_VALID(p)	((p) - INVALID_PHY)
+#define VIR_TO_PAGE(x)	PHY_TO_PAGE(__phy(x))
 
 void free_list_print(unsigned long order);
 
@@ -33,8 +32,8 @@ unsigned long pages_alloc(unsigned long order);
 
 void free_page(struct page *page);
 void free_pages(struct page *page, unsigned long order);
-void page_free(unsigned long phy);
-void pages_free(unsigned long phy, unsigned long order);
+void page_free(unsigned long vir);
+void pages_free(unsigned long vir, unsigned long order);
 
 void free_init_area(void);
 

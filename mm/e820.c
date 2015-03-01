@@ -25,7 +25,7 @@ struct e820map e820;
 /*
  * Maximum physical memory supported
  */
-#define MAX_MEMORY  USER_BASE
+#define MAX_MEMORY  KERNEL_BASE
 
 void __tinit add_memory_region(__u64 addr, __u64 len, __u32 type)
 {
