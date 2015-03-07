@@ -18,13 +18,13 @@
  	.globl _##name; \
  	_##name##:
 
-#else /* __ASSEMBLY__ */
+#else
 
 /*
  * user space: 0 ~ 2G-1
  * kernel space: 2G ~ 4G-1
  */
-#define KERNEL_BASE	0x80000000UL /* 2G */
+#define KERNEL_BASE	0x80000000UL
 
 /* convert in kernel space virtual address to physical address */
 #define __phy(x)	((unsigned long)(x) - KERNEL_BASE)
@@ -34,6 +34,7 @@
 #define PAGE_SHIFT	12
 #define PAGE_SIZE	(1UL << PAGE_SHIFT)
 #define PAGE_MASK	(~(PAGE_SIZE-1))
+#define PAGE_ALIGN(x)	(((x)+PAGE_SIZE-1)&PAGE_MASK)
 
 #define PFN_UP(x)	(((unsigned long)(x) + PAGE_SIZE-1) >> PAGE_SHIFT)
 #define PFN_DOWN(x)	((unsigned long)(x) >> PAGE_SHIFT)

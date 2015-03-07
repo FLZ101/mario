@@ -1,8 +1,13 @@
 #ifndef _PAGING_H
 #define _PAGING_H
 
-typedef struct { unsigned long pte; } pte_t;
+#include <misc.h>
 
-typedef struct { unsigned long pgd; } pgd_t;
+#include <mm/pagetable.h>
+
+#define flush_tlb() \
+asm volatile("movl %%cr3,%%eax; movl %%eax,%%cr3":::"eax")
+
+void paging_init(void);
 
 #endif /* _PAGING_H */

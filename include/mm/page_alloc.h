@@ -21,6 +21,8 @@ extern struct page *mem_map;
 #define PHY_TO_PAGE(x)	PFN_TO_PAGE((unsigned long)(x) >> PAGE_SHIFT)
 #define VIR_TO_PAGE(x)	PHY_TO_PAGE(__phy(x))
 
+#define set_page_count(p, v)	atomic_set(&(p)->count, v)
+
 void free_list_print(unsigned long order);
 
 void page_alloc_init(void);

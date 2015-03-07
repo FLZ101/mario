@@ -16,7 +16,7 @@ struct free_area {
 	unsigned long *map, map_size;
 } free_area[MAX_ORDER];
 
-unsigned long max_pfn __dinit;
+unsigned long max_pfn;
 
 struct page *mem_map;
 
@@ -45,7 +45,7 @@ void __tinit page_alloc_init(void)
 	mem_map = __alloc_bootmem(max_pfn * sizeof(struct page), 2);
 
 	for (i = 0; i < max_pfn; i++)
-		atomic_set(&(mem_map + i)->count, 0);
+		set_page_count(mem_map + i, 1);
 
 	for (i = 0; i < MAX_ORDER; i++) {
 		free_area[i].map_size = max_pfn >> (i + 1);
@@ -93,6 +93,7 @@ struct page *alloc_pages(unsigned long order)
 		n--;
 		__free_list_add(page + (1 << n), n);
 	}
+	set_page_count(page, 1);
 	restore_flags(flags);
 	return page;
 }
@@ -146,6 +147,7 @@ void free_pages(struct page *page, unsigned long order)
 	}
 	__free_list_add(page, order);
 
+	set_page_count(page, 0);
 	restore_flags(flags);
 }
 

@@ -34,7 +34,7 @@ void __tinit time_init(void)
 
 void irq_PIT(void)
 {
-	if (!(jiffies % 100))
+	if (!(jiffies % 10))
 		need_resched = 1;
 	jiffies++;
 }

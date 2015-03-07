@@ -122,6 +122,7 @@ void do_general_protection(struct trap_frame *tr)
 void do_page_fault(struct trap_frame *tr)
 {
 	early_print("Page Fault\n");
+	while (1);
 }
 
 void do_spurious_interrupt_bug(struct trap_frame *tr)

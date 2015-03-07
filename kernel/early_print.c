@@ -4,6 +4,8 @@
 #include <lib/stdarg.h>
 #include <lib/string.h>
 
+#define TEXT (0xb8000 + KERNEL_BASE) 
+
 #define COLOR 0x07
 
 #define MAKEC(c) (COLOR << 8 | (c))
@@ -35,14 +37,14 @@ void __tinit set_pos(int x, int y)
 
 void __tinit cls(void)
 {
-	memsetw((void *)0xb8000, SPACE, 80*25);
+	memsetw((void *)TEXT, SPACE, 80*25);
 	set_pos(0, 0);
 }
 
 void __tinit scroll_one_line(void)
 {
-	memmove((void *)0xb8000, (void *)(0xb8000 + 80*2), 80*2*24);
-	memsetw((void *)(0xb8000 + 80*2*24), SPACE, 80);
+	memmove((void *)TEXT, (void *)(TEXT + 80*2), 80*2*24);
+	memsetw((void *)(TEXT + 80*2*24), SPACE, 80);
 }
 
 void __tinit write_c(unsigned char c)
@@ -54,7 +56,7 @@ void __tinit write_c(unsigned char c)
 		pos_x = 0;
 		pos_y++;
 	} else if (c >= ' ') {
-		*((short *)0xb8000 + 80*pos_y + pos_x) = MAKEC(c);
+		*((short *)TEXT + 80*pos_y + pos_x) = MAKEC(c);
 		pos_x++;
 	}
 

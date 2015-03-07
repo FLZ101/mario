@@ -15,8 +15,6 @@ static int get_pid(void)
 	return ++last_pid;
 }
 
-#define new_stack() (pages_alloc(1) + 8192)
-
 extern void fork_ret(void);
 void copy_thread(struct task_struct *p, struct trap_frame *tr)
 {
@@ -24,11 +22,6 @@ void copy_thread(struct task_struct *p, struct trap_frame *tr)
 	tr0 = (struct trap_frame *)(KSTACK_SIZE + (unsigned long)p) - 1;
 	*tr0 = *tr;
 	tr0->eax = 0;
-	/*
-	 * we need to allocate a user stack for the new task, because 
-	 * COW is not implemented now
-	 */
-	tr0->esp = new_stack();
 
 	p->thread.esp = (unsigned long)tr0;
 	p->thread.esp0 = (unsigned long)(tr0 + 1);

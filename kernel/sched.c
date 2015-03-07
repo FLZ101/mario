@@ -15,7 +15,7 @@ static spinlock_t runqueue_lock;
 void runqueue_print(void)
 {
 	struct list_head *pos;
-	early_print("TASK: ");
+	early_print("TASK:\n");
 	list_for_each(pos, &runqueue_head) {
 		early_print("%x\n", (unsigned long)list_entry(pos, struct task_struct, run_list));
 	}

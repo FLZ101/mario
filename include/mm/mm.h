@@ -10,7 +10,7 @@ struct mm_struct {
 	struct vm_area_struct *mmap;
 	struct vm_area_struct *mmap_cache;
 	int map_count;
-	pgd_t *pgd;
+	pde_t *pd;
 	struct list_head mmlist;
 	unsigned long start_code, end_code, start_data, end_data;
 	unsigned long start_brk, brk, start_stack;
