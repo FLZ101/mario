@@ -397,17 +397,25 @@ mv_from          equ     104;dword
 mv_ecx           equ     108;dword
 mv_to            equ     112;dword
 
-;We'll load INITRD to rd_start ~ rd_end
-rd_start         equ     116;dword
-rd_end           equ     120;dword
+;We'll load RD? to rd?_start ~ rd?_end
+rd0_start        equ     116;dword
+rd0_end          equ     120;dword
+rd1_start        equ     124;dword
+rd1_end          equ     128;dword
+rd2_start        equ     132;dword
+rd2_end          equ     136;dword
 
 ;used as file pointer
-fp               equ     124;dword
+fp               equ     140;dword
 
 ;Temporary variable(s)
-tmp0             equ     128;dword
+tmp0             equ     144;dword
+tmp1             equ     148;dword
 
 Buffer           equ     256
+
+;maximum ramdisk(s) BOOT_BIN could load
+MAX_RD           equ     3
 
 MB_MAGIC         equ     0x1badb002
 MB_MAGIC_EAX     equ     0x2badb002
@@ -556,11 +564,11 @@ multiboot_header_found:
     mov [MB_bss_end_addr], eax
     add eax, 0xfff
     and eax, ~0xfff
-    mov [rd_start], eax     ;rd_start should be page aligned
+    mov [rd0_start], eax     ;rd0_start should be page aligned
     call getl
     mov [MB_entry_addr], eax
 
-load_kernel:
+;Loading kernel.exe ......... 
     mov bp, Str0
     mov cx, Len0
     call print_str
@@ -594,40 +602,67 @@ load_kernel:
     call print_str
     call new_line
 
-load_initrd:
+;Loading ramdisk(s) ......... 
     mov bp, Str2
     mov cx, Len2
     call print_str
 
-;find INITRD 
+    mov dword [tmp0], 0 ;[tmp0] is the '?' in 'RD?'
+    mov eax, [rd0_start]
+    ;[tmp1] is the address where we would load the next ramdisk
+    mov [tmp1], eax
+
+find_rd:
+    mov al, [tmp0]
+    cmp al, MAX_RD
+    jnb done_rd
+    mov bl, 11
+    mul bl
+    add ax, RD0
+    mov si, ax  ;RD?
+
     mov cx, 11
-    mov si, INITRD
     mov di, BOOT_BIN
     rep movsb
  
     mov eax, [fat32_RootClus]
     call find_it
-    jnc $   ;INITRD not found, we stop here
+    jnc .next_0   ;RD? not found
 
-;Now eax is the fisrt cluster number of INITRD
+;Now eax is the fisrt cluster number of RD?
     mov [ClusNumber], eax
 
     mov [read_L], dword 0
     mov eax, [file_size]
     mov [read_H], eax
 
-    mov eax, [rd_start]
+    xor eax, eax
+    mov al, [tmp0]
+    mov bl, 8
+    mul bl
+    add eax, rd0_start
+    mov esi, eax  ;rd?_start
+    mov eax, [tmp1]
+    mov [esi], eax
     mov [mv_to], eax
     add eax, [file_size]
-    mov [rd_end], eax
-
+    mov [esi + 4], eax  ;rd?_end
+    cmp byte [tmp0], MAX_RD - 1
+    jnb .next_1
+    add eax, 0xfff
+    and eax, ~0xfff
+    mov [tmp1], eax  ;rd(?+1)_start should be page aligned
+.next_1:
     call load_next_clus
     mov [loaded_L], dword 0
     mov eax, [BytesPerClus]
     mov [loaded_H], eax
 
     call load
-
+.next_0:
+    inc byte [tmp0]
+    jmp find_rd
+done_rd:
     mov bp, Str1
     mov cx, Len1
     call print_str
@@ -733,15 +768,31 @@ HighMem:
 .done:
     or [flag], byte 1
 
+;Refer to struct multiboot_module @ include/multiboot.h
 modules            equ  flag + 256
 
-    mov eax, [rd_start]
-    mov [modules], eax
-    mov eax, [rd_end]
-    mov [modules + 4], eax
-    mov [modules + 8], dword 0x7800 + OFFSET + INITRD_STR
+    xor edi, edi
+    mov esi, rd0_start
+set_modules:
+    cmp esi, rd0_start + (MAX_RD - 1) * 8
+    ja done_modules
 
-    mov [mods_count], byte 1
+    mov eax, [esi + 4]
+    test eax, eax
+    je .next_0  ;RD? not found
+    mov [modules + edi + 4], eax  ;mod_end
+    mov eax, [esi]
+    mov [modules + edi], eax      ;mod_start
+    mov [modules + edi + 8], dword 0x7800 + OFFSET + RD_STR   ;string
+    add edi, 16 ;sizeof(struct multiboot_module) is 16B
+.next_0:
+    add esi, 8
+    jmp set_modules
+
+done_modules:
+    test edi, edi
+    je E820 ;no module loaded
+    mov [mods_count], edi
     mov [mods_addr], dword 0x7800 + OFFSET + modules
     or [flag], byte 8
 
@@ -878,18 +929,18 @@ load_next_clus:
 KERNEL_EXE db "KERNEL  EXE"
             ;short name of 'kernel.exe' in a FAT32 partition
 
-INITRD     db "INITRD     "
-            ;short name of 'initrd' in a FAT32 partition
+RD0        db "RD0        "
+RD1        db "RD1        "
+RD2        db "RD2        "
+RD_STR     db "MARIO_RAMDISK", 0
 
-INITRD_STR db "MARIO", 0
-
-Str0    db  "Loading kernel ......... "
+Str0    db  "Loading kernel.exe ......... "
 Len0    equ $ - Str0
 
 Str1    db  "Done"
 Len1    equ $ - Str1
 
-Str2    db  "Loading initrd ......... "
+Str2    db  "Loading ramdisk(s) ......... "
 Len2    equ $ - Str2
 
 Name    dw  0x3f00  ;This magic number indicates that the kernel 

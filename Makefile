@@ -45,10 +45,10 @@ clean-all: clean
 	@$(CC) -MM $(INCLUDE) -D__ASSEMBLY__ -o $@.tmp $<
 	@sed -e 's,\($(basename $(notdir $<))\).o[ :]*,$(dir $<)\1.o $@: ,g' < $@.tmp > $@
 	@$(RM) $@.tmp
-	@cat $@
+	@echo $@
 
 %.dep: %.c
 	@$(CC) -MM $(INCLUDE) -o $@.tmp $<
 	@sed -e 's,\($(basename $(notdir $<))\).o[ :]*,$(dir $<)\1.o $@: ,g' < $@.tmp > $@ 
 	@$(RM) $@.tmp
-	@cat $@
+	@echo $@

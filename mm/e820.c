@@ -1,5 +1,3 @@
-#include <lib/string.h>
-
 #include <mm/e820.h>
 
 #include <types.h>
@@ -115,7 +113,9 @@ void __tinit make_e820_map(struct multiboot_info *m)
 	add_memory_region(0x100000, UPPER_MEM, E820_RAM);
 }
 
-extern unsigned long rd_start, rd_end, end, max_pfn;
+extern void rd_init(struct multiboot_info *m);
+
+extern unsigned long max_pfn;
 
 void __tinit setup_memory_region(struct multiboot_info *m)
 {
@@ -142,32 +142,6 @@ void __tinit setup_memory_region(struct multiboot_info *m)
 
 	if (max_pfn < PFN_DOWN(MIN_MEMORY))
 		early_hang("More physical memory required!\n");
-	
-	rd_start = rd_end = 0;
-	if (MB_FLAG_MODULE & m->flags && m->mods_count) {
-		struct multiboot_module *mod = 
-			(struct multiboot_module *)m->mods_addr;
 
-		/*
-		 * The first module should be initrd
-		 */
-		if (strstr((char *)mod->string, "MARIO")) {
-			rd_start = mod->mod_start;
-			rd_end = mod->mod_end;
-		}
-	}
-
-	/*
-	 * We assume that the bootloader will load modules to memory area 
-	 * next to the kernel
-	 */
-	if (rd_start) {
-		early_print("initrd:\n");
-		early_print("rd_start=%x, rd_end=%x\n", rd_start, rd_end);
-	} else {
-		early_hang("initrd not loaded!\n");
-	}
-
-	end = rd_end;
+	rd_init(m);
 }
-

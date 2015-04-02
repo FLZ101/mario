@@ -1,13 +1,14 @@
 .PHONY: all
 
 all: boot/boot.bin kernel/kernel.exe
-	cp boot/boot.bin kernel/kernel.exe initrd /img/bochs
-	cp boot/boot.bin kernel/kernel.exe initrd /img/vmware
+	cp boot/boot.bin kernel/kernel.exe /img/bochs
+	cp boot/boot.bin kernel/kernel.exe /img/vmware
 
 include $(DEPS)
 
 %.bin: %.asm
-	$(NASM) -f bin -l $*.lst -o $@ $<
+	@$(NASM) -f bin -l $*.lst -o $@ $<
+	@echo $@
 
 kernel/kernel.exe: $(OBJS)
 	$(LD) $(LDFLAGS) -o $@ $^
@@ -17,6 +18,8 @@ kernel/kernel.exe: $(OBJS)
 
 %.o: %.S
 	@$(CC) $(CFLAGS) -D__ASSEMBLY__ -o $@ $<
+	@echo $@
 
 %.o: %.c
-	$(CC) $(CFLAGS) -o $@ $<
+	@$(CC) $(CFLAGS) -o $@ $<
+	@echo $@
