@@ -12,6 +12,6 @@ struct timeval {
 	long tv_usec;
 };
 
-extern struct timeval xtime;
+extern volatile struct timeval xtime;
 
 #endif	/* _TIME_H */

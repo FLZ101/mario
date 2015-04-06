@@ -86,9 +86,7 @@ void free_board(struct board_header *board)
 
 void *kmalloc(size_t size)
 {
-	unsigned long flags;
-	save_flags(flags);
-	cli();
+	irq_save();
 
 	if (!size)
 		goto fail;
@@ -113,18 +111,16 @@ void *kmalloc(size_t size)
 
 	board->firstfree = block->next;
 
-	restore_flags(flags);
+	irq_restore();
 	return &block->next;
 fail:
-	restore_flags(flags);
+	irq_restore();
 	return NULL;
 }
 
 void kfree(void *ptr)
 {
-	unsigned long flags;
-	save_flags(flags);
-	cli();
+	irq_save();
 
 	struct block_header *block =
 		(struct block_header *)((unsigned long)ptr - 4);
@@ -144,5 +140,5 @@ void kfree(void *ptr)
 		free_board(board);
 	}
 
-	restore_flags(flags);
+	irq_restore();
 }

@@ -23,13 +23,11 @@ void __tinit pagetable_init(void)
 
 		pte_t *pt = (pte_t *)alloc_page_bootmem();
 		set_pde(pd, mk_pde(pt, _PDE_KERNEL));
+		
 		int i;
-		for (i = 0; i < PTES_PER_PT; i++, pfn++, pt++) {
-			if (pfn < max_pfn)
-				set_pte(pt,mk_pte(pfn*PAGE_SIZE, _PTE_KERNEL));
-			else
-				set_pte(pt,0);
-		}
+		for (i = 0; i < PTES_PER_PT; i++, pfn++, pt++)
+			set_pte(pt, (pfn < max_pfn) ? 
+				mk_pte(pfn*PAGE_SIZE, _PTE_KERNEL) : 0);
 	}
 }
 

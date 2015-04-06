@@ -5,14 +5,21 @@
 
 #include <lib/stddef.h>
 #include <lib/string.h>
+#include <lib/spinlock.h>
 
 #include <mm/page_alloc.h>
 
-unsigned long last_pid = 0;
+static int last_pid = 0;
+
+spinlock_t last_pid_lock = SPINLOCK_UNLOCKED;
 
 static int get_pid(void)
 {
-	return ++last_pid;
+	int res;
+	ACQUIRE_LOCK(&last_pid_lock);
+	res = ++last_pid;
+	RELEASE_LOCK(&last_pid_lock);
+	return res;
 }
 
 extern void fork_ret(void);
@@ -34,8 +41,9 @@ void copy_thread(struct task_struct *p, struct trap_frame *tr)
 
 int do_fork(struct trap_frame *tr)
 {
-	struct task_struct *p = alloc_task_struct();
-	if (!p)
+	struct task_struct *p;
+	
+	if (!(p = alloc_task_struct()))
 		return -ENOMEM;
 
 	*p = *current;

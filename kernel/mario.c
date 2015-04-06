@@ -3,6 +3,7 @@
 #include <sched.h>
 #include <trap.h>
 #include <time.h>
+#include <timer.h>
 #include <misc.h>
 #include <irq.h>
 
@@ -57,6 +58,7 @@ void kernel_thread(void (*fun)(unsigned int), unsigned int arg)
 unsigned int x = 0;
 unsigned int y = 0;
 
+long get_cmos_time(void);
 void init(unsigned int n)
 {
 	if (!n)
@@ -67,7 +69,7 @@ void init(unsigned int n)
 	}
 	if (--n)
 		kernel_thread(init, n);
-	printf("[%u]",n);
+	printf("[%u]",n);get_cmos_time();
 	while (1) {
 		if (x == n) {
 			printf("%c",'A'+n);
@@ -106,6 +108,22 @@ void test_mm(void)
 	kfree(p);
 }
 
+void test_timer(unsigned long data)
+{
+	early_print("\t%x\n", data);
+	/*
+	if (data)
+		kfree((void *)data);
+	*/
+
+	struct timer_list *timer = kmalloc(sizeof(*timer));
+	init_timer(timer);
+	timer->expires = 35;
+	timer->fun = test_timer;
+	timer->data = (unsigned long)timer;
+	add_timer(timer);
+}
+
 void mario(struct multiboot_info *m)
 {
 	early_print_init(m);
@@ -116,8 +134,9 @@ void mario(struct multiboot_info *m)
 	trap_init();
 	irq_init();
 	time_init();
-	sched_init();
 	sti();
 	
+	test_timer(0);
+
 	kernel_thread(init, 26);
 }

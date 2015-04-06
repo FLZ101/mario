@@ -65,6 +65,14 @@ __asm__ __volatile__("pushfl; popl %0":"=g"(x): :"memory")
 #define restore_flags(x) \
 __asm__ __volatile__("pushl %0; popfl": :"g"(x):"memory")
 
+#define irq_save() \
+	unsigned long flags; \
+	save_flags(flags); \
+	cli()
+
+#define irq_restore() \
+	restore_flags(flags)
+
 /*
  * On the Intel 386, the fastcall attribute causes the compiler to pass 
  * the first argument (if of integral type) in the register ECX and the 

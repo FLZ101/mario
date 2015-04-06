@@ -39,7 +39,7 @@ static __inline__ int atomic_sub_and_test(int i, atomic_t *v)
 
 static __inline__ void atomic_inc(atomic_t *v)
 {
-	__asm__ __volatile(
+	__asm__ __volatile__(
 		"incl %0"
 		:"=m"(v->counter)
 		:"m"(v->counter));

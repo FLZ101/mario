@@ -7,31 +7,33 @@
 #include <lib/list.h>
 
 static LIST_HEAD(runqueue_head);
-static spinlock_t runqueue_lock;
 
-#define in_runqueue(p) list_add(&(p)->run_list, &runqueue_head)
-#define out_runqueue(p) list_del(&(p)->run_list, &runqueue_head)
-
-void runqueue_print(void)
+void in_runqueue(struct task_struct *p)
 {
-	struct list_head *pos;
-	early_print("TASK:\n");
-	list_for_each(pos, &runqueue_head) {
-		early_print("%x\n", (unsigned long)list_entry(pos, struct task_struct, run_list));
-	}
+	irq_save();
+	list_add(&p->run_list, &runqueue_head);
+	irq_restore();
 }
 
-void sched_init(void)
+void out_runqueue(struct task_struct *p)
 {
-	INIT_LOCK(&runqueue_lock);
+	irq_save();
+	list_del(&p->run_list);
+	p->run_list.next = NULL;
+	irq_restore();
+}
+
+int task_on_runqueue(struct task_struct *p)
+{
+	return (p->run_list.next != NULL);
 }
 
 void wake_up_process(struct task_struct *p)
 {
-	p->state = TASK_RUNNING;
-	ACQUIRE_LOCK(&runqueue_lock);
-	in_runqueue(p);
-	RELEASE_LOCK(&runqueue_lock);
+	if (!task_on_runqueue(p)) {
+		p->state = TASK_RUNNING;
+		in_runqueue(p);
+	}
 }
 
 void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
@@ -86,4 +88,61 @@ void schedule(void)
 	
 	if (next != prev)
 		switch_to(next);
+}
+
+int sys_pause(void)
+{
+	current->state = TASK_INTERRUPTIBLE;
+	schedule();
+	return 0;
+}
+
+/*
+ * The ugly @lock is used by <void down(struct semaphore *sem)>
+ */
+void sleep_on(wait_queue_t *q, long state, spinlock_t *lock)
+{
+	wait_queue_node_t node;
+	init_wait_queue_node(&node, current);
+
+	out_runqueue(current);
+	current->state = state;
+	in_wait_queue(q, &node);
+
+	if (lock)
+		RELEASE_LOCK(lock);
+
+	schedule();
+	out_wait_queue(&node);
+}
+
+void wake_up(wait_queue_t *q, long state)
+{
+	struct list_head *tmp, *head = &q->task_list;
+
+	list_for_each(tmp, head) {
+		wait_queue_node_t *node = 
+			list_entry(tmp, wait_queue_node_t, task_list);
+
+		if (node->p->state & state)
+			wake_up_process(node->p);
+	}
+}
+
+/*
+ * This ugly function is used by <void up(struct semaphore *sem)>
+ */
+void wake_up_1st(wait_queue_t *q, long state)
+{
+	struct list_head *tmp, *head = &q->task_list;
+
+	list_for_each(tmp, head) {
+		wait_queue_node_t *node = 
+			list_entry(tmp, wait_queue_node_t, task_list);
+
+		if (node->p->state & state) {
+			wake_up_process(node->p);
+			break;
+		}
+	}
 }

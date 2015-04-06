@@ -5,6 +5,8 @@ typedef struct {
 	unsigned int locked;
 } spinlock_t;
 
+#define SPINLOCK_UNLOCKED (spinlock_t){0}
+
 #define INIT_LOCK(lock) \
 do { \
 	(lock)->locked = 0; \

@@ -75,6 +75,8 @@ ENTRY(system_call)
 	call *_sys_call_table(, %eax, 4)
 	movl %eax, EAX(%esp)	/* save the return value */
 
+ret_from_sys_call:
+
 ret_with_reschedule:
 	cmpl $0, _need_resched
 	jne reschedule
@@ -188,6 +190,17 @@ restore_all:
 	movb $0x20, %al; \
 	outb %al, $0xa0
 
+handle_bottom_half:
+	movl _bh_mask, %eax
+	andl _bh_active, %eax
+	je 1f
+	pushfl
+	sti
+	call _do_bottom_half
+	popfl
+	jmp handle_bottom_half
+1:	ret
+
 _irq0:
 	pushl $0
 	SAVE_ALL
@@ -195,7 +208,8 @@ _irq0:
 	EOI_MASTER
 
 irq_ret:
-	jmp ret_with_reschedule
+	call handle_bottom_half
+	jmp ret_from_sys_call
 
 _irq1:
 	pushl $0

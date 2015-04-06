@@ -37,6 +37,7 @@ struct task_struct {
 
 	struct mm_struct *mm;
 	struct thread_struct thread;
+	spinlock_t lock;
 };
 
 #define TASK_RUNNING		0
