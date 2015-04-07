@@ -49,88 +49,87 @@ void __tinit trap_init(void)
 	set_system_gate(SYSCALL_VECTOR, system_call);
 }
 
-void do_divide_error(struct trap_frame *tr)
+void do_divide_error(struct trap_frame tr)
 {
 	early_print("Divide Error\n");
 }
 
-void do_debug(struct trap_frame *tr)
+void do_debug(struct trap_frame tr)
 {
 	early_print("Debug\n");
 }
 
-void do_nmi(struct trap_frame *tr)
+void do_nmi(struct trap_frame tr)
 {
 	early_print("NMI\n");
 }
 
-void do_int3(struct trap_frame *tr)
+void do_int3(struct trap_frame tr)
 {
 	early_print("Int3\n");
 }
 
-void do_overflow(struct trap_frame *tr)
+void do_overflow(struct trap_frame tr)
 {
 	early_print("Overflow\n");
 }
 
-void do_bounds(struct trap_frame *tr)
+void do_bounds(struct trap_frame tr)
 {
 	early_print("Bounds\n");
 }
 
-void do_invalid_op(struct trap_frame *tr)
+void do_invalid_op(struct trap_frame tr)
 {
 	early_hang("Invalid Opcode\n");
 }
 
-void do_device_not_available(struct trap_frame *tr)
+void do_device_not_available(struct trap_frame tr)
 {
 	early_print("Device Not Available\n");
 }
 
-void do_double_fault(struct trap_frame *tr)
+void do_double_fault(struct trap_frame tr)
 {
 	early_print("Double Fault\n");
 }
 
-void do_coprocessor_segment_overrun(struct trap_frame *tr)
+void do_coprocessor_segment_overrun(struct trap_frame tr)
 {
 	early_print("Coprocessor Segment Overrun\n");
 }
 
-void do_invalid_TSS(struct trap_frame *tr)
+void do_invalid_TSS(struct trap_frame tr)
 {
 	early_print("Invalid TSS\n");
 }
 
-void do_segment_not_present(struct trap_frame *tr)
+void do_segment_not_present(struct trap_frame tr)
 {
 	early_print("Segment Not Present\n");
 }
 
-void do_stack_segment(struct trap_frame *tr)
+void do_stack_segment(struct trap_frame tr)
 {
 	early_print("Stack Segment\n");
 }
 
-void do_general_protection(struct trap_frame *tr)
+void do_general_protection(struct trap_frame tr)
 {
 	early_hang("General Protection\n");
 }
 
-void do_page_fault(struct trap_frame *tr)
+void do_page_fault(struct trap_frame tr)
 {
-	early_print("Page Fault\n");
-	while (1);
+	early_hang("Page Fault\n");
 }
 
-void do_spurious_interrupt_bug(struct trap_frame *tr)
+void do_spurious_interrupt_bug(struct trap_frame tr)
 {
 	early_print("Spurious Interrupt Bug\n");
 }
 
-void do_coprocessor_error(struct trap_frame *tr)
+void do_coprocessor_error(struct trap_frame tr)
 {
 	early_print("Coprocessor Error\n");
 }

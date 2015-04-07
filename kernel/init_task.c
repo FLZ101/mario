@@ -10,5 +10,6 @@ union task_union init_task_union __attribute__((__section__(".init_task_union"))
 	next_task: &init_task,
 	prev_task: &init_task,
 	p_pptr: &init_task,
+	real_timer: {fun: it_real_fun},
 	thread: {(unsigned long)&init_task + KSTACK_SIZE, 0}
 }};

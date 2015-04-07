@@ -5,13 +5,11 @@
 
 void time_init(void);
 
-extern volatile unsigned long jiffies;
+extern volatile long jiffies;
 
 struct timeval {
 	long tv_sec;
 	long tv_usec;
 };
-
-extern volatile struct timeval xtime;
 
 #endif	/* _TIME_H */

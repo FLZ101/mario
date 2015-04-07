@@ -22,4 +22,6 @@ struct trap_frame {
 
 void trap_init(void);
 
+#define userland(tr)	(3 & (tr)->cs)
+
 #endif	/* _TRAP_H */

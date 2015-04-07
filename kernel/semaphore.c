@@ -14,6 +14,6 @@ void up(struct semaphore *sem)
 {
 	ACQUIRE_LOCK(&sem->lock);
 	if (++sem->count <= 0)
-		wake_up_1st(&sem->wait, TASK_UNINTERRUPTIBLE);
+		wake_up_1st(&sem->wait);
 	RELEASE_LOCK(&sem->lock);
 }

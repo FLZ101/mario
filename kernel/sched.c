@@ -1,4 +1,6 @@
+#include <signal.h>
 #include <sched.h>
+#include <timer.h>
 #include <misc.h>
 #include <tss.h>
 
@@ -8,14 +10,14 @@
 
 static LIST_HEAD(runqueue_head);
 
-void in_runqueue(struct task_struct *p)
+static void in_runqueue(struct task_struct *p)
 {
 	irq_save();
 	list_add(&p->run_list, &runqueue_head);
 	irq_restore();
 }
 
-void out_runqueue(struct task_struct *p)
+static void out_runqueue(struct task_struct *p)
 {
 	irq_save();
 	list_del(&p->run_list);
@@ -23,7 +25,7 @@ void out_runqueue(struct task_struct *p)
 	irq_restore();
 }
 
-int task_on_runqueue(struct task_struct *p)
+static int task_on_runqueue(struct task_struct *p)
 {
 	return (p->run_list.next != NULL);
 }
@@ -68,26 +70,68 @@ unsigned long need_resched = 0;
 
 void schedule(void)
 {
-	struct task_struct *prev = current;
-	struct task_struct *next = &init_task;
+	int c;
 	struct list_head *tmp;
+	struct task_struct *p, *next;
 
-	if (prev == next)
-		tmp = &runqueue_head;
-	else
-		tmp = prev->run_list.next;
+	if (current->state != TASK_RUNNING)
+		out_runqueue(current);
 
-	if (tmp == &runqueue_head)
-		tmp = tmp->next;
-	if (tmp != &runqueue_head)
-		next = list_entry(tmp, struct task_struct, run_list);
+	irq_save();
+	/*
+	 * init_task wouldn't handle signal
+	 */
+	for_each_task(p) {
+		if ((p->state == TASK_INTERRUPTIBLE) && signal_pending(p))
+			wake_up_process(p);
+	}
 
-	next->counter = DEF_COUNTER;
+	c = -100;
+	next = &init_task;
+	list_for_each(tmp, &runqueue_head) {
+		p = list_entry(tmp, struct task_struct, run_list);
+		if (p->counter > c)
+			c = p->counter, next = p;
+	}
+
+	if (!c) {
+		for_each_task(p) {
+			p->counter = p->counter/2 + DEF_COUNTER;
+			if (p->counter > MAX_COUNTER)
+				p->counter = MAX_COUNTER;
+		}
+	}
+
+	irq_restore();
 
 	need_resched = 0;
-	
-	if (next != prev)
+
+	if (next != current)
 		switch_to(next);
+}
+
+static void process_timeout(unsigned long data)
+{
+	wake_up_process((struct task_struct *)data);
+}
+
+/*
+ * @timeout:	a proper value
+ */
+long schedule_timeout(long timeout)
+{
+	struct timer_list timer;
+	init_timer(&timer);
+	timer.expires = timeout + jiffies;
+	timer.data = (unsigned long)current;
+	timer.fun = process_timeout;
+
+	current->state = TASK_INTERRUPTIBLE;
+	add_timer(&timer);
+	schedule();
+	del_timer(&timer);
+
+	return timer.expires;
 }
 
 int sys_pause(void)
@@ -98,14 +142,14 @@ int sys_pause(void)
 }
 
 /*
- * The ugly @lock is used by <void down(struct semaphore *sem)>
+ * @lock:	used by <void down(struct semaphore *sem)>
+ * @state:	TASK_INTERRUPTIBLE or TASK_UNINTERRUPTIBLE
  */
 void sleep_on(wait_queue_t *q, long state, spinlock_t *lock)
 {
 	wait_queue_node_t node;
 	init_wait_queue_node(&node, current);
 
-	out_runqueue(current);
 	current->state = state;
 	in_wait_queue(q, &node);
 
@@ -132,17 +176,14 @@ void wake_up(wait_queue_t *q, long state)
 /*
  * This ugly function is used by <void up(struct semaphore *sem)>
  */
-void wake_up_1st(wait_queue_t *q, long state)
+void wake_up_1st(wait_queue_t *q)
 {
-	struct list_head *tmp, *head = &q->task_list;
+	struct list_head *head = &q->task_list;
+	if (list_empty(head))
+		return;
 
-	list_for_each(tmp, head) {
-		wait_queue_node_t *node = 
-			list_entry(tmp, wait_queue_node_t, task_list);
+	wait_queue_node_t *node = 
+		list_entry(head->next, wait_queue_node_t, task_list);
 
-		if (node->p->state & state) {
-			wake_up_process(node->p);
-			break;
-		}
-	}
+	wake_up_process(node->p);
 }

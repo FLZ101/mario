@@ -16,28 +16,6 @@
 
 void printf(const char *fmt, ...);
 
-void *sys_malloc(struct trap_frame tr)
-{
-	return kmalloc(tr.ebx);
-}
-
-void *malloc(size_t size)
-{
-	void *p = NULL;
-	asm volatile("int $0x80":"=a"(p):"0"(2), "b"(size));
-	return p;
-}
-
-void sys_free(struct trap_frame tr)
-{
-	kfree((void *)tr.ebx);
-}
-
-void free(void *p)
-{
-	asm volatile("movl $3, %%eax; int $0x80"::"b"(p):"eax");
-}
-
 void kernel_thread(void (*fun)(unsigned int), unsigned int arg)
 {
 	__asm__ __volatile__(
@@ -69,7 +47,10 @@ void init(unsigned int n)
 	}
 	if (--n)
 		kernel_thread(init, n);
-	printf("[%u]",n);get_cmos_time();
+
+	printf("[%u]\t",n);
+	get_cmos_time();
+
 	while (1) {
 		if (x == n) {
 			printf("%c",'A'+n);
@@ -111,17 +92,40 @@ void test_mm(void)
 void test_timer(unsigned long data)
 {
 	early_print("\t%x\n", data);
-	/*
-	if (data)
-		kfree((void *)data);
-	*/
 
 	struct timer_list *timer = kmalloc(sizeof(*timer));
 	init_timer(timer);
-	timer->expires = 35;
+	timer->expires = 3*HZ;
 	timer->fun = test_timer;
 	timer->data = (unsigned long)timer;
 	add_timer(timer);
+}
+
+int sys_alarm(long seconds);
+
+void timer_thread(unsigned int n)
+{
+	struct itimerval it_new;
+	it_new.it_interval.tv_usec = 0;
+	it_new.it_value.tv_usec = 0;
+
+	it_new.it_interval.tv_sec = 1;
+	it_new.it_value.tv_sec = 1;
+	_setitimer(ITIMER_REAL, &it_new, NULL);
+
+	it_new.it_interval.tv_sec = 1;
+	it_new.it_value.tv_sec = 1;
+	_setitimer(ITIMER_VIRTUAL, &it_new, NULL);
+
+	it_new.it_interval.tv_sec = 1;
+	it_new.it_value.tv_sec = 1;
+	_setitimer(ITIMER_PROF, &it_new, NULL);
+
+	/*
+	sys_alarm(7);
+	*/
+
+	test_timer(n);
 }
 
 void mario(struct multiboot_info *m)
@@ -135,8 +139,7 @@ void mario(struct multiboot_info *m)
 	irq_init();
 	time_init();
 	sti();
-	
-	test_timer(0);
 
-	kernel_thread(init, 26);
+	kernel_thread(timer_thread, 0x45184518);
+	kernel_thread(init, 2);
 }

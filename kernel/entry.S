@@ -150,19 +150,19 @@ ENTRY(coprocessor_error)
 	jmp trap_common
 
 trap_common:
-	cld; \
-	pushl %ds; \
-	pushl %eax; \
-	pushl %ebp; \
-	pushl %edi; \
-	pushl %esi; \
-	pushl %edx; \
-	pushl %ecx; \
-	pushl %ebx; \
-	movl ES(%esp), %edi; \
-	movw %es, ES(%esp); \
-	movw $KERNEL_DS, %ax; \
-	movw %ax, %es; \
+	cld
+	pushl %ds
+	pushl %eax
+	pushl %ebp
+	pushl %edi
+	pushl %esi
+	pushl %edx
+	pushl %ecx
+	pushl %ebx
+	movl ES(%esp), %edi
+	movw %es, ES(%esp)
+	movw $KERNEL_DS, %ax
+	movw %ax, %es
 	movw %ax, %ds
 	pushl $restore_all
 	jmp *%edi
@@ -209,7 +209,7 @@ _irq0:
 
 irq_ret:
 	call handle_bottom_half
-	jmp ret_from_sys_call
+	jmp ret_with_reschedule
 
 _irq1:
 	pushl $0
@@ -268,5 +268,3 @@ _irqf:
 ENTRY(sys_call_table)
 	.long _sys_write
 	.long _sys_fork
-	.long _sys_malloc
-	.long _sys_free

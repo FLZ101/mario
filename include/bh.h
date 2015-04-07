@@ -13,7 +13,7 @@ extern unsigned long bh_mask;
 extern struct bh_struct bh_base[32];
 
 #define PIT_BH		0
-#define KEYBOARD_H	1
+#define KEYBOARD_BH	1
 
 static inline void mark_bh(int nr)
 {

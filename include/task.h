@@ -2,6 +2,7 @@
 #define _TASK_H
 
 #include <errno.h>
+#include <timer.h>
 #include <misc.h>
 
 #include <mm/page_alloc.h>
@@ -21,7 +22,11 @@ struct thread_struct {
 
 struct task_struct {
 	volatile long state;
-	unsigned long counter;
+	int counter;
+	int priority;
+	
+	unsigned long signal;
+	unsigned long blocked;
 	
 	int exit_code;
 
@@ -35,6 +40,10 @@ struct task_struct {
 	 */
 	struct task_struct *p_pptr, *p_cptr, *p_ysptr, *p_osptr;
 
+	long it_real_value, it_prof_value, it_virt_value;
+	long it_real_incr, it_prof_incr, it_virt_incr;
+	struct timer_list real_timer;
+	
 	struct mm_struct *mm;
 	struct thread_struct thread;
 	spinlock_t lock;

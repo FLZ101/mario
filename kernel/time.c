@@ -1,7 +1,10 @@
+#include <signal.h>
 #include <sched.h>
 #include <timer.h>
 #include <time.h>
+#include <trap.h>
 #include <misc.h>
+#include <task.h>
 #include <bh.h>
 #include <io.h>
 
@@ -73,17 +76,15 @@ long get_cmos_time(void)
 	if ((year += 1900) < 1970)
 		year += 100;
 
-	early_print("%d/%d/%d, %d:%d:%d\n", 
+	early_print("%d/%d/%d, %d:%d:%d\n",
 		year, mon, day, hour, min, sec);
-	
+
 	return mktime(year, mon, day, hour, min, sec);
 }
 
-volatile struct timeval xtime = {0, 0};
-
 #define LATCH (1193180/HZ)
 
-volatile unsigned long jiffies = 0;
+volatile long jiffies = 0;
 
 static void PIT_bh(void *unused)
 {
@@ -102,17 +103,28 @@ void __tinit i8253_init(void)
 
 void __tinit time_init(void)
 {
-	xtime.tv_sec = get_cmos_time();
-
 	i8253_init();
 	enable_bh(PIT_BH);
 	bh_base[PIT_BH].routine = PIT_bh;
 }
 
-void irq_PIT(void)
+void irq_PIT(struct trap_frame tr)
 {
-	if (!(jiffies % 10))
-		need_resched = 1;
 	jiffies++;
+	if (!--current->counter)
+		need_resched = 1;
+
+	if (userland(&tr)) {
+		if (current->it_virt_value && !--current->it_virt_value) {
+			current->it_virt_value = current->it_virt_incr;
+			send_sig(SIGVTALRM, current, 1);
+		}
+	}
+
+	if (current->it_prof_value && !--current->it_prof_value) {
+		current->it_prof_value = current->it_prof_incr;
+		send_sig(SIGPROF, current, 1);
+	}
+
 	mark_bh(PIT_BH);
 }

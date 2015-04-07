@@ -1,3 +1,4 @@
+#include <timer.h>
 #include <errno.h>
 #include <sched.h>
 #include <trap.h>
@@ -55,6 +56,11 @@ int do_fork(struct trap_frame *tr)
 	p->p_pptr = current;
 	p->p_cptr = NULL;
 	p->counter = DEF_COUNTER;
+	p->signal = 0;
+	p->it_real_value = p->it_virt_value = p->it_prof_value = 0;
+	p->it_real_incr = p->it_virt_incr = p->it_prof_incr = 0;
+	p->real_timer.data = (unsigned long)p;
+
 	copy_thread(p, tr);
 	SET_LINKS(p);
 	wake_up_process(p);
