@@ -1,8 +1,16 @@
 #include <bh.h>
+#include <sched.h>
+
+#include <lib/stddef.h>
 
 unsigned long bh_active = 0;
 unsigned long bh_mask = 0;
 struct bh_struct bh_base[32];
+
+/* used to wake up the bh_thread */
+struct task_struct *bh_task = NULL;
+
+extern int sys_pause(void);
 
 void do_bottom_half(void)
 {
@@ -20,3 +28,16 @@ void do_bottom_half(void)
 		}
 	}
 }
+
+void bh_thread(void *arg)
+{
+	bh_task = current;
+
+	for (; ; ) {
+		if (bh_mask & bh_active)
+			do_bottom_half();
+		else
+			sys_pause();
+	}
+}
+

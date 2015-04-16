@@ -113,7 +113,7 @@ void __tinit make_e820_map(struct multiboot_info *m)
 	add_memory_region(0x100000, UPPER_MEM, E820_RAM);
 }
 
-extern void rd_init(struct multiboot_info *m);
+extern void ramdisk_setup(struct multiboot_info *m);
 
 extern unsigned long max_pfn;
 
@@ -143,5 +143,5 @@ void __tinit setup_memory_region(struct multiboot_info *m)
 	if (max_pfn < PFN_DOWN(MIN_MEMORY))
 		early_hang("More physical memory required!\n");
 
-	rd_init(m);
+	ramdisk_setup(m);
 }

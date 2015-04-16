@@ -111,6 +111,10 @@ void __tinit time_init(void)
 void irq_PIT(struct trap_frame tr)
 {
 	jiffies++;
+	
+	if (&init_task == current)
+		goto tail;
+
 	if (!--current->counter)
 		need_resched = 1;
 
@@ -126,5 +130,6 @@ void irq_PIT(struct trap_frame tr)
 		send_sig(SIGPROF, current, 1);
 	}
 
+tail:
 	mark_bh(PIT_BH);
 }

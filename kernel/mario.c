@@ -14,9 +14,11 @@
 
 #include <lib/stdarg.h>
 
+#include <fs/fs.h>
+
 void printf(const char *fmt, ...);
 
-void kernel_thread(void (*fun)(unsigned int), unsigned int arg)
+void kernel_thread(void (*fun)(void *), void *arg)
 {
 	__asm__ __volatile__(
 		"movl %%esp, %%esi\n\t"
@@ -31,32 +33,6 @@ void kernel_thread(void (*fun)(unsigned int), unsigned int arg)
 		:
 		:"b"(arg), "c"(fun)
 		:"eax", "memory");
-}
-
-unsigned int x = 0;
-unsigned int y = 0;
-
-long get_cmos_time(void);
-void init(unsigned int n)
-{
-	if (!n)
-		return;
-	if (!y) {
-		y = n;
-		x = n - 1;
-	}
-	if (--n)
-		kernel_thread(init, n);
-
-	printf("[%u]\t",n);
-	get_cmos_time();
-
-	while (1) {
-		if (x == n) {
-			printf("%c",'A'+n);
-			x = (x+1)%y;
-		}
-	}
 }
 
 void page_alloc_print(void)
@@ -128,18 +104,56 @@ void timer_thread(unsigned int n)
 	test_timer(n);
 }
 
+void test_blkdev(void *arg)
+{
+	int n = (int)arg;
+
+	struct buffer_head *bh = get_buffer(MKDEV(RD_MAJOR, 0), 0);
+	bread(bh);
+	char *buf = bh->b_data;
+	buf[10] = '\0';
+	printf("%s%u\n", buf, n);
+	set_dirty(bh);
+	brelse(bh);
+}
+
+void init(void *arg)
+{
+	int n = (int)arg;
+
+	struct buffer_head *bh = get_buffer(MKDEV(RD_MAJOR, 0), 0);
+	printf("blkdev test starts\n");
+	while (n--)
+		kernel_thread(test_blkdev, (void *)n);
+
+	schedule_timeout(HZ);
+	brelse(bh);
+}
+
+void cpu_idle(void)
+{
+	for (; ; )
+		schedule();
+}
+
+void bh_thread(void *arg);
+
 void mario(struct multiboot_info *m)
 {
 	early_print_init(m);
 	setup_memory_region(m);
 	paging_init();
 	page_alloc_init();
-	test_mm();
 	trap_init();
 	irq_init();
 	time_init();
+
+	blkdev_init();
+	buffer_init();
 	sti();
 
-	kernel_thread(timer_thread, 0x45184518);
-	kernel_thread(init, 2);
+	kernel_thread(init, (void *)100);
+	kernel_thread(bh_thread, NULL);
+
+	cpu_idle();
 }

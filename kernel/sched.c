@@ -10,6 +10,18 @@
 
 static LIST_HEAD(runqueue_head);
 
+void print_runqueue(void)
+{
+	struct list_head *tmp;
+	struct task_struct *p;
+
+	list_for_each(tmp, &runqueue_head) {
+		p = list_entry(tmp, struct task_struct, run_list);
+		early_print("%x ", p);
+	}
+	early_print("\n");
+}
+
 static void in_runqueue(struct task_struct *p)
 {
 	irq_save();
@@ -32,6 +44,9 @@ static int task_on_runqueue(struct task_struct *p)
 
 void wake_up_process(struct task_struct *p)
 {
+	if (!p)
+		return;
+	
 	if (!task_on_runqueue(p)) {
 		p->state = TASK_RUNNING;
 		in_runqueue(p);
@@ -94,14 +109,16 @@ void schedule(void)
 			c = p->counter, next = p;
 	}
 
-	if (!c) {
-		for_each_task(p) {
-			p->counter = p->counter/2 + DEF_COUNTER;
-			if (p->counter > MAX_COUNTER)
-				p->counter = MAX_COUNTER;
-		}
+	if (c)
+		goto tail;
+
+	for_each_task(p) {
+		p->counter = p->counter/2 + DEF_COUNTER;
+		if (p->counter > MAX_COUNTER)
+			p->counter = MAX_COUNTER;
 	}
 
+tail:
 	irq_restore();
 
 	need_resched = 0;
@@ -112,7 +129,9 @@ void schedule(void)
 
 static void process_timeout(unsigned long data)
 {
+	print_runqueue();
 	wake_up_process((struct task_struct *)data);
+	print_runqueue();
 }
 
 /*
@@ -122,7 +141,7 @@ long schedule_timeout(long timeout)
 {
 	struct timer_list timer;
 	init_timer(&timer);
-	timer.expires = timeout + jiffies;
+	timer.expires = timeout;
 	timer.data = (unsigned long)current;
 	timer.fun = process_timeout;
 
@@ -157,7 +176,7 @@ void sleep_on(wait_queue_t *q, long state, spinlock_t *lock)
 		RELEASE_LOCK(lock);
 
 	schedule();
-	out_wait_queue(&node);
+	out_wait_queue(q, &node);
 }
 
 void wake_up(wait_queue_t *q, long state)
@@ -168,8 +187,10 @@ void wake_up(wait_queue_t *q, long state)
 		wait_queue_node_t *node = 
 			list_entry(tmp, wait_queue_node_t, task_list);
 
-		if (node->p->state & state)
+		if (node->p->state & state) {
+			out_wait_queue(q, node);
 			wake_up_process(node->p);
+		}
 	}
 }
 
@@ -185,5 +206,6 @@ void wake_up_1st(wait_queue_t *q)
 	wait_queue_node_t *node = 
 		list_entry(head->next, wait_queue_node_t, task_list);
 
+	out_wait_queue(q, node);
 	wake_up_process(node->p);
 }

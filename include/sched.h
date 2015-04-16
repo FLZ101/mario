@@ -51,6 +51,8 @@ extern unsigned long need_resched;
 
 void schedule(void);
 
+long schedule_timeout(long timeout);
+
 void sleep_on(wait_queue_t *q, long state, spinlock_t *lock);
 
 #define sleep_on_interruptible(q) sleep_on((q), TASK_INTERRUPTIBLE, NULL)

@@ -31,12 +31,16 @@ static inline void init_wait_queue(wait_queue_t *q)
 
 static inline void in_wait_queue(wait_queue_t *q, wait_queue_node_t *n)
 {
+	ACQUIRE_LOCK(&q->lock);
 	list_add_tail(&n->task_list, &q->task_list);
+	RELEASE_LOCK(&q->lock);
 }
 
-static inline void out_wait_queue(wait_queue_node_t *n)
+static inline void out_wait_queue(wait_queue_t *q, wait_queue_node_t *n)
 {
+	ACQUIRE_LOCK(&q->lock);
 	list_del(&n->task_list);
+	RELEASE_LOCK(&q->lock);
 }
 
 #endif /* _WAIT_H */

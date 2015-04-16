@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <timer.h>
 #include <misc.h>
+#include <types.h>
 
 #include <mm/page_alloc.h>
 #include <mm/mm.h>
@@ -30,7 +31,7 @@ struct task_struct {
 	
 	int exit_code;
 
-	unsigned long pid;
+	pid_t pid;
 
 	struct list_head run_list;
 	struct task_struct *next_task, *prev_task;

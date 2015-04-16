@@ -5,7 +5,9 @@
  * Refer to Multiboot Specification version 0.6.96
  */
 
+
 #define MB_MAGIC 0x1badb002
+/* all boot modules loaded must be aligned on page(4KB) boundaries */
 #define	MB_FLAGS 0x00010003
 #define	MB_CHECK -(MB_MAGIC + MB_FLAGS)
 

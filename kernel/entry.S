@@ -80,11 +80,23 @@ ret_from_sys_call:
 ret_with_reschedule:
 	cmpl $0, _need_resched
 	jne reschedule
-	jmp restore_all
+	jmp handle_bottom_half
 
 reschedule:
 	call _schedule
 	jmp restore_all
+
+handle_bottom_half:
+	movl _bh_mask, %eax
+	andl _bh_active, %eax
+	je restore_all
+	/* wake up the bh_thread */
+	pushl _bh_task
+	call _wake_up_process
+	addl $4, %esp
+
+restore_all:
+	RESTORE_ALL
 
 ENTRY(divide_error)
 	pushl $0
@@ -167,9 +179,6 @@ trap_common:
 	pushl $restore_all
 	jmp *%edi
 
-restore_all:
-	RESTORE_ALL
-
 /****************
  * IRQ handlers *
  ****************/
@@ -190,26 +199,23 @@ restore_all:
 	movb $0x20, %al; \
 	outb %al, $0xa0
 
-handle_bottom_half:
-	movl _bh_mask, %eax
-	andl _bh_active, %eax
-	je 1f
-	pushfl
-	sti
-	call _do_bottom_half
-	popfl
-	jmp handle_bottom_half
-1:	ret
+ret_from_intr:
+#if 0
+	movb CS(%esp), %al
+	testb $3, %al
+	jne ret_with_reschedule	/* back to userland */
+	jmp restore_all
+#else
+	jmp ret_with_reschedule
+#endif
+
 
 _irq0:
 	pushl $0
 	SAVE_ALL
 	call _irq_PIT
 	EOI_MASTER
-
-irq_ret:
-	call handle_bottom_half
-	jmp ret_with_reschedule
+	jmp ret_from_intr
 
 _irq1:
 	pushl $0
@@ -268,3 +274,4 @@ _irqf:
 ENTRY(sys_call_table)
 	.long _sys_write
 	.long _sys_fork
+	.long _sys_pause

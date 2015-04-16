@@ -1,6 +1,9 @@
 #ifndef _TYPES_H
 #define _TYPES_H
 
+typedef unsigned short dev_t;
+typedef int pid_t;
+
 typedef signed char        __s8;
 typedef signed short       __s16;
 typedef signed long        __s32;

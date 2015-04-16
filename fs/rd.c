@@ -1,22 +1,29 @@
 #include <lib/string.h>
 
 #include <multiboot.h>
+#include <errno.h>
 #include <misc.h>
+
+#include <fs/fs.h>
+#include <fs/blkdev.h>
+
+#define RD_SECTOR_SIZE 512
 
 #define MAX_RD 3
 
 struct {
-	unsigned long start;
-	unsigned long end;
+	unsigned long rd_start;
+	unsigned long rd_end;
+	unsigned long rd_nr;	/* the number of sectors */
 } rd_info[MAX_RD];
+
+static int nr_rd;	/* the number of ramdisks loaded */
 
 extern unsigned long end;
 
-void __tinit rd_init(struct multiboot_info *m)
+void __tinit ramdisk_setup(struct multiboot_info *m)
 {
-	int i, j;
-	for (i = 0; i < MAX_RD; i++)
-		rd_info[i].end = 0;
+	int i;
 
 	end = 0;
 
@@ -25,24 +32,94 @@ void __tinit rd_init(struct multiboot_info *m)
 
 	struct multiboot_module *mod = 
 		(struct multiboot_module *)m->mods_addr;
-	for (i = 0, j = 0; i < MAX_RD && j < m->mods_count; j++) {
-		if (!strstr((char *)mod[j].string, "MARIO_RAMDISK"))
+	for (nr_rd = 0, i = 0; nr_rd < MAX_RD && i < m->mods_count; i++) {
+		if (!strstr((char *)mod[i].string, "MARIO_RAMDISK"))
 			continue;
 
-		rd_info[i].start = mod[j].mod_start;
-		rd_info[i].end = mod[j].mod_end;
+		/* all boot modules loaded are page-aligned */
+		unsigned long __start = mod[i].mod_start;
+		unsigned long __end = PAGE_ALIGN(mod[i].mod_end);
 
-		if (rd_info[i].end > end)
-			end = rd_info[i].end;
-		i++;
+		rd_info[nr_rd].rd_start = __start;
+		rd_info[nr_rd].rd_end = __end;
+		rd_info[nr_rd].rd_nr = (__end - __start) / RD_SECTOR_SIZE;
+
+		if (end < __end)
+			end = __end;
+		nr_rd++;
 	}
-tail:
+tail:	
 	if (!end)
 		early_hang("no ramdisk loaded!\n");
 
 	early_print("ramdisk(s):\n");
-	for (i = 0; i < MAX_RD && rd_info[i].end; i++)
-		early_print("start=%x, end=%x\n", 
-			rd_info[i].start, rd_info[i].end);
+	for (i = 0; i < nr_rd; i++)
+		early_print("rd_start=%x, rd_end=%x\n", 
+			rd_info[i].rd_start, rd_info[i].rd_end);
 }
 
+int rd_read(dev_t dev, unsigned long sector, unsigned long nr, char *buf)
+{
+	unsigned int minor;
+	unsigned long rd_nr;
+
+	minor = MINOR(dev);
+	if (minor >= nr_rd)
+		return -EINVAL;
+
+	rd_nr = rd_info[minor].rd_nr;
+	if (sector >= rd_nr)
+		return -EINVAL;
+	if (sector + nr >= rd_nr)
+		nr = rd_nr - sector;
+
+	if (nr)
+		memcpy(buf, (void *)(rd_info[minor].rd_start + 
+			sector*RD_SECTOR_SIZE), nr*RD_SECTOR_SIZE);
+	return 0;
+}
+
+int rd_write(dev_t dev, unsigned long sector, unsigned long nr, char *buf)
+{
+	unsigned int minor;
+	unsigned long rd_nr;
+
+	minor = MINOR(dev);
+	if (minor >= nr_rd)
+		return -EINVAL;
+
+	rd_nr = rd_info[minor].rd_nr;
+	if (sector >= rd_nr)
+		return -EINVAL;
+	if (sector + nr >= rd_nr)
+		nr = rd_nr - sector;
+
+	if (nr)
+		memcpy((void *)(rd_info[minor].rd_start + 
+			sector*RD_SECTOR_SIZE), buf, nr*RD_SECTOR_SIZE);
+	return 0;
+}
+
+int rd_get_info(dev_t dev, struct blkdev_info *info)
+{
+	unsigned int minor;
+
+	minor = MINOR(dev);
+	if (minor >= nr_rd)
+		return -EINVAL;
+
+	info->sector_size = RD_SECTOR_SIZE;
+	info->nr = rd_info[minor].rd_nr;
+	return 0;
+}
+
+struct blkdev_operations rd_ops = {
+	rd_read, 
+	rd_write, 
+	rd_get_info
+};
+
+void __tinit rd_init(void)
+{
+	register_blkdev(RD_MAJOR, &rd_ops);
+}
