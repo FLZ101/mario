@@ -17,9 +17,8 @@ void print_runqueue(void)
 
 	list_for_each(tmp, &runqueue_head) {
 		p = list_entry(tmp, struct task_struct, run_list);
-		early_print("%x ", p);
+		early_print("%x, ", p);
 	}
-	early_print("\n");
 }
 
 static void in_runqueue(struct task_struct *p)
@@ -65,21 +64,29 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	load_segment(gs, next->gs);
 }
 
-#define switch_to(next) \
-do { \
-	__asm__ __volatile__( \
-		"pushl %%ebp\n\t" \
-		"movl %%esp, %0\n\t" \
-		"movl %2, %%esp\n\t" \
-		"movl $1f, %1\n\t" \
-		"pushl %3\n\t" \
-		"jmp @_switch_to@8\n\t" \
-		"1:\n" \
-		"popl %%ebp" \
-		:"=m"(current->thread.esp), "=m"(current->thread.eip) \
-		:"m"(next->thread.esp), "m"(next->thread.eip), \
-		"c"(current), "d"(next)); \
-} while (0)
+void switch_to(struct task_struct *next)
+{
+	__asm__ __volatile__(
+		/* make sure eflags unchanged when we back */
+		"pushfl\n\t"
+		"cli\n\t"		/* cli */
+		"pushl %%esi\n\t"
+		"pushl %%edi\n\t"
+		"pushl %%ebp\n\t"
+		"movl %%esp, %0\n\t"	/* save esp */
+		"movl %2, %%esp\n\t"	/* restore esp */
+		"movl $1f, %1\n\t"	/* save eip */
+		"pushl %3\n\t"		/* restore eip */
+		"jmp @_switch_to@8\n"
+		"1:\n\t"
+		"popl %%ebp\n\t"
+		"popl %%edi\n\t"
+		"popl %%esi\n\t"
+		"popfl"
+		:"=m"(current->thread.esp), "=m"(current->thread.eip)
+		:"m"(next->thread.esp), "m"(next->thread.eip), 
+		"c"(current), "d"(next));
+}
 
 unsigned long need_resched = 0;
 
@@ -89,10 +96,9 @@ void schedule(void)
 	struct list_head *tmp;
 	struct task_struct *p, *next;
 
+	irq_save();
 	if (current->state != TASK_RUNNING)
 		out_runqueue(current);
-
-	irq_save();
 	/*
 	 * init_task wouldn't handle signal
 	 */
@@ -129,9 +135,7 @@ tail:
 
 static void process_timeout(unsigned long data)
 {
-	print_runqueue();
 	wake_up_process((struct task_struct *)data);
-	print_runqueue();
 }
 
 /*
@@ -169,20 +173,26 @@ void sleep_on(wait_queue_t *q, long state, spinlock_t *lock)
 	wait_queue_node_t node;
 	init_wait_queue_node(&node, current);
 
+	irq_save();
 	current->state = state;
 	in_wait_queue(q, &node);
 
 	if (lock)
 		RELEASE_LOCK(lock);
+	irq_restore();
 
 	schedule();
+
 	out_wait_queue(q, &node);
 }
 
 void wake_up(wait_queue_t *q, long state)
 {
-	struct list_head *tmp, *head = &q->task_list;
+	struct list_head *tmp, *head;
 
+	irq_save();
+
+	head = &q->task_list;
 	list_for_each(tmp, head) {
 		wait_queue_node_t *node = 
 			list_entry(tmp, wait_queue_node_t, task_list);
@@ -192,6 +202,8 @@ void wake_up(wait_queue_t *q, long state)
 			wake_up_process(node->p);
 		}
 	}
+
+	irq_restore();
 }
 
 /*
@@ -199,13 +211,17 @@ void wake_up(wait_queue_t *q, long state)
  */
 void wake_up_1st(wait_queue_t *q)
 {
-	struct list_head *head = &q->task_list;
-	if (list_empty(head))
-		return;
+	struct list_head *head;
 
+	irq_save();
+	if (list_empty(&q->task_list))
+		goto tail;
+	head = &q->task_list;
 	wait_queue_node_t *node = 
 		list_entry(head->next, wait_queue_node_t, task_list);
 
 	out_wait_queue(q, node);
 	wake_up_process(node->p);
+tail:
+	irq_restore();
 }

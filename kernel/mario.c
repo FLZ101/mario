@@ -126,7 +126,7 @@ void init(void *arg)
 	while (n--)
 		kernel_thread(test_blkdev, (void *)n);
 
-	schedule_timeout(HZ);
+	schedule_timeout(3*HZ);
 	brelse(bh);
 }
 
@@ -152,7 +152,7 @@ void mario(struct multiboot_info *m)
 	buffer_init();
 	sti();
 
-	kernel_thread(init, (void *)100);
+	kernel_thread(init, (void *)10000);
 	kernel_thread(bh_thread, NULL);
 
 	cpu_idle();
