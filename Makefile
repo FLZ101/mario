@@ -10,12 +10,12 @@ STRIP   :=strip
 NM      :=nm
 CC      :=gcc -m32
 INCLUDE :=-I include
-CFLAGS  :=-c -nostdinc -ffreestanding $(INCLUDE) -ggdb -Wall -O0
+CFLAGS  :=-c -nostdinc -ffreestanding $(INCLUDE) -ggdb -Wall -O2
 
 .PHONY: all depend clean clean-all
 
 OBJS    :=$(addsuffix .o,$(basename $(wildcard */*.[Sc])))
-OBJS    +=$(addsuffix .o,$(basename $(wildcard fs/*/*.[Sc])))
+OBJS    +=$(addsuffix .o,$(basename $(wildcard */*/*.[Sc])))
 # make kernel/start.o the first object file
 OBJS    :=$(filter-out start.o,$(OBJS))
 OBJS    :=kernel/start.o $(OBJS)
@@ -34,7 +34,9 @@ depend: $(DEPS)
 	@touch .depend
 
 clean:	OBJS:=$(wildcard */*.o)
+clean:	OBJS+=$(wildcard */*/*.o)
 clean:	DEPS:=$(wildcard */*.dep)
+clean:	DEPS+=$(wildcard */*/*.dep)
 clean:
 	$(RM) $(OBJS) $(DEPS) .depend
 

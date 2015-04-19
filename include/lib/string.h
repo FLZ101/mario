@@ -1,7 +1,7 @@
 #ifndef _STRING_H
 #define _STRING_H
 
-#include <lib/stddef.h>
+#include <types.h>
 
 int memcmp(const void *ptr1, const void *ptr2, size_t num);
 void *memchr(const void *ptr, int c, size_t num);

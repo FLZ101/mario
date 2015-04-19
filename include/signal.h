@@ -35,7 +35,7 @@
 #define SIGPWR		30
 #define	SIGUNUSED	31
 
-int send_sig(unsigned long sig,struct task_struct * p,int priv);
+int send_sig(unsigned long sig, struct task_struct *p, int priv);
 
 #define signal_pending(p)      ((p)->signal & ~(p)->blocked)
 

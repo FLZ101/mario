@@ -18,6 +18,7 @@ typedef struct {
 static inline void init_wait_queue_node(wait_queue_node_t *n, struct task_struct *p)
 {
 	n->p = p;
+	INIT_LIST_HEAD(&n->task_list);
 }
 
 static inline void init_wait_queue(wait_queue_t *q)

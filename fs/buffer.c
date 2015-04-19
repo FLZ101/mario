@@ -3,7 +3,6 @@
 #include <sched.h>
 #include <errno.h>
 
-#include <fs/fs.h>
 #include <fs/buffer.h>
 #include <fs/blkdev.h>
 
@@ -167,8 +166,10 @@ int brelse(struct buffer_head *bh)
 	}
 	RELEASE_LOCK(&buffer_lock);
 
-	if (sync)
+	if (sync) {
 		res = bsync(bh);
+		wake_up_all(&buffer_wait);
+	}
 
 	up(&bh->b_sem);
 	return res;

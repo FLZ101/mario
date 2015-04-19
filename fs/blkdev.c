@@ -1,9 +1,7 @@
 #include <misc.h>
-
-#include <fs/fs.h>
-#include <fs/blkdev.h>
-
 #include <errno.h>
+
+#include <fs/blkdev.h>
 
 #include <lib/stddef.h>
 

@@ -3,7 +3,6 @@
 
 #include <lib/list.h>
 #include <lib/bitops.h>
-#include <lib/atomic.h>
 
 #include <semaphore.h>
 

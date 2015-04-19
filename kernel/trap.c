@@ -2,6 +2,15 @@
 #include <trap.h>
 #include <idt.h>
 
+void print_tr(struct trap_frame *tr)
+{
+	early_print("ebx=%x,ecx=%x,edx=%x,esi=%x,edi=%x,ebp=%x,eax=%x\n", 
+		tr->ebx, tr->ecx, tr->edx, tr->esi, tr->edi, tr->ebp, tr->eax);
+	early_print(" ds=%x, es=%x,err=%x,eip=%x, cs=%x,elf=%x,esp=%x, ss=%x\n", 
+		tr->ds, tr->es, tr->error_code, tr->eip, tr->cs, 
+			tr->eflags, tr->esp, tr->ss);
+}
+
 typedef void trap_handler(void);
 extern trap_handler
 divide_error,
@@ -119,9 +128,11 @@ void do_general_protection(struct trap_frame tr)
 	early_hang("General Protection\n");
 }
 
+int i = 0;
 void do_page_fault(struct trap_frame tr)
 {
-	early_hang("Page Fault\n");
+	print_tr(&tr);
+	early_hang("Page Fault%d\n", i);
 }
 
 void do_spurious_interrupt_bug(struct trap_frame tr)

@@ -15,10 +15,14 @@ void print_runqueue(void)
 	struct list_head *tmp;
 	struct task_struct *p;
 
+	irq_save();
+	int i = 0;
 	list_for_each(tmp, &runqueue_head) {
 		p = list_entry(tmp, struct task_struct, run_list);
-		early_print("%x, ", p);
+		i++;
 	}
+	early_print("%d, ", i);
+	irq_restore();
 }
 
 static void in_runqueue(struct task_struct *p)
@@ -32,6 +36,7 @@ static void out_runqueue(struct task_struct *p)
 {
 	irq_save();
 	list_del(&p->run_list);
+	p->run_list.prev = NULL;
 	p->run_list.next = NULL;
 	irq_restore();
 }
@@ -61,7 +66,7 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	save_segment(fs, prev->fs);
 	save_segment(gs, prev->gs);
 	load_segment(fs, next->fs);
-	load_segment(gs, next->gs);
+	load_segment(gs, next->gs);extern int i; i++;
 }
 
 void switch_to(struct task_struct *next)
@@ -73,12 +78,16 @@ void switch_to(struct task_struct *next)
 		"pushl %%esi\n\t"
 		"pushl %%edi\n\t"
 		"pushl %%ebp\n\t"
+		"pushl %%eax\n\t"
+		"pushl %%ebx\n\t"
 		"movl %%esp, %0\n\t"	/* save esp */
 		"movl %2, %%esp\n\t"	/* restore esp */
 		"movl $1f, %1\n\t"	/* save eip */
 		"pushl %3\n\t"		/* restore eip */
 		"jmp @_switch_to@8\n"
 		"1:\n\t"
+		"popl %%ebx\n\t"
+		"popl %%eax\n\t"
 		"popl %%ebp\n\t"
 		"popl %%edi\n\t"
 		"popl %%esi\n\t"
@@ -125,9 +134,8 @@ void schedule(void)
 	}
 
 tail:
-	irq_restore();
-
 	need_resched = 0;
+	irq_restore();
 
 	if (next != current)
 		switch_to(next);

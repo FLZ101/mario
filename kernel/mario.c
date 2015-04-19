@@ -32,7 +32,7 @@ void kernel_thread(void (*fun)(void *), void *arg)
 		"1:"
 		:
 		:"b"(arg), "c"(fun)
-		:"eax", "memory");
+		:"eax", "esi", "memory");
 }
 
 void page_alloc_print(void)

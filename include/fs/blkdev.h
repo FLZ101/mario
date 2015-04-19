@@ -1,6 +1,10 @@
 #ifndef _BLKDEV_H
 #define _BLKDEV_H
 
+#include <fs/device.h>
+
+#include <types.h>
+
 struct blkdev_info {
 	int sector_size;
 	int nr;	/* the number of sectors */

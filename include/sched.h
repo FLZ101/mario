@@ -60,9 +60,9 @@ void sleep_on(wait_queue_t *q, long state, spinlock_t *lock);
 
 void wake_up(wait_queue_t *q, long state);
 
-#define wake_up_all(q) wakeup((q), TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE)
-#define wake_up_interruptible(q) wakeup((q), TASK_INTERRUPTIBLE)
-#define wake_up_uninterruptible(q) wakeup((q), TASK_UNINTERRUPTIBLE)
+#define wake_up_all(q) wake_up((q), TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE)
+#define wake_up_interruptible(q) wake_up((q), TASK_INTERRUPTIBLE)
+#define wake_up_uninterruptible(q) wake_up((q), TASK_UNINTERRUPTIBLE)
 
 void wake_up_1st(wait_queue_t *q);
 
