@@ -155,6 +155,7 @@ write_a_block:
 		goto new_block;
 
 	write = n - start % n;
+
 	if (write > end - start)
 		write = end - start;
 	memcpy_fromfs(bh->b_data + start % n, buf, write);
@@ -172,6 +173,7 @@ new_block:
 
 	if (mario_get_block(i->i_sb, 1, &block, &block))
 		goto tail_1;
+
 	*(int *)(bh->b_data + n) = block;
 	i->i_nr_block++;
 next_1:

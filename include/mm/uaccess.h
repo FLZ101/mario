@@ -58,9 +58,9 @@ __asm__ ("movl %0,%%fs:%1": /* no outputs */ :"ir" (val),"m" (*addr));
 #define put_fs_long(x,addr) put_user_long((x),(int *)(addr))
 
 
-void memcpy_fromfs(char *to, char *from, unsigned int n);
+void memcpy_fromfs(void *to, void *from, unsigned int n);
 
-void memcpy_tofs(char *to, char *from, unsigned int n);
+void memcpy_tofs(void *to, void *from, unsigned int n);
 
 static inline unsigned long get_fs(void)
 {

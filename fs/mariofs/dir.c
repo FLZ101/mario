@@ -5,8 +5,8 @@ extern int mario_get_block(struct super_block *sb, int nr, int *head, int *tail)
 extern int mario_put_block(struct super_block *sb, int head, int tail);
 
 /*
- * Find an entry in @dir, return the offset into rd (which is used as the 
- * inode number) of that entry 
+ * Find an entry in @dir, return the offset into rd (which is used as the
+ * inode number) of that entry
  */
 static int mario_find_entry(struct inode *dir, char *name, int len)
 {
@@ -62,25 +62,21 @@ static int mario_lookup(struct inode *dir, char *name, int len, struct inode **r
 		ret = -ENOENT;
 		goto tail;
 	}
-	if (!(*res = iget(dir->i_sb, ino)))
-		ret = -EACCES;
+	*res = iget(dir->i_sb, ino);
 tail:
 	iput(dir);
 	return ret;
 }
 
-int mario_create(struct inode *dir, char *name, int len, struct inode **res)
+static int mario_add_entry(struct inode *dir, struct mario_dir_entry *__entry,
+	struct inode **res)
 {
-	int i, n, offset, ret = 0;
+	int i, n, ret = 0;
 	int block, block_size, *next_block;
 	struct buffer_head *bh;
 	struct mario_dir_entry *entry;
 
 	*res = NULL;
-	if (len > MARIO_NAME_LEN - 1) {
-		ret = -ENAMETOOLONG;
-		goto tail;
-	}
 
 	block_size = dir->i_block_size;
 	n = block_size / MARIO_ENTRY_SIZE;	/* entries a block contains */
@@ -97,7 +93,7 @@ try:
 
 	for (i = 0; i < n; i++)
 		if (!entry[i].data || entry[i].data == MARIO_FREE_ENTRY) {
-			offset = i * MARIO_ENTRY_SIZE;
+			entry += i;
 			goto get_entry_done;
 		}
 
@@ -123,24 +119,52 @@ try:
 		goto tail;
 	}
 	entry = (struct mario_dir_entry *)bh->b_data;
-	offset = 0;
 
 get_entry_done:
-	entry->data = MARIO_ZERO_ENTRY;
-	entry->mode = MODE_REG;
-	entry->size = 0;
-	entry->blocks = 0;
-	strncpy(entry->name, name, len);
+	memcpy(entry, __entry, MARIO_ENTRY_SIZE);
 	set_dirty(bh);
 	brelse(bh);
-	*res = iget(dir->i_sb, block * block_size + offset);
+	*res = iget(dir->i_sb, block * block_size + 
+			(char *)entry - bh->b_data);
 tail:
 	iput(dir);
 	return ret;
+}
+
+int mario_create(struct inode *dir, char *name, int len, struct inode **res)
+{
+	struct mario_dir_entry entry;
+
+	if (len > MARIO_NAME_LEN - 1) {
+		iput(dir);
+		return -ENAMETOOLONG;
+	}
+
+	entry.data = MARIO_ZERO_ENTRY;
+	entry.mode = MODE_REG;
+	entry.size = 0;
+	entry.blocks = 0;
+	strncpy(entry.name, name, len);
+
+	return mario_add_entry(dir, &entry, res);
 }
 
 struct inode_operations mario_dir_iops = {
 	mario_lookup,
 	mario_create,
 	NULL
+};
+
+int mario_readdir(struct inode *dir, struct file *f, void *dirent, filldir_t filldir)
+{
+	return 0;
+}
+
+struct file_operations mario_dir_fops = {
+	NULL,	/* open */
+	NULL,	/* release */
+	NULL,
+	NULL,	/* read */
+	NULL,	/* write */
+	mario_readdir
 };

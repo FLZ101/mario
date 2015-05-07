@@ -143,8 +143,10 @@ extern int sys_read(unsigned int fd, char *buf, unsigned int count);
 extern int sys_write(unsigned int fd, char *buf, unsigned int count);
 extern int sys_close(unsigned int fd);
 extern int sys_lseek(unsigned int fd, off_t offset, unsigned int origin);
+extern int sys_stat(char *filename, struct stat *statbuf);
+extern int sys_fstat(unsigned int fd, struct stat *statbuf);
 
-char *write = 
+char *write =
 "IT WAS in the year '95 that a combination of events, into which I need not "
 "enter, caused Mr. Sherlock Holmes and myself to spend some weeks in "
 "one of our great university towns, and it was during this time that the "
@@ -158,17 +160,52 @@ char *write =
 "the events to any particular place, or give a clue as to the people "
 "concerned. ";
 
+void print_stat(struct stat *st)
+{
+	char *mode[] = {"REG", "DIR", "BLK", "CHR"};
+
+	early_print("dev:\t%x\n", st->st_dev);
+	early_print("ino:\t%x\n", st->st_ino);
+	early_print("mode:\t%s\n", mode[st->st_mode]);
+	early_print("rdev:\t%d\n", st->st_rdev);
+	early_print("size:\t%d\n", st->st_size);
+	early_print("blksz:\t%d\n", st->st_blksize);
+	early_print("blks:\t%x\n", st->st_blocks);
+}
+
+void print_inode(struct inode *i)
+{
+	char *mode[] = {"REG", "DIR", "BLK", "CHR"};
+
+	early_print("dev:\t%x\n", i->i_dev);
+	early_print("ino:\t%x\n", i->i_ino);
+	early_print("mode:\t%s\n", mode[i->i_mode]);
+	early_print("rdev:\t%d\n", i->i_rdev);
+	early_print("size:\t%d\n", i->i_size);
+	early_print("blksz:\t%d\n", i->i_block_size);
+	early_print("blks:\t%x\n", i->i_nr_block);
+}
+
 void test_fs(void)
 {
 	int fd;
+	struct stat st;
 	char buf[1200] = {0, };
 
 	fd = sys_open("/dev/her.txt", O_RDWR|O_CREAT);
 	early_print("write = %d\n", sys_write(fd, write, strlen(write)));
-	sys_lseek(fd, 0, 0);
-	early_print("read = %d\n", sys_read(fd, buf, 1200));
+	print_inode(current->files->fd[fd]->f_inode);
 	sys_close(fd);
-	early_print("%s\n", buf);
+	fd = sys_open("/dev/her.txt", O_RDONLY);
+	early_print("read = %d\n", sys_read(fd, buf, 1200));
+	//early_print("%s\n", buf);
+	//print_inode(current->files->fd[fd]->f_inode);
+	sys_fstat(fd, &st);
+	print_stat(&st);
+	sys_close(fd);
+
+	sys_stat("/dev/her.txt", &st);
+	print_stat(&st);
 }
 
 void bh_thread(void *arg);

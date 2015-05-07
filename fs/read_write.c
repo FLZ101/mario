@@ -7,6 +7,7 @@ int sys_lseek(unsigned int fd, off_t offset, unsigned int origin)
 
 	if (fd >= NR_OPEN || !(f = current->files->fd[fd]) || !(f->f_inode))
 		return -EBADF;
+
 	if (origin > 2)
 		return -EINVAL;
 	if (f->f_op && f->f_op->lseek)
@@ -45,6 +46,7 @@ int sys_read(unsigned int fd, char *buf, unsigned int count)
 		return -EBADF;
 	if (!f->f_op || !f->f_op->read)
 		return -EINVAL;
+
 	if (!count)
 		return 0;
 	error = verify_area(VERIFY_WRITE, buf, count);
@@ -66,6 +68,7 @@ int sys_write(unsigned int fd, char *buf, unsigned int count)
 		return -EBADF;
 	if (!f->f_op || !f->f_op->write)
 		return -EINVAL;
+
 	if (!count)
 		return 0;
 	error = verify_area(VERIFY_READ, buf, count);

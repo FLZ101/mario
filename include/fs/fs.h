@@ -115,15 +115,16 @@ struct inode *iget(struct super_block *, int);
 void iput(struct inode *);
 void iref(struct inode *);
 
-struct file;
+typedef int (*filldir_t)(void *, char *, int, off_t, ino_t);
 
+struct file;
 struct file_operations {
 	int (*open)(struct inode *, struct file *);
 	void (*release)(struct inode *, struct file *);
 	int (*lseek)(struct inode *, struct file *, off_t, int);
 	int (*read)(struct inode *, struct file *, char *, int);
 	int (*write)(struct inode *, struct file *, char *, int);
-	
+	int (*readdir) (struct inode *, struct file *, void *, filldir_t);
 };
 
 struct file {

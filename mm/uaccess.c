@@ -5,7 +5,7 @@ int verify_area(int type, const void *addr, unsigned long size)
 	return 0;
 }
 
-void memcpy_fromfs(char *to, char *from, unsigned int n)
+void memcpy_fromfs(void *to, void *from, unsigned int n)
 {
 	__asm__ __volatile__ (
 		"1:\n\t"
@@ -19,7 +19,7 @@ void memcpy_fromfs(char *to, char *from, unsigned int n)
 		:"eax", "memory");
 }
 
-void memcpy_tofs(char *to, char *from, unsigned int n)
+void memcpy_tofs(void *to, void *from, unsigned int n)
 {
 	__asm__ __volatile__ (
 		"1:\n\t"
