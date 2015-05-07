@@ -207,7 +207,7 @@ void __tinit early_print_init(struct multiboot_info *m)
 }
 
 #include <trap.h>
-void sys_write(struct trap_frame tr)
+void sys_print(struct trap_frame tr)
 {
 	unsigned long flags;
 	save_flags(flags);

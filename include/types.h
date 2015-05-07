@@ -26,4 +26,7 @@ typedef unsigned short mode_t;
 typedef unsigned short umode_t;
 typedef unsigned short nlink_t;
 
+typedef long time_t;
+typedef long clock_t;
+
 #endif	/* _TYPES_H */

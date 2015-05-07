@@ -13,12 +13,12 @@ static LIST_HEAD(runqueue_head);
 void print_runqueue(void)
 {
 	struct list_head *tmp;
-	struct task_struct *p;
+	/* struct task_struct *p; */
 
 	irq_save();
 	int i = 0;
 	list_for_each(tmp, &runqueue_head) {
-		p = list_entry(tmp, struct task_struct, run_list);
+		/* p = list_entry(tmp, struct task_struct, run_list); */
 		i++;
 	}
 	early_print("%d, ", i);

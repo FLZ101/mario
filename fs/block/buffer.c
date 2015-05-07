@@ -1,6 +1,7 @@
 #include <misc.h>
-#include <wait.h>
 #include <sched.h>
+#include <wait.h>
+
 #include <errno.h>
 
 #include <fs/buffer.h>
@@ -80,10 +81,13 @@ static struct buffer_head *find_buffer(dev_t dev, unsigned long sector)
 struct buffer_head *get_buffer(dev_t dev, unsigned long sector)
 {
 	int size;
+	int new;	/* the buffer is new? */
 	struct buffer_head *bh;
 
 	if (get_sector_size(dev, &size) || size != 512)
 		return NULL;
+
+	new = 0;
 try:
 	ACQUIRE_LOCK(&buffer_lock);
 	if ((bh = find_buffer(dev, sector)))
@@ -98,35 +102,39 @@ try:
 	bh->b_count++;
 	bh->b_dev = dev;
 	bh->b_sector = sector;
-
-	clear_dirty(bh);
-	clear_up2date(bh);
+	new = 1;
 
 tail:
 	list_del(&bh->b_lru);
 	list_add_tail(&bh->b_lru, &lru);
 	RELEASE_LOCK(&buffer_lock);
 	down(&bh->b_sem);
+	if (new) {
+		clear_dirty(bh);
+		clear_up2date(bh);
+	}
 	return bh;
 }
 
-/* load a sector into a buffer */
-int bread(struct buffer_head *bh)
+/* load a @sector in @dev into a buffer */
+struct buffer_head *bread(dev_t dev, unsigned long sector)
 {
-	int res;
+	int tmp;
+	struct buffer_head *bh;
 
+	bh = get_buffer(dev, sector);
+	if (!bh)
+		return NULL;
 	if (buffer_up2date(bh))
-		return 0;
-
-	if (buffer_dirty(bh)) {
-		blkdev_write(bh->b_dev, bh->b_sector, 1, bh->b_data);
-		clear_dirty(bh);
+		return bh;
+	tmp = blkdev_read(bh->b_dev, bh->b_sector, 1, bh->b_data);
+	if (tmp) {
+		brelse(bh);
+		return NULL;
 	}
-
-	res = blkdev_read(bh->b_dev, bh->b_sector, 1, bh->b_data);
 	set_up2date(bh);
-	
-	return res;
+	clear_dirty(bh);
+	return bh;
 }
 
 int bsync(struct buffer_head *bh)
@@ -139,7 +147,7 @@ int bsync(struct buffer_head *bh)
 }
 
 /*
- * make @bh the last free (which means @bh->b_count is 0) one in lru
+ * make @bh the last 'free' (which means @bh->b_count is 0) one in lru
  */
 static void into_lru_list(struct buffer_head *bh)
 {

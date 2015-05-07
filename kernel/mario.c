@@ -1,5 +1,5 @@
 #include <multiboot.h>
-#include <syscall.h>
+#include <unistd.h>
 #include <sched.h>
 #include <trap.h>
 #include <time.h>
@@ -106,11 +106,13 @@ void timer_thread(unsigned int n)
 
 void test_blkdev(void *arg)
 {
-	int n = (int)arg;
+	int n;
+	struct buffer_head *bh;
+	char *buf;
 
-	struct buffer_head *bh = get_buffer(MKDEV(RD_MAJOR, 0), 0);
-	bread(bh);
-	char *buf = bh->b_data;
+	n = (int)arg;
+	bh = bread(MKDEV(RD_MAJOR, 0), 0);
+	buf = bh->b_data;
 	buf[10] = '\0';
 	printf("%s%u\n", buf, n);
 	set_dirty(bh);
@@ -136,8 +138,42 @@ void cpu_idle(void)
 		schedule();
 }
 
+extern int sys_open(const char *filename, int flags);
+extern int sys_read(unsigned int fd, char *buf, unsigned int count);
+extern int sys_write(unsigned int fd, char *buf, unsigned int count);
+extern int sys_close(unsigned int fd);
+extern int sys_lseek(unsigned int fd, off_t offset, unsigned int origin);
+
+char *write = 
+"IT WAS in the year '95 that a combination of events, into which I need not "
+"enter, caused Mr. Sherlock Holmes and myself to spend some weeks in "
+"one of our great university towns, and it was during this time that the "
+"small but instructive adventure which I am about to relate befell us. It will "
+"be obvious that any details which would help the reader exactly to "
+"identify the college or the criminal would be injudicious and offensive. So "
+"painful a scandal may well be allowed to die out. With due discretion the "
+"incident itself may, however, be described, since it serves to illustrate "
+"some of those qualities for which my friend was remarkable. I will "
+"endeavour, in my statement, to avoid such terms as would serve to limit "
+"the events to any particular place, or give a clue as to the people "
+"concerned. ";
+
+void test_fs(void)
+{
+	int fd;
+	char buf[1200] = {0, };
+
+	fd = sys_open("/dev/her.txt", O_RDWR|O_CREAT);
+	early_print("write = %d\n", sys_write(fd, write, strlen(write)));
+	sys_lseek(fd, 0, 0);
+	early_print("read = %d\n", sys_read(fd, buf, 1200));
+	sys_close(fd);
+	early_print("%s\n", buf);
+}
+
 void bh_thread(void *arg);
 
+int _namei(char *pathname, struct inode *base, struct inode **res_inode);
 void mario(struct multiboot_info *m)
 {
 	early_print_init(m);
@@ -150,10 +186,14 @@ void mario(struct multiboot_info *m)
 
 	blkdev_init();
 	buffer_init();
+	fs_init();
+	test_fs();
 	sti();
 
+	/*
 	kernel_thread(init, (void *)10000);
 	kernel_thread(bh_thread, NULL);
+	*/
 
 	cpu_idle();
 }

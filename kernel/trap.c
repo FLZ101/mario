@@ -4,11 +4,14 @@
 
 void print_tr(struct trap_frame *tr)
 {
-	early_print("ebx=%x,ecx=%x,edx=%x,esi=%x,edi=%x,ebp=%x,eax=%x\n", 
-		tr->ebx, tr->ecx, tr->edx, tr->esi, tr->edi, tr->ebp, tr->eax);
-	early_print(" ds=%x, es=%x,err=%x,eip=%x, cs=%x,elf=%x,esp=%x, ss=%x\n", 
-		tr->ds, tr->es, tr->error_code, tr->eip, tr->cs, 
-			tr->eflags, tr->esp, tr->ss);
+	early_print("ebx=%x, ecx=%x, edx=%x, esi=%x\n",
+		tr->ebx, tr->ecx, tr->edx, tr->esi);
+	early_print("edi=%x, ebp=%x, eax=%x,  ds=%x\n",
+		tr->edi, tr->ebp, tr->eax, tr->ds);
+	early_print(" es=%x, err=%x, eip=%x,  cs=%x\n", 
+		tr->es, tr->error_code, tr->eip, tr->cs);
+	early_print("elf=%x, esp=%x,  ss=%x\n",
+		tr->eflags, tr->esp, tr->ss);
 }
 
 typedef void trap_handler(void);

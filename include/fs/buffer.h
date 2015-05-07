@@ -3,6 +3,7 @@
 
 #include <lib/list.h>
 #include <lib/bitops.h>
+#include <lib/atomic.h>
 
 #include <semaphore.h>
 
@@ -20,7 +21,6 @@ struct buffer_head {
 /* bh state bits */
 #define BH_Dirty	0	/* the buffer is dirty */
 #define BH_Up2date	1	/* the buffer contains valid data */
-#define BH_Reserved	2	/* the buffer is reserved */
 
 #define buffer_up2date(bh) 	test_bit(BH_Up2date, &(bh)->b_state)
 #define buffer_dirty(bh) 	test_bit(BH_Dirty, &(bh)->b_state)
@@ -34,8 +34,7 @@ struct buffer_head {
 void buffer_init(void);
 
 struct buffer_head *get_buffer(dev_t dev, unsigned long sector);
-
-int bread(struct buffer_head *bh);
+struct buffer_head *bread(dev_t dev, unsigned long sector);
 int brelse(struct buffer_head *bh);
 
 #endif /* _BUFFER_H */

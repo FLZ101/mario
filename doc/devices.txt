@@ -1,0 +1,9 @@
+Devices currently supported by mario:
+
+0	NULL DEVICE
+
+1	char
+	block ramdisk
+		0 = /dev/rd0
+		1 = /dev/rd1
+		2 = /dev/rd2

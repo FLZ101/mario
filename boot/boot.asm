@@ -473,7 +473,7 @@ A20:
     call find_it
     jnc $   ;KERNEL_EXE not found, we stop here
 
-;Now eax is the fisrt cluster number of KERNEL_EXE
+;Now eax is the first cluster number of KERNEL_EXE
     mov [ClusNumber], eax
     mov [ClusNumber2], eax
     call load_next_clus

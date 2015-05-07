@@ -21,16 +21,28 @@ struct thread_struct {
 	unsigned long cr2, trap_no, error_code;
 };
 
+struct rlimit {
+	long	rlim_cur;
+	long	rlim_max;
+};
+
+#define RLIMIT_DATA	0	/* maximum data size */
+#define RLIMIT_STACK	1	/* maximum stack size */
+
+#define NR_RLIMIT	2
+
+struct fs_struct;
+struct files_struct;
 struct task_struct {
 	volatile long state;
 	int counter;
 	int priority;
-	
+
 	unsigned long signal;
 	unsigned long blocked;
-	
-	int exit_code;
 
+	int exit_code;
+	struct rlimit rlim[NR_RLIMIT];
 	pid_t pid;
 
 	struct list_head run_list;
@@ -44,8 +56,10 @@ struct task_struct {
 	long it_real_value, it_prof_value, it_virt_value;
 	long it_real_incr, it_prof_incr, it_virt_incr;
 	struct timer_list real_timer;
-	
+
 	struct mm_struct *mm;
+	struct fs_struct *fs;
+	struct files_struct *files;
 	struct thread_struct thread;
 	spinlock_t lock;
 };

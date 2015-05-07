@@ -158,6 +158,20 @@ void page_free(unsigned long vir)
 	free_page(VIR_TO_PAGE(vir));
 }
 
+struct page *get_page(void)
+{
+	struct page *page;
+	if ((page = alloc_page()))
+		atomic_set(&page->count, 1);
+	return page;
+}
+
+void put_page(struct page *page)
+{
+	if (atomic_dec_and_test(&page->count))
+		free_page(page);
+}
+
 extern unsigned long _init, _bss;
 void __tinit free_init_area(void)
 {

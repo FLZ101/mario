@@ -24,15 +24,6 @@ int del_timer(struct timer_list *timer);
 
 void run_timer_list(void);
 
-struct itimerval {
-	struct	timeval it_interval;
-	struct	timeval it_value;
-};
-
-#define	ITIMER_REAL	0
-#define	ITIMER_VIRTUAL	1
-#define	ITIMER_PROF	2
-
 void it_real_fun(unsigned long data);
 int _setitimer(int which, struct itimerval *value, struct itimerval *ovalue);
 

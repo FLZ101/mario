@@ -1,5 +1,5 @@
-#ifndef _SYSCALL_H
-#define _SYSCALL_H
+#ifndef _UNISTD_H
+#define _UNISTD_H
 
 #include <errno.h>
 
@@ -81,4 +81,4 @@ __syscall_return(type, __res); \
 
 static inline __attribute__((always_inline)) _syscall0(int, fork)
 
-#endif	/* _SYSCALL_H */
+#endif	/* _UNISTD_H */

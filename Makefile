@@ -10,7 +10,7 @@ STRIP   :=strip
 NM      :=nm
 CC      :=gcc -m32
 INCLUDE :=-I include
-CFLAGS  :=-c -nostdinc -ffreestanding $(INCLUDE) -ggdb -Wall -O2
+CFLAGS  :=-c -nostdinc -ffreestanding $(INCLUDE) -ggdb -Wall -O0
 
 .PHONY: all depend clean clean-all
 

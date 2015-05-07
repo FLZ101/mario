@@ -4,14 +4,16 @@
 #include <misc.h>
 
 #include <lib/list.h>
+#include <lib/atomic.h>
 
 struct page {
+	atomic_t count;
 	struct list_head list;
 };
 
 extern struct page *mem_map;
 
-#define PAGE_TO_PFN(x)	(unsigned long)((x)-mem_map)
+#define PAGE_TO_PFN(x)	((unsigned long)((x)-mem_map))
 #define PAGE_TO_PHY(x)	(PAGE_TO_PFN(x) << PAGE_SHIFT)
 #define PAGE_TO_VIR(x)	__vir(PAGE_TO_PHY(x))
 
@@ -33,6 +35,15 @@ void free_pages(struct page *page, unsigned long order);
 void page_free(unsigned long vir);
 void pages_free(unsigned long vir, unsigned long order);
 
+struct page *get_page(void);
+void put_page(struct page *page);
+
+static inline void ref_page(struct page *page)
+{
+	atomic_inc(&page->count);
+}
+
 void free_init_area(void);
+
 
 #endif	/* _PAGE_ALLOC_H */

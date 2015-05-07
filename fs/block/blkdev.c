@@ -13,6 +13,8 @@ struct {
 
 extern void rd_init(void);
 
+extern dev_t ROOT_DEV;
+
 void __tinit blkdev_init(void)
 {
 	int i;
@@ -21,6 +23,7 @@ void __tinit blkdev_init(void)
 		blkdevs[i].blkdev_ops = NULL;
 
 	rd_init();
+	ROOT_DEV = MKDEV(RD_MAJOR, 0);
 }
 
 int register_blkdev(unsigned int major, struct blkdev_operations *blkdev_ops)

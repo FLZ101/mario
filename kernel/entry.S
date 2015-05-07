@@ -272,6 +272,6 @@ _irqf:
 	.data
 
 ENTRY(sys_call_table)
-	.long _sys_write
+	.long _sys_print
 	.long _sys_fork
 	.long _sys_pause

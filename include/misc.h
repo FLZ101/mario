@@ -65,6 +65,9 @@ __asm__ __volatile__("pushfl; popl %0":"=g"(x): :"memory")
 #define restore_flags(x) \
 __asm__ __volatile__("pushl %0; popfl": :"g"(x):"memory")
 
+/*
+ * Really ugly
+ */
 #define irq_save() \
 	unsigned long flags; \
 	save_flags(flags); \
