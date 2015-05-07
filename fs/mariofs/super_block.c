@@ -4,9 +4,17 @@ extern struct inode_operations mario_file_iops;
 extern struct inode_operations mario_dir_iops;
 
 extern struct file_operations mario_file_fops;
+extern struct file_operations mario_dir_fops;
+
 /*
- * return block number of the @nth block of that chain;
- * n < 1 means the last block
+ * Try to get block number of the @nth block of that chain;
+ * if error occurs
+ *   a negative value is returned
+ * else
+ *   return the block we touched
+ * NOTE:
+ *   @inode:	a directory or a file not empty
+ *   @n:	0 means the last block
  */
 int mario_nth_block(struct inode *inode, int n, int *block_nr)
 {
@@ -14,13 +22,6 @@ int mario_nth_block(struct inode *inode, int n, int *block_nr)
 	struct buffer_head *bh;
 
 	*block_nr = 0;
-
-	if (S_ISREG(inode->i_mode)) {
-		if (!inode->i_size)	/* An empty file? */
-			return -EINVAL;
-	} else if (!S_ISDIR(inode->i_mode)) {
-		return -EINVAL;
-	}
 
 	for (i = 1, j = inode->i_rdev; n != i; i++) {
 		if (!(bh = bread(inode->i_dev, j)))
@@ -32,7 +33,7 @@ int mario_nth_block(struct inode *inode, int n, int *block_nr)
 		j = next_block;
 	}
 	*block_nr = j;
-	return 0;
+	return i;
 }
 
 /*
@@ -138,7 +139,7 @@ static int mario_read_inode(struct inode *i)
 		i->i_fop = &mario_file_fops;
 	} else if (S_ISDIR(i->i_mode)) {
 		i->i_op = &mario_dir_iops;
-		i->i_fop = NULL;
+		i->i_fop = &mario_dir_fops;
 	} else if (S_ISBLK(i->i_mode)) {
 		i->i_op = NULL;
 		i->i_fop = NULL;

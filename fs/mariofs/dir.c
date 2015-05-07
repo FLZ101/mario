@@ -3,7 +3,7 @@
 
 extern int mario_get_block(struct super_block *sb, int nr, int *head, int *tail);
 extern int mario_put_block(struct super_block *sb, int head, int tail);
-
+extern int mario_nth_block(struct inode *inode, int n, int *block_nr);
 /*
  * Find an entry in @dir, return the offset into rd (which is used as the
  * inode number) of that entry
@@ -19,7 +19,7 @@ static int mario_find_entry(struct inode *dir, char *name, int len)
 		return 0;
 
 	/* maximum mario_dir_entries a block could contain */
-	n = dir->i_block_size / MARIO_ENTRY_SIZE;
+	n = (dir->i_block_size - 4) / MARIO_ENTRY_SIZE;
 
 	block = dir->i_rdev;
 try:
@@ -79,7 +79,7 @@ static int mario_add_entry(struct inode *dir, struct mario_dir_entry *__entry,
 	*res = NULL;
 
 	block_size = dir->i_block_size;
-	n = block_size / MARIO_ENTRY_SIZE;	/* entries a block contains */
+	n = (block_size - 4) / MARIO_ENTRY_SIZE;	/* entries a block contains */
 	block = dir->i_rdev;
 	/*
 	 * Get an empty mario_dir_entry
@@ -157,13 +157,48 @@ struct inode_operations mario_dir_iops = {
 
 int mario_readdir(struct inode *dir, struct file *f, void *dirent, filldir_t filldir)
 {
+	int i, n, size;
+	int block, start;
+	struct buffer_head *bh;
+	struct mario_dir_entry *entry;
+
+	size = dir->i_block_size;
+	n = (size - 4) / MARIO_ENTRY_SIZE;
+	if (f->f_pos % MARIO_ENTRY_SIZE)
+		return -EINVAL;
+	start = f->f_pos / MARIO_ENTRY_SIZE;
+	if (start/n + 1 != mario_nth_block(dir, start/n + 1, &block))
+		return -EIO;
+read_a_block:
+	if (!(bh = bread(dir->i_dev, block)))
+		return 0;
+	entry = (struct mario_dir_entry *)bh->b_data;
+	for (i = start % n; i < n; i++) {
+		/* end of dir? */
+		if (!entry[i].data)
+			break;
+		/* an unused entry? */
+		if (entry[i].data == MARIO_FREE_ENTRY)
+			continue;
+		if (filldir(dirent, entry[i].name, strlen(entry[i].name), f->f_pos, 
+			block * size + i * MARIO_ENTRY_SIZE)) {
+			brelse(bh);
+			return 0;	
+		}
+		f->f_pos += MARIO_ENTRY_SIZE;
+		start++;
+	}
+	brelse(bh);
+	block = *(int *)(bh->b_data + size - 4);
+	if (block)
+		goto read_a_block;
 	return 0;
 }
 
 struct file_operations mario_dir_fops = {
 	NULL,	/* open */
 	NULL,	/* release */
-	NULL,
+	NULL,	/* lseek - default */
 	NULL,	/* read */
 	NULL,	/* write */
 	mario_readdir

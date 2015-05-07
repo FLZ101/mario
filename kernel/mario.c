@@ -186,8 +186,42 @@ void print_inode(struct inode *i)
 	early_print("blks:\t%x\n", i->i_nr_block);
 }
 
+struct mario_dirent {
+	unsigned long d_ino;
+	unsigned long d_off;
+	unsigned short d_reclen;
+	char d_name[1];
+};
+
+extern int sys_getdents(unsigned int fd, void *dirent, unsigned int count);
+
+void ls(char *dirname)
+{
+	int fd, count, pos;
+	char buf[100];
+	struct mario_dirent *de;
+
+	fd = sys_open(dirname, O_RDONLY);
+	if (fd < 0) {
+		early_print("TROUBLE0 :(\n");
+		return;
+	}
+try:
+	count = sys_getdents(fd, buf, 100);
+	if (count < 0)
+		return;
+	pos = 0;
+	while (pos < count) {
+		de = (struct mario_dirent *)(buf + pos);
+		early_print("%d, %s\n", de->d_ino, de->d_name);
+		pos += de->d_reclen;
+	}
+	goto try;
+}
+
 void test_fs(void)
 {
+#if 0
 	int fd;
 	struct stat st;
 	char buf[1200] = {0, };
@@ -206,6 +240,8 @@ void test_fs(void)
 
 	sys_stat("/dev/her.txt", &st);
 	print_stat(&st);
+#endif
+	ls("/");
 }
 
 void bh_thread(void *arg);

@@ -6,6 +6,7 @@
 #include <misc.h>
 #include <errno.h>
 #include <semaphore.h>
+#include <limits.h>
 
 #include <mm/page_alloc.h>
 #include <mm/uaccess.h>
@@ -147,9 +148,6 @@ struct fs_struct {
 	int count;
 	struct inode *root, *pwd;
 };
-
-/* The maximum number of files a process can open at a time */
-#define NR_OPEN	256
 
 struct files_struct {
 	int count;

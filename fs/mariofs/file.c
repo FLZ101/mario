@@ -94,7 +94,7 @@ int mario_file_read(struct inode *i, struct file *f, char *buf, int count)
 		end = start + count;
 	/* bytes of data a block contains */
 	n = i->i_block_size - 4;
-	if (mario_nth_block(i, start/n + 1, &block))
+	if (start/n + 1 != mario_nth_block(i, start/n + 1, &block))
 		return 0;
 read_a_block:
 	if (!(bh = bread(i->i_dev, block)))
