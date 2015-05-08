@@ -52,8 +52,11 @@ int sys_read(unsigned int fd, char *buf, unsigned int count)
 	error = verify_area(VERIFY_WRITE, buf, count);
 	if (error)
 		return error;
-
-	return f->f_op->read(i, f, buf, count);
+	/* To feel safe */
+	down(&i->i_sem);
+	error = f->f_op->read(i, f, buf, count);
+	up(&i->i_sem);
+	return error;
 }
 
 int sys_write(unsigned int fd, char *buf, unsigned int count)

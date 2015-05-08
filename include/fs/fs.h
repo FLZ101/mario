@@ -72,7 +72,7 @@ void mount_root(void);
 struct inode_operations {
 	int (*lookup)(struct inode *, char *, int, struct inode **);
 	int (*create)(struct inode *, char *, int, struct inode **);
-	int (*truncate)(struct inode *, ssize_t);
+	int (*truncate)(struct inode *, int);
 };
 
 struct file_operations;

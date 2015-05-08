@@ -145,6 +145,9 @@ extern int sys_close(unsigned int fd);
 extern int sys_lseek(unsigned int fd, off_t offset, unsigned int origin);
 extern int sys_stat(char *filename, struct stat *statbuf);
 extern int sys_fstat(unsigned int fd, struct stat *statbuf);
+extern int sys_truncate(const char *path, int length);
+extern int sys_creat(const char *pathname);
+extern int sys_ftruncate(unsigned int fd, int length);
 
 char *write =
 "IT WAS in the year '95 that a combination of events, into which I need not "
@@ -164,26 +167,26 @@ void print_stat(struct stat *st)
 {
 	char *mode[] = {"REG", "DIR", "BLK", "CHR"};
 
-	early_print("dev:\t%x\n", st->st_dev);
-	early_print("ino:\t%x\n", st->st_ino);
-	early_print("mode:\t%s\n", mode[st->st_mode]);
-	early_print("rdev:\t%d\n", st->st_rdev);
-	early_print("size:\t%d\n", st->st_size);
-	early_print("blksz:\t%d\n", st->st_blksize);
-	early_print("blks:\t%x\n", st->st_blocks);
+	early_print("dev=%x, ", st->st_dev);
+	early_print("ino=%x, ", st->st_ino);
+	early_print("mode=%s, ", mode[st->st_mode]);
+	early_print("rdev=%u\n", st->st_rdev);
+	early_print("size=%d, ", st->st_size);
+	early_print("blksz=%d, ", st->st_blksize);
+	early_print("blks=%x\n", st->st_blocks);
 }
 
 void print_inode(struct inode *i)
 {
 	char *mode[] = {"REG", "DIR", "BLK", "CHR"};
 
-	early_print("dev:\t%x\n", i->i_dev);
-	early_print("ino:\t%x\n", i->i_ino);
-	early_print("mode:\t%s\n", mode[i->i_mode]);
-	early_print("rdev:\t%d\n", i->i_rdev);
-	early_print("size:\t%d\n", i->i_size);
-	early_print("blksz:\t%d\n", i->i_block_size);
-	early_print("blks:\t%x\n", i->i_nr_block);
+	early_print("dev=%x, ", i->i_dev);
+	early_print("ino=%x, ", i->i_ino);
+	early_print("mode=%s, ", mode[i->i_mode]);
+	early_print("rdev=%u\n", i->i_rdev);
+	early_print("size=%d, ", i->i_size);
+	early_print("blksz=%d, ", i->i_block_size);
+	early_print("blks=%x\n", i->i_nr_block);
 }
 
 struct mario_dirent {
@@ -225,17 +228,21 @@ void test_fs(void)
 	struct stat st;
 	char buf[1200] = {0, };
 
-	fd = sys_open("/dev/her.txt", O_RDWR|O_CREAT);
+	fd = sys_creat("/dev/her.txt");
 	early_print("write = %d\n", sys_write(fd, write, strlen(write)));
-	//print_inode(current->files->fd[fd]->f_inode);
+	print_inode(current->files->fd[fd]->f_inode);
 	sys_close(fd);
-	//fd = sys_open("/dev/her.txt", O_RDONLY);
-	//early_print("read = %d\n", sys_read(fd, buf, 1200));
-	//early_print("%s\n", buf);
-	//print_inode(current->files->fd[fd]->f_inode);
+	fd = sys_open("/dev/her.txt", O_RDWR);
+	early_print("write = %d\n", sys_write(fd, write, 10));
+	print_inode(current->files->fd[fd]->f_inode);
+	sys_ftruncate(fd, 0);
+	print_inode(current->files->fd[fd]->f_inode);
+	sys_lseek(fd, 0, 0);
+	early_print("read = %d\n", sys_read(fd, buf, 1200));
+	early_print("%s\n", buf);
 	//sys_fstat(fd, &st);
 	//print_stat(&st);
-	//sys_close(fd);
+	sys_close(fd);
 
 	sys_stat("/dev/her.txt", &st);
 	print_stat(&st);

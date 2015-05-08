@@ -59,6 +59,7 @@ int mario_get_block(struct super_block *sb, int nr, int *head, int *tail)
 		k = j;
 		if (!j) {	/* terribly bad */
 			up(&sb->s_sem);
+			early_print("%s%s", __FUNCTION__, ": Corrupt mariofs\n");
 			return -EIO;
 		}
 		/*

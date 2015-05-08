@@ -91,3 +91,43 @@ int sys_close(unsigned int fd)
 	put_file(f);
 	return 0;
 }
+
+int sys_truncate(const char *path, int length)
+{
+	struct inode *inode;
+	int error;
+
+	error = namei(path, &inode);
+	if (error)
+		return error;
+	if (S_ISDIR(inode->i_mode))
+		return -EACCES;
+	if (!inode->i_op || !inode->i_op->truncate)
+		return -EINVAL;
+	down(&inode->i_sem);
+	error = inode->i_op->truncate(inode, length);
+	up(&inode->i_sem);
+	iput(inode);
+	return error;
+}
+
+int sys_ftruncate(unsigned int fd, int length)
+{
+	struct inode *inode;
+	struct file *file;
+	int error;
+
+	if (fd >= NR_OPEN || !(file = current->files->fd[fd]))
+		return -EBADF;
+	if (!(inode = file->f_inode))
+		return -ENOENT;
+	if (S_ISDIR(inode->i_mode) || !(file->f_mode & 2))
+		return -EACCES;
+	if (!inode->i_op || !inode->i_op->truncate)
+		return -EINVAL;
+	down(&inode->i_sem);
+	error = inode->i_op->truncate(inode, length);
+	up(&inode->i_sem);
+	iput(inode);
+	return error;
+}

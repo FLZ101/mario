@@ -7,7 +7,7 @@ extern int mario_nth_block(struct inode *inode, int n, int *block_nr);
 /*
  * This function doesn't eat inode
  */
-static int mario_file_truncate(struct inode *i, ssize_t size)
+static int mario_file_truncate(struct inode *i, int size)
 {
 	int error, tmp;
 	int head, tail, *next_block;
@@ -28,10 +28,11 @@ static int mario_file_truncate(struct inode *i, ssize_t size)
 			return error;
 		if (!blocks) {	/* an empty file? */
 			i->i_rdev = head;
-			goto tail;
+			goto end;
 		}
 		/* go to the end of that block chain */
-		mario_nth_block(i, 0, &tmp);
+		if (1 > mario_nth_block(i, 0, &tmp))
+			return -EIO;
 		if (!(bh = bread(i->i_dev, tmp))) {
 			mario_put_block(i->i_sb, head, tail);
 			return -EIO;
@@ -40,14 +41,15 @@ static int mario_file_truncate(struct inode *i, ssize_t size)
 		*next_block = head;
 		set_dirty(bh);
 		brelse(bh);
-		goto tail;
+		goto end;
 	}
 	if (n < blocks) {
 		/* go to the last block */
 		mario_nth_block(i, 0, &tail);
 		if (n) {
 			/* go to the nth block */
-			mario_nth_block(i, n, &head);
+			if (n != mario_nth_block(i, n, &head))
+				return -EIO;
 			if (!(bh = bread(i->i_dev, head)))
 				return -EIO;
 			next_block = (int *)(bh->b_data + block_size - 4);
@@ -60,9 +62,8 @@ static int mario_file_truncate(struct inode *i, ssize_t size)
 			i->i_rdev = MARIO_ZERO_ENTRY;
 		}
 		mario_put_block(i->i_sb, head, tail);
-		goto tail;
 	}
-tail:
+end:
 	i->i_size = size;
 	i->i_nr_block = n;
 	set_bit(I_Dirty, &i->i_state);
@@ -112,8 +113,8 @@ read_a_block:
 	if (start == end)
 		return res;
 	if (!block) {
-		early_print("Corrupt mariofs :(\n");
-			return res;
+		early_print("%s%s", __FUNCTION__, ": Corrupt mariofs\n");
+		return res;
 	}
 	goto read_a_block;
 }
