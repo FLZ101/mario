@@ -221,27 +221,25 @@ try:
 
 void test_fs(void)
 {
-#if 0
 	int fd;
 	struct stat st;
 	char buf[1200] = {0, };
 
 	fd = sys_open("/dev/her.txt", O_RDWR|O_CREAT);
 	early_print("write = %d\n", sys_write(fd, write, strlen(write)));
-	print_inode(current->files->fd[fd]->f_inode);
+	//print_inode(current->files->fd[fd]->f_inode);
 	sys_close(fd);
-	fd = sys_open("/dev/her.txt", O_RDONLY);
-	early_print("read = %d\n", sys_read(fd, buf, 1200));
+	//fd = sys_open("/dev/her.txt", O_RDONLY);
+	//early_print("read = %d\n", sys_read(fd, buf, 1200));
 	//early_print("%s\n", buf);
 	//print_inode(current->files->fd[fd]->f_inode);
-	sys_fstat(fd, &st);
-	print_stat(&st);
-	sys_close(fd);
+	//sys_fstat(fd, &st);
+	//print_stat(&st);
+	//sys_close(fd);
 
 	sys_stat("/dev/her.txt", &st);
 	print_stat(&st);
-#endif
-	ls("/");
+	ls("dev/");
 }
 
 void bh_thread(void *arg);

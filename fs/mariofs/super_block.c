@@ -132,7 +132,7 @@ static int mario_read_inode(struct inode *i)
 	i->i_size = entry->size;
 	i->i_nr_block = entry->blocks;
 	i->i_block_size = sb->s_block_size;
-	strncpy(MARIO_INODE_NAME(i), entry->name, MARIO_NAME_LEN);
+	strcpy(MARIO_INODE_NAME(i), entry->name);
 
 	if (S_ISREG(i->i_mode)) {
 		i->i_op = &mario_file_iops;
@@ -169,7 +169,7 @@ static int mario_write_inode(struct inode *i)
 	entry->mode = i->i_mode;
 	entry->size = i->i_size;
 	entry->blocks = i->i_nr_block;
-	strncpy(entry->name, MARIO_INODE_NAME(i), MARIO_NAME_LEN);
+	strcpy(entry->name, MARIO_INODE_NAME(i));
 	set_dirty(bh);
 	brelse(bh);
 	return 0;

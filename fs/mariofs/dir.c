@@ -34,7 +34,7 @@ try:
 		/* an unused entry? */
 		if (entry[i].data == MARIO_FREE_ENTRY)
 			continue;
-		if (!strncmp(name, entry[i].name, len))
+		if (!strncmp(name, entry[i].name, len) && !entry[i].name[len])
 			return block * dir->i_block_size + i * MARIO_ENTRY_SIZE;
 	}
 
@@ -145,6 +145,7 @@ int mario_create(struct inode *dir, char *name, int len, struct inode **res)
 	entry.size = 0;
 	entry.blocks = 0;
 	strncpy(entry.name, name, len);
+	entry.name[len] = '\0';	/* !!! */
 
 	return mario_add_entry(dir, &entry, res);
 }
