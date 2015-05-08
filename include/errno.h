@@ -16,6 +16,8 @@
 #define ENOSPC		13
 #define EBADF		14
 #define EFAULT		15
+#define EPERM		16
+#define ENOTEMPTY	17
 
 extern int errno;
 

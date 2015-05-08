@@ -148,6 +148,11 @@ extern int sys_fstat(unsigned int fd, struct stat *statbuf);
 extern int sys_truncate(const char *path, int length);
 extern int sys_creat(const char *pathname);
 extern int sys_ftruncate(unsigned int fd, int length);
+extern int sys_chdir(const char *filename);
+extern int sys_rmdir(char *pathname);
+extern int sys_mkdir(char *pathname);
+extern int sys_chroot(char *filename);
+extern int sys_fchdir(char *filename);
 
 char *write =
 "IT WAS in the year '95 that a combination of events, into which I need not "
@@ -198,6 +203,7 @@ struct mario_dirent {
 
 extern int sys_getdents(unsigned int fd, void *dirent, unsigned int count);
 
+/* list content of a directory */
 void ls(char *dirname)
 {
 	int fd, count, pos;
@@ -211,8 +217,10 @@ void ls(char *dirname)
 	}
 try:
 	count = sys_getdents(fd, buf, 100);
-	if (count < 0)
+	if (count <= 0) {
+		sys_close(fd);
 		return;
+	}
 	pos = 0;
 	while (pos < count) {
 		de = (struct mario_dirent *)(buf + pos);
@@ -224,6 +232,7 @@ try:
 
 void test_fs(void)
 {
+#if 0
 	int fd;
 	struct stat st;
 	char buf[1200] = {0, };
@@ -246,7 +255,19 @@ void test_fs(void)
 
 	sys_stat("/dev/her.txt", &st);
 	print_stat(&st);
-	ls("dev/");
+#endif
+	//ls("./apple");
+	//sys_chdir("dev");
+	//ls("../.././dev");
+	ls("tmp");
+	sys_rmdir("/tmp/fuck");
+	ls("tmp");
+	/*
+	sys_mkdir("/tmp/her");
+	ls("/tmp");
+	*/
+	sys_chroot("tmp");
+	sys_mkdir("/her");
 }
 
 void bh_thread(void *arg);

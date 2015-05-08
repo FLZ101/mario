@@ -237,3 +237,69 @@ SHE__:
 	*res_inode = inode;
 	return 0;
 }
+
+static int do_rmdir(char *name)
+{
+	char *basename;
+	int namelen, error;
+	struct inode *dir;
+
+	error = dir_namei(name, &namelen, &basename, NULL, &dir);
+	if (error)
+		return error;
+	if (!namelen) {		/* !!! */
+		iput(dir);
+		return -ENOENT;
+	}
+	if (!dir->i_op || !dir->i_op->rmdir) {
+		iput(dir);
+		return -EPERM;
+	}
+	return dir->i_op->rmdir(dir, basename, namelen);
+}
+
+int sys_rmdir(char *pathname)
+{
+	int error;
+	char *tmp;
+
+	error = getname(pathname, &tmp);
+	if (!error) {
+		error = do_rmdir(tmp);
+		putname(tmp);
+	}
+	return error;
+}
+
+static int do_mkdir(char *name)
+{
+	char *basename;
+	int namelen, error;
+	struct inode *dir;
+
+	error = dir_namei(name, &namelen, &basename, NULL, &dir);
+	if (error)
+		return error;
+	if (!namelen) {		/* !!! */
+		iput(dir);
+		return -ENOENT;
+	}
+	if (!dir->i_op || !dir->i_op->mkdir) {
+		iput(dir);
+		return -EPERM;
+	}
+	return dir->i_op->mkdir(dir, basename, namelen);
+}
+
+int sys_mkdir(char *pathname)
+{
+	int error;
+	char *tmp;
+
+	error = getname(pathname, &tmp);
+	if (!error) {
+		error = do_mkdir(tmp);
+		putname(tmp);
+	}
+	return error;
+}

@@ -131,3 +131,54 @@ int sys_ftruncate(unsigned int fd, int length)
 	iput(inode);
 	return error;
 }
+
+int sys_chdir(const char *filename)
+{
+	struct inode *inode;
+	int error;
+
+	error = namei(filename, &inode);
+	if (error)
+		return error;
+	if (!S_ISDIR(inode->i_mode)) {
+		iput(inode);
+		return -ENOTDIR;
+	}
+	iput(current->fs->pwd);
+	current->fs->pwd = inode;
+	return 0;
+}
+
+int sys_fchdir(char *filename)
+{
+	struct inode *inode;
+	struct file *file;
+
+	if (fd >= NR_OPEN || !(file = current->files->fd[fd]))
+		return -EBADF;
+	if (!(inode = file->f_inode))
+		return -ENOENT;
+	if (!S_ISDIR(inode->i_mode))
+		return -ENOTDIR;
+	iput(current->fs->pwd);
+	iref(inode);
+	current->fs->pwd = inode;
+	return 0;
+}
+
+int sys_chroot(char *filename)
+{
+	struct inode *inode;
+	int error;
+
+	error = namei(filename, &inode)
+	if (error)
+		return error;
+	if (!S_ISDIR(inode->i_mode)) {
+		iput(inode);
+		return -ENOTDIR;
+	}
+	iput(current->fs->root);
+	current->fs->root = inode;
+	return 0;
+}

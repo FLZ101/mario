@@ -73,6 +73,8 @@ struct inode_operations {
 	int (*lookup)(struct inode *, char *, int, struct inode **);
 	int (*create)(struct inode *, char *, int, struct inode **);
 	int (*truncate)(struct inode *, int);
+	int (*rmdir)(struct inode *, char *, int);
+	int (*mkdir)(struct inode *, char *, int);
 };
 
 struct file_operations;
