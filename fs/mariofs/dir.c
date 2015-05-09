@@ -215,7 +215,7 @@ static int mario_del_entry(struct inode *i, int free)
 	if (entry->data == MARIO_ZERO_ENTRY)
 		goto tail_1;
 	if (!free)
-		goto tail_2;
+		goto tail_1;
 	/* goto the last block */
 	if (1 > mario_nth_block(i, 0, (int*)&block)) {
 		ret = -EIO;
@@ -366,6 +366,12 @@ int do_mario_rename(struct inode *old_dir, char *old_name, int old_len,
 	if (!(ino = mario_find_entry(new_dir, new_name, new_len)))
 		goto next_1;
 	new_inode = iget(new_dir->i_sb, ino);
+
+	if (new_inode == old_inode) {
+		iput(new_inode);
+		iput(old_inode);
+		return 0;
+	}
 	/* do some check */
 	if (S_ISDIR(new_inode->i_mode)) {
 		if (!S_ISDIR(old_inode->i_mode))
@@ -403,7 +409,25 @@ next_1:
 	entry.mode = old_inode->i_mode;
 	entry.size = old_inode->i_size;
 	entry.blocks = old_inode->i_nr_block;
-	strcpy(entry.name, MARIO_INODE_NAME(old_inode));
+	strncpy(entry.name, new_name, new_len);
+	entry.name[new_len] = '\0';
+	/*
+	 * If old_inode is a directory we need to change its parent
+	 */
+	if (S_ISDIR(old_inode->i_mode) && old_dir != new_dir) {
+		struct buffer_head *bh;
+		struct mario_dir_entry *tmp;
+
+		bh = bread(old_inode->i_dev, old_inode->i_rdev);
+		if (!bh) {
+			error = -EIO;
+			goto next_3;
+		}
+		tmp = (struct mario_dir_entry *)bh->b_data;
+		tmp[1].data = new_dir->i_rdev;	/* .. */
+		set_dirty(bh);
+		brelse(bh);
+	}
 	mario_add_entry(new_dir, &entry, NULL);
 next_3:
 	iput(old_inode);

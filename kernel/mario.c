@@ -156,6 +156,7 @@ extern int sys_fchdir(char *filename);
 extern int sys_link(char *oldname, char *newname);
 extern int sys_unlink(char *pathname);
 extern int sys_rename(char *oldname, char *newname);
+extern int sys_getdents(unsigned int fd, void *dirent, unsigned int count);
 
 char *write =
 "IT WAS in the year '95 that a combination of events, into which I need not "
@@ -203,8 +204,6 @@ struct mario_dirent {
 	unsigned short d_reclen;
 	char d_name[1];
 };
-
-extern int sys_getdents(unsigned int fd, void *dirent, unsigned int count);
 
 /* list content of a directory */
 void ls(char *dirname)
@@ -278,6 +277,7 @@ void test_fs(void)
 	sys_chdir("..");
 	ls(".");
 #endif
+#if 0
 	//early_print("%d\n", sys_link("99.txt", "999.txt"));
 	int fd;
 	ls("/tmp");
@@ -289,6 +289,14 @@ void test_fs(void)
 	fd = sys_creat("/tmp/1.txt");
 	sys_close(fd);
 	ls("tmp");
+#endif
+	ls("apple");
+	ls("tmp");
+	sys_rename("apple/38.txt", "apple/83.fuck");
+	sys_rename("apple/pear", "tmp/pear");
+	ls("apple");
+	sys_chdir("tmp/pear/..");
+	ls(".");
 }
 
 void bh_thread(void *arg);
