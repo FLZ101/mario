@@ -303,3 +303,146 @@ int sys_mkdir(char *pathname)
 	}
 	return error;
 }
+
+static int do_link(struct inode *oldinode, char *newname)
+{
+	struct inode *dir;
+	char *basename;
+	int namelen, error;
+
+	error = dir_namei(newname, &namelen, &basename, NULL, &dir);
+	if (error) {
+		iput(oldinode);
+		return error;
+	}
+	if (!namelen) {
+		iput(oldinode);
+		iput(dir);
+		return -EPERM;
+	}
+	if (dir->i_dev != oldinode->i_dev) {
+		iput(dir);
+		iput(oldinode);
+		return -EXDEV;
+	}
+	if (!dir->i_op || !dir->i_op->link) {
+		iput(dir);
+		iput(oldinode);
+		return -EPERM;
+	}
+	return dir->i_op->link(oldinode, dir, basename, namelen);
+}
+
+int sys_link(char *oldname, char *newname)
+{
+	int error;
+	char *to;
+	struct inode *oldinode;
+
+	error = getname(oldname, &to);
+	if (error)
+		return error;
+	error = namei(to, &oldinode);
+	putname(to);
+	if (error)
+		return error;
+	error = getname(newname, &to);
+	if (error) {
+		iput(oldinode);
+		return error;
+	}
+	error = do_link(oldinode, to);
+	putname(to);
+	return error;
+}
+
+static int do_unlink(char *name)
+{
+	char *basename;
+	int namelen, error;
+	struct inode *dir;
+
+	error = dir_namei(name, &namelen, &basename, NULL, &dir);
+	if (error)
+		return error;
+	if (!namelen) {
+		iput(dir);
+		return -EPERM;
+	}
+	if (!dir->i_op || !dir->i_op->unlink) {
+		iput(dir);
+		return -EPERM;
+	}
+	return dir->i_op->unlink(dir, basename, namelen);
+}
+
+int sys_unlink(char *pathname)
+{
+	int error;
+	char *tmp;
+
+	error = getname(pathname, &tmp);
+	if (!error) {
+		error = do_unlink(tmp);
+		putname(tmp);
+	}
+	return error;
+}
+
+static int do_rename(char *oldname, char *newname)
+{
+	struct inode *old_dir, *new_dir;
+	char *old_base, *new_base;
+	int old_len, new_len, error;
+
+	error = dir_namei(oldname, &old_len, &old_base, NULL, &old_dir);
+	if (error)
+		return error;
+	if (!old_len || (old_base[0] == '.' && 
+		(old_len == 1 || (old_base[1] == '.' && 
+			old_len == 2)))) {
+		iput(old_dir);
+		return -EPERM;
+	}
+	error = dir_namei(newname, &new_len, &new_base, NULL, &new_dir);
+	if (error) {
+		iput(old_dir);
+		return error;
+	}
+	if (!new_len || (new_base[0] == '.' && 
+		(new_len == 1 || (new_base[1] == '.' && 
+			new_len == 2)))) {
+		iput(old_dir);
+		iput(new_dir);
+		return -EPERM;
+	}
+	if (new_dir->i_dev != old_dir->i_dev) {
+		iput(old_dir);
+		iput(new_dir);
+		return -EXDEV;
+	}
+	if (!old_dir->i_op || !old_dir->i_op->rename) {
+		iput(old_dir);
+		iput(new_dir);
+		return -EPERM;
+	}
+	return old_dir->i_op->rename(old_dir, old_base, old_len, 
+		new_dir, new_base, new_len);
+}
+
+int sys_rename(char *oldname, char *newname)
+{
+	int error;
+	char *from, *to;
+
+	error = getname(oldname, &from);
+	if (!error) {
+		error = getname(newname, &to);
+		if (!error) {
+			error = do_rename(from, to);
+			putname(to);
+		}
+		putname(from);
+	}
+	return error;
+}

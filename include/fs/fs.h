@@ -75,6 +75,9 @@ struct inode_operations {
 	int (*truncate)(struct inode *, int);
 	int (*rmdir)(struct inode *, char *, int);
 	int (*mkdir)(struct inode *, char *, int);
+	int (*link)(struct inode *, struct inode *, char *, int);
+	int (*unlink)(struct inode *, char *, int);
+	int (*rename)(struct inode *, char *, int, struct inode *, char *, int);
 };
 
 struct file_operations;

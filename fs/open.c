@@ -149,7 +149,7 @@ int sys_chdir(const char *filename)
 	return 0;
 }
 
-int sys_fchdir(char *filename)
+int sys_fchdir(unsigned int fd)
 {
 	struct inode *inode;
 	struct file *file;
@@ -171,7 +171,7 @@ int sys_chroot(char *filename)
 	struct inode *inode;
 	int error;
 
-	error = namei(filename, &inode)
+	error = namei(filename, &inode);
 	if (error)
 		return error;
 	if (!S_ISDIR(inode->i_mode)) {

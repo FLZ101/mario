@@ -12,6 +12,12 @@ struct semaphore {
 	wait_queue_t wait;
 };
 
+#define INIT_MUTEX(sem)	{\
+	1, \
+	SPINLOCK_UNLOCKED, \
+	{ LIST_HEAD_INIT(sem.wait.task_list) }\
+}
+
 static inline void sema_init(struct semaphore *sem, int val)
 {
 	sem->count = val;

@@ -192,9 +192,11 @@ try:
 
 /*
  * Delete an entry so that @mario_find_entry can not get it any more
+ * If @free we also free blocks that entry occupies
  */
-static int mario_del_entry(struct inode *i)
+static int mario_del_entry(struct inode *i, int free)
 {
+	int ret = 0;
 	unsigned long off, block;
 	struct buffer_head *bh;
 	struct mario_dir_entry *entry;
@@ -206,10 +208,26 @@ static int mario_del_entry(struct inode *i)
 	if (!(bh = bread(i->i_dev, block)))
 		return -EIO;
 	entry = (struct mario_dir_entry *)(bh->b_data + off);
+	/* device file? */
+	if (S_ISBLK(entry->mode) || S_ISCHR(entry->mode))
+		goto tail_1;
+	/* empty file? */
+	if (entry->data == MARIO_ZERO_ENTRY)
+		goto tail_1;
+	if (!free)
+		goto tail_2;
+	/* goto the last block */
+	if (1 > mario_nth_block(i, 0, (int*)&block)) {
+		ret = -EIO;
+		goto tail_2;
+	}
+	mario_put_block(i->i_sb, entry->data, block);
+tail_1:
 	entry->data = MARIO_FREE_ENTRY;
 	set_dirty(bh);
+tail_2:
 	brelse(bh);
-	return 0;
+	return ret;
 }
 
 int mario_rmdir(struct inode *dir, char *name, int len)
@@ -243,7 +261,7 @@ int mario_rmdir(struct inode *dir, char *name, int len)
 		ret = -ENOTEMPTY;
 		goto tail;
 	}
-	mario_del_entry(inode);
+	mario_del_entry(inode, 1);
 	iput(inode);	/* This inode would not be got any more */
 tail:
 	up(&dir->i_sem);
@@ -301,12 +319,123 @@ fail_1:
 	return ret;
 }
 
+/*
+ * For mariofs `unlink' is `delete'
+ */
+int mario_unlink(struct inode *dir, char *name, int len)
+{
+	int ino, ret = 0;
+	struct inode *inode;
+
+	down(&dir->i_sem);
+	if (!(ino = mario_find_entry(dir, name, len))) {
+		ret = -ENOENT;
+		goto tail;
+	}
+	inode = iget(dir->i_sb, ino);
+	if (S_ISDIR(inode->i_mode)) {
+		ret = -EPERM;
+		goto tail;
+	}
+	if (inode->i_count > 1) {
+		ret = -EBUSY;
+		goto tail;
+	}
+	mario_del_entry(inode, 1);
+	iput(inode);	/* This inode would not be got any more */
+tail:
+	up(&dir->i_sem);
+	iput(dir);
+	return ret;
+}
+
+static 
+int do_mario_rename(struct inode *old_dir, char *old_name, int old_len,
+	struct inode *new_dir, char *new_name, int new_len)
+{
+	int ino, error = 0;
+	struct inode *old_inode, *new_inode;
+	struct mario_dir_entry entry;
+
+	if (old_len > MARIO_NAME_LEN - 1 || new_len > MARIO_NAME_LEN - 1)
+		return -ENAMETOOLONG;
+	if (!(ino = mario_find_entry(old_dir, old_name, old_len)))
+		return -ENOENT;
+	old_inode = iget(old_dir->i_sb, ino);
+
+	if (!(ino = mario_find_entry(new_dir, new_name, new_len)))
+		goto next_1;
+	new_inode = iget(new_dir->i_sb, ino);
+	/* do some check */
+	if (S_ISDIR(new_inode->i_mode)) {
+		if (!S_ISDIR(old_inode->i_mode))
+			return -EISDIR;
+		if (!empty_dir(new_inode))
+			return -ENOTEMPTY;
+	} else {
+		if (S_ISDIR(old_inode->i_mode))
+			return -ENOTDIR;
+	}
+	/* delete new_inode */
+	down(&new_dir->i_sem);
+	if (new_inode->i_count > 1) {
+		error = -EBUSY;
+		goto next_2;
+	}
+	mario_del_entry(new_inode, 1);
+next_2:
+	iput(new_inode);
+	up(&new_dir->i_sem);
+	if (error) {
+		iput(old_inode);
+		return error;
+	}
+next_1:
+	/* delete old_inode but not free blocks occupied */
+	down(&old_dir->i_sem);
+	if (old_inode->i_count > 1) {
+		error = -EBUSY;
+		goto next_3;
+	}
+	mario_del_entry(old_inode, 0);
+	/* add old_inode to new_dir */
+	entry.data = old_inode->i_rdev;
+	entry.mode = old_inode->i_mode;
+	entry.size = old_inode->i_size;
+	entry.blocks = old_inode->i_nr_block;
+	strcpy(entry.name, MARIO_INODE_NAME(old_inode));
+	mario_add_entry(new_dir, &entry, NULL);
+next_3:
+	iput(old_inode);
+	up(&old_dir->i_sem);
+	return error;
+}
+
+int mario_rename(struct inode *old_dir, char *old_name, int old_len,
+	struct inode *new_dir, char *new_name, int new_len)
+{
+	/* To simplify things */
+	static struct semaphore sem = INIT_MUTEX(sem);
+	int ret;
+
+	down(&sem);
+	ret = do_mario_rename(old_dir, old_name, old_len,
+		new_dir, new_name, new_len);
+	iput(old_dir);
+	iput(new_dir);
+	up(&sem);
+	return ret;
+}
+
 struct inode_operations mario_dir_iops = {
 	mario_lookup,
 	mario_create,
 	NULL,
 	mario_rmdir,
-	mario_mkdir
+	mario_mkdir,
+	NULL,	/* mariofs doesn't support hard-link */
+	mario_unlink,
+	mario_rename
 };
 
 int mario_readdir(struct inode *dir, struct file *f, void *dirent, filldir_t filldir)

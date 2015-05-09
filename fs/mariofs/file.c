@@ -73,7 +73,10 @@ end:
 struct inode_operations mario_file_iops = {
 	NULL,
 	NULL,
-	mario_file_truncate
+	mario_file_truncate,
+	NULL,
+	NULL,
+	NULL
 };
 
 int mario_file_read(struct inode *i, struct file *f, char *buf, int count)

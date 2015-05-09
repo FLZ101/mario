@@ -153,6 +153,9 @@ extern int sys_rmdir(char *pathname);
 extern int sys_mkdir(char *pathname);
 extern int sys_chroot(char *filename);
 extern int sys_fchdir(char *filename);
+extern int sys_link(char *oldname, char *newname);
+extern int sys_unlink(char *pathname);
+extern int sys_rename(char *oldname, char *newname);
 
 char *write =
 "IT WAS in the year '95 that a combination of events, into which I need not "
@@ -256,6 +259,7 @@ void test_fs(void)
 	sys_stat("/dev/her.txt", &st);
 	print_stat(&st);
 #endif
+#if 0
 	//ls("./apple");
 	//sys_chdir("dev");
 	//ls("../.././dev");
@@ -268,6 +272,23 @@ void test_fs(void)
 	*/
 	sys_chroot("tmp");
 	sys_mkdir("/her");
+	sys_chdir("/her");
+	sys_chdir(".");
+	ls(".");
+	sys_chdir("..");
+	ls(".");
+#endif
+	//early_print("%d\n", sys_link("99.txt", "999.txt"));
+	int fd;
+	ls("/tmp");
+	fd = sys_creat("/tmp/0.txt");
+	sys_close(fd);
+	ls("tmp");
+	sys_unlink("tmp/0.txt");
+	ls("tmp");
+	fd = sys_creat("/tmp/1.txt");
+	sys_close(fd);
+	ls("tmp");
 }
 
 void bh_thread(void *arg);

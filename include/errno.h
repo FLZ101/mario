@@ -18,6 +18,7 @@
 #define EFAULT		15
 #define EPERM		16
 #define ENOTEMPTY	17
+#define	EXDEV		18
 
 extern int errno;
 
