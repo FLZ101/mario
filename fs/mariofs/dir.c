@@ -451,6 +451,34 @@ int mario_rename(struct inode *old_dir, char *old_name, int old_len,
 	return ret;
 }
 
+int mario_mknod(struct inode *dir, char *name, int len, int mode, int rdev)
+{
+	int ino, error = 0;
+	struct mario_dir_entry entry;
+
+	if (len > MARIO_NAME_LEN - 1)
+		return -ENAMETOOLONG;
+
+	down(&dir->i_sem);
+	if ((ino = mario_find_entry(dir, name, len))) {
+		error = -EEXIST;
+		goto tail;
+	}
+	entry.mode = mode;
+	if (entry.mode == MODE_REG)
+		entry.data = MARIO_ZERO_ENTRY;
+	else
+		entry.data = rdev;
+	entry.size = 0;
+	entry.blocks = 0;
+	strncpy(entry.name, name, len);
+	entry.name[len] = '\0';
+	mario_add_entry(dir, &entry, NULL);
+tail:
+	up(&dir->i_sem);
+	return error;
+}
+
 struct inode_operations mario_dir_iops = {
 	mario_lookup,
 	mario_create,
@@ -459,7 +487,8 @@ struct inode_operations mario_dir_iops = {
 	mario_mkdir,
 	NULL,	/* mariofs doesn't support hard-link */
 	mario_unlink,
-	mario_rename
+	mario_rename,
+	mario_mknod
 };
 
 int mario_readdir(struct inode *dir, struct file *f, void *dirent, filldir_t filldir)

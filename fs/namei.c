@@ -446,3 +446,40 @@ int sys_rename(char *oldname, char *newname)
 	}
 	return error;
 }
+
+static int do_mknod(char *filename, int mode, dev_t dev)
+{
+	char *basename;
+	int namelen, error;
+	struct inode *dir;
+
+	error = dir_namei(filename, &namelen, &basename, NULL, &dir);
+	if (error)
+		return error;
+	if (!namelen) {
+		iput(dir);
+		return -ENOENT;
+	}
+	if (!dir->i_op || !dir->i_op->mknod) {
+		iput(dir);
+		return -EPERM;
+	}
+	return dir->i_op->mknod(dir, basename, namelen, mode, dev);
+}
+
+int sys_mknod(char *filename, int mode, dev_t dev)
+{
+	int error;
+	char *tmp;
+
+	if (S_ISDIR(mode))
+		return -EPERM;
+	if (mode < MODE_REG || mode > MODE_CHR)
+		return -EINVAL;
+	error = getname(filename, &tmp);
+	if (!error) {
+		error = do_mknod(tmp, mode, dev);
+		putname(tmp);
+	}
+	return error;
+}

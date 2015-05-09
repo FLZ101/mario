@@ -78,6 +78,7 @@ struct inode_operations {
 	int (*link)(struct inode *, struct inode *, char *, int);
 	int (*unlink)(struct inode *, char *, int);
 	int (*rename)(struct inode *, char *, int, struct inode *, char *, int);
+	int (*mknod)(struct inode *,char *,int,int,int);
 };
 
 struct file_operations;

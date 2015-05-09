@@ -157,6 +157,7 @@ extern int sys_link(char *oldname, char *newname);
 extern int sys_unlink(char *pathname);
 extern int sys_rename(char *oldname, char *newname);
 extern int sys_getdents(unsigned int fd, void *dirent, unsigned int count);
+extern int sys_mknod(char *filename, int mode, dev_t dev);
 
 char *write =
 "IT WAS in the year '95 that a combination of events, into which I need not "
@@ -290,6 +291,7 @@ void test_fs(void)
 	sys_close(fd);
 	ls("tmp");
 #endif
+#if 0
 	ls("apple");
 	ls("tmp");
 	sys_rename("apple/38.txt", "apple/83.fuck");
@@ -297,6 +299,10 @@ void test_fs(void)
 	ls("apple");
 	sys_chdir("tmp/pear/..");
 	ls(".");
+#endif
+	ls("tmp");
+	sys_mknod("tmp/where", 0, 0);
+	ls("tmp");
 }
 
 void bh_thread(void *arg);
