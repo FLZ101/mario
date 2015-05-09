@@ -5,8 +5,6 @@
 
 #include <lib/stddef.h>
 
-#define MAX_BLKDEV	64
-
 struct {
 	struct blkdev_operations *blkdev_ops;
 } blkdevs[MAX_BLKDEV];

@@ -176,13 +176,29 @@ static int mario_write_inode(struct inode *i)
 	return 0;
 }
 
+int mario_write_super(struct super_block *sb)
+{
+	struct buffer_head *bh;
+	struct mario_super_block *mario_sb;
+
+	if (sb->s_magic != MARIO_MAGIC)
+		return -EINVAL;
+	if (!(bh = bread(sb->s_dev, 0)))
+		return -EIO;
+	mario_sb = (struct mario_super_block *)bh->b_data;
+	mario_sb->nr_free = MARIO_NR_FREE(sb);
+	mario_sb->free = MARIO_FREE(sb);
+	brelse(bh);
+	return 0;
+}
+
 static struct super_operations mario_sops = {
 	mario_read_inode, 
 	mario_write_inode,
-	NULL
+	mario_write_super
 };
 
-static struct super_block *mario_read_super(struct super_block *sb, void *data)
+static struct super_block *mario_read_super(struct super_block *sb)
 {
 	struct buffer_head *bh;
 	struct mario_super_block *mario_sb;

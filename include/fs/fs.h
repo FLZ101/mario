@@ -28,7 +28,7 @@
 #include <fs/mariofs/mariofs.h>
 
 struct file_system_type {
-	struct super_block *(*read_super)(struct super_block *, void *);
+	struct super_block *(*read_super)(struct super_block *);
 	struct list_head list;
 	char *name;
 };

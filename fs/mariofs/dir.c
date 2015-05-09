@@ -34,8 +34,15 @@ try:
 		/* an unused entry? */
 		if (entry[i].data == MARIO_FREE_ENTRY)
 			continue;
-		if (!strncmp(name, entry[i].name, len) && !entry[i].name[len])
+		if (!strncmp(name, entry[i].name, len) && !entry[i].name[len]) {
+			/*
+			 * To make mount works, all inodes referring to 
+			 * ROOT must have the same inode number
+			 */
+			if (entry[i].data == MARIO_ROOT)
+				return MARIO_ROOT_INO;
 			return block * dir->i_block_size + i * MARIO_ENTRY_SIZE;
+		}
 	}
 
 	next_block = (int *)(bh->b_data + dir->i_block_size - 4);

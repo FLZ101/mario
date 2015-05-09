@@ -14,6 +14,7 @@
 #define MARIO_MAGIC	0x4518cdef
 
 #define MARIO_ROOT	1	/* the block number of root directory */
+#define MARIO_ROOT_INO	(MARIO_ROOT * 512)
 
 #define MARIO_NAME_LEN	16
 
@@ -46,10 +47,12 @@ struct mario_super_block {
 	__u32 nr_free;		/* the number of free blocks */
 	__u32 magic;		/* mariofs magic number */
 	__u32 free;		/* free block chain */
-	struct mario_dir_entry root;	/* root directory entry */
+	/*
+	 * root directory entry
+	 * not used
+	 */
+	struct mario_dir_entry root;
 } __attribute__((gcc_struct, packed));
-
-#define MARIO_ROOT_INO	((int)&(((struct mario_super_block *)0)->root))
 
 struct mario_inode_info {
 	char name[MARIO_NAME_LEN];

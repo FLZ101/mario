@@ -158,6 +158,8 @@ extern int sys_unlink(char *pathname);
 extern int sys_rename(char *oldname, char *newname);
 extern int sys_getdents(unsigned int fd, void *dirent, unsigned int count);
 extern int sys_mknod(char *filename, int mode, dev_t dev);
+extern int sys_mount(char *dev_name, char *dir_name, char *type);
+extern int sys_umount(char *name);
 
 char *write =
 "IT WAS in the year '95 that a combination of events, into which I need not "
@@ -300,14 +302,20 @@ void test_fs(void)
 	sys_chdir("tmp/pear/..");
 	ls(".");
 #endif
+#if 0
 	ls("tmp");
 	sys_mknod("tmp/where", 0, 0);
+	ls("tmp");
+#endif
+	ls("tmp");
+	sys_mount("dev/rd1", "tmp", "mariofs");
+	ls("tmp/cat/../../tmp");
+	sys_umount("dev/rd1");
 	ls("tmp");
 }
 
 void bh_thread(void *arg);
 
-int _namei(char *pathname, struct inode *base, struct inode **res_inode);
 void mario(struct multiboot_info *m)
 {
 	early_print_init(m);

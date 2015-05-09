@@ -35,7 +35,7 @@ static struct super_block *get_super(dev_t dev)
 			return all + i;
 	return NULL;
 }
-/*
+
 static int write_super(struct super_block *sb)
 {
 	if (!sb_dirty(sb))
@@ -47,8 +47,8 @@ static int write_super(struct super_block *sb)
 	
 	return 0;
 }
-*/
-static struct super_block *read_super(dev_t dev, char *name, void *data)
+
+static struct super_block *read_super(dev_t dev, char *name)
 {
 	struct super_block *sb;
 	struct file_system_type *fs;
@@ -66,7 +66,7 @@ static struct super_block *read_super(dev_t dev, char *name, void *data)
 			break;
 	}
 	sb->s_dev = dev;
-	if (!fs->read_super(sb, data)) {
+	if (!fs->read_super(sb)) {
 		sb->s_dev = 0;
 		return NULL;
 	}
@@ -83,7 +83,7 @@ void mount_root(void)
 	down(&sb_sem);
 	list_for_each(pos, &file_systems) {
 		tmp = list_entry(pos, struct file_system_type, list);
-		sb = read_super(ROOT_DEV, tmp->name, NULL);
+		sb = read_super(ROOT_DEV, tmp->name);
 		if (sb) {
 			/* NOTE! this inode would be referenced 4 times */
 			i = sb->s_mounted;
@@ -99,4 +99,118 @@ void mount_root(void)
 
 	if (!sb)
 		early_hang("mount_root fails");
+}
+
+extern int fs_may_mount(dev_t dev);
+extern int fs_may_umount(dev_t dev, struct inode *mount_root);
+
+static int do_mount(dev_t dev, char *dir_name, char *type)
+{
+	struct inode *dir_i;
+	struct super_block *sb;
+	int error;
+
+	error = namei(dir_name, &dir_i);
+	if (error)
+		return error;
+	if (dir_i->i_count != 1 || dir_i->i_mount) {
+		iput(dir_i);
+		return -EBUSY;
+	}
+	if (!S_ISDIR(dir_i->i_mode)) {
+		iput(dir_i);
+		return -ENOTDIR;
+	}
+	if (!fs_may_mount(dev)) {
+		iput(dir_i);
+		return -EBUSY;
+	}
+	sb = read_super(dev, type);
+	if (!sb) {
+		iput(dir_i);
+		return -EINVAL;
+	}
+	if (sb->s_covered) {
+		iput(dir_i);
+		return -EBUSY;
+	}
+	sb->s_covered = dir_i;
+	dir_i->i_mount = sb->s_mounted;
+	return 0;
+}
+
+int sys_mount(char *dev_name, char *dir_name, char *type)
+{
+	int error;
+	char *tmp;
+	dev_t dev;
+	struct inode *inode;
+	struct file_system_type *fs_type;
+
+	if (getname(type, &tmp))
+		return -ENODEV;
+	fs_type = get_fs_type(tmp);
+	putname(tmp);
+	if (!fs_type)
+		return -ENODEV;
+	error = namei(dev_name, &inode);
+	if (error)
+		return error;
+	if (!S_ISBLK(inode->i_mode)) {
+		iput(inode);
+		return -ENOTBLK;
+	}
+	dev = inode->i_rdev;
+	iput(inode);
+	if (MAJOR(dev) >= MAX_BLKDEV)
+		return -ENXIO;
+	return do_mount(dev, dir_name, fs_type->name);
+}
+
+static int do_umount(dev_t dev)
+{
+	struct super_block *sb;
+
+	/*
+	 * I don't want to umount ROOT_DEV
+	 */
+	if (dev == ROOT_DEV)
+		return 0;
+	if (!(sb = get_super(dev)) || !(sb->s_covered))
+		return -ENOENT;
+	if (!fs_may_umount(dev, sb->s_mounted))
+		return -EBUSY;
+	sb->s_covered->i_mount = NULL;
+	iput(sb->s_covered);
+	sb->s_covered = NULL;
+	iput(sb->s_mounted);
+	sb->s_mounted = NULL;
+	return write_super(sb);
+}
+
+/*
+ * Is it right?
+ */
+int sys_umount(char *name)
+{
+	struct inode *inode;
+	dev_t dev;
+	int error;
+
+	error = namei(name, &inode);
+	if (error)
+		return error;
+	if (S_ISBLK(inode->i_mode)) {
+		dev = inode->i_rdev;
+	} else if (S_ISDIR(inode->i_mode)) {
+		if (!inode->i_mount)
+			return -EINVAL;
+		dev = inode->i_mount->i_dev;
+	} else {
+		return -EINVAL;
+	}
+	iput(inode);
+	if (MAJOR(dev) >= MAX_BLKDEV)
+		return -ENXIO;
+	return do_umount(dev);
 }

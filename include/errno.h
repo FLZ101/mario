@@ -19,6 +19,9 @@
 #define EPERM		16
 #define ENOTEMPTY	17
 #define	EXDEV		18
+#define ENODEV		19
+#define ENOTBLK		20
+#define ENXIO		21
 
 extern int errno;
 

@@ -85,7 +85,7 @@ static struct inode *find_inode(struct super_block *sb, int ino)
 	return NULL;
 }
 
-struct inode *iget(struct super_block *sb, int ino)
+struct inode *__iget(struct super_block *sb, int ino, int crossmnt)
 {
 	struct inode *i;
 try:
@@ -100,6 +100,7 @@ try:
 	i->i_sb = sb;
 	i->i_dev = sb->s_dev;
 	i->i_ino = ino;
+	i->i_mount = NULL;
 tail:
 	i->i_count++;
 	list_del(&i->i_list);
@@ -109,7 +110,18 @@ tail:
 	write_inode(i);
 	read_inode(i);
 	up(&i->i_sem);
+	if (crossmnt && i->i_mount) {
+		struct inode *tmp = i->i_mount;
+		iref(tmp);
+		iput(i);
+		i = tmp;
+	}
 	return i;
+}
+
+struct inode *iget(struct super_block *sb, int ino)
+{
+	return __iget(sb, ino, 1);
 }
 
 /*
@@ -148,4 +160,35 @@ void iref(struct inode *i)
 	ACQUIRE_LOCK(&inode_lock);
 	i->i_count++;
 	RELEASE_LOCK(&inode_lock);
+}
+
+int fs_may_mount(dev_t dev)
+{
+	struct list_head *pos;
+	struct inode *tmp;
+
+	list_for_each(pos, &lru) {
+		tmp = list_entry(pos, struct inode, i_list);
+		if (tmp->i_dev != dev)
+			continue;
+		if (tmp->i_count || (inode_up2date(tmp) && inode_dirty(tmp)))
+			return 0;
+	}
+	return 1;
+}
+
+int fs_may_umount(dev_t dev, struct inode *mount_root)
+{
+	struct list_head *pos;
+	struct inode *tmp;
+
+	list_for_each(pos, &lru) {
+		tmp = list_entry(pos, struct inode, i_list);
+		if (tmp->i_dev != dev || !tmp->i_count)
+			continue;
+		if (tmp == mount_root && tmp->i_count == 1)
+			continue;
+		return 0;
+	}
+	return 1;
 }

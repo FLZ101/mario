@@ -35,6 +35,8 @@ int blkdev_get_info(dev_t dev, struct blkdev_info *info);
 
 int get_sector_size(dev_t dev, int *size);
 
+#define MAX_BLKDEV	64
+
 #define RD_MAJOR	1
 
 #endif /* _BLKDEV_H */
