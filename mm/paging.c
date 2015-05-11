@@ -12,10 +12,14 @@ extern unsigned long max_pfn;
  */
 void __tinit pagetable_init(void)
 {
-	pde_t *pd = swapper_pg_dir + __pde_offset(KERNEL_BASE);
-	
 	unsigned long pfn;
-	for (pfn = 0; pfn < max_pfn; pd++) {
+	pde_t *pd;
+
+	pd = swapper_pg_dir;
+	pd[0] = 0;
+	pd[1] = 0;
+
+	for (pd += __pde_offset(KERNEL_BASE), pfn = 0; pfn < max_pfn; pd++) {
 		if (*pd) {
 			pfn += PTES_PER_PT;
 			continue;

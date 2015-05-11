@@ -178,6 +178,9 @@ int sys_pause(void)
  */
 void sleep_on(wait_queue_t *q, long state, spinlock_t *lock)
 {
+	if (current->pid == 0)
+		early_hang("task 0 is trying to sleep");
+
 	wait_queue_node_t node;
 	init_wait_queue_node(&node, current);
 

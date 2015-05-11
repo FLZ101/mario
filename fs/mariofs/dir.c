@@ -35,6 +35,7 @@ try:
 		if (entry[i].data == MARIO_FREE_ENTRY)
 			continue;
 		if (!strncmp(name, entry[i].name, len) && !entry[i].name[len]) {
+			brelse(bh);
 			/*
 			 * To make mount works, all inodes referring to 
 			 * ROOT must have the same inode number

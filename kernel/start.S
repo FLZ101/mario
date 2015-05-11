@@ -58,9 +58,13 @@ start:
 1:
 	movl $1f, %ecx
 	jmp *%ecx
-1:
-	lss stack_start, %esp
+1:	/*
+	 * gdt must lie in kernel space, so we load it again
+	 */
+	movl $gdt, (gdtr+2)
+	lgdt gdtr
 
+	lss stack_start, %esp
 	pushl $0
 	popfl
 
@@ -151,3 +155,7 @@ ENTRY(pg1)
 ENTRY(empty_zero_page)
 
 	.org 0x4000
+ENTRY(empty_bad_page)
+
+	.org 0x5000
+ENTRY(empty_bad_page_table)

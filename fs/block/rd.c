@@ -51,11 +51,14 @@ void __tinit ramdisk_setup(struct multiboot_info *m)
 tail:	
 	if (!end)
 		early_hang("no ramdisk loaded!\n");
+	end += KERNEL_BASE;	/* !!! */
 
 	early_print("ramdisk(s):\n");
-	for (i = 0; i < nr_rd; i++)
-		early_print("rd_start=%x, rd_end=%x\n", 
-			rd_info[i].rd_start, rd_info[i].rd_end);
+	for (i = 0; i < nr_rd; i++) {
+		early_print("rd_start=%x, rd_end=%x\n",
+			rd_info[i].rd_start += KERNEL_BASE, 
+				rd_info[i].rd_end += KERNEL_BASE);
+	}
 }
 
 int rd_read(dev_t dev, unsigned long sector, unsigned long nr, char *buf)

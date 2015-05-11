@@ -39,8 +39,6 @@
 #define PFN_UP(x)	(((unsigned long)(x) + PAGE_SIZE-1) >> PAGE_SHIFT)
 #define PFN_DOWN(x)	((unsigned long)(x) >> PAGE_SHIFT)
 
-#define SYSCALL_VECTOR	0x80
-
 /* Mark code as being only used at initialization time */
 #define __tinit __attribute__ ((section (".tinit")))
 /* Mark data as being only used at initialization time */
@@ -55,6 +53,8 @@ void early_print(const char *fmt, ...);
 	early_print(__VA_ARGS__);\
 	__asm__ __volatile__ ("cli; 1:hlt; jmp 1b");\
 } while (0)
+
+#define SYSCALL_VECTOR	0x80
 
 #define cli() __asm__ __volatile__ ("cli": : :"memory")
 #define sti() __asm__ __volatile__ ("sti": : :"memory")
