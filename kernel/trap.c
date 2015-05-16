@@ -131,13 +131,6 @@ void do_general_protection(struct trap_frame tr)
 	early_hang("General Protection\n");
 }
 
-int i = 0;
-void do_page_fault(struct trap_frame tr)
-{
-	print_tr(&tr);
-	early_hang("Page Fault%d\n", i);
-}
-
 void do_spurious_interrupt_bug(struct trap_frame tr)
 {
 	early_print("Spurious Interrupt Bug\n");

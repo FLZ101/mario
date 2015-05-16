@@ -22,6 +22,7 @@
 #define ENODEV		19
 #define ENOTBLK		20
 #define ENXIO		21
+#define ECHILD		22
 
 extern int errno;
 

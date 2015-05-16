@@ -8,6 +8,8 @@
 #include <lib/stddef.h>
 #include <lib/list.h>
 
+#include <mm/mm.h>
+
 static LIST_HEAD(runqueue_head);
 
 void print_runqueue(void)
@@ -50,11 +52,9 @@ void wake_up_process(struct task_struct *p)
 {
 	if (!p)
 		return;
-	
-	if (!task_on_runqueue(p)) {
-		p->state = TASK_RUNNING;
+	p->state = TASK_RUNNING;
+	if (!task_on_runqueue(p))
 		in_runqueue(p);
-	}
 }
 
 void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
@@ -66,11 +66,12 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	save_segment(fs, prev->fs);
 	save_segment(gs, prev->gs);
 	load_segment(fs, next->fs);
-	load_segment(gs, next->gs);extern int i; i++;
+	load_segment(gs, next->gs);
 }
 
 void switch_to(struct task_struct *next)
 {
+	switch_pd(next->mm->pd);
 	__asm__ __volatile__(
 		/* make sure eflags unchanged when we back */
 		"pushfl\n\t"
@@ -106,7 +107,7 @@ void schedule(void)
 	struct task_struct *p, *next;
 
 	irq_save();
-	if (current->state != TASK_RUNNING)
+	if (current->state != TASK_RUNNING && current != &init_task)
 		out_runqueue(current);
 	/*
 	 * init_task wouldn't handle signal
@@ -208,10 +209,8 @@ void wake_up(wait_queue_t *q, long state)
 		wait_queue_node_t *node = 
 			list_entry(tmp, wait_queue_node_t, task_list);
 
-		if (node->p->state & state) {
-			out_wait_queue(q, node);
+		if (node->p->state & state)
 			wake_up_process(node->p);
-		}
 	}
 
 	irq_restore();
@@ -231,7 +230,6 @@ void wake_up_1st(wait_queue_t *q)
 	wait_queue_node_t *node = 
 		list_entry(head->next, wait_queue_node_t, task_list);
 
-	out_wait_queue(q, node);
 	wake_up_process(node->p);
 tail:
 	irq_restore();

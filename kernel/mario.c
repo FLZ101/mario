@@ -6,11 +6,13 @@
 #include <timer.h>
 #include <misc.h>
 #include <irq.h>
+#include <wait.h>
 
 #include <mm/page_alloc.h>
 #include <mm/kmalloc.h>
-#include <mm/paging.h>
 #include <mm/e820.h>
+#include <mm/mman.h>
+#include <mm/mm.h>
 
 #include <lib/stdarg.h>
 
@@ -33,36 +35,6 @@ void kernel_thread(void (*fun)(void *), void *arg)
 		:
 		:"b"(arg), "c"(fun)
 		:"eax", "esi", "memory");
-}
-
-void page_alloc_print(void)
-{
-	int i;
-	for (i = 3; i >= 0; i--)
-		free_list_print(i);
-}
-
-void test_mm(void)
-{
-	/* test page_malloc */
-	unsigned long x;
-	page_alloc_print();
-	x = page_alloc();
-	early_print("%x\n", x);
-	page_free(x);
-	page_alloc_print();
-	x = page_alloc();
-	early_print("%x\n", x);
-	page_free(x);
-
-	/* test kmalloc */
-	void *p;
-	p = kmalloc(123);
-	early_print("%x\n", (unsigned int)p);
-	kfree(p);
-	p = kmalloc(123);
-	early_print("%x\n", (unsigned int)p);
-	kfree(p);
 }
 
 void test_timer(unsigned long data)
@@ -314,14 +286,77 @@ void test_fs(void)
 	ls("tmp");
 }
 
+extern int sys_munmap(unsigned long addr, unsigned long len);
+extern int sys_mmap(struct mmap_arg_struct *arg);
+
+extern int sys_exit(int error_code);
+extern int sys_waitpid(int pid, int option);
+void test_mmap(void)
+{
+	int fd;
+	char buf[128];
+	int tmp, test = 122;
+	struct mmap_arg_struct arg;
+
+	arg.addr = 0x1000;
+	arg.len = 0x1234;
+	arg.prot =  PROT_READ | PROT_WRITE;
+	arg.flags = MAP_SHARED | MAP_FIXED | MAP_ANONYMOUS;
+	arg.fd = -1;
+
+	if (sys_mmap(&arg) < 0)
+		early_hang("FUCK ONE");
+	print_mmap(current->mm);
+	strcpy((void *)0x1000, write);
+	tmp = fork();	/* inline function */
+	if (tmp < 0)
+		early_hang("fork fails");
+	if (tmp) {
+		early_print("%c\n", *(char *)0x1000);
+		sys_waitpid(tmp, 0);
+		early_print("test=%u\n", test);
+	} else {
+		print_mmap(current->mm);
+		/*
+		 * Because we are in kernel space now, so this won't cause
+		 * a write-protection fault
+		 */
+		*(char *)0x1000 = 'S';
+		test++;
+		sys_exit(4518);
+	}
+	early_print("%c\n", *(char *)0x1000);
+
+	fd = sys_open("/mario.txt", O_RDWR);
+	if (fd < 0)
+		early_hang("open fails");
+	arg.addr = 0x5000;
+	arg.len = 0x123;
+	arg.prot =  PROT_READ | PROT_WRITE;
+	arg.flags = MAP_SHARED | MAP_FIXED;
+	arg.fd = fd;
+	arg.offset = 0;
+	if (sys_mmap(&arg) < 0)
+		early_hang("FUCK TWO");
+	print_mmap(current->mm);
+	*(char *)0x5008 = '\0';
+	early_print("%s\n", (char *)0x5000);
+
+	sys_munmap(0x2000,0x8000);
+	print_mmap(current->mm);
+	sys_read(fd, buf, 128);
+	early_print("%s\n", buf);
+	sys_close(fd);
+}
+
 void bh_thread(void *arg);
 
 void mario(struct multiboot_info *m)
 {
 	early_print_init(m);
 	setup_memory_region(m);
-	paging_init();
 	page_alloc_init();
+	paging_init();
 	trap_init();
 	irq_init();
 	time_init();
@@ -329,7 +364,7 @@ void mario(struct multiboot_info *m)
 	blkdev_init();
 	buffer_init();
 	fs_init();
-	test_fs();
+	test_mmap();
 	sti();
 
 	/*

@@ -36,8 +36,12 @@ char *message[32] = {
 	"SIGUNUSED"
 };
 
-int send_sig(unsigned long sig,struct task_struct * p,int priv)
+int send_sig(unsigned long sig,struct task_struct *p,int priv)
 {
+	if (!p || sig > 32)
+		return -EINVAL;
+	if (!sig)
+		return 0;
 	early_print("\tsignal: %s\n", message[sig-1]);
 	return 0;
 }

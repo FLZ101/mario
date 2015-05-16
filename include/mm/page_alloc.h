@@ -21,22 +21,28 @@ extern struct page *mem_map;
 #define PHY_TO_PAGE(x)	PFN_TO_PAGE((unsigned long)(x) >> PAGE_SHIFT)
 #define VIR_TO_PAGE(x)	PHY_TO_PAGE(__phy(x))
 
-void free_list_print(unsigned long order);
-
 void page_alloc_init(void);
 
 struct page *alloc_page(void);
 struct page *alloc_pages(unsigned long order);
-unsigned long page_alloc(void);
-unsigned long pages_alloc(unsigned long order);
-
 void free_page(struct page *page);
 void free_pages(struct page *page, unsigned long order);
+
+unsigned long page_alloc(void);
+unsigned long pages_alloc(unsigned long order);
 void page_free(unsigned long vir);
 void pages_free(unsigned long vir, unsigned long order);
 
-struct page *get_page(void);
-void put_page(struct page *page);
+unsigned long zero_page_alloc(void);
+
+struct page *__get_page(void);
+void __put_page(struct page *page);
+
+unsigned long get_zero_page(void);
+static inline void put_page(unsigned long vir)
+{
+	__put_page(VIR_TO_PAGE(vir));
+}
 
 static inline void ref_page(struct page *page)
 {

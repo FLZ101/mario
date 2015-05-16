@@ -5,6 +5,8 @@
 #include <timer.h>
 #include <misc.h>
 #include <types.h>
+#include <wait.h>
+#include <signal.h>
 
 #include <mm/page_alloc.h>
 #include <mm/mm.h>
@@ -33,6 +35,7 @@ struct rlimit {
 
 struct fs_struct;
 struct files_struct;
+struct wait_queue;
 struct task_struct {
 	volatile long state;
 	int counter;
@@ -40,8 +43,10 @@ struct task_struct {
 
 	unsigned long signal;
 	unsigned long blocked;
+	struct sigaction sigaction[32];
 
-	int exit_code;
+	int exit_code, exit_signal;
+	wait_queue_t wait_chldexit;
 	struct rlimit rlim[NR_RLIMIT];
 	pid_t pid;
 
@@ -61,6 +66,7 @@ struct task_struct {
 	struct fs_struct *fs;
 	struct files_struct *files;
 	struct thread_struct thread;
+	char comm[16];
 	spinlock_t lock;
 };
 
@@ -68,7 +74,6 @@ struct task_struct {
 #define TASK_INTERRUPTIBLE	1
 #define TASK_UNINTERRUPTIBLE	2
 #define TASK_ZOMBIE		4
-#define TASK_STOPPED		8
 
 #define alloc_task_struct() ((struct task_struct *)pages_alloc(1))
 #define free_task_struct(p) pages_free((unsigned long)(p), 1)

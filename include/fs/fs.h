@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <semaphore.h>
 #include <limits.h>
+#include <sched.h>
 
 #include <mm/page_alloc.h>
 #include <mm/uaccess.h>
@@ -131,7 +132,8 @@ struct file_operations {
 	int (*lseek)(struct inode *, struct file *, off_t, int);
 	int (*read)(struct inode *, struct file *, char *, int);
 	int (*write)(struct inode *, struct file *, char *, int);
-	int (*readdir) (struct inode *, struct file *, void *, filldir_t);
+	int (*readdir)(struct inode *, struct file *, void *, filldir_t);
+	int (*mmap)(struct inode *, struct file *, struct vm_area_struct *);
 };
 
 struct file {
@@ -168,5 +170,7 @@ void putname(char *);
 
 int namei(const char *, struct inode **);
 int open_namei(char *, int, struct inode **,struct inode *);
+
+int generic_file_mmap(struct inode *, struct file *, struct vm_area_struct *);
 
 #endif /* _FS_H */

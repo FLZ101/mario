@@ -159,3 +159,5 @@ ENTRY(empty_bad_page)
 
 	.org 0x5000
 ENTRY(empty_bad_page_table)
+
+	.org 0x6000

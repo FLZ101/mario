@@ -1,8 +1,6 @@
 #ifndef _SIGNAL_H
 #define _SIGNAL_H
 
-#include <task.h>
-
 #define SIGHUP		1
 #define SIGINT		2
 #define SIGQUIT		3
@@ -35,8 +33,25 @@
 #define SIGPWR		30
 #define	SIGUNUSED	31
 
+struct task_struct;
 int send_sig(unsigned long sig, struct task_struct *p, int priv);
 
 #define signal_pending(p)      ((p)->signal & ~(p)->blocked)
+
+/* Type of a signal handler.  */
+typedef void (*__sighandler_t)(int);
+
+typedef unsigned long sigset_t;		/* at least 32 bits */
+
+#define SIG_DFL	((__sighandler_t)0)	/* default signal handling */
+#define SIG_IGN	((__sighandler_t)1)	/* ignore signal */
+#define SIG_ERR	((__sighandler_t)-1)	/* error return from signal */
+
+struct sigaction {
+	__sighandler_t sa_handler;
+	sigset_t sa_mask;
+	unsigned long sa_flags;
+	void (*sa_restorer)(void);
+};
 
 #endif	/* _SIGNAL_H */

@@ -27,16 +27,6 @@ struct page *mem_map;
 
 #define __free_list_entry(ptr) list_entry((ptr), struct page, list)
 
-void free_list_print(unsigned long order)
-{
-	struct list_head *p;
-	early_print("%u: ", order);
-	list_for_each(p, &free_area[order].free_list) {
-		early_print("%x | ", PAGE_TO_PHY(__free_list_entry(p)));
-	}
-	early_print("\n");
-}
-
 extern unsigned long end;
 void __tinit page_alloc_init(void)
 {
@@ -112,6 +102,15 @@ unsigned long page_alloc(void)
 	return pages_alloc(0);
 }
 
+unsigned long zero_page_alloc(void)
+{
+	unsigned long tmp;
+
+	if ((tmp = page_alloc()))
+		memset((void *)tmp, 0, PAGE_SIZE);
+	return tmp;
+}
+
 struct page *expand(struct page *page, unsigned long order)
 {
 	unsigned long nr = PAGE_TO_PFN(page) >> (order + 1) << (order + 1);
@@ -158,18 +157,31 @@ void page_free(unsigned long vir)
 	free_page(VIR_TO_PAGE(vir));
 }
 
-struct page *get_page(void)
+struct page *__get_page(void)
 {
 	struct page *page;
+
 	if ((page = alloc_page()))
 		atomic_set(&page->count, 1);
 	return page;
 }
 
-void put_page(struct page *page)
+void __put_page(struct page *page)
 {
 	if (atomic_dec_and_test(&page->count))
 		free_page(page);
+}
+
+unsigned long get_zero_page(void)
+{
+	unsigned long tmp = 0;
+	struct page *page;
+
+	if ((page = __get_page())) {
+		tmp = PAGE_TO_VIR(page);
+		memset((void *)tmp, 0, PAGE_SIZE);
+	}
+	return tmp;
 }
 
 extern unsigned long _init, _bss;

@@ -21,6 +21,7 @@ struct trap_frame {
 };
 
 void trap_init(void);
+void print_tr(struct trap_frame *tr);
 
 #define userland(tr)	(3 & (tr)->cs)
 

@@ -38,21 +38,21 @@ static inline unsigned long get_user_long(const int *addr)
 
 static inline void put_user_byte(char val,char *addr)
 {
-__asm__ ("movb %0,%%fs:%1": /* no outputs */ :"iq" (val),"m" (*addr));
+	__asm__ ("movb %0,%%fs:%1": /* no outputs */ :"iq" (val),"m" (*addr));
 }
 
 #define put_fs_byte(x,addr) put_user_byte((x),(char *)(addr))
 
 static inline void put_user_word(short val,short * addr)
 {
-__asm__ ("movw %0,%%fs:%1": /* no outputs */ :"ir" (val),"m" (*addr));
+	__asm__ ("movw %0,%%fs:%1": /* no outputs */ :"ir" (val),"m" (*addr));
 }
 
 #define put_fs_word(x,addr) put_user_word((x),(short *)(addr))
 
 static inline void put_user_long(unsigned long val,int * addr)
 {
-__asm__ ("movl %0,%%fs:%1": /* no outputs */ :"ir" (val),"m" (*addr));
+	__asm__ ("movl %0,%%fs:%1": /* no outputs */ :"ir" (val),"m" (*addr));
 }
 
 #define put_fs_long(x,addr) put_user_long((x),(int *)(addr))
