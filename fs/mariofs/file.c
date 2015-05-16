@@ -11,15 +11,15 @@ static int mario_file_truncate(struct inode *i, int size)
 {
 	int error, tmp;
 	int head, tail, *next_block;
-	unsigned long n, block_size, blocks;
+	unsigned long n, max_used, blocks;
 	struct buffer_head *bh;
 
 	if (!S_ISREG(i->i_mode))
 		return -EINVAL;
 	if (size < 0)
 		return -EINVAL;
-	block_size = i->i_block_size;
-	n = (size + block_size - 1) / block_size;
+	max_used = i->i_block_size - 4;
+	n = (size + max_used - 1) / max_used;
 	blocks = i->i_nr_block;
 
 	if (n > blocks) {
@@ -37,7 +37,7 @@ static int mario_file_truncate(struct inode *i, int size)
 			mario_put_block(i->i_sb, head, tail);
 			return -EIO;
 		}
-		next_block = (int *)(bh->b_data + block_size - 4);
+		next_block = (int *)(bh->b_data + max_used);
 		*next_block = head;
 		set_dirty(bh);
 		brelse(bh);
@@ -52,7 +52,7 @@ static int mario_file_truncate(struct inode *i, int size)
 				return -EIO;
 			if (!(bh = bread(i->i_dev, head)))
 				return -EIO;
-			next_block = (int *)(bh->b_data + block_size - 4);
+			next_block = (int *)(bh->b_data + max_used);
 			head = *next_block;
 			*next_block = 0;	/* truncate that block chain */
 			set_dirty(bh);

@@ -293,6 +293,7 @@ extern int sys_exit(int error_code);
 extern int sys_waitpid(int pid, int option);
 void test_mmap(void)
 {
+#if 0
 	int fd;
 	char buf[128];
 	int tmp, test = 122;
@@ -347,6 +348,29 @@ void test_mmap(void)
 	sys_read(fd, buf, 128);
 	early_print("%s\n", buf);
 	sys_close(fd);
+#endif
+	int fd;
+	char buf[1024];
+	struct mmap_arg_struct arg;
+
+	arg.addr = 0x40000;
+	arg.len = 0x1000;
+	arg.prot =  PROT_READ | PROT_WRITE;
+	arg.flags = MAP_SHARED | MAP_FIXED;
+	fd = sys_open("mario.txt", O_RDWR);
+	if (fd < 0)
+		early_hang("open fails");
+	arg.fd = fd;
+	arg.offset = 0;
+	sys_mmap(&arg);
+	strncpy(buf, (char *)0x40000, 1024);
+	early_print("%s\n", buf);
+	sys_ftruncate(fd, 1024);
+	strcpy((char *)0x40000, write);
+	sys_munmap(0x40000, 0x1000);
+	sys_read(fd, buf, 1024);
+	early_print("%s\n", buf);
+	print_inode(current->files->fd[fd]->f_inode);
 }
 
 void bh_thread(void *arg);
