@@ -35,8 +35,7 @@ void __tinit pagetable_init(void)
 			pfn += PTES_PER_PT;
 			continue;
 		}
-		if (!(pt = alloc_pt()))
-			early_hang("pagetable_init fails");
+		pt = (pte_t *)alloc_page_bootmem();
 		set_pde(pd, mk_pde(pt, _PDE));
 
 		int i;

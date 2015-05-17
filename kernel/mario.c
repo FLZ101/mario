@@ -379,8 +379,8 @@ void mario(struct multiboot_info *m)
 {
 	early_print_init(m);
 	setup_memory_region(m);
-	page_alloc_init();
 	paging_init();
+	page_alloc_init();
 	trap_init();
 	irq_init();
 	time_init();
