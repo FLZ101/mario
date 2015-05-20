@@ -360,7 +360,7 @@ static unsigned long get_page_prot(unsigned long flags)
 }
 
 unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot, 
-	unsigned long flags, unsigned long fd, unsigned long off)
+	unsigned long flags, int fd, unsigned long off)
 {
 	int error;
 	struct file *file = NULL;
@@ -478,4 +478,41 @@ void print_mmap(struct mm_struct *mm)
 			c2 = 'P';
 		early_print("%c, %c\n", c1, c2);
 	}
+}
+
+unsigned long sys_brk(unsigned long brk)
+{
+	unsigned long rlim;
+	unsigned long newbrk, oldbrk;
+
+	if (brk < current->mm->end_code)
+		return current->mm->brk;
+	newbrk = PAGE_ALIGN(brk);
+	oldbrk = PAGE_ALIGN(current->mm->brk);
+	if (oldbrk == newbrk)
+		return current->mm->brk = brk;
+
+	/*
+	 * Always allow shrinking brk
+	 */
+	if (brk <= current->mm->brk) {
+		current->mm->brk = brk;
+		do_munmap(newbrk, oldbrk - newbrk);
+		return brk;
+	}
+	/*
+	 * Check against rlimit
+	 */
+	 rlim = current->rlim[RLIMIT_DATA].rlim_cur;
+	 if (brk - current->mm->end_code > rlim)
+	 	return current->mm->brk;
+	/*
+	 * Check against existing mmap mappings
+	 */
+	if (find_vma_intersection(current->mm, oldbrk, newbrk + PAGE_SIZE))
+		return current->mm->brk;
+	current->mm->brk = brk;
+	do_mmap(oldbrk, newbrk - oldbrk, PROT_READ|PROT_WRITE|PROT_EXEC,
+		MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	return brk;
 }

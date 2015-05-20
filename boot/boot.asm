@@ -791,7 +791,8 @@ set_modules:
 
 done_modules:
     test edi, edi
-    je E820 ;no module loaded
+    je E820     ;no module loaded
+    shr edi, 4  ;Do not forget this
     mov [mods_count], edi
     mov [mods_addr], dword 0x7800 + OFFSET + modules
     or [flag], byte 8

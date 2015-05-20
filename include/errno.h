@@ -23,6 +23,7 @@
 #define ENOTBLK		20
 #define ENXIO		21
 #define ECHILD		22
+#define E2BIG		23
 
 extern int errno;
 

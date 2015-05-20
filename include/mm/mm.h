@@ -70,11 +70,7 @@ struct vm_area_struct {
 #define VM_GROWSDOWN	0x0100	/* general info on the segment */
 #define VM_GROWSUP	0x0200
 
-struct vm_area_struct *
-find_vma(struct mm_struct *, unsigned long);
-
-struct vm_area_struct *
-find_vma_intersection(struct mm_struct *, unsigned long, unsigned long);
+struct vm_area_struct *find_vma(struct mm_struct *, unsigned long);
 
 int generic_file_mmap(struct inode *, struct file *, struct vm_area_struct *);
 

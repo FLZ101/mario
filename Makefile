@@ -3,7 +3,7 @@
 
 RM      :=rm -f
 NASM    :=nasm
-MAKE    :=mingw32-make -R
+MAKE    :=make -R
 LD      :=ld -m i386pe
 LDFLAGS :=-T Link.ld -nostdlib
 STRIP   :=strip
@@ -27,7 +27,7 @@ else
 all: depend
 endif
 	@$(MAKE) -f Makeit
-	@echo \:\)
+	@echo :\)
 
 # `make depend' when file(s) added in
 depend: $(DEPS)

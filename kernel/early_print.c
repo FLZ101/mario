@@ -219,7 +219,7 @@ void sys_print(struct trap_frame tr)
 /*
  * Used in userland.
  * gcc might treat puts as an inline function (when -O2); we need to 
- * tell gcc that eax is changed (by int $0x80)
+ * tell gcc that eax is changed
  */
 void puts(char *s)
 {

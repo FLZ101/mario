@@ -373,6 +373,20 @@ void test_mmap(void)
 	print_inode(current->files->fd[fd]->f_inode);
 }
 
+extern int do_execve(char *filename, char **argv, char **envp, struct trap_frame *tr);
+
+void test_exec(void)
+{
+	char *argv[] = {"apple", NULL};
+	char *envp[] = {"pear", NULL};
+	asm volatile (
+		"movl $3, %%eax\n\t"
+		"int $0x80"
+		:
+		:"b"("/bin/init.exe"), "c"(argv), "d"(envp)
+		:"eax");
+}
+
 void bh_thread(void *arg);
 
 void mario(struct multiboot_info *m)
@@ -388,13 +402,12 @@ void mario(struct multiboot_info *m)
 	blkdev_init();
 	buffer_init();
 	fs_init();
-	test_mmap();
+	test_exec();
 	sti();
 
-	/*
-	kernel_thread(init, (void *)10000);
-	kernel_thread(bh_thread, NULL);
-	*/
+
+	//kernel_thread(init, (void *)10000);
+	//kernel_thread(bh_thread, NULL);
 
 	cpu_idle();
 }

@@ -35,7 +35,10 @@ void __tinit add_memory_region(__u64 addr, __u64 len, __u32 type)
 	 */
 	if (E820_RAM != type || start >= end || start >= MAX_MEMORY)
 		return;
-
+	if (addr >= MAX_MEMORY)
+		return;
+	if (addr >= end)
+		return;
 	if (end > MAX_MEMORY)
 		len = MAX_MEMORY - addr;
 

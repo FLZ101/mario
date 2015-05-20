@@ -192,3 +192,28 @@ pde_t __bad_pagetable(void)
 		:);
 	return mk_pde(empty_bad_page_table, PG_RW | PG_USER | PG_PRESENT);
 }
+
+extern void oom(struct task_struct *);
+
+/*
+ * Map a page into an address space: needed by do_execve() for the
+ * initial stack and environment pages
+ */
+int set_page(struct mm_struct *mm, unsigned long page, unsigned long addr)
+{
+	pde_t *pd;
+	pte_t *pt;
+
+	pd = pde_offset(mm->pd, addr);
+	if (!__pe_present(pd)) {
+		pt = alloc_pt();
+		if (!pt) {
+			oom(current);
+			return 1;
+		}
+		set_pde(pd, mk_pde(pt, _PDE));
+	}
+	pt = pte_offset(__vir(*pd), addr);
+	set_pte(pt, mk_pte(page, _PDE));
+	return 0;
+}

@@ -7,6 +7,7 @@
 #include <types.h>
 #include <wait.h>
 #include <signal.h>
+#include <resource.h>
 
 #include <mm/page_alloc.h>
 #include <mm/mm.h>
@@ -22,14 +23,6 @@ struct thread_struct {
 
 	unsigned long cr2, trap_no, error_code;
 };
-
-struct rlimit {
-	long	rlim_cur;
-	long	rlim_max;
-};
-
-#define RLIMIT_DATA	0	/* maximum data size */
-#define RLIMIT_STACK	1	/* maximum stack size */
 
 #define NR_RLIMIT	2
 

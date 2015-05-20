@@ -270,8 +270,9 @@ _irqf:
 	iret
 
 	.data
-
+	.balign 4
 ENTRY(sys_call_table)
 	.long _sys_print
 	.long _sys_fork
 	.long _sys_pause
+	.long _sys_execve

@@ -59,6 +59,6 @@ __asm__ __volatile__( \
 	"cld; rep; stosl" \
 	:"=m" (*(fd_set *) (fdsetp)) \
 	:"a" (0), "c" (8), "D" ((fd_set *) (fdsetp)) \
-	:"cx", "di")
+	:)
 
 #endif	/* _TIME_H */

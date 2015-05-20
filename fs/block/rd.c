@@ -32,6 +32,7 @@ void __tinit ramdisk_setup(struct multiboot_info *m)
 
 	struct multiboot_module *mod = 
 		(struct multiboot_module *)m->mods_addr;
+
 	for (nr_rd = 0, i = 0; nr_rd < MAX_RD && i < m->mods_count; i++) {
 		if (!strstr((char *)mod[i].string, "MARIO_RAMDISK"))
 			continue;
@@ -48,7 +49,7 @@ void __tinit ramdisk_setup(struct multiboot_info *m)
 			end = __end;
 		nr_rd++;
 	}
-tail:	
+tail:
 	if (!end)
 		early_hang("no ramdisk loaded!\n");
 	end += KERNEL_BASE;	/* !!! */
