@@ -220,6 +220,7 @@ _irq0:
 _irq1:
 	pushl $0
 	SAVE_ALL
+	call _irq_PS2
 	EOI_MASTER
 	jmp restore_all
 
@@ -272,7 +273,48 @@ _irqf:
 	.data
 	.balign 4
 ENTRY(sys_call_table)
-	.long _sys_print
-	.long _sys_fork
-	.long _sys_pause
+	.long _sys_brk
+	.long _sys_mmap
+	.long _sys_munmap
+	.long _sys_alarm
 	.long _sys_execve
+	.long _sys_exit
+	.long _sys_fork
+	.long _sys_getpid
+	.long _sys_getppid
+	.long _sys_nanosleep
+	.long _sys_pause
+	.long _sys_waitpid
+	.long _sys_chdir
+	.long _sys_fchdir
+	.long _sys_chroot
+	.long _sys_close
+	.long _sys_creat
+	.long _sys_dup
+	.long _sys_dup2
+	.long _sys_getdents
+	.long 0	/* _sys_ioctl */
+	.long _sys_link
+	.long _sys_lseek
+	.long _sys_mkdir
+	.long _sys_mknod
+	.long _sys_mount
+	.long _sys_open
+	.long 0	/* _sys_pipe */
+	.long _sys_read
+	.long _sys_rename
+	.long _sys_rmdir
+	.long _sys_stat
+	.long _sys_fstat
+	.long _sys_truncate
+	.long _sys_ftruncate
+	.long _sys_umount
+	.long _sys_unlink
+	.long _sys_write
+	.long _sys_time
+	.long _sys_getitimer
+	.long _sys_setitimer
+	.long _sys_getpgid
+	.long _sys_getpgrp
+	.long _sys_setpgid
+	.long _sys_setsid

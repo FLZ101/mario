@@ -30,7 +30,7 @@ union task_union init_task_union __attribute__((__section__(".init_task_union"))
 	state: 0, 
 	wait_chldexit: { LIST_HEAD_INIT(init_task.wait_chldexit.task_list) },
 	counter: DEF_COUNTER, 
-	pid: 0,
+	pid: 0, pgrp: 0, session: 0, leader: 0, did_exec: 0,
 	rlim: INIT_RLIMITS,
 	run_list: {NULL, NULL},
 	next_task: &init_task,

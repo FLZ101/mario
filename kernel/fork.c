@@ -84,6 +84,9 @@ int do_fork(struct trap_frame *tr)
 	init_wait_queue(&p->wait_chldexit);
 	p->state = TASK_UNINTERRUPTIBLE;
 	p->pid = get_pid();
+	p->did_exec = 0;
+	p->leader = 0;
+
 	p->run_list.next = NULL;
 	p->run_list.prev = NULL;
 	p->p_pptr = current;

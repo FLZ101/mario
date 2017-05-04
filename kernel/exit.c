@@ -11,19 +11,6 @@ extern void exit_mmap(struct task_struct *);
 extern void exit_files(void);
 extern void exit_fs(void);
 
-/*
- * Is it right?
- */
-static void forget_original_parent(struct task_struct *father)
-{
-	struct task_struct *p;
-
-	for_each_task(p) {
-		if (p->p_pptr == father)
-			p->p_pptr = init_task.next_task;
-	}
-}
-
 void notify_parent(struct task_struct *p)
 {
 	if (p->p_pptr == init_task.next_task)
@@ -40,7 +27,6 @@ void do_exit(long code)
 	free_page_tables(current);
 	exit_files();
 	exit_fs();
-	forget_original_parent(current);
 	notify_parent(current);
 	/*
 	 * Make init inherit all the child processes

@@ -5,6 +5,11 @@
 
 void time_init(void);
 
+struct timespec {
+	long	tv_sec;		/* seconds */
+	long	tv_nsec;	/* nanoseconds */
+};
+
 extern volatile long jiffies;
 
 struct timeval {

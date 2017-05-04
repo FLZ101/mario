@@ -8,6 +8,8 @@
 #include <bh.h>
 #include <io.h>
 
+#include <mm/uaccess.h>
+
 #define CMOS_READ(addr) ({ \
 outb(0x70, 0x80+(addr)); \
 inb(0x71); \
@@ -80,6 +82,21 @@ long get_cmos_time(void)
 		year, mon, day, hour, min, sec);
 
 	return mktime(year, mon, day, hour, min, sec);
+}
+
+int sys_time(long *tloc)
+{
+	int i, error;
+
+	i = get_cmos_time();
+
+	if (tloc) {
+		error = verify_area(VERIFY_WRITE, tloc, 4);
+		if (error)
+			return error;
+		put_fs_long(i, tloc);
+	}
+	return i;
 }
 
 #define LATCH (1193180/HZ)

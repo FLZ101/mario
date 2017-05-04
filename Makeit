@@ -1,8 +1,6 @@
 .PHONY: all
 
 all: boot/boot.bin kernel/kernel.exe
-	cp -u boot/boot.bin kernel/kernel.exe ../../img/bochs
-	cp -u boot/boot.bin kernel/kernel.exe ../../img/vmware
 
 include $(DEPS)
 

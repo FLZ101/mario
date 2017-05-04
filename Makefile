@@ -19,6 +19,7 @@ OBJS    +=$(addsuffix .o,$(basename $(wildcard */*/*.[Sc])))
 # make kernel/start.o the first object file
 OBJS    :=$(filter-out start.o,$(OBJS))
 OBJS    :=kernel/start.o $(OBJS)
+
 DEPS    :=$(patsubst %.o,%.dep,$(OBJS))
 
 ifeq (.depend,$(wildcard .depend))

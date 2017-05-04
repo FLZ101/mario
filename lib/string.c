@@ -299,6 +299,7 @@ char *strpbrk(const char *string1, const char *string2)
 {
 	return NULL;
 }
+
 char *strtok(char *string1, const char *string2)
 {
 	return NULL;

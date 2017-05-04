@@ -19,6 +19,7 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
 		if (vma->vm_end > addr)
 			return vma;
 	}
+	return NULL;
 }
 
 struct vm_area_struct *find_vma_intersection(struct mm_struct *mm,

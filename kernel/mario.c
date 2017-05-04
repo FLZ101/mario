@@ -1,5 +1,4 @@
 #include <multiboot.h>
-#include <unistd.h>
 #include <sched.h>
 #include <trap.h>
 #include <time.h>
@@ -24,7 +23,7 @@ void kernel_thread(void (*fun)(void *), void *arg)
 {
 	__asm__ __volatile__(
 		"movl %%esp, %%esi\n\t"
-		"movl $1, %%eax\n\t"
+		"movl $6, %%eax\n\t"
 		"int $0x80\n\t"
 		"cmpl %%esp, %%esi\n\t"
 		"je 1f\n\t"
@@ -36,7 +35,7 @@ void kernel_thread(void (*fun)(void *), void *arg)
 		:"b"(arg), "c"(fun)
 		:"eax", "esi", "memory");
 }
-
+#if 0
 void test_timer(unsigned long data)
 {
 	early_print("\t%x\n", data);
@@ -103,6 +102,7 @@ void init(void *arg)
 	schedule_timeout(3*HZ);
 	brelse(bh);
 }
+#endif
 
 void cpu_idle(void)
 {
@@ -389,6 +389,47 @@ void test_exec(void)
 
 void bh_thread(void *arg);
 
+extern long schedule_timeout(long timeout);
+extern void wake_up_process(struct task_struct *);
+
+void demo(void *arg)
+{
+	int fd;
+	char c;
+
+	fd = sys_open("/etc/welcome.txt", O_RDONLY);
+	if (fd < 0) {
+		early_print("open fails\n");
+		goto tail;
+	}
+	while (1 == sys_read(fd, &c, 1)) {
+		early_print("%c", c);
+		schedule_timeout(25);
+	}
+tail:
+	wake_up_process(current->p_pptr);
+}
+
+extern int sys_pause(void);
+extern void west(void);
+
+void init(void *arg)
+{
+	int fd;
+	char c;
+
+	kernel_thread(demo, NULL);
+	sys_pause();
+
+	fd = sys_open("/dev/tty1",O_RDWR);
+	if (fd < 0)
+		early_hang("open fails");
+	sys_read(fd, &c, 1);
+	early_print("\n");
+	ls("/dev");
+	west();
+}
+
 void mario(struct multiboot_info *m)
 {
 	early_print_init(m);
@@ -401,13 +442,13 @@ void mario(struct multiboot_info *m)
 
 	blkdev_init();
 	buffer_init();
+	chrdev_init();
 	fs_init();
-	test_exec();
 	sti();
 
 
-	//kernel_thread(init, (void *)10000);
-	//kernel_thread(bh_thread, NULL);
+	kernel_thread(init, NULL);
+	kernel_thread(bh_thread, NULL);
 
 	cpu_idle();
 }

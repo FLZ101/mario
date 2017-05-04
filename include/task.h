@@ -41,7 +41,8 @@ struct task_struct {
 	int exit_code, exit_signal;
 	wait_queue_t wait_chldexit;
 	struct rlimit rlim[NR_RLIMIT];
-	pid_t pid;
+	pid_t pid, pgrp, session;
+	int leader, did_exec;
 
 	struct list_head run_list;
 	struct task_struct *next_task, *prev_task;

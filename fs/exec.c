@@ -447,6 +447,9 @@ int do_exec(struct exec *exe, int fd, struct trap_frame *tr)
 		MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
 			-1, 0);
 	setup_arg_pages(exe);
+
+	current->did_exec = 1;
+
 	start_thread(tr, exe->entry,
 		current->mm->start_stack - 4 * (exe->argc + exe->envc + 5));
 	return 0;

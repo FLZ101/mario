@@ -6,6 +6,10 @@ extern struct inode_operations mario_dir_iops;
 extern struct file_operations mario_file_fops;
 extern struct file_operations mario_dir_fops;
 
+extern struct file_operations blkdev_fops;
+
+extern struct file_operations chrdev_fops;
+
 /*
  * Try to get block number of the @nth block of that chain;
  * if error occurs
@@ -143,10 +147,10 @@ static int mario_read_inode(struct inode *i)
 		i->i_fop = &mario_dir_fops;
 	} else if (S_ISBLK(i->i_mode)) {
 		i->i_op = NULL;
-		i->i_fop = NULL;
+		i->i_fop = &blkdev_fops;
 	} else if (S_ISCHR(i->i_mode)) {
 		i->i_op = NULL;
-		i->i_fop = NULL;
+		i->i_fop = &chrdev_fops;
 	}
 
 	brelse(bh);

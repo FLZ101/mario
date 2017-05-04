@@ -23,6 +23,7 @@
 #include <fs/device.h>
 #include <fs/blkdev.h>
 #include <fs/buffer.h>
+#include <fs/chrdev.h>
 #include <fs/stat.h>
 #include <fs/fcntl.h>
 

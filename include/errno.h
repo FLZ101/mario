@@ -24,6 +24,8 @@
 #define ENXIO		21
 #define ECHILD		22
 #define E2BIG		23
+#define EINTR		24
+#define ESRCH		25
 
 extern int errno;
 
