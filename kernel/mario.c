@@ -290,7 +290,7 @@ extern int sys_munmap(unsigned long addr, unsigned long len);
 extern int sys_mmap(struct mmap_arg_struct *arg);
 
 extern int sys_exit(int error_code);
-extern int sys_waitpid(int pid, int option);
+extern int sys_waitpid(int pid, int *status, int option);
 void test_mmap(void)
 {
 #if 0
@@ -314,7 +314,7 @@ void test_mmap(void)
 		early_hang("fork fails");
 	if (tmp) {
 		early_print("%c\n", *(char *)0x1000);
-		sys_waitpid(tmp, 0);
+		sys_waitpid(tmp, NULL, 0);
 		early_print("test=%u\n", test);
 	} else {
 		print_mmap(current->mm);

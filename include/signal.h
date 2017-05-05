@@ -34,7 +34,7 @@
 #define	SIGUNUSED	31
 
 struct task_struct;
-int send_sig(unsigned long sig, struct task_struct *p, int priv);
+extern int send_sig(unsigned long sig, struct task_struct *p, int priv);
 
 #define signal_pending(p)      ((p)->signal & ~(p)->blocked)
 

@@ -65,5 +65,4 @@ void wake_up(wait_queue_t *q, long state);
 #define wake_up_uninterruptible(q) wake_up((q), TASK_UNINTERRUPTIBLE)
 
 void wake_up_1st(wait_queue_t *q);
-
 #endif	/* _SCHED_H */

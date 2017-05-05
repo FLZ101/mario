@@ -68,6 +68,7 @@ struct task_struct {
 #define TASK_INTERRUPTIBLE	1
 #define TASK_UNINTERRUPTIBLE	2
 #define TASK_ZOMBIE		4
+#define TASK_STOPPED	8
 
 #define alloc_task_struct() ((struct task_struct *)pages_alloc(1))
 #define free_task_struct(p) pages_free((unsigned long)(p), 1)
