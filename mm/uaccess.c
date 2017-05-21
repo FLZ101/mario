@@ -48,7 +48,7 @@ bad_area:
 	return -EFAULT;
 }
 
-void memcpy_fromfs(void *to, void *from, unsigned int n)
+void memcpy_fromfs(void *to, const void *from, unsigned int n)
 {
 	__asm__ __volatile__ (
 		"1:\n\t"
@@ -62,7 +62,7 @@ void memcpy_fromfs(void *to, void *from, unsigned int n)
 		:"eax", "memory");
 }
 
-void memcpy_tofs(void *to, void *from, unsigned int n)
+void memcpy_tofs(void *to, const void *from, unsigned int n)
 {
 	__asm__ __volatile__ (
 		"1:\n\t"

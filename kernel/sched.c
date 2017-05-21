@@ -15,15 +15,13 @@ static LIST_HEAD(runqueue_head);
 void print_runqueue(void)
 {
 	struct list_head *tmp;
-	/* struct task_struct *p; */
+	struct task_struct *p;
 
 	irq_save();
-	int i = 0;
 	list_for_each(tmp, &runqueue_head) {
-		/* p = list_entry(tmp, struct task_struct, run_list); */
-		i++;
+		p = list_entry(tmp, struct task_struct, run_list);
+		early_print("%d-", p->pid);
 	}
-	early_print("%d, ", i);
 	irq_restore();
 }
 
@@ -94,11 +92,9 @@ void switch_to(struct task_struct *next)
 		"popl %%esi\n\t"
 		"popfl"
 		:"=m"(current->thread.esp), "=m"(current->thread.eip)
-		:"m"(next->thread.esp), "m"(next->thread.eip), 
+		:"m"(next->thread.esp), "m"(next->thread.eip),
 		"c"(current), "d"(next));
 }
-
-unsigned long need_resched = 0;
 
 void schedule(void)
 {
@@ -129,15 +125,13 @@ void schedule(void)
 		goto tail;
 
 	for_each_task(p) {
-		p->counter = p->counter/2 + DEF_COUNTER;
-		if (p->counter > MAX_COUNTER)
-			p->counter = MAX_COUNTER;
+		p->counter = DEF_COUNTER;
 	}
 
 tail:
-	need_resched = 0;
 	irq_restore();
 
+	current->need_resched = 0;
 	if (next != current)
 		switch_to(next);
 }
@@ -206,7 +200,7 @@ void wake_up(wait_queue_t *q, long state)
 
 	head = &q->task_list;
 	list_for_each(tmp, head) {
-		wait_queue_node_t *node = 
+		wait_queue_node_t *node =
 			list_entry(tmp, wait_queue_node_t, task_list);
 
 		if (node->p->state & state)
@@ -227,7 +221,7 @@ void wake_up_1st(wait_queue_t *q)
 	if (list_empty(&q->task_list))
 		goto tail;
 	head = &q->task_list;
-	wait_queue_node_t *node = 
+	wait_queue_node_t *node =
 		list_entry(head->next, wait_queue_node_t, task_list);
 
 	wake_up_process(node->p);

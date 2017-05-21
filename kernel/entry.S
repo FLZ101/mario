@@ -1,7 +1,7 @@
 #include <misc.h>
 
 /*
- * Stack layout when 'trap_ret':
+ * Stack layout when 'ret_from_sys_call':
  *
  *   0(%esp) - ebx
  *   4(%esp) - ecx
@@ -20,23 +20,29 @@
  *  38(%esp) - ss
  */
 
-EBX		= 0x00
-ECX		= 0x04
-EDX		= 0x08
-ESI		= 0x0c
-EDI		= 0x10
-EBP		= 0x14
-EAX		= 0x18
-DS		= 0x1c
-ES		= 0x20
+EBX			= 0x00
+ECX			= 0x04
+EDX			= 0x08
+ESI			= 0x0c
+EDI			= 0x10
+EBP			= 0x14
+EAX			= 0x18
+DS			= 0x1c
+ES			= 0x20
 ERROR_CODE	= 0x24
-EIP		= 0x28
-CS		= 0x2c
+EIP			= 0x28
+CS			= 0x2c
 EFLAGS		= 0x30
-ESP		= 0x34
-SS		= 0x38
+ESP			= 0x34
+SS			= 0x38
 
-	.text
+/*
+ * these are offsets into the task-struct.
+ */
+state	= 0
+signal	= 12
+blocked	= 16
+need_resched = 20
 
 #define SAVE_ALL \
 	cld; \
@@ -66,8 +72,14 @@ SS		= 0x38
 	addl $4, %esp; \
 	iret
 
+#define GET_CURRENT(reg) \
+	movl $-8192, reg; \
+	andl %esp, reg
+
+	.text
+
 ENTRY(fork_ret)
-	jmp ret_with_reschedule
+	jmp ret_from_sys_call
 
 ENTRY(system_call)
 	pushl %eax	/* the system call number */
@@ -76,26 +88,34 @@ ENTRY(system_call)
 	movl %eax, EAX(%esp)	/* save the return value */
 
 ret_from_sys_call:
-
-ret_with_reschedule:
-	cmpl $0, _need_resched
-	jne reschedule
-	jmp handle_bottom_half
-
-reschedule:
-	call _schedule
-	jmp restore_all
-
-handle_bottom_half:
+	/* handle bottom_half */
 	movl _bh_mask, %eax
 	andl _bh_active, %eax
-	je restore_all
+	je 1f
 	/* wake up the bh_thread */
 	pushl _bh_task
 	call _wake_up_process
 	addl $4, %esp
-
-restore_all:
+1:
+	GET_CURRENT(%ebx)
+	movl need_resched(%ebx), %ecx
+	testl %ecx, %ecx
+	je 2f
+	pushl %ebx
+	call _schedule
+	popl %ebx
+2:
+	movl blocked(%ebx), %ecx
+	movl %ecx, %edx
+	notl %ecx
+	andl signal(%ebx), %ecx
+	je 3f
+	movl %esp, %ecx
+	pushl %edx
+	pushl %ecx
+	call _do_signal
+	addl $8, %esp
+3:
 	RESTORE_ALL
 
 ENTRY(divide_error)
@@ -127,7 +147,7 @@ ENTRY(invalid_op)
 	pushl $_do_invalid_op
 	jmp trap_common
 ENTRY(device_not_available)
-	pushl $0
+	pushl $-1
 	pushl $_do_device_not_available
 	jmp trap_common
 ENTRY(double_fault)
@@ -159,7 +179,6 @@ ENTRY(spurious_interrupt_bug)
 ENTRY(coprocessor_error)
 	pushl $0
 	pushl $_do_coprocessor_error
-	jmp trap_common
 
 trap_common:
 	cld
@@ -171,13 +190,20 @@ trap_common:
 	pushl %edx
 	pushl %ecx
 	pushl %ebx
-	movl ES(%esp), %edi
-	movw %es, ES(%esp)
+	movl ES(%esp), %edi		# get the function address
+	movl %es, %eax
+	movl %eax, ES(%esp)
+	movl $-1, %eax
+	xchgl %eax, ERROR_CODE(%esp)	# get the error code
+	movl %esp, %edx
+	pushl %eax				# push the error code
+	pushl %edx				# push the trap_frame pointer
 	movw $KERNEL_DS, %ax
 	movw %ax, %es
 	movw %ax, %ds
-	pushl $restore_all
-	jmp *%edi
+	call *%edi
+	addl $8, %esp
+	jmp ret_from_sys_call
 
 /****************
  * IRQ handlers *
@@ -200,29 +226,21 @@ trap_common:
 	outb %al, $0xa0
 
 ret_from_intr:
-#if 0
-	movb CS(%esp), %al
-	testb $3, %al
-	jne ret_with_reschedule	/* back to userland */
-	jmp restore_all
-#else
-	jmp ret_with_reschedule
-#endif
-
+	jmp ret_from_sys_call
 
 _irq0:
-	pushl $0
+	pushl $-1
 	SAVE_ALL
 	call _irq_PIT
 	EOI_MASTER
 	jmp ret_from_intr
 
 _irq1:
-	pushl $0
+	pushl $-1
 	SAVE_ALL
 	call _irq_PS2
 	EOI_MASTER
-	jmp restore_all
+	jmp ret_from_intr
 
 _irq2:
 _irq3:
@@ -318,3 +336,11 @@ ENTRY(sys_call_table)
 	.long _sys_getpgrp
 	.long _sys_setpgid
 	.long _sys_setsid
+	.long _sys_kill
+	.long _sys_signal
+	.long _sys_sigaction
+	.long _sys_sigsuspend
+	.long _sys_sigpending
+	.long _sys_sigprocmask
+	.long _sys_sigreturn
+	.long _sys_putchar

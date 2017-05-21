@@ -56,7 +56,7 @@ char *fun_str[] = {
 	"ESC", "SPACE", "ENTER", "TAB", "BACKSPACE", "DELETE", "INSERT", "HOME", "END", "PGDOWN",
 	"PGUP", "UP", "DOWN", "LEFT", "RIGHT"
 };
-	
+
 /* Control Keys */
 #define LSHL (1 << 0)
 #define RSHL (1 << 1)
@@ -208,18 +208,18 @@ void handle_key(void)
 	if ((v->v_flags & 0x0100)) {			/* pressed */
 		if (v->v_key & (1 << c_trl)) {
 			__i = v->v_key & 0xff;
-		
+
 			if ((__i == NUMLOCK) || (__i == CAPLOCK))
 				v->v_flags ^= __i;
-			else 
+			else
 				v->v_flags |= __i;
 		} else {
 			__k = v->v_key & 0xffff;
-			
+
 			if (v->v_key & (1 << n_um)) {	/* keypad */
 				if ((v->v_flags & NUMLOCK) && (!(v->v_flags & RSHL)) && (!(v->v_flags & LSHL)))
 					__k = v->v_key >> 16;
-					
+
 			} else {
 				int tmp = -1;
 				if ((v->v_key & (1 << s_hift)) && \
@@ -237,8 +237,8 @@ void handle_key(void)
 			}
 			if (__k & (1 << f_0)) {
 				__k &= 0xff;
-			
-				if (__k == ENTER) 
+
+				if (__k == ENTER)
 					put_c('\n');
 				else if (__k == SPACE)
 					put_c(' ');
@@ -249,11 +249,11 @@ void handle_key(void)
 				else if (__k == LEFT || __k == RIGHT || __k == UP || __k == DOWN)
 					csi(__k);
 				else
-					/* Do nothing */;	
-			}else {
+					/* Do nothing */;
+			} else {
 				put_c(__k & 0xff);
 			}
-		}					
+		}
 	} else if (v->v_key & (1 << c_trl)) { 	/* released */
 		__i = v->v_key & 0xff;
 		if ((__i != NUMLOCK) && (__i != CAPLOCK))
@@ -268,7 +268,7 @@ void handle_key(void)
 void irq_PS2(void)
 {
 	static int stat = 0;
-	
+
 	unsigned int __i;
 	unsigned int __b;
 	struct v_key *v;
@@ -298,7 +298,7 @@ void irq_PS2(void)
 			handle_key();
 		}
 		break;
-		
+
 	case 1:
 		if (__b == 0x12) {
 			stat = PRINT_P;
@@ -316,7 +316,7 @@ void irq_PS2(void)
 		}
 		stat = 0;
 		break;
-		
+
 	case 2:
 		__i = code_table[__b];
 		if (__i != 0) {
@@ -326,7 +326,7 @@ void irq_PS2(void)
 		}
 		stat = 0;
 		break;
-		
+
 	case 3:
 		if (__b == 0x7c) {
 			stat = PRINT_R;

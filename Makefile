@@ -1,26 +1,27 @@
 
 .EXPORT_ALL_VARIABLES:
 
-RM      :=rm -f
-NASM    :=nasm
-MAKE    :=make -R
-LD      :=ld -m i386pe
-LDFLAGS :=-T Link.ld -nostdlib
-STRIP   :=strip
-NM      :=nm
-CC      :=gcc -m32
-INCLUDE :=-I include
-CFLAGS  :=-c -D__KERNEL__ -nostdinc -ffreestanding $(INCLUDE) -ggdb -Wall -O0
+RM	:=rm -f
+NASM	:=nasm
+MAKE	:=make -R
+LD	:=ld -m i386pe
+LDFLAGS	:=-T Link.ld -nostdlib
+STRIP	:=strip
+NM	:=nm
+OBJDUMP	:=objdump
+CC	:=gcc -m32
+INCLUDE	:=-I include
+CFLAGS	:=-c -D__KERNEL__ -nostdinc -ffreestanding $(INCLUDE) -ggdb -Wall -O0
 
-.PHONY: all depend clean clean-all
+.PHONY:	all depend clean clean-all
 
-OBJS    :=$(addsuffix .o,$(basename $(wildcard */*.[Sc])))
-OBJS    +=$(addsuffix .o,$(basename $(wildcard */*/*.[Sc])))
+OBJS	:=$(addsuffix .o,$(basename $(wildcard */*.[Sc])))
+OBJS	+=$(addsuffix .o,$(basename $(wildcard */*/*.[Sc])))
 # make kernel/start.o the first object file
-OBJS    :=$(filter-out start.o,$(OBJS))
-OBJS    :=kernel/start.o $(OBJS)
+OBJS	:=$(filter-out start.o,$(OBJS))
+OBJS	:=kernel/start.o $(OBJS)
 
-DEPS    :=$(patsubst %.o,%.dep,$(OBJS))
+DEPS	:=$(patsubst %.o,%.dep,$(OBJS))
 
 ifeq (.depend,$(wildcard .depend))
 all:
@@ -43,7 +44,7 @@ clean:
 
 clean-all: clean
 	$(RM) boot/boot.bin boot/boot.lst \
-	kernel/kernel.exe kernel/kernel.dbg kernel/kernel.nm
+	kernel/kernel.exe kernel/kernel.dbg kernel/kernel.dbg.txt kernel/kernel.nm
 
 %.dep: %.S
 	@$(CC) -MM $(INCLUDE) -D__ASSEMBLY__ -o $@.tmp $<

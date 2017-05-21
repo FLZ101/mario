@@ -95,7 +95,7 @@ int do_fork(struct trap_frame *tr)
 	p->counter = (current->counter + 1) >> 1;
 	current->counter >>= 1;
 	if (!current->counter)
-		need_resched = 1;
+		current->need_resched = 1;
 
 	p->signal = 0;
 	p->it_real_value = p->it_virt_value = p->it_prof_value = 0;

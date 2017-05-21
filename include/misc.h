@@ -59,6 +59,8 @@ void early_print(const char *fmt, ...);
 #define cli() __asm__ __volatile__ ("cli": : :"memory")
 #define sti() __asm__ __volatile__ ("sti": : :"memory")
 
+#define safe_halt() __asm__ __volatile__("sti; hlt": : :"memory")
+
 #define save_flags(x) \
 __asm__ __volatile__("pushfl; popl %0":"=g"(x): :"memory")
 

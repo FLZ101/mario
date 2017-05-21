@@ -33,16 +33,16 @@ struct task_struct {
 	volatile long state;
 	int counter;
 	int priority;
-
 	unsigned long signal;
 	unsigned long blocked;
-	struct sigaction sigaction[32];
-
+	long need_resched;
 	int exit_code, exit_signal;
-	wait_queue_t wait_chldexit;
-	struct rlimit rlim[NR_RLIMIT];
 	pid_t pid, pgrp, session;
 	int leader, did_exec;
+
+	long it_real_value, it_prof_value, it_virt_value;
+	long it_real_incr, it_prof_incr, it_virt_incr;
+	struct timer_list real_timer;
 
 	struct list_head run_list;
 	struct task_struct *next_task, *prev_task;
@@ -52,16 +52,15 @@ struct task_struct {
 	 */
 	struct task_struct *p_pptr, *p_cptr, *p_ysptr, *p_osptr;
 
-	long it_real_value, it_prof_value, it_virt_value;
-	long it_real_incr, it_prof_incr, it_virt_incr;
-	struct timer_list real_timer;
-
+	spinlock_t lock;
+	wait_queue_t wait_chldexit;
+	struct rlimit rlim[NR_RLIMIT];
 	struct mm_struct *mm;
 	struct fs_struct *fs;
 	struct files_struct *files;
 	struct thread_struct thread;
+	struct sigaction sigaction[32];
 	char comm[16];
-	spinlock_t lock;
 };
 
 #define TASK_RUNNING		0

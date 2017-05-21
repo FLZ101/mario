@@ -15,8 +15,6 @@ int send_sig(unsigned long sig, struct task_struct *p, int priv)
 {
 	if (!p || sig > 32)
 		return -EINVAL;
-	if (!priv && ((sig != SIGCONT) || (current->session != p->session)))
-		return -EPERM;
 	if (!sig)
 		return 0;
 
@@ -173,6 +171,12 @@ void notify_parent(struct task_struct *p)
 void do_exit(long code)
 {
 	struct task_struct *p;
+
+	/*
+	 * init_task doesn't exit
+	 */
+	if (current == &init_task)
+        return;
 
 	exit_mmap(current);
 	free_page_tables(current);

@@ -120,6 +120,7 @@ read_a_block:
 		return res;
 	}
 	goto read_a_block;
+	return 0;
 }
 
 /*

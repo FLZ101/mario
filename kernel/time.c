@@ -129,11 +129,13 @@ void irq_PIT(struct trap_frame tr)
 {
 	jiffies++;
 	
-	if (&init_task == current)
+	if (&init_task == current) {
+		current->need_resched = 1;
 		goto tail;
+	}
 
 	if (!--current->counter)
-		need_resched = 1;
+		current->need_resched = 1;
 
 	if (userland(&tr)) {
 		if (current->it_virt_value && !--current->it_virt_value) {

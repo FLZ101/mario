@@ -198,7 +198,7 @@ void __tinit early_print_init(struct multiboot_info *m)
 {
 	unsigned char *s = (unsigned char *)m->boot_loader_name;
 
-	if (MB_FLAG_LOADER & m->flags && (0x3f00 == *(unsigned short *)s)) {
+	if ((MB_FLAG_LOADER & m->flags) && (0x3f00 == *(unsigned short *)s)) {
 		set_pos(s[2], s[3]);
 		early_print("%s\n", s + 4);
 	} else {
@@ -206,36 +206,12 @@ void __tinit early_print_init(struct multiboot_info *m)
 	}
 }
 
-#include <trap.h>
-void sys_print(struct trap_frame tr)
-{
-	unsigned long flags;
-	save_flags(flags);
-	cli();
-	write_s((char *)tr.ebx);
-	restore_flags(flags);
-}
-
 /*
- * Used in userland.
- * gcc might treat puts as an inline function (when -O2); we need to 
- * tell gcc that eax is changed
+ * Temporary system call until the terminal interface implemented
  */
-void puts(char *s)
+void sys_putchar(char c)
 {
-	asm volatile("xorl %%eax, %%eax; int $0x80"::"b"(s):"eax");
-}
-
-/*
- * Used in userland
- */
-void printf(const char *fmt, ...)
-{
-	char buf[128];
-	va_list ap;
-	va_start(ap, fmt);
-	vsprint(buf, fmt, ap);
-	va_end(ap);
-
-	puts(buf);
+	irq_save();
+	write_c(c);
+	irq_restore();
 }

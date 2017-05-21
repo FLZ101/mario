@@ -299,6 +299,7 @@ unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
 		}
 		return addr;
 	}
+	return 0;
 }
 #if 0
 static inline void 
@@ -355,7 +356,7 @@ static unsigned long get_page_prot(unsigned long flags)
 {
 	if (flags & VM_WRITE)
 		return PG_PRESENT | PG_USER | PG_RW;
-	if (flags & VM_READ || flags & VM_EXEC)
+	if ((flags & VM_READ) || (flags & VM_EXEC))
 		return PG_PRESENT | PG_USER;
 	return PG_PRESENT;
 }
@@ -377,13 +378,11 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 
 	if ((len = PAGE_ALIGN(len)) == 0)
 		return -EINVAL;
-	if (addr > KERNEL_BASE || len > KERNEL_BASE || addr > KERNEL_BASE-len)
+	if (addr > KERNEL_BASE || len > KERNEL_BASE || addr > KERNEL_BASE - len)
 		return -EINVAL;
 
 	if (flags & MAP_FIXED) {
 		if (addr & ~PAGE_MASK)
-			return -EINVAL;
-		if (len > KERNEL_BASE || addr > KERNEL_BASE - len)
 			return -EINVAL;
 	} else {
 		addr = get_unmapped_area(addr, len);
@@ -406,6 +405,7 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 	case MAP_SHARED:
 		if (file && (prot & PROT_WRITE) && !(file->f_mode & 2))
 			return -EACCES;
+			/* no break */
 	case MAP_PRIVATE:
 		if (file && !(file->f_mode & 1))
 			return -EACCES;

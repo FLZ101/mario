@@ -1,6 +1,8 @@
 #include <misc.h>
 #include <trap.h>
 #include <idt.h>
+#include <signal.h>
+#include <sched.h>
 
 void print_tr(struct trap_frame *tr)
 {
@@ -61,82 +63,77 @@ void __tinit trap_init(void)
 	set_system_gate(SYSCALL_VECTOR, system_call);
 }
 
-void do_divide_error(struct trap_frame tr)
+static void die(char *str, struct trap_frame *tr, long err)
 {
-	early_print("Divide Error\n");
+	early_print("[%u] %s\n", err, str);
+	print_tr(tr);
+	do_exit(SIGSEGV);
 }
 
-void do_debug(struct trap_frame tr)
+void die_if_kernel(char *str, struct trap_frame *tr, long err)
 {
-	early_print("Debug\n");
+	if (!userland(tr))
+		die(str, tr, err);
 }
 
-void do_nmi(struct trap_frame tr)
-{
-	early_print("NMI\n");
+#define DO_ERROR(trapnr, signr, str, name, tsk) \
+void do_##name(struct trap_frame* tr, long error_code) \
+{ \
+	tsk->thread.error_code = error_code; \
+	tsk->thread.trap_no = trapnr; \
+	send_sig(signr, tsk, 1); \
+	die_if_kernel(str, tr, error_code); \
 }
 
-void do_int3(struct trap_frame tr)
+DO_ERROR( 0, SIGFPE,  "divide error", divide_error, current)
+DO_ERROR( 3, SIGTRAP, "int3", int3, current)
+DO_ERROR( 4, SIGSEGV, "overflow", overflow, current)
+DO_ERROR( 5, SIGSEGV, "bounds", bounds, current)
+DO_ERROR( 6, SIGILL,  "invalid operand", invalid_op, current)
+DO_ERROR( 7, SIGSEGV, "device not available", device_not_available, current)
+DO_ERROR( 8, SIGSEGV, "double fault", double_fault, current)
+DO_ERROR( 9, SIGFPE,  "coprocessor segment overrun", coprocessor_segment_overrun, current)
+DO_ERROR(10, SIGSEGV, "invalid TSS", invalid_TSS, current)
+DO_ERROR(11, SIGBUS,  "segment not present", segment_not_present, current)
+DO_ERROR(12, SIGBUS,  "stack segment", stack_segment, current)
+DO_ERROR(15, SIGSEGV, "reserved", reserved, current)
+DO_ERROR(17, SIGSEGV, "alignment check", alignment_check, current)
+
+void do_general_protection(struct trap_frame *tr, long error_code)
 {
-	early_print("Int3\n");
+	die_if_kernel("general protection", tr, error_code);
+	current->thread.error_code = error_code;
+	current->thread.trap_no = 13;
+	send_sig(SIGSEGV, current, 1);
 }
 
-void do_overflow(struct trap_frame tr)
+void do_nmi(struct trap_frame *tr, long error_code)
 {
-	early_print("Overflow\n");
+	early_print("[WARN] NMI received\n");
+	print_tr(tr);
 }
 
-void do_bounds(struct trap_frame tr)
+void do_debug(struct trap_frame *tr, long error_code)
 {
-	early_print("Bounds\n");
+	send_sig(SIGTRAP, current, 1);
+	current->thread.trap_no = 1;
+	current->thread.error_code = error_code;
+	if (!userland(tr)) {
+		/* If this is a kernel mode trap, then reset db7 and allow us to continue */
+		__asm__("movl %0,%%db7"
+			: /* no output */
+			: "r" (0));
+		return;
+	}
+	die_if_kernel("debug", tr, error_code);
 }
 
-void do_invalid_op(struct trap_frame tr)
+void do_coprocessor_error(struct trap_frame *tr, long error_code)
 {
-	early_hang("Invalid Opcode\n");
+	die("[ERROR] coprocessor error", tr, error_code);
 }
 
-void do_device_not_available(struct trap_frame tr)
+void do_spurious_interrupt_bug(struct trap_frame *tr, long error_code)
 {
-	early_print("Device Not Available\n");
-}
-
-void do_double_fault(struct trap_frame tr)
-{
-	early_print("Double Fault\n");
-}
-
-void do_coprocessor_segment_overrun(struct trap_frame tr)
-{
-	early_print("Coprocessor Segment Overrun\n");
-}
-
-void do_invalid_TSS(struct trap_frame tr)
-{
-	early_print("Invalid TSS\n");
-}
-
-void do_segment_not_present(struct trap_frame tr)
-{
-	early_print("Segment Not Present\n");
-}
-
-void do_stack_segment(struct trap_frame tr)
-{
-	early_print("Stack Segment\n");
-}
-
-void do_general_protection(struct trap_frame tr)
-{
-	early_hang("General Protection\n");
-}
-
-void do_spurious_interrupt_bug(struct trap_frame tr)
-{
-	early_print("Spurious Interrupt Bug\n");
-}
-
-void do_coprocessor_error(struct trap_frame tr)
-{
-	early_print("Coprocessor Error\n");
+	/* Empty */
 }

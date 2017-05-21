@@ -135,8 +135,10 @@ __next:
 		return 0;
 	if (!(flags & PE_SEC_BSS) || !(flags & PE_SEC_WRITE))
 		return 1;
+#if 0
 	if (exe->sec[2].vir_sz != opt_hdr->bss_sz)
 		return 1;
+#endif
 	return 0;
 }
 
@@ -474,6 +476,8 @@ int do_execve(char *filename, char **argv, char **envp, struct trap_frame *tr)
 	if (error)
 		goto tail_2;
 	error = do_exec(&exe, fd, tr);
+	if (!error)
+		return 0;
 tail_2:
 	for (i = 0; i < MAX_ARG_PAGES && exe.arg_page[i]; i++)
 		page_free(exe.arg_page[i]);

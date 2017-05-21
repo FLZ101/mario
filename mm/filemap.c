@@ -11,7 +11,7 @@ static int filemap_sync_pte_range(pte_t *pt, struct vm_area_struct *vma,
 	if (!__pe_present(pt) || __pte_bad(pt))
 		return 0;
 	addr &= ~PAGE_MASK;
-	if (addr + len >= PAGE_SIZE);
+	if (addr + len >= PAGE_SIZE)
 		len = PAGE_SIZE - addr;
 	if (f->f_pos >= f->f_inode->i_size)
 		return 1;

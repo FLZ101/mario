@@ -47,8 +47,6 @@ void wake_up_process(struct task_struct *p);
 
 int do_fork(struct trap_frame *tr);
 
-extern unsigned long need_resched;
-
 void schedule(void);
 
 long schedule_timeout(long timeout);
@@ -65,4 +63,6 @@ void wake_up(wait_queue_t *q, long state);
 #define wake_up_uninterruptible(q) wake_up((q), TASK_UNINTERRUPTIBLE)
 
 void wake_up_1st(wait_queue_t *q);
+
+void do_exit(long code);
 #endif	/* _SCHED_H */

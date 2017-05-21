@@ -33,10 +33,19 @@
 #define SIGPWR		30
 #define	SIGUNUSED	31
 
-struct task_struct;
-extern int send_sig(unsigned long sig, struct task_struct *p, int priv);
+#define SIGPOLL		SIGIO
 
-#define signal_pending(p)      ((p)->signal & ~(p)->blocked)
+#define SA_NOCLDSTOP	1
+#define SA_RESTART		0x10000000
+#define SA_NOMASK		0x20000000
+#define SA_ONESHOT		0x40000000
+
+#define SA_RESETHAND	SA_ONESHOT
+#define SA_NODEFER		SA_NOMASK
+
+#define SIG_BLOCK          0
+#define SIG_UNBLOCK        1
+#define SIG_SETMASK        2
 
 /* Type of a signal handler.  */
 typedef void (*__sighandler_t)(int);
@@ -53,5 +62,37 @@ struct sigaction {
 	unsigned long sa_flags;
 	void (*sa_restorer)(void);
 };
+
+#ifdef __KERNEL__
+
+#define signal_pending(p)      ((p)->signal & ~(p)->blocked)
+
+struct task_struct;
+extern int send_sig(unsigned long sig, struct task_struct *p, int priv);
+
+struct sigcontext_struct {
+	unsigned short es, __esh;
+	unsigned short ds, __dsh;
+	unsigned long edi;
+	unsigned long esi;
+	unsigned long ebp;
+	unsigned long esp;
+	unsigned long ebx;
+	unsigned long edx;
+	unsigned long ecx;
+	unsigned long eax;
+	unsigned long trapno;
+	unsigned long err;
+	unsigned long eip;
+	unsigned short cs, __csh;
+	unsigned long eflags;
+	unsigned long esp_at_signal;
+	unsigned short ss, __ssh;
+	unsigned long i387;
+	unsigned long old_mask;
+	unsigned long cr2;
+};
+
+#endif	/* __KERNEL__ */
 
 #endif	/* _SIGNAL_H */

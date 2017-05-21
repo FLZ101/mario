@@ -2,22 +2,21 @@
 #define _TRAP_H
 
 struct trap_frame {
-	unsigned long 
-	ebx,
-	ecx,
-	edx,
-	esi,
-	edi,
-	ebp,
-	eax,
-	ds,
-	es,
-	error_code,
-	eip,
-	cs,
-	eflags,
-	esp,
-	ss;
+	long ebx;
+	long ecx;
+	long edx;
+	long esi;
+	long edi;
+	long ebp;
+	long eax;
+	unsigned short ds, __dsu;
+	unsigned short es, __esu;
+	long error_code;
+	long eip;
+	unsigned short cs, __csu;
+	long eflags;
+	long esp;
+	unsigned short ss, __ssu;
 };
 
 void trap_init(void);

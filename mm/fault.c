@@ -5,24 +5,27 @@
 
 #include <lib/string.h>
 
+extern void die_if_kernel(char *str, struct trap_frame *tr, long err);
+extern void do_exit(long code);
+
 /*
  * oom() prints a message (so that the user knows why the process died),
  * and gives the process an untrappable SIGKILL.
  */
 void oom(struct task_struct *p)
 {
-	early_print("\nOut of memory for %s.\n", current->comm);
-	p->sigaction[SIGKILL-1].sa_handler = NULL;
+	early_print("Out of memory for %s\n", current->comm);
+	p->sigaction[SIGKILL-1].sa_handler = SIG_DFL;
 	p->blocked &= ~(1<<(SIGKILL-1));
 	send_sig(SIGKILL, p, 1);
 }
 
 void do_wp_page(struct vm_area_struct *vma, unsigned long addr,
-	int write_access)
+		int write_access)
 {
 	pde_t *pd;
 	pte_t *pt;
-	unsigned long tmp;
+	unsigned long tmp, pg;
 	struct page *page;
 
 	pd = pde_offset(vma->vm_mm->pd, addr);
@@ -32,7 +35,8 @@ void do_wp_page(struct vm_area_struct *vma, unsigned long addr,
 		set_pe_rw(pt);
 		return;
 	}
-	page = VIR_TO_PAGE(*pt);
+	pg = __vir((unsigned long)(*pt) & PAGE_MASK);
+	page = VIR_TO_PAGE(pg);
 
 	/* There is only one using that page */
 	if (atomic_read(&page->count) == 1) {
@@ -46,8 +50,8 @@ void do_wp_page(struct vm_area_struct *vma, unsigned long addr,
 		*pt = BAD_PAGE;
 		return;
 	}
+	memcpy((void *)tmp, (void *)pg, PAGE_SIZE);
 	*pt = mk_pte(tmp, vma->vm_page_prot);
-	memcpy(page, (void *)(*pt & PAGE_MASK), PAGE_SIZE);
 }
 
 static unsigned long get_one(struct vm_area_struct *mpnt, unsigned long addr)
@@ -130,22 +134,16 @@ fail:
 }
 
 /*
- * This routine handles page faults.  It determines the address,
- * and the problem, and then passes it off to one of the appropriate
- * routines.
- *
  * error_code:
- *	bit 0 == 0 means no page found, 1 means protection fault
- *	bit 1 == 0 means read, 1 means write
- *	bit 2 == 0 means kernel, 1 means user-mode
+ *	bit 0: 0 - no page found, 1 - protection fault
+ *	bit 1: 0 - read, 1 - write
+ *	bit 2: 0 - kernel, 1 - user-mode
  */
-void do_page_fault(struct trap_frame tr)
+void do_page_fault(struct trap_frame *tr, long error_code)
 {
-	unsigned long error_code;
-	unsigned long addr, page;
+	unsigned long addr, page, pde, pte;
 	struct vm_area_struct *vma;
 
-	error_code = tr.error_code;
 	__asm__("movl %%cr2, %0":"=r"(addr));
 
 	vma = find_vma(current->mm, addr);
@@ -159,10 +157,7 @@ void do_page_fault(struct trap_frame tr)
 		goto bad_area;
 	vma->vm_offset -= vma->vm_start - (addr & PAGE_MASK);
 	vma->vm_start = (addr & PAGE_MASK);
-/*
- * Ok, we have a good vm_area for this memory access, so
- * we can handle it..
- */
+
 good_area:
 	/*
 	 * was it a write?
@@ -177,18 +172,15 @@ good_area:
 		if (!(vma->vm_flags & (VM_READ | VM_EXEC)))
 			goto bad_area;
 	}
-	if (error_code & 1) {
+	if (error_code & 1)
 		do_wp_page(vma, addr, error_code & 2);
-		return;
-	}
-	do_no_page(vma, addr, error_code & 2);
+	else
+		do_no_page(vma, addr, error_code & 2);
 	return;
 
-/*
- * Something tried to access memory that isn't in our memory map..
- * Fix it, but check if it's kernel or user first..
- */
 bad_area:
+	early_print("[page fault] %d %x; ", current->pid, addr);
+
 	if (error_code & 4) {
 		current->thread.cr2 = addr;
 		current->thread.error_code = error_code;
@@ -196,14 +188,18 @@ bad_area:
 		send_sig(SIGSEGV, current, 1);
 	}
 	__asm__("movl %%cr3, %0" : "=r" (page));
-	page = ((unsigned long *) page)[addr >> 22];
-	early_print("*pde = %x\n", page);
-	if (page & 1) {
-		page &= PAGE_MASK;
+	page = __vir(page);
+	pde = ((unsigned long *) page)[addr >> 22];
+	early_print("pde = %x ", pde);
+
+	if (pde & 1) {
+		pde &= PAGE_MASK;
 		addr &= 0x003ff000;
-		page = ((unsigned long *) page)[addr >> PAGE_SHIFT];
-		early_print("*pte = %x\n", page);
+		pde = __vir(pde);
+		pte = ((unsigned long *) pde)[addr >> PAGE_SHIFT];
+		early_print("pte = %x\n", pte);
 	}
-	print_tr(&tr);
-	early_hang("KERNEL CRASH");
+
+	die_if_kernel("Oops", tr, error_code);
+	do_exit(SIGKILL);
 }
