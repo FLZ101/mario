@@ -1,59 +1,44 @@
 
-.EXPORT_ALL_VARIABLES:
+.PHONY: all kernel rd app libc image run debug
 
-RM	:=rm -f
-NASM	:=nasm
-MAKE	:=make -R
-LD	:=ld -m i386pe
-LDFLAGS	:=-T Link.ld -nostdlib
-STRIP	:=strip
-NM	:=nm
-OBJDUMP	:=objdump
-CC	:=gcc -m32
-INCLUDE	:=-I include
-CFLAGS	:=-c -D__KERNEL__ -nostdinc -ffreestanding $(INCLUDE) -ggdb -Wall -O0
+.PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image
 
-.PHONY:	all depend clean clean-all
+all: kernel
 
-OBJS	:=$(addsuffix .o,$(basename $(wildcard */*.[Sc])))
-OBJS	+=$(addsuffix .o,$(basename $(wildcard */*/*.[Sc])))
-# make kernel/start.o the first object file
-OBJS	:=$(filter-out start.o,$(OBJS))
-OBJS	:=kernel/start.o $(OBJS)
+kernel:
+	$(MAKE) -C src
 
-DEPS	:=$(patsubst %.o,%.dep,$(OBJS))
+rd: app
+	$(MAKE) -C rd
 
-ifeq (.depend,$(wildcard .depend))
-all:
-else
-all: depend
-endif
-	@$(MAKE) -f Makeit
-	@echo :\)
+app: libc
+	$(MAKE) -C app
 
-# `make depend' when file(s) added in
-depend: $(DEPS)
-	@touch .depend
+libc:
+	$(MAKE) -C libc
 
-clean:	OBJS:=$(wildcard */*.o)
-clean:	OBJS+=$(wildcard */*/*.o)
-clean:	DEPS:=$(wildcard */*.dep)
-clean:	DEPS+=$(wildcard */*/*.dep)
-clean:
-	$(RM) $(OBJS) $(DEPS) .depend
+image: kernel rd
+	$(MAKE) -C qemu
 
-clean-all: clean
-	$(RM) boot/boot.bin boot/boot.lst \
-	kernel/kernel.exe kernel/kernel.dbg kernel/kernel.dbg.txt kernel/kernel.nm
+run:
+	$(MAKE) run -C qemu
 
-%.dep: %.S
-	@$(CC) -MM $(INCLUDE) -D__ASSEMBLY__ -o $@.tmp $<
-	@sed -e 's,\($(basename $(notdir $<))\).o[ :]*,$(dir $<)\1.o $@: ,g' < $@.tmp > $@
-	@$(RM) $@.tmp
-	@echo $@
+debug:
+	$(MAKE) debug -C qemu
 
-%.dep: %.c
-	@$(CC) -MM $(INCLUDE) -o $@.tmp $<
-	@sed -e 's,\($(basename $(notdir $<))\).o[ :]*,$(dir $<)\1.o $@: ,g' < $@.tmp > $@ 
-	@$(RM) $@.tmp
-	@echo $@
+clean: clean-kernel clean-rd clean-app clean-libc clean-image
+
+clean-kernel:
+	$(MAKE) clean -C src
+
+clean-rd:
+	$(MAKE) clean -C rd
+
+clean-app:
+	$(MAKE) clean -C app
+
+clean-libc:
+	$(MAKE) clean -C libc
+
+clean-image:
+	$(MAKE) clean -C qemu

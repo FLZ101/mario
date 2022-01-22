@@ -1,0 +1,9 @@
+.PHONY: all clean
+
+all: $(EXE)
+
+clean:
+	$(RM) $(EXE) $(OBJS) $(EXE).dbg.txt
+
+LIBC :=../../libc/lib
+include $(LIBC)/Makefile

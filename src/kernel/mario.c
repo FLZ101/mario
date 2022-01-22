@@ -29,12 +29,14 @@ void kernel_thread(void (*fun)(void *), void *arg)
 extern int sys_pause(void);
 
 extern void bh_thread(void *arg);
+
 extern void test_signal(void *arg);
+extern void test_init(void *arg);
 
 void init(void *arg)
 {
 	kernel_thread(bh_thread, NULL);
-	kernel_thread(test_signal, NULL);
+	kernel_thread(test_init, NULL);
 
 	while(1)
 		sys_pause();

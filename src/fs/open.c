@@ -11,7 +11,7 @@
  *	01 - read-permission
  *	10 - write-permission
  *	11 - read-write
- * for the internal routines (ie open_namei()/follow_link() etc). 00 is
+ * for the internal routines (i.e. open_namei()/follow_link() etc). 00 is
  * used by symlinks.
  */
 int do_open(char *filename, int flags)

@@ -1,0 +1,16 @@
+*.dep
+*.exe
+*.dbg
+*.dbg.txt
+*.nm
+*.o
+*.a
+*.bin
+
+*.lst
+!menu.lst
+
+*.img
+.gdbinit
+
+.vscode/
