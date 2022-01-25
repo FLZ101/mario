@@ -11,6 +11,5 @@
 !menu.lst
 
 *.img
-.gdbinit
 
 .vscode/

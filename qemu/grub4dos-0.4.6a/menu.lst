@@ -1,10 +1,10 @@
 timeout 3
 
-title boot.bin
+title mario (boot.bin)
 find --set-root /boot.bin
 chainloader /boot.bin
 
-title kernel.exe
+title mario (grub4dos)
 find --set-root /kernel.exe
 kernel /kernel.exe
 module /rd0 MARIO_RAMDISK

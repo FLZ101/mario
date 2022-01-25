@@ -6,7 +6,6 @@ A simple UNIX-like OS for x86.
 
 * TTY driver
 * pipe
-* ...
 
 ## How-to
 

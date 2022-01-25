@@ -86,7 +86,7 @@ struct inode_operations {
 struct file_operations;
 
 /*
- * To simplify things, when we access/modify the content of an inode, 
+ * To simplify things, when we access/modify the content of an inode,
  * we need to down i_sem
  */
 struct inode {

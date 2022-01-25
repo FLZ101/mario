@@ -4,7 +4,7 @@
 #include <lib/stdarg.h>
 #include <lib/string.h>
 
-#define TEXT (0xb8000 + KERNEL_BASE) 
+#define TEXT (0xb8000 + KERNEL_BASE)
 
 #define COLOR 0x07
 
@@ -207,7 +207,7 @@ void __tinit early_print_init(struct multiboot_info *m)
 }
 
 /*
- * Temporary system call until the terminal interface implemented
+ * will be removed when the TTY driver is implemented
  */
 void sys_putchar(char c)
 {

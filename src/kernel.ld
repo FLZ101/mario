@@ -49,11 +49,8 @@ SECTIONS
 	}
 	__ebss = .;
 
-	/*
-	 * Required by remote debuging with GDB the kernel running in
-	 * VMware Player
-	 */
-	.eh_frame : { *(.eh_frame) }
-
-	/DISCARD/ : { *(.rdata$zzz) *(.drectve) }
+	/DISCARD/ : {
+		*(.drectve)
+		*(.rdata$zzz)
+	}
 }

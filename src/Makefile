@@ -14,7 +14,7 @@ CC	:=$(TOOLCHAIN)gcc -m32
 
 INCLUDE	:=-I include
 CFLAGS	:=-c -D__KERNEL__ -nostdinc -ffreestanding $(INCLUDE) -ggdb -Wall -O0
-LDFLAGS	:=-T Link.ld -nostdlib
+LDFLAGS	:=-T kernel.ld -nostdlib
 
 .PHONY:	all depend clean
 

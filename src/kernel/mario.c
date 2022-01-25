@@ -38,7 +38,7 @@ void init(void *arg)
 	kernel_thread(bh_thread, NULL);
 	kernel_thread(test_init, NULL);
 
-	while(1)
+	while (1)
 		sys_pause();
 }
 

@@ -1,3 +1,6 @@
+#define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE
+
 #include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
@@ -298,19 +301,26 @@ void make_begin(void)
 	write_block();
 }
 
-/* Copy directory entries into rd */
+/*
+ * Copy entries of current directory into rd
+ *
+ * NOTE:
+ *   '.' MUST be the 1st one
+ *   '..' MUST be the 2nd one
+ */
 void pass1(void)
 {
-	DIR *dir;
-	struct dirent *entry;
+	struct dirent **namelist;
 
-	dir = opendir(".");
-	if (!dir) {
-		printf("Error:\tfail to open dir .\n");
-		exit(-1);
+	int n = scandir(".", &namelist, NULL, alphasort);
+	if (n == -1) {
+		perror("scandir");
+		exit(EXIT_FAILURE);
 	}
 
-	while ((entry = readdir(dir))) {
+	for (int i = 0; i < n; i++) {
+		struct dirent *entry = namelist[i];
+
 		struct stat st;
 		struct mario_dir_entry tmp;
 
@@ -337,8 +347,12 @@ void pass1(void)
 		memset(tmp.name, 0, MAX_NAME_LEN);
 		strcpy(tmp.name, entry->d_name);
 		pour_data(&tmp, sizeof(tmp), 1);
+
+		free(entry);
 	}
-	closedir(dir);
+
+	free(namelist);
+
 	end_pour();
 }
 

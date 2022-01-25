@@ -37,7 +37,7 @@ try:
 		if (!strncmp(name, entry[i].name, len) && !entry[i].name[len]) {
 			brelse(bh);	/* !!! */
 			/*
-			 * To make mount works, all inodes referring to 
+			 * To make mount works, all inodes referring to
 			 * ROOT must have the same inode number
 			 */
 			if (entry[i].data == MARIO_ROOT)
@@ -134,7 +134,7 @@ get_entry_done:
 	set_dirty(bh);
 	brelse(bh);
 	if (res)
-		*res = iget(dir->i_sb, block * block_size + 
+		*res = iget(dir->i_sb, block * block_size +
 			(char *)entry - bh->b_data);
 tail:
 	iput(dir);
@@ -357,7 +357,7 @@ tail:
 	return ret;
 }
 
-static 
+static
 int do_mario_rename(struct inode *old_dir, char *old_name, int old_len,
 	struct inode *new_dir, char *new_name, int new_len)
 {
@@ -524,10 +524,10 @@ read_a_block:
 		/* an unused entry? */
 		if (entry[i].data == MARIO_FREE_ENTRY)
 			continue;
-		if (filldir(dirent, entry[i].name, strlen(entry[i].name), f->f_pos, 
+		if (filldir(dirent, entry[i].name, strlen(entry[i].name), f->f_pos,
 			block * size + i * MARIO_ENTRY_SIZE)) {
 			brelse(bh);
-			return 0;	
+			return 0;
 		}
 		f->f_pos += MARIO_ENTRY_SIZE;
 		start++;

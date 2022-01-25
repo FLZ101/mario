@@ -76,7 +76,7 @@ static int lookup(struct inode *dir, char *name, int len, struct inode **res)
 	*res = NULL;
 	if (!dir)
 		return -ENOENT;
-	if  (len == 2 && name[0] == '.' && name[1] == '.') {
+	if (len == 2 && name[0] == '.' && name[1] == '.') {
 		if (dir == current->fs->root) {
 			*res = dir;
 			return 0;
@@ -398,8 +398,8 @@ static int do_rename(char *oldname, char *newname)
 	error = dir_namei(oldname, &old_len, &old_base, NULL, &old_dir);
 	if (error)
 		return error;
-	if (!old_len || (old_base[0] == '.' && 
-		(old_len == 1 || (old_base[1] == '.' && 
+	if (!old_len || (old_base[0] == '.' &&
+		(old_len == 1 || (old_base[1] == '.' &&
 			old_len == 2)))) {
 		iput(old_dir);
 		return -EPERM;
@@ -409,8 +409,8 @@ static int do_rename(char *oldname, char *newname)
 		iput(old_dir);
 		return error;
 	}
-	if (!new_len || (new_base[0] == '.' && 
-		(new_len == 1 || (new_base[1] == '.' && 
+	if (!new_len || (new_base[0] == '.' &&
+		(new_len == 1 || (new_base[1] == '.' &&
 			new_len == 2)))) {
 		iput(old_dir);
 		iput(new_dir);
@@ -426,7 +426,7 @@ static int do_rename(char *oldname, char *newname)
 		iput(new_dir);
 		return -EPERM;
 	}
-	return old_dir->i_op->rename(old_dir, old_base, old_len, 
+	return old_dir->i_op->rename(old_dir, old_base, old_len,
 		new_dir, new_base, new_len);
 }
 
