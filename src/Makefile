@@ -13,8 +13,8 @@ OBJDUMP	:=$(TOOLCHAIN)objdump
 CC	:=$(TOOLCHAIN)gcc -m32
 
 INCLUDE	:=-I include
-CFLAGS	:=-c -D__KERNEL__ -nostdinc -ffreestanding $(INCLUDE) -ggdb -Wall -O0
-LDFLAGS	:=-T kernel.ld -nostdlib
+CFLAGS	:=-c -D__KERNEL__ -nostdinc -ffreestanding $(INCLUDE) -g -Wall -O0 -fno-omit-frame-pointer -fno-stack-protector
+LDFLAGS	:=-T kernel.ld -nostdlib --disable-reloc-section --image-base=0 --disable-dynamicbase --file-alignment=0x1000 --section-alignment=0x1000
 
 .PHONY:	all depend clean
 

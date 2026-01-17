@@ -11,7 +11,7 @@ include $(DEPS)
 kernel/kernel.exe: $(OBJS)
 	$(LD) $(LDFLAGS) -o $@ $^
 	cp $@ kernel/kernel.dbg
-	$(STRIP) -s $@
+# 	$(STRIP) -s $@
 	$(OBJDUMP) -d -S -M i386 kernel/kernel.dbg > kernel/kernel.dbg.txt
 	$(NM) -l -g -n kernel/kernel.dbg > kernel/kernel.nm
 

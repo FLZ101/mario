@@ -10,10 +10,10 @@ sfdisk hd.img <<EOF
 unit: sectors
 label: dos
 size=100MiB, bootable, type=0b
-size=200MiB, type=5
+type=5
 size=100MiB, type=83
 size=50MiB, type=83
-size=150MiB, type=0b
+size=100MiB, type=0b
 EOF
 
 echo "Format partitions of hd.img ..."
@@ -26,12 +26,13 @@ fi
 sudo losetup -P $loopdev hd.img
 
 sudo mkfs -t fat -F 32 ${loopdev}p1
-sudo mkfs -t ext2 ${loopdev}p3
-sudo mkfs -t ext4 ${loopdev}p5
-sudo mkfs -t fat -F 32 ${loopdev}p6
+sudo mkfs -t ext2 ${loopdev}p5
+sudo mkfs -t ext4 ${loopdev}p6
+sudo mkfs -t fat -F 32 ${loopdev}p7
 
 echo "Install grub4dos to hd.img ..."
 
+mkdir -p tmp
 cp grub4dos-0.4.6a/grldr.mbr tmp/
 
 mkdir -p tmp/{p1,p6}

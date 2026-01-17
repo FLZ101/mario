@@ -12,4 +12,4 @@ rd-explorer.exe: $(SOURCES) $(HEADERS)
 	$(CC) -o $@ $(CFLAGS) $(SOURCES)
 
 clean:
-	$(RM) rd-explorer.exe
+	$(RM) -f rd-explorer.exe

@@ -16,6 +16,7 @@ SECTIONS
 	{
 		*(.text)
 		*(.rdata)
+		*(.rdata$zzz)
 		. = ALIGN(0x1000);
 	}
 
@@ -49,8 +50,27 @@ SECTIONS
 	}
 	__ebss = .;
 
-	/DISCARD/ : {
-		*(.drectve)
-		*(.rdata$zzz)
+	.eh_frame : {
+		*(.eh_frame)
 	}
+
+	/* Base relocations — MUST be last ALLOCATED section */
+	.reloc : {
+		*(.reloc)
+	}
+
+	/* DWARF debug sections (GCC -g) */
+	.debug_line : { *(.debug_line) }
+	.debug_line_str : { *(.debug_line_str) }
+	.debug_info : { *(.debug_info) }
+	.debug_abbrev : { *(.debug_abbrev) }
+	.debug_aranges : { *(.debug_aranges) }
+	.debug_str : { *(.debug_str) }
+	.debug_rnglists : { *(.debug_rnglists) }
+	.debug_pubnames : { *(.debug_pubnames) }
+	.debug_pubtypes : { *(.debug_pubtypes) }
+	.debug_ranges : { *(.debug_ranges) }
+	.debug_loc : { *(.debug_loc) }
+	.debug_macinfo : { *(.debug_macinfo) }
+	.debug_frame : { *(.debug_frame) }
 }

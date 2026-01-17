@@ -9,7 +9,7 @@ CC :=$(TOOLCHAIN)gcc
 INCLUDE :=-I$(LIBC)/../include
 CFLAGS :=-m32 -c -nostdinc -ffreestanding $(INCLUDE) -ggdb
 LD :=$(TOOLCHAIN)ld
-LDFLAGS :=-m i386pe -L$(LIBC) -T Link.ld -nostdlib -lc \
+LDFLAGS :=-m i386pe -L$(LIBC) -T Link.ld -nostdlib -lc --disable-reloc-section \
 	--image-base 0x00400000 --section-alignment 0x1000 --file-alignment 0x1000
 OBJDUMP :=$(TOOLCHAIN)objdump
 

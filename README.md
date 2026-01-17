@@ -9,6 +9,12 @@ A simple UNIX-like OS for x86.
 
 ## How-to
 
+### prerequisites
+
+```
+$ sudo dnf install make mingw32-gcc nasm qemu-system-x86
+```
+
 ### build the kernel (and the bootloader)
 
 ```
