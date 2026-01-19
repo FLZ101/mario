@@ -45,7 +45,7 @@ clean:
 	$(RM) $(OBJS)
 	$(RM) $(DEPS) .depend
 	$(RM) boot/boot.bin boot/boot.lst \
-		kernel/kernel.exe kernel/kernel.dbg kernel/kernel.dbg.txt kernel/kernel.nm
+		kernel/kernel.exe
 
 %.dep: %.S
 	@$(CC) -MM $(INCLUDE) -D__ASSEMBLY__ -o $@.tmp $<

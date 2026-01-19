@@ -3,7 +3,7 @@
 all: $(EXE)
 
 clean:
-	$(RM) $(EXE) $(OBJS) $(EXE).dbg.txt
+	$(RM) $(EXE) $(OBJS)
 
 LIBC :=../../libc/lib
 include $(LIBC)/Makefile

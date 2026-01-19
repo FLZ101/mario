@@ -17,7 +17,6 @@ OBJDUMP :=$(TOOLCHAIN)objdump
 
 $(EXE): $(OBJS)
 	$(LD) -o $@ $^ $(LDFLAGS)
-	$(OBJDUMP) -d -S -M i386 $@ > $@.dbg.txt
 
 %.o: %.S
 	@$(CC) $(CFLAGS) -D__ASSEMBLY__ -o $@ $<

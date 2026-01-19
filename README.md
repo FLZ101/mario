@@ -46,9 +46,5 @@ $ make debug
 ```
 
 ```
-$ gdb
-(gdb) target remote localhost:1234
-(gdb) symbol-file kernel/kernel.dbg
-(gdb) b mario
-(gdb) c
+$ ./gdb.sh
 ```

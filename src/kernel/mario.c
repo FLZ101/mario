@@ -4,6 +4,9 @@
 #include <misc.h>
 #include <irq.h>
 
+#define __KERNEL_SYSCALLS__
+#include <unistd.h>
+
 #include <mm/e820.h>
 #include <mm/mm.h>
 
@@ -13,7 +16,7 @@ void kernel_thread(void (*fun)(void *), void *arg)
 {
 	__asm__ __volatile__(
 		"movl %%esp, %%esi\n\t"
-		"movl $6, %%eax\n\t"
+		"movl $6, %%eax\n\t" /* fork */
 		"int $0x80\n\t"
 		"cmpl %%esp, %%esi\n\t"
 		"je 1f\n\t"
@@ -27,16 +30,19 @@ void kernel_thread(void (*fun)(void *), void *arg)
 }
 
 extern int sys_pause(void);
-
 extern void bh_thread(void *arg);
 
-extern void test_signal(void *arg);
-extern void test_init(void *arg);
+#define MAX_INIT_ARGS 8
+#define MAX_INIT_ENVS 8
+
+static char *argv_init[MAX_INIT_ARGS+2] = { "init", NULL, };
+static char *envp_init[MAX_INIT_ENVS+2] = { "HOME=/", NULL, };
 
 void init(void *arg)
 {
-	kernel_thread(bh_thread, NULL);
-	kernel_thread(test_init, NULL);
+	kernel_thread(bh_thread, NULL); // child of init
+
+	execve("/bin/init.exe", argv_init, envp_init); // pid is 1
 
 	while (1)
 		sys_pause();

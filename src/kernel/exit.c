@@ -1,5 +1,6 @@
 #include <sched.h>
 #include <signal.h>
+#include <misc.h>
 
 #include <errno.h>
 
@@ -176,7 +177,11 @@ void do_exit(long code)
 	 * init_task doesn't exit
 	 */
 	if (current == &init_task)
-        return;
+		return;
+
+	if (current == init_task.next_task) {
+		early_hang("init exits with %d", code);
+	}
 
 	exit_mmap(current);
 	free_page_tables(current);
