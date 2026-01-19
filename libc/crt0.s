@@ -7,7 +7,7 @@ start:
 	pushl %ebp
 	pushl %ebp
 	pushl %eax
-	call ___libc_init
+	call __libc_init
 1:
 	hlt
 	jmp 1b

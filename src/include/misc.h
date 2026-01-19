@@ -15,8 +15,8 @@
 #define __vir(x)	((x) + KERNEL_BASE)
 
 #define ENTRY(name) \
- 	.globl _##name; \
- 	_##name##:
+ 	.globl name; \
+ 	name##:
 
 #else
 
@@ -79,12 +79,12 @@ __asm__ __volatile__("pushl %0; popfl": :"g"(x):"memory")
 	restore_flags(flags)
 
 /*
- * On the Intel 386, the fastcall attribute causes the compiler to pass 
- * the first argument (if of integral type) in the register ECX and the 
- * second argument (if of integral type) in the register EDX. Subsquent 
- * and other typed arguments are passed on the stack. The called function 
- * will pop the arguments off the stack. If the number of arguments is 
- * variable all arguments are pushed on the stack. 
+ * On the Intel 386, the fastcall attribute causes the compiler to pass
+ * the first argument (if of integral type) in the register ECX and the
+ * second argument (if of integral type) in the register EDX. Subsquent
+ * and other typed arguments are passed on the stack. The called function
+ * will pop the arguments off the stack. If the number of arguments is
+ * variable all arguments are pushed on the stack.
  * Refer to 'Using the GNU Compiler Collection (For GCC version 4.7.1)'.
  */
 #define FASTCALL __attribute__((fastcall))

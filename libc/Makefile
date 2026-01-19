@@ -1,9 +1,12 @@
 RM :=rm -f
 
-TOOLCHAIN :=i686-w64-mingw32-
+TOOLCHAIN :=
 CC :=$(TOOLCHAIN)gcc -m32
 INCLUDE :=-I include
-CFLAGS :=-c -nostdinc -ffreestanding $(INCLUDE) -ggdb
+CFLAGS	:=-c $(INCLUDE) \
+	-nostdinc -ffreestanding \
+	-fno-pic -fno-unwind-tables -fno-asynchronous-unwind-tables \
+	-ggdb -Wall -O0 -fno-omit-frame-pointer -fno-stack-protector
 AR :=$(TOOLCHAIN)ar
 
 .PHONY: all clean

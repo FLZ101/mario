@@ -5,16 +5,19 @@ RM	:=rm -f
 NASM	:=nasm
 MAKE	:=make -R
 
-TOOLCHAIN :=i686-w64-mingw32-
-LD	:=$(TOOLCHAIN)ld -m i386pe
+TOOLCHAIN :=
+LD	:=$(TOOLCHAIN)ld -m elf_i386
 STRIP	:=$(TOOLCHAIN)strip
 NM	:=$(TOOLCHAIN)nm
 OBJDUMP	:=$(TOOLCHAIN)objdump
 CC	:=$(TOOLCHAIN)gcc -m32
 
 INCLUDE	:=-I include
-CFLAGS	:=-c -D__KERNEL__ -nostdinc -ffreestanding $(INCLUDE) -g -Wall -O0 -fno-omit-frame-pointer -fno-stack-protector
-LDFLAGS	:=-T kernel.ld -nostdlib --disable-reloc-section --image-base=0 --disable-dynamicbase --file-alignment=0x1000 --section-alignment=0x1000
+CFLAGS	:=-c -D__KERNEL__ $(INCLUDE) \
+	-nostdinc -ffreestanding \
+	-fno-pic -fno-unwind-tables -fno-asynchronous-unwind-tables \
+	-ggdb -Wall -O0 -fno-omit-frame-pointer -fno-stack-protector
+LDFLAGS	:=-T kernel.ld -nostdlib
 
 .PHONY:	all depend clean
 

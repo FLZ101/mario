@@ -12,7 +12,7 @@ A simple UNIX-like OS for x86.
 ### prerequisites
 
 ```
-$ sudo dnf install make mingw32-gcc nasm qemu-system-x86
+$ sudo dnf install make gcc nasm qemu-system-x86
 ```
 
 ### build the kernel (and the bootloader)
@@ -46,7 +46,7 @@ $ make debug
 ```
 
 ```
-$ i686-w64-mingw32-gdb
+$ gdb
 (gdb) target remote localhost:1234
 (gdb) symbol-file kernel/kernel.dbg
 (gdb) b mario

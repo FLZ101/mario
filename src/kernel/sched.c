@@ -83,7 +83,7 @@ void switch_to(struct task_struct *next)
 		"movl %2, %%esp\n\t"	/* restore esp */
 		"movl $1f, %1\n\t"	/* save eip */
 		"pushl %3\n\t"		/* restore eip */
-		"jmp @_switch_to@8\n"
+		"jmp _switch_to\n"
 		"1:\n\t"
 		"popl %%ebx\n\t"
 		"popl %%eax\n\t"

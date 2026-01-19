@@ -9,9 +9,9 @@ multiboot:
 	.long MB_CHECK
 
 	.long __phy(multiboot)
-	.long __phy(__text)
-	.long __phy(__einit)
-	.long __phy(__ebss)
+	.long __phy(_text)
+	.long __phy(_einit)
+	.long __phy(_ebss)
 	.long __phy(start)
 
 	.globl start
@@ -29,27 +29,27 @@ start:
 	/*
 	 * initialize swapper_pg_dir (the first page directory)
 	 */
-	movl $__phy(_pg0)+007, __phy(_swapper_pg_dir)
-	movl $__phy(_pg1)+007, __phy(_swapper_pg_dir)+4
-	movl $__phy(_pg0)+007, __phy(_swapper_pg_dir)+2048
-	movl $__phy(_pg1)+007, __phy(_swapper_pg_dir)+2048+4
+	movl $__phy(pg0)+007, __phy(swapper_pg_dir)
+	movl $__phy(pg1)+007, __phy(swapper_pg_dir)+4
+	movl $__phy(pg0)+007, __phy(swapper_pg_dir)+2048
+	movl $__phy(pg1)+007, __phy(swapper_pg_dir)+2048+4
 
 	/*
 	 * initialize page tables
 	 */
-	movl $__phy(_pg0), %edi
+	movl $__phy(pg0), %edi
 	movl $007, %ecx	/* 007 means PRESENT+RW+USER */
 1:
 	movl %ecx, (%edi)
 	add $4, %edi
 	add $0x1000, %ecx
-	cmp $__phy(_empty_zero_page), %edi
+	cmp $__phy(empty_zero_page), %edi
 	jne 1b
 
 	/*
 	 * enable paging
 	 */
-	movl $__phy(_swapper_pg_dir), %ecx
+	movl $__phy(swapper_pg_dir), %ecx
 	movl %ecx, %cr3
 	movl %cr0, %ecx
 	orl $0x80000000, %ecx
@@ -85,7 +85,7 @@ start:
 	movw %dx, %ax
 	movw $0x8e00, %dx	/* interrupt gate, dpl=0 */
 
-	lea _idt, %edi
+	lea idt, %edi
 	movl $256, %ecx
 set_idt:
 	movl %eax, (%edi)
@@ -98,7 +98,7 @@ set_idt:
 	/*
 	 * Load tss, is it too early?
 	 */
-	movl $_init_tss, %eax
+	movl $init_tss, %eax
 	xorl %ebx, %ebx
 	xorl %ecx, %ecx
 	roll $16, %eax
@@ -111,7 +111,7 @@ set_idt:
 	movw $8, %ax
 	ltr %ax
 
-	call _mario
+	call mario
 	jmp .
 
 /*
@@ -135,12 +135,12 @@ gdtr:
 	.long __phy(gdt)
 
 stack_start:
-	.long _init_task_union + 8192
+	.long init_task_union + 8192
 	.word KERNEL_DS
 
 idtr:
 	.word 256*8 - 1
-	.long _idt
+	.long idt
 
 	.bss
 ENTRY(swapper_pg_dir)

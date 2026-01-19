@@ -1,4 +1,5 @@
-OUTPUT_FORMAT(pei-i386)
+OUTPUT_FORMAT(elf32-i386)
+OUTPUT_ARCH(i386)
 
 ENTRY(start)
 
@@ -11,12 +12,12 @@ SECTIONS
 {
 	. = 0x80000000 + 0x00100000;
 
-	__text = .;
+	_text = .;
 	.text :
 	{
 		*(.text)
-		*(.rdata)
-		*(.rdata$zzz)
+		. = ALIGN(0x1000);
+		*(.rodata)
 		. = ALIGN(0x1000);
 	}
 
@@ -25,7 +26,7 @@ SECTIONS
 		*(.data)
 		. = ALIGN(0x2000);
 	}
-	__edata = .;
+	_edata = .;
 
 	.init_task_union :
 	{
@@ -33,44 +34,35 @@ SECTIONS
 		. = ALIGN(0x1000);
 	}
 
-	__init = .;
+	_init = .;
 	.init :
 	{
 		*(.tinit)
 		*(.dinit)
 	}
-	__einit = .;
+	_einit = .;
 
 	. = ALIGN(0x1000);
 
-	__bss = .;
+	_bss = .;
 	.bss :
 	{
 		*(.bss)
 	}
-	__ebss = .;
+	_ebss = .;
 
-	.eh_frame : {
-		*(.eh_frame)
+	.debug_abbrev 0 : { *(.debug_abbrev) }
+	.debug_aranges 0 : { *(.debug_aranges) }
+	.debug_frame 0 : { *(.debug_frame) }
+	.debug_info 0 : { *(.debug_info) }
+	.debug_line 0 : { *(.debug_line) }
+	.debug_line_str 0 : { *(.debug_line_str) }
+	.debug_rnglists 0 : { *(.debug_rnglists) }
+	.debug_str 0 : { *(.debug_str) }
+
+	/DISCARD/ : {
+		*(.comment)
+		*(.note.GNU-stack)
+		*(.note.gnu.property)
 	}
-
-	/* Base relocations — MUST be last ALLOCATED section */
-	.reloc : {
-		*(.reloc)
-	}
-
-	/* DWARF debug sections (GCC -g) */
-	.debug_line : { *(.debug_line) }
-	.debug_line_str : { *(.debug_line_str) }
-	.debug_info : { *(.debug_info) }
-	.debug_abbrev : { *(.debug_abbrev) }
-	.debug_aranges : { *(.debug_aranges) }
-	.debug_str : { *(.debug_str) }
-	.debug_rnglists : { *(.debug_rnglists) }
-	.debug_pubnames : { *(.debug_pubnames) }
-	.debug_pubtypes : { *(.debug_pubtypes) }
-	.debug_ranges : { *(.debug_ranges) }
-	.debug_loc : { *(.debug_loc) }
-	.debug_macinfo : { *(.debug_macinfo) }
-	.debug_frame : { *(.debug_frame) }
 }

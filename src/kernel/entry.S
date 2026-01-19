@@ -84,17 +84,17 @@ ENTRY(fork_ret)
 ENTRY(system_call)
 	pushl %eax	/* the system call number */
 	SAVE_ALL
-	call *_sys_call_table(, %eax, 4)
+	call *sys_call_table(, %eax, 4)
 	movl %eax, EAX(%esp)	/* save the return value */
 
 ret_from_sys_call:
 	/* handle bottom_half */
-	movl _bh_mask, %eax
-	andl _bh_active, %eax
+	movl bh_mask, %eax
+	andl bh_active, %eax
 	je 1f
 	/* wake up the bh_thread */
-	pushl _bh_task
-	call _wake_up_process
+	pushl bh_task
+	call wake_up_process
 	addl $4, %esp
 1:
 	GET_CURRENT(%ebx)
@@ -102,7 +102,7 @@ ret_from_sys_call:
 	testl %ecx, %ecx
 	je 2f
 	pushl %ebx
-	call _schedule
+	call schedule
 	popl %ebx
 2:
 	movl blocked(%ebx), %ecx
@@ -113,72 +113,72 @@ ret_from_sys_call:
 	movl %esp, %ecx
 	pushl %edx
 	pushl %ecx
-	call _do_signal
+	call do_signal
 	addl $8, %esp
 3:
 	RESTORE_ALL
 
 ENTRY(divide_error)
 	pushl $0
-	pushl $_do_divide_error
+	pushl $do_divide_error
 	jmp trap_common
 ENTRY(debug)
 	pushl $0
-	pushl $_do_debug
+	pushl $do_debug
 	jmp trap_common
 ENTRY(nmi)
 	pushl $0
-	pushl $_do_nmi
+	pushl $do_nmi
 	jmp trap_common
 ENTRY(int3)
 	pushl $0
-	pushl $_do_int3
+	pushl $do_int3
 	jmp trap_common
 ENTRY(overflow)
 	pushl $0
-	pushl $_do_overflow
+	pushl $do_overflow
 	jmp trap_common
 ENTRY(bounds)
 	pushl $0
-	pushl $_do_bounds
+	pushl $do_bounds
 	jmp trap_common
 ENTRY(invalid_op)
 	pushl $0
-	pushl $_do_invalid_op
+	pushl $do_invalid_op
 	jmp trap_common
 ENTRY(device_not_available)
 	pushl $-1
-	pushl $_do_device_not_available
+	pushl $do_device_not_available
 	jmp trap_common
 ENTRY(double_fault)
-	pushl $_do_double_fault
+	pushl $do_double_fault
 	jmp trap_common
 ENTRY(coprocessor_segment_overrun)
 	pushl $0
-	pushl $_do_coprocessor_segment_overrun
+	pushl $do_coprocessor_segment_overrun
 	jmp trap_common
 ENTRY(invalid_TSS)
-	pushl $_do_invalid_TSS
+	pushl $do_invalid_TSS
 	jmp trap_common
 ENTRY(segment_not_present)
-	pushl $_do_segment_not_present
+	pushl $do_segment_not_present
 	jmp trap_common
 ENTRY(stack_segment)
-	pushl $_do_stack_segment
+	pushl $do_stack_segment
 	jmp trap_common
 ENTRY(general_protection)
-	pushl $_do_general_protection
+	pushl $do_general_protection
 	jmp trap_common
 ENTRY(page_fault)
-	pushl $_do_page_fault
+	pushl $do_page_fault
 	jmp trap_common
 ENTRY(spurious_interrupt_bug)
 	pushl $0
-	pushl $_do_spurious_interrupt_bug
+	pushl $do_spurious_interrupt_bug
 	jmp trap_common
 ENTRY(coprocessor_error)
 	pushl $0
-	pushl $_do_coprocessor_error
+	pushl $do_coprocessor_error
 
 trap_common:
 	cld
@@ -208,8 +208,8 @@ trap_common:
 /****************
  * IRQ handlers *
  ****************/
-.globl _irq0, _irq1, _irq2, _irq3, _irq4, _irq5, _irq6, _irq7
-.globl _irq8, _irq9, _irqa, _irqb, _irqc, _irqd, _irqe, _irqf
+.globl irq0, irq1, irq2, irq3, irq4, irq5, irq6, irq7
+.globl irq8, irq9, irqa, irqb, irqc, irqd, irqe, irqf
 
 /*
  * send EOI to master PIC
@@ -228,31 +228,31 @@ trap_common:
 ret_from_intr:
 	jmp ret_from_sys_call
 
-_irq0:
+irq0:
 	pushl $-1
 	SAVE_ALL
-	call _irq_PIT
+	call irq_PIT
 	EOI_MASTER
 	jmp ret_from_intr
 
-_irq1:
+irq1:
 	pushl $-1
 	SAVE_ALL
-	call _irq_PS2
+	call irq_PS2
 	EOI_MASTER
 	jmp ret_from_intr
 
-_irq2:
-_irq3:
-_irq4:
-_irq5:
-_irq6:
+irq2:
+irq3:
+irq4:
+irq5:
+irq6:
 	pushl %eax
 	EOI_MASTER
 	popl %eax
 	iret
 
-_irq7:
+irq7:
 	pushl %eax
 	movb $0x0b, %al		/* read ISR of master PIC */
 	outb %al, $0x20
@@ -263,20 +263,20 @@ _irq7:
 1:	popl %eax
 	iret
 
-_irq8:
-_irq9:
-_irqa:
-_irqb:
-_irqc:
-_irqd:
-_irqe:
+irq8:
+irq9:
+irqa:
+irqb:
+irqc:
+irqd:
+irqe:
 	pushl %eax
 	EOI_MASTER
 	EOI_SLAVE
 	popl %eax
 	iret
 
-_irqf:
+irqf:
 	pushl %eax
 	movb $0x0b, %al		/* read ISR of slave PIC */
 	outb %al, $0xa0
@@ -291,56 +291,56 @@ _irqf:
 	.data
 	.balign 4
 ENTRY(sys_call_table)
-	.long _sys_brk
-	.long _sys_mmap
-	.long _sys_munmap
-	.long _sys_alarm
-	.long _sys_execve
-	.long _sys_exit
-	.long _sys_fork
-	.long _sys_getpid
-	.long _sys_getppid
-	.long _sys_nanosleep
-	.long _sys_pause
-	.long _sys_waitpid
-	.long _sys_chdir
-	.long _sys_fchdir
-	.long _sys_chroot
-	.long _sys_close
-	.long _sys_creat
-	.long _sys_dup
-	.long _sys_dup2
-	.long _sys_getdents
-	.long 0	/* _sys_ioctl */
-	.long _sys_link
-	.long _sys_lseek
-	.long _sys_mkdir
-	.long _sys_mknod
-	.long _sys_mount
-	.long _sys_open
-	.long 0	/* _sys_pipe */
-	.long _sys_read
-	.long _sys_rename
-	.long _sys_rmdir
-	.long _sys_stat
-	.long _sys_fstat
-	.long _sys_truncate
-	.long _sys_ftruncate
-	.long _sys_umount
-	.long _sys_unlink
-	.long _sys_write
-	.long _sys_time
-	.long _sys_getitimer
-	.long _sys_setitimer
-	.long _sys_getpgid
-	.long _sys_getpgrp
-	.long _sys_setpgid
-	.long _sys_setsid
-	.long _sys_kill
-	.long _sys_signal
-	.long _sys_sigaction
-	.long _sys_sigsuspend
-	.long _sys_sigpending
-	.long _sys_sigprocmask
-	.long _sys_sigreturn
-	.long _sys_putchar
+	.long sys_brk
+	.long sys_mmap
+	.long sys_munmap
+	.long sys_alarm
+	.long sys_execve
+	.long sys_exit
+	.long sys_fork
+	.long sys_getpid
+	.long sys_getppid
+	.long sys_nanosleep
+	.long sys_pause
+	.long sys_waitpid
+	.long sys_chdir
+	.long sys_fchdir
+	.long sys_chroot
+	.long sys_close
+	.long sys_creat
+	.long sys_dup
+	.long sys_dup2
+	.long sys_getdents
+	.long 0	/* sys_ioctl */
+	.long sys_link
+	.long sys_lseek
+	.long sys_mkdir
+	.long sys_mknod
+	.long sys_mount
+	.long sys_open
+	.long 0	/* sys_pipe */
+	.long sys_read
+	.long sys_rename
+	.long sys_rmdir
+	.long sys_stat
+	.long sys_fstat
+	.long sys_truncate
+	.long sys_ftruncate
+	.long sys_umount
+	.long sys_unlink
+	.long sys_write
+	.long sys_time
+	.long sys_getitimer
+	.long sys_setitimer
+	.long sys_getpgid
+	.long sys_getpgrp
+	.long sys_setpgid
+	.long sys_setsid
+	.long sys_kill
+	.long sys_signal
+	.long sys_sigaction
+	.long sys_sigsuspend
+	.long sys_sigpending
+	.long sys_sigprocmask
+	.long sys_sigreturn
+	.long sys_putchar

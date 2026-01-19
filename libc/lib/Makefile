@@ -2,15 +2,17 @@
 
 .PHONY: all clean
 
-TOOLCHAIN :=i686-w64-mingw32-
+TOOLCHAIN :=
 RM :=rm -f
 CP :=cp
-CC :=$(TOOLCHAIN)gcc
+CC :=$(TOOLCHAIN)gcc -m32
 INCLUDE :=-I$(LIBC)/../include
-CFLAGS :=-m32 -c -nostdinc -ffreestanding $(INCLUDE) -ggdb
-LD :=$(TOOLCHAIN)ld
-LDFLAGS :=-m i386pe -L$(LIBC) -T Link.ld -nostdlib -lc --disable-reloc-section \
-	--image-base 0x00400000 --section-alignment 0x1000 --file-alignment 0x1000
+CFLAGS	:=-c $(INCLUDE) \
+	-nostdinc -ffreestanding \
+	-fno-pic -fno-unwind-tables -fno-asynchronous-unwind-tables \
+	-ggdb -Wall -O0 -fno-omit-frame-pointer -fno-stack-protector
+LD :=$(TOOLCHAIN)ld -m elf_i386
+LDFLAGS :=-L$(LIBC) -T Link.ld -nostdlib -lc
 OBJDUMP :=$(TOOLCHAIN)objdump
 
 $(EXE): $(OBJS)

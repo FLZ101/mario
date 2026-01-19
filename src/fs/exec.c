@@ -1,18 +1,15 @@
 #include <fs/fs.h>
-#include <fs/pe.h>
+#include <fs/elf.h>
 
 #include <trap.h>
 #include <errno.h>
 #include <signal.h>
 
 #include <mm/page_alloc.h>
+#include <mm/kmalloc.h>
 #include <mm/uaccess.h>
 #include <mm/mman.h>
 #include <mm/mm.h>
-
-#define PE_IMAGE_BASE	0x00400000
-
-#define PE_SEC_NR	96
 
 /*
  * MAX_ARG_PAGES defines the number of pages allocated for arguments
@@ -21,12 +18,16 @@
  */
 #define MAX_ARG_PAGES	32
 
+#define MAX_PHDRS 10
+
 struct exec {
 	char *comm;
-	struct pe_sec_hdr sec[3];	/* .text, .data, .bss */
-	unsigned long image_base, entry;
+	struct Elf32_Phdr phdr[MAX_PHDRS];
+	unsigned long entry;
 	int argc, envc;
 	unsigned long arg_page[MAX_ARG_PAGES], arg_p;
+
+	unsigned long start_code, end_code, start_data, end_data, start_brk, brk;
 };
 
 extern int do_open(char *filename, int flags);
@@ -49,96 +50,123 @@ int open_exec(char *filename)
 	return fd;
 }
 
-int check_coff_header(struct pe_coff_hdr *coff_hdr)
+int check_elf_header(struct Elf32_Ehdr *ehdr)
 {
-	if (coff_hdr->machine_type != PE_MACHINE_I386)
+	if (!CHECK_EHDR_MAGIC(ehdr->e_ident))
 		return 1;
-	if (!(coff_hdr->coff_flags & PE_RELOCS_STRIPPED))
+	if (ehdr->e_ident[EI_CLASS] != ELFCLASS32)
 		return 1;
-	if (!(coff_hdr->coff_flags & PE_EXECUTABLE_IMAGE))
+	if (ehdr->e_ident[EI_DATA] != ELFDATA2LSB)
 		return 1;
-	if (!(coff_hdr->coff_flags & PE_32BIT_MACHINE))
+	if (ehdr->e_type != ET_EXEC)
 		return 1;
-	if (coff_hdr->num_of_sec > PE_SEC_NR)
+	if (ehdr->e_machine != EM_386)
+		return 1;
+	if (ehdr->e_entry == 0)
+		return 1;
+	if (ehdr->e_phoff == 0 || ehdr->e_phnum == 0)
 		return 1;
 	return 0;
 }
 
-int check_opt_header(struct pe_opt_hdr *opt_hdr)
+int fill_exec(struct Elf32_Phdr *phdr_tbl, int nr, struct exec *exe)
 {
-	if (opt_hdr->magic != PE32_MAGIC)
-		return 1;
-	if (opt_hdr->image_base != PE_IMAGE_BASE)
-		return 1;
-	if (opt_hdr->sec_align != opt_hdr->file_align)
-		return 1;
-	if (opt_hdr->sec_align != 0x1000)
-		return 1;
-	return 0;
-}
+	int i, j;
 
-void fill_exec(struct pe_sec_hdr *sec_hdr_tbl, int nr, struct exec *exe)
-{
-	int i;
-
-	for (i = 0; i < 3; i++)
-		exe->sec[i].sec_flags = 0;
-	for (i = 0; i < nr; i++) {
-		if (!strcmp(".text", sec_hdr_tbl[i].name)) {
-			exe->sec[0] = sec_hdr_tbl[i];
-		} else if (!strcmp(".data", sec_hdr_tbl[i].name)) {
-			exe->sec[1] = sec_hdr_tbl[i];
-		} else if (!strcmp(".bss", sec_hdr_tbl[i].name)) {
-			exe->sec[2] = sec_hdr_tbl[i];
-		}
+	for (i = 0; i < MAX_PHDRS; ++i) {
+		exe->phdr[i].p_vaddr = 0;
+		exe->phdr[i].p_flags = 0;
 	}
-}
 
-int check_exec(struct exec *exe, struct pe_opt_hdr *opt_hdr)
-{
-	unsigned long flags;
-	struct pe_sec_hdr *a, *b;
-
-	/* No .text section found */
-	if (!exe->sec[0].sec_flags)
-		return 1;
-	/*
-	 * check whether these sections are contiguous in memory
-	 */
-	for (a = exe->sec, b = a + 1; b < exe->sec + 3; a = b++) {
-		/* empty section? */
-		if (!b->sec_flags) {
-			b->vir_addr = a->vir_addr + a->vir_sz;
-			b->vir_sz = 0;
+	for (i = 0, j = 0; i < nr; ++i) {
+		if (phdr_tbl[i].p_type != PT_LOAD)
 			continue;
-		}
-		if (b->vir_addr != a->vir_addr + a->vir_sz)
+		if (j == MAX_PHDRS)
 			return 1;
+		exe->phdr[j++] = phdr_tbl[i];
 	}
 
-	flags = exe->sec[0].sec_flags;
-	if (!(flags & PE_SEC_TEXT) || !(flags & PE_SEC_EXEC))
-		return 1;
-	if (exe->sec[0].vir_addr != opt_hdr->text_base)
-		return 1;
-	if (exe->sec[0].vir_sz != opt_hdr->text_sz)
+	enum State {
+		BEGIN,
+		CODE,
+		DATA,
+		BRK
+	} state = BEGIN;
+
+	for (i = 0; i < MAX_PHDRS; ++i) {
+		struct Elf32_Phdr *phdr = &exe->phdr[i];
+		if (phdr->p_vaddr == 0)
+			break;
+		__u32 flags = PF_MASK & phdr->p_flags;
+		switch (state) {
+		case BEGIN:
+			if (flags == PF_CODE) {
+				exe->start_code = phdr->p_vaddr;
+				exe->end_code = phdr->p_vaddr + phdr->p_memsz;
+				state = CODE;
+			} else {
+				return 1;
+			}
+			break;
+		case CODE:
+			switch (flags) {
+			case PF_CODE:
+				exe->end_code = phdr->p_vaddr + phdr->p_memsz;
+				break;
+			case PF_RODATA:
+				exe->start_data = phdr->p_vaddr;
+				exe->end_data = phdr->p_vaddr + phdr->p_memsz;
+				state = DATA;
+				break;
+			case PF_DATA:
+				if (phdr->p_filesz > 0) {
+					exe->start_data = phdr->p_vaddr;
+					exe->end_data = phdr->p_vaddr + phdr->p_memsz;
+					state = DATA;
+				} else {
+					exe->start_brk = phdr->p_vaddr;
+					exe->brk = phdr->p_vaddr + phdr->p_memsz;
+					state = BRK;
+				}
+				break;
+			default:
+				return 1;
+			}
+			break;
+		case DATA:
+			if (flags == PF_DATA) {
+				if (phdr->p_filesz > 0) {
+					exe->end_data = phdr->p_vaddr + phdr->p_memsz;
+				} else {
+					exe->start_brk = phdr->p_vaddr;
+					exe->brk = phdr->p_vaddr + phdr->p_memsz;
+					state = BRK;
+				}
+			} else {
+				return 1;
+			}
+			break;
+		case BRK:
+			if (flags == PF_DATA) {
+				if (phdr->p_filesz > 0)
+					return 1;
+				exe->brk = phdr->p_vaddr + phdr->p_memsz;
+			} else {
+				return 1;
+			}
+			break;
+		}
+	}
+
+	// no code
+	if (state == BEGIN)
 		return 1;
 
-	if (!(flags = exe->sec[1].sec_flags))
-		goto __next;
-	if (!(flags & PE_SEC_DATA) || !(flags & PE_SEC_WRITE))
-		return 1;
-	if (exe->sec[1].vir_sz != opt_hdr->data_sz)
-		return 1;
-__next:
-	if (!(flags = exe->sec[2].sec_flags))
-		return 0;
-	if (!(flags & PE_SEC_BSS) || !(flags & PE_SEC_WRITE))
-		return 1;
-#if 0
-	if (exe->sec[2].vir_sz != opt_hdr->bss_sz)
-		return 1;
-#endif
+	if (exe->start_data == 0)
+		exe->start_data = exe->end_data = exe->end_code;
+	if (exe->start_brk == 0)
+		exe->start_brk = exe->brk = exe->end_data;
+
 	return 0;
 }
 
@@ -149,69 +177,33 @@ static inline int exec_read(struct file *file, void *buf, unsigned int count)
 
 int prep_exec(struct file *file, struct exec *exe)
 {
-	int i, error = 0;
-	__u32 tmp;
-	struct pe_coff_hdr coff_hdr;
-	struct pe_opt_hdr opt_hdr;
-	struct pe_sec_hdr *sec_hdr_tbl;
+	int error = 0;
+	__u32 n;
+	struct Elf32_Ehdr ehdr;
+	struct Elf32_Phdr *phdr_tbl;
 
-	/*
-	 * read offset of PE signature
-	 */
-	file->f_pos = 0x3c;
-	if (exec_read(file, &tmp, 4))
+	// elf header
+	file->f_pos = 0;
+	if (exec_read(file, &ehdr, sizeof(ehdr)))
 		return -EIO;
-	/*
-	 * read and check PE signature
-	 */
-	file->f_pos = tmp;
-	if (exec_read(file, &tmp, 4))
-		return -EIO;
-	if (tmp != PE_SIGNATURE)
+	if (check_elf_header(&ehdr))
 		return -EINVAL;
-	/*
-	 * read and check PE coff header
-	 */
-	if (exec_read(file, &coff_hdr, sizeof(coff_hdr)))
-		return -EIO;
-	if (check_coff_header(&coff_hdr))
-		return -EINVAL;
-	/*
-	 * read and check PE optional header
-	 */
-	if (exec_read(file, &opt_hdr, sizeof(opt_hdr)))
-		return -EIO;
-	if (check_opt_header(&opt_hdr))
-		return -EINVAL;
-	exe->image_base = opt_hdr.image_base;
-	exe->entry = opt_hdr.entry;
-	/*
-	 * skip optional header data directories
-	 */
-	tmp = opt_hdr.num_of_data_dir_ent * PE_DATA_DIR_ENT_SZ;
-	if (tmp + sizeof(opt_hdr) != coff_hdr.opt_hdr_sz)
-		return -EINVAL;
-	file->f_pos += tmp;
+	exe->entry = ehdr.e_entry;
 
-	/* size of section header table */
-	tmp = sizeof(struct pe_sec_hdr) * coff_hdr.num_of_sec;
-	sec_hdr_tbl = (struct pe_sec_hdr *)page_alloc();
-	if (!sec_hdr_tbl)
+	// program header table
+	file->f_pos = ehdr.e_phoff;
+	n = ehdr.e_phnum * ehdr.e_phentsize;
+	phdr_tbl = (struct Elf32_Phdr *)kmalloc(n);
+	if (!phdr_tbl)
 		return -ENOMEM;
-	/* read section header table */
-	if (exec_read(file, sec_hdr_tbl, tmp)) {
+	if (exec_read(file, phdr_tbl, n)) {
 		error = -EIO;
 		goto tail;
 	}
-	fill_exec(sec_hdr_tbl, coff_hdr.num_of_sec, exe);
-	if (check_exec(exe, &opt_hdr))
+	if (fill_exec(phdr_tbl, ehdr.e_phnum, exe))
 		error = -EINVAL;
-
-	for (i = 0; i < 3; i++)
-		exe->sec[i].vir_addr += exe->image_base;
-	exe->entry += exe->image_base;
 tail:
-	page_free((unsigned long)sec_hdr_tbl);
+	page_free((unsigned long)phdr_tbl);
 	return error;
 }
 
@@ -428,26 +420,48 @@ static inline void start_thread(struct trap_frame *tr,
 
 int do_exec(struct exec *exe, int fd, struct trap_frame *tr)
 {
+	int i;
+
 	/* no turning back */
 	flush_old_exec(exe);
 
-	current->mm->start_code = exe->sec[0].vir_addr;
-	current->mm->end_code = current->mm->start_data = exe->sec[1].vir_addr;
-	current->mm->end_data = current->mm->start_brk = exe->sec[2].vir_addr;
-	current->mm->brk = current->mm->start_brk + exe->sec[2].vir_sz;
+	current->mm->start_code = exe->start_code;
+	current->mm->end_code = exe->end_code;
+	current->mm->start_data = exe->start_data;
+	current->mm->end_data = exe->end_data;
+	current->mm->start_brk = exe->start_brk;
+	current->mm->brk = exe->brk;
 
-	/* mmap .text section */
-	do_mmap(exe->sec[0].vir_addr, exe->sec[0].vir_sz,
-		PROT_READ | PROT_EXEC, MAP_FIXED | MAP_PRIVATE,
-			fd, exe->sec[0].raw_off);
-	/* mmap .data section */
-	do_mmap(exe->sec[1].vir_addr, exe->sec[1].vir_sz,
-		PROT_READ | PROT_WRITE, MAP_FIXED | MAP_PRIVATE,
-			fd, exe->sec[1].raw_off);
-	/* mmap .bss section */
-	do_mmap(exe->sec[2].vir_addr, exe->sec[2].vir_sz, PROT_READ | PROT_WRITE,
-		MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
-			-1, 0);
+	for (i = 0; i < MAX_PHDRS; ++i) {
+		struct Elf32_Phdr *phdr = &exe->phdr[i];
+		if (phdr->p_vaddr == 0)
+			break;
+		__u32 flags = PF_MASK & phdr->p_flags;
+		switch (flags) {
+		case PF_CODE:
+			do_mmap(phdr->p_vaddr, phdr->p_memsz,
+				PROT_READ | PROT_EXEC, MAP_FIXED | MAP_PRIVATE,
+					fd, phdr->p_offset);
+			break;
+		case PF_RODATA:
+			do_mmap(phdr->p_vaddr, phdr->p_memsz,
+				PROT_READ, MAP_FIXED | MAP_PRIVATE,
+					fd, phdr->p_offset);
+			break;
+		case PF_DATA:
+			if (phdr->p_filesz > 0) {
+				do_mmap(phdr->p_vaddr, phdr->p_memsz,
+					PROT_READ | PROT_WRITE, MAP_FIXED | MAP_PRIVATE,
+						fd, phdr->p_offset);
+			} else {
+				do_mmap(phdr->p_vaddr, phdr->p_memsz,
+					PROT_READ | PROT_WRITE, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
+						-1, 0);
+			}
+			break;
+		}
+	}
+
 	setup_arg_pages(exe);
 
 	current->did_exec = 1;
@@ -461,7 +475,7 @@ int do_execve(char *filename, char **argv, char **envp, struct trap_frame *tr)
 {
 	int i, fd, error;
 	struct file *file;
-	struct exec exe;
+	struct exec exe = {0};
 
 	fd = open_exec(filename);
 	if (fd < 0)
