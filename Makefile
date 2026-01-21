@@ -1,9 +1,10 @@
+RM	:=rm -f
 
-.PHONY: all kernel rd app libc image run debug
+.PHONY: all kernel rd app libc image compile_db run debug
 
-.PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image
+.PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image clean-compile_db
 
-all: kernel
+all: image
 
 kernel:
 	$(MAKE) -C src
@@ -20,13 +21,16 @@ libc:
 image: kernel rd
 	$(MAKE) -C qemu
 
+compile_db:
+	compiledb $(MAKE) kernel libc app
+
 run:
 	$(MAKE) run -C qemu
 
 debug:
 	$(MAKE) debug -C qemu
 
-clean: clean-kernel clean-rd clean-app clean-libc clean-image
+clean: clean-kernel clean-rd clean-app clean-libc clean-image clean-compile_db
 
 clean-kernel:
 	$(MAKE) clean -C src
@@ -42,3 +46,6 @@ clean-libc:
 
 clean-image:
 	$(MAKE) clean -C qemu
+
+clean-compile_db:
+	$(RM) compile_commands.json

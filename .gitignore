@@ -9,5 +9,5 @@
 
 *.img
 
-.vscode/
 tmp/
+compile_commands.json
