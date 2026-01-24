@@ -3,6 +3,9 @@ OUTPUT_ARCH(i386)
 
 ENTRY(start)
 
+PHY_BASE = 0x00100000;
+VIR_BASE = 0x80100000;
+
 /*
  * The bootloader requires the segments loaded to physical memory
  * to be both contiguous in the image file and in physical memory.
@@ -10,10 +13,10 @@ ENTRY(start)
  */
 SECTIONS
 {
-	. = 0x80000000 + 0x00100000;
+	. = VIR_BASE;
 
 	_text = .;
-	.text :
+	.text : AT(PHY_BASE)
 	{
 		*(.text)
 		. = ALIGN(0x1000);
@@ -21,21 +24,21 @@ SECTIONS
 		. = ALIGN(0x1000);
 	}
 
-	.data :
+	.data : AT(ADDR(.data) - ADDR(.text) + PHY_BASE)
 	{
 		*(.data)
 		. = ALIGN(0x2000);
 	}
 	_edata = .;
 
-	.init_task_union :
+	.init_task_union :  AT(ADDR(.init_task_union) - ADDR(.text) + PHY_BASE)
 	{
 		*(.init_task_union)
 		. = ALIGN(0x1000);
 	}
 
 	_init = .;
-	.init :
+	.init :  AT(ADDR(.init) - ADDR(.text) + PHY_BASE)
 	{
 		*(.tinit)
 		*(.dinit)
@@ -45,7 +48,7 @@ SECTIONS
 	. = ALIGN(0x1000);
 
 	_bss = .;
-	.bss :
+	.bss :  AT(ADDR(.bss) - ADDR(.text) + PHY_BASE)
 	{
 		*(.bss)
 	}
