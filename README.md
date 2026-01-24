@@ -12,7 +12,7 @@ A simple UNIX-like OS for x86.
 ### prerequisites
 
 ```
-$ sudo dnf install make gcc nasm qemu-system-x86
+$ sudo dnf install make gcc binutils nasm qemu-system-x86
 ```
 
 ### build the kernel (and the bootloader)
@@ -39,10 +39,18 @@ $ make image
 $ make run
 ```
 
+```
+$ make quick-run
+```
+
 ### debug
 
 ```
 $ make debug
+```
+
+```
+$ make quick-debug
 ```
 
 ```

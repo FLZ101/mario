@@ -8,7 +8,7 @@ cmdfile=tmp/gdb.cmd
 cat >$cmdfile <<EOF
 symbol-file src/kernel/kernel.exe
 target remote :1234
-b do_exit
+b mario
 c
 EOF
 gdb --command=$cmdfile

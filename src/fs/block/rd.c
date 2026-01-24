@@ -15,6 +15,7 @@ struct {
 	unsigned long rd_start;
 	unsigned long rd_end;
 	unsigned long rd_nr;	/* the number of sectors */
+	char *name;
 } rd_info[MAX_RD];
 
 static int nr_rd;	/* the number of ramdisks loaded */
@@ -30,13 +31,10 @@ void __tinit ramdisk_setup(struct multiboot_info *m)
 	if (!(MB_FLAG_MODULE & m->flags))
 		goto tail;
 
-	struct multiboot_module *mod = 
+	struct multiboot_module *mod =
 		(struct multiboot_module *)m->mods_addr;
 
 	for (nr_rd = 0, i = 0; nr_rd < MAX_RD && i < m->mods_count; i++) {
-		if (!strstr((char *)mod[i].string, "MARIO_RAMDISK"))
-			continue;
-
 		/* all boot modules loaded are page-aligned */
 		unsigned long __start = mod[i].mod_start;
 		unsigned long __end = PAGE_ALIGN(mod[i].mod_end);
@@ -44,6 +42,7 @@ void __tinit ramdisk_setup(struct multiboot_info *m)
 		rd_info[nr_rd].rd_start = __start;
 		rd_info[nr_rd].rd_end = __end;
 		rd_info[nr_rd].rd_nr = (__end - __start) / RD_SECTOR_SIZE;
+		rd_info[nr_rd].name = (char *)mod[i].string;
 
 		if (end < __end)
 			end = __end;
@@ -56,9 +55,11 @@ tail:
 
 	early_print("ramdisk(s):\n");
 	for (i = 0; i < nr_rd; i++) {
-		early_print("rd_start=%x, rd_end=%x\n",
-			rd_info[i].rd_start += KERNEL_BASE, 
-				rd_info[i].rd_end += KERNEL_BASE);
+		early_print("rd_start=%x, rd_end=%x, name=%s\n",
+			rd_info[i].rd_start += KERNEL_BASE,
+			rd_info[i].rd_end += KERNEL_BASE,
+			rd_info[i].name
+		);
 	}
 }
 
@@ -78,7 +79,7 @@ int rd_read(dev_t dev, unsigned long sector, unsigned long nr, char *buf)
 		nr = rd_nr - sector;
 
 	if (nr)
-		memcpy(buf, (void *)(rd_info[minor].rd_start + 
+		memcpy(buf, (void *)(rd_info[minor].rd_start +
 			sector*RD_SECTOR_SIZE), nr*RD_SECTOR_SIZE);
 	return 0;
 }
@@ -99,7 +100,7 @@ int rd_write(dev_t dev, unsigned long sector, unsigned long nr, char *buf)
 		nr = rd_nr - sector;
 
 	if (nr)
-		memcpy((void *)(rd_info[minor].rd_start + 
+		memcpy((void *)(rd_info[minor].rd_start +
 			sector*RD_SECTOR_SIZE), buf, nr*RD_SECTOR_SIZE);
 	return 0;
 }
@@ -118,8 +119,8 @@ int rd_get_info(dev_t dev, struct blkdev_info *info)
 }
 
 struct blkdev_operations rd_ops = {
-	rd_read, 
-	rd_write, 
+	rd_read,
+	rd_write,
 	rd_get_info
 };
 

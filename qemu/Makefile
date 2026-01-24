@@ -1,4 +1,4 @@
-.PHONY: all image run debug clean
+.PHONY: all image run debug quick-run quick-debug clean
 
 all: image
 
@@ -38,3 +38,15 @@ run:
 
 debug:
 	qemu-system-i386 -s -S $(QEMU_FLAGS)
+
+QUICK_QEMU_FLAGS := \
+	-m 256M \
+	-kernel tmp/kernel.exe \
+	-initrd tmp/rd0 \
+	-display gtk
+
+quick-run: tmp/kernel.exe tmp/rd0
+	qemu-system-i386 $(QUICK_QEMU_FLAGS)
+
+quick-debug: tmp/kernel.exe tmp/rd0
+	qemu-system-i386 -s -S $(QUICK_QEMU_FLAGS)

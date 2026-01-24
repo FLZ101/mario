@@ -1,6 +1,6 @@
 RM	:=rm -f
 
-.PHONY: all kernel rd app libc image compile_db run debug
+.PHONY: all kernel rd app libc image compile_db run debug quick-run quick-debug
 
 .PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image clean-compile_db
 
@@ -29,6 +29,12 @@ run:
 
 debug:
 	$(MAKE) debug -C qemu
+
+quick-run:
+	$(MAKE) quick-run -C qemu
+
+quick-debug:
+	$(MAKE) quick-debug -C qemu
 
 clean: clean-kernel clean-rd clean-app clean-libc clean-image clean-compile_db
 
