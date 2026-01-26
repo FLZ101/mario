@@ -1,4 +1,4 @@
-SUBDIRS :=init test_exec test_signal test_fork
+SUBDIRS :=init test_exec test_signal test_fork test_pipe
 MAKE :=make
 
 SHELL=/bin/bash

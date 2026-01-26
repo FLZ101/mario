@@ -26,7 +26,7 @@
 #include <fs/chrdev.h>
 #include <fs/stat.h>
 #include <fs/fcntl.h>
-
+#include <fs/pipe.h>
 #include <fs/mariofs/mariofs.h>
 
 struct file_system_type {
@@ -108,18 +108,22 @@ struct inode {
 	nlink_t i_nlink;	/* Currently I don't care about this field */
 	union {
 		struct mario_inode_info mario_i;
+		struct pipe_inode_info pipe_i;
 	} u;
 };
 
 /* inode state bits */
 #define I_Dirty		0
 #define I_Up2date	1
+#define I_Pipe		2
 
 #define inode_dirty(i)		test_bit(I_Dirty, &(i)->i_state)
 #define inode_up2date(i)	test_bit(I_Up2date, &(i)->i_state)
+#define inode_pipe(i)		test_bit(I_Pipe, &(i)->i_state)
 
 void inode_init(void);
 struct inode *get_empty_inode(void);
+struct inode *get_pipe_inode(void);
 struct inode *iget(struct super_block *, int);
 void iput(struct inode *);
 void iref(struct inode *);
@@ -149,9 +153,9 @@ struct file {
 
 void file_init(void);
 struct file *get_empty_file(void);
+int get_two_empty_files(struct file *res[2]);
 void put_file(struct file *);
 void fref(struct file *);
-void fdec(struct file *);
 
 struct fs_struct {
 	int count;

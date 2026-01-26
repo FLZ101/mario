@@ -30,6 +30,32 @@ struct file *get_empty_file(void)
 	return res;
 }
 
+int get_two_empty_files(struct file *res[2])
+{
+	int i;
+	int j;
+
+	ACQUIRE_LOCK(&file_lock);
+	for (i = 0, j = 0; i < NR_FILE && j < 2; ++i) {
+		if (!all[i].f_count) {
+			res[j] = all + i;
+			++j;
+		}
+	}
+	if (j == 2) {
+		for (j = 0; j < 2; ++j) {
+			res[j]->f_pos = 0;
+			res[j]->f_count = 1;
+			res[j]->f_inode = NULL;
+		}
+	}
+	RELEASE_LOCK(&file_lock);
+
+	if (j == 2)
+		return 0;
+	return 1;
+}
+
 void put_file(struct file *f)
 {
 	struct inode *i;

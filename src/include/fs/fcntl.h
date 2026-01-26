@@ -10,6 +10,8 @@
 #define O_NOCTTY	   0400	/* not fcntl */
 #define O_TRUNC		  01000	/* not fcntl */
 #define O_APPEND	  02000
+#define O_NONBLOCK	  04000
+#define O_CLOEXEC    010000
 
 #define F_DUPFD		0	/* dup */
 #define F_GETFD		1	/* get f_flags */

@@ -26,7 +26,8 @@ int do_open(char *filename, int flags)
 		if (!current->files->fd[fd])
 			break;
 	}
-	FD_CLR(fd, &current->files->close_on_exec);
+	if (flags & O_CLOEXEC)
+		FD_SET(fd, &current->files->close_on_exec);
 	if (!(f = get_empty_file()))
 		return -ENFILE;
 	current->files->fd[fd] = f;

@@ -4,7 +4,7 @@ RM	:=rm -f
 
 .PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image clean-compile_db
 
-all: image
+all: kernel rd
 
 kernel:
 	$(MAKE) -C src
@@ -36,7 +36,7 @@ quick-run:
 quick-debug:
 	$(MAKE) quick-debug -C qemu
 
-clean: clean-kernel clean-rd clean-app clean-libc clean-image clean-compile_db
+clean: clean-kernel clean-rd clean-app clean-libc clean-image
 
 clean-kernel:
 	$(MAKE) clean -C src

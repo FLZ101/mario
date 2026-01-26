@@ -33,7 +33,7 @@ void *memchr(const void *ptr, int c, size_t num)
 }
 
 /*
- * If coping takes place between overlapping areas, 
+ * If coping takes place between overlapping areas,
  * use the memmove function.
  */
 void *memcpy(void *dst, const void *src, size_t num)
@@ -47,7 +47,7 @@ void *memcpy(void *dst, const void *src, size_t num)
 }
 
 /*
- * It seems that gcc always assumes that DF is cleared when it 
+ * It seems that gcc always assumes that DF is cleared when it
  * assembles C source code. Keep this in mind :)
  */
 void *memmove(void *dst, const void *src, size_t num)

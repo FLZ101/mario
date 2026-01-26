@@ -45,12 +45,22 @@ static void write_inode(struct inode *i)
 
 	if (i->i_sb && i->i_sb->s_op && i->i_sb->s_op->write_inode)
 		i->i_sb->s_op->write_inode(i);
-	clear_bit(I_Dirty, &(i)->i_state);
+	clear_bit(I_Dirty, &i->i_state);
+}
+
+static void clear_inode(struct inode *i)
+{
+	struct list_head i_list = i->i_list;
+	struct semaphore i_sem = i->i_sem;
+
+	memset(i, 0, sizeof(struct inode));
+
+	i->i_list = i_list;
+	i->i_sem = i_sem;
 }
 
 struct inode *get_empty_inode(void)
 {
-	static int ino = 0;
 	struct inode *i;
 try:
 	ACQUIRE_LOCK(&inode_lock);
@@ -60,15 +70,22 @@ try:
 		goto try;
 	}
 	i->i_count = 1;
-	i->i_dev = -1;
-	i->i_ino = ++ino;
-	i->i_state = 0;
 	list_del(&i->i_list);
 	list_add_tail(&i->i_list, &lru);
 	RELEASE_LOCK(&inode_lock);
-	down(&i->i_sem);
-	write_inode(i);
-	up(&i->i_sem);
+	return i;
+}
+
+struct inode *get_pipe_inode(void)
+{
+	struct inode *i;
+
+	if (!(i = get_empty_inode()))
+		return NULL;
+
+	set_bit(I_Pipe, &i->i_state);
+	i->i_mode = MODE_FIFO;
+	i->i_block_size = PAGE_SIZE;
 	return i;
 }
 
@@ -97,6 +114,7 @@ try:
 		sleep_on(&inode_wait, TASK_UNINTERRUPTIBLE, &inode_lock);
 		goto try;
 	}
+	clear_inode(i);
 	i->i_sb = sb;
 	i->i_dev = sb->s_dev;
 	i->i_ino = ino;
@@ -145,7 +163,14 @@ void iput(struct inode *i)
 {
 	ACQUIRE_LOCK(&inode_lock);
 	if (!--i->i_count) {
+		write_inode(i);
 		into_lru_list(i);
+
+		if (inode_pipe(i)) {
+			destroy_pipe_inode_info(&i->u.pipe_i);
+			clear_bit(I_Pipe, &i->i_state);
+		}
+
 		wake_up_all(&inode_wait);
 	}
 	RELEASE_LOCK(&inode_lock);

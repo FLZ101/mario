@@ -11,10 +11,7 @@ rd-make:
 rd-explorer:
 	$(MAKE) -C rd-explorer
 
-BINS := ../app/init/init.exe \
-	../app/test_exec/test_exec.exe \
-	../app/test_fork/test_fork.exe \
-	../app/test_signal/test_signal.exe
+BINS := $(wildcard ../app/**/*.exe)
 
 rd0: $(BINS)
 	cp -u $(BINS) ramdisk0/bin

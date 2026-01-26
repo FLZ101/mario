@@ -318,7 +318,7 @@ ENTRY(sys_call_table)
 	.long sys_mknod
 	.long sys_mount
 	.long sys_open
-	.long 0	/* sys_pipe */
+	.long sys_pipe
 	.long sys_read
 	.long sys_rename
 	.long sys_rmdir

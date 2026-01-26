@@ -29,6 +29,8 @@
 #define ERESTARTNOHAND	26
 #define ERESTARTSYS		27
 #define ERESTARTNOINTR	28
+#define ESPIPE          29
+#define EPIPE           30
 
 extern int errno;
 

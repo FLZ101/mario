@@ -27,6 +27,7 @@ clean:
 	find tmp -mindepth 1 -maxdepth 1 ! -name '.gitignore' -exec rm -rf {} +
 	rm -f hd.img
 
+#	-display curses
 QEMU_FLAGS := \
 	-boot order=c \
 	-m 256M \
@@ -39,6 +40,7 @@ run:
 debug:
 	qemu-system-i386 -s -S $(QEMU_FLAGS)
 
+#	-display curses
 QUICK_QEMU_FLAGS := \
 	-m 256M \
 	-kernel tmp/kernel.exe \

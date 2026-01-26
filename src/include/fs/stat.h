@@ -19,10 +19,12 @@ struct stat {
 #define MODE_DIR	1
 #define MODE_BLK	2
 #define MODE_CHR	3
+#define MODE_FIFO	4
 
 #define S_ISREG(m)	((m) == MODE_REG)
 #define S_ISDIR(m)	((m) == MODE_DIR)
 #define S_ISBLK(m)	((m) == MODE_BLK)
 #define S_ISCHR(m)	((m) == MODE_CHR)
+#define S_ISFIFO(m)	((m) == MODE_FIFO)
 
 #endif /* _STAT_H */
