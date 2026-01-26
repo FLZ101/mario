@@ -70,49 +70,64 @@ static void sput_d(char **buf, int n)
 /*
  * %u, %d, %x, %c, %s
  */
-void vsprintf(char *__buf, const char *fmt, va_list ap)
+int vsprintf(char *buf, const char *fmt, va_list ap)
 {
-	char c, **buf = &__buf;
+	char *p0 = buf, *p1 = buf;
+	char c;
 	while ((c = *(fmt++))) {
 		if (c == '%') {
 			c = *(fmt++);
 			switch (c) {
 			case 'u':
-				sput_u(buf, va_arg(ap, unsigned int));
+				sput_u(&p1, va_arg(ap, unsigned int));
 				break;
 			case 'd':
-				sput_d(buf, va_arg(ap, int));
+				sput_d(&p1, va_arg(ap, int));
 				break;
 			case 'x':
-				sput_x(buf, va_arg(ap, unsigned int));
+				sput_x(&p1, va_arg(ap, unsigned int));
 				break;
 			case 'c':
-				sput_c(buf, va_arg(ap, char));
+				sput_c(&p1, va_arg(ap, char));
 				break;
 			case 's':
-				sput_s(buf, va_arg(ap, char *));
+				sput_s(&p1, va_arg(ap, char *));
 				break;
 			default:
 				break;
 			}
 			continue;
 		}
-		sput_c(buf, c);
+		sput_c(&p1, c);
 	}
+	return p1 - p0;
 }
 
-static char print_buf[1024] = {0};
+int sprintf(char *buf, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	int n = vsprintf(buf, fmt, ap);
+	va_end(ap);
+	return n;
+}
 
 int printf(const char *fmt, ...)
 {
+	static char buf[1024] = {0};
 	char *p = NULL;
 
 	va_list ap;
 	va_start(ap, fmt);
-	vsprintf(print_buf, fmt, ap);
+	int n = vsprintf(buf, fmt, ap);
 	va_end(ap);
 
-	for (p = print_buf; *p; p++)
+	for (p = buf; *p; p++)
 		putchar(*p);
-	return 0;
+	return n;
+}
+
+int puts(const char *s)
+{
+	return printf("%s\n", s);
 }

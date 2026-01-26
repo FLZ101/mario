@@ -8,7 +8,7 @@ extern void *memchr(const void *ptr, int c, size_t num);
 extern void *memcpy(void *dst, const void *src, size_t num);
 extern void *memmove(void *dst, const void *src, size_t num);
 extern void *memset(void *dst, int c, size_t num);
- 
+
 extern int strcmp(const char *string1, const char *string2);
 extern int strncmp(const char *string1, const char *string2, size_t num);
 extern char *strchr(const char *string, int c);
@@ -19,5 +19,7 @@ extern char *strncpy(char *dst, const char *src, size_t num);
 extern char *strcat(char *dst, const char *src);
 extern char *strncat(char *dst, const char *src, size_t num);
 extern size_t strlen(const char *string);
+
+char *strerror(int errnum);
 
 #endif	/* _STRING_H */

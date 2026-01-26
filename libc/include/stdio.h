@@ -4,13 +4,12 @@
 #include <stdarg.h>
 #include <stddef.h>
 
-extern void vsprintf(char *buf, const char *fmt, va_list ap);
-extern int putchar(char c);
-extern int printf(const char *s, ...);
+int vsprintf(char *buf, const char *fmt, va_list ap);
+int sprintf(char *buf, const char *fmt, ...);
+int putchar(char c);
+int printf(const char *s, ...);
+int puts(const char *s);
 
-static inline int puts(const char *s)
-{
-	return printf("%s\n", s);
-}
+void perror(const char *s);
 
 #endif /* _STDIO_H */
