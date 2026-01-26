@@ -54,6 +54,16 @@ void early_print(const char *fmt, ...);
 	__asm__ __volatile__ ("cli; 1:hlt; jmp 1b");\
 } while (0)
 
+#define early_assert(expr) do { \
+	if (!(expr)) { \
+		early_hang("Assertion '" #expr "' failed in %s() @ %s:%d", \
+			__func__, __FILE__, __LINE__); \
+	} \
+} while (0)
+
+#define MIN(a, b) ((a) <= (b) ? (a) : (b))
+#define MAX(a, b) ((a) >= (b) ? (a) : (b))
+
 #define SYSCALL_VECTOR	0x80
 
 #define cli() __asm__ __volatile__ ("cli": : :"memory")

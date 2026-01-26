@@ -13,7 +13,7 @@
 
 struct free_area {
 	struct list_head free_list;
-	unsigned long *map, map_size;
+	unsigned long *map, map_size; // buddy bitmap
 } free_area[MAX_ORDER];
 
 unsigned long max_pfn;
@@ -22,8 +22,10 @@ struct page *mem_map;
 
 #define __free_list_del(page) list_del(&(page)->list)
 
-#define __free_list_add(page, order) \
-	list_add_tail(&(page)->list, &free_area[order].free_list)
+#define __free_list_add(page, order) do { \
+	early_assert(PAGE_TO_PFN(page) < max_pfn); \
+	list_add_tail(&(page)->list, &free_area[order].free_list); \
+} while (0)
 
 #define __free_list_entry(ptr) list_entry((ptr), struct page, list)
 
@@ -35,7 +37,7 @@ void __tinit page_alloc_init(void)
 	mem_map = __alloc_bootmem(max_pfn * sizeof(struct page), 2);
 
 	for (i = 0; i < MAX_ORDER; i++) {
-		free_area[i].map_size = max_pfn >> (i + 1);
+		free_area[i].map_size = max_pfn >> (i + 1); // number of buddies
 
 		unsigned long size = (free_area[i].map_size + 31) >> 5;
 		if (size) {
@@ -116,6 +118,7 @@ struct page *expand(struct page *page, unsigned long order)
 	unsigned long nr = PAGE_TO_PFN(page) >> (order + 1) << (order + 1);
 	struct page *res = PFN_TO_PAGE(nr);
 
+	// remove its buddy from list
 	if (page == res)
 		__free_list_del(page + (1 << order));
 	else
@@ -129,7 +132,7 @@ void free_pages(struct page *page, unsigned long order)
 	irq_save();
 
 	while (1) {
-		unsigned long nr = PAGE_TO_PFN(page) >> (order + 1);
+		unsigned long nr = PAGE_TO_PFN(page) >> (order + 1); // buddy number
 		if (!test_and_change_bit(nr, free_area[order].map))
 			break;
 		if (order == MAX_ORDER - 1)

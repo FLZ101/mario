@@ -203,7 +203,7 @@ int prep_exec(struct file *file, struct exec *exe)
 	if (fill_exec(phdr_tbl, ehdr.e_phnum, exe))
 		error = -EINVAL;
 tail:
-	page_free((unsigned long)phdr_tbl);
+	kfree(phdr_tbl);
 	return error;
 }
 
