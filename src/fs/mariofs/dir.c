@@ -545,5 +545,6 @@ struct file_operations mario_dir_fops = {
 	NULL,	/* lseek - default */
 	NULL,	/* read */
 	NULL,	/* write */
-	mario_readdir
+	mario_readdir,
+	NULL
 };

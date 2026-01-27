@@ -9,7 +9,7 @@ void run(char *filename)
 	int err;
 	pid_t pid;
 
-	printf("run %s\n", filename);
+	printf("[run] %s\n", filename);
 
 	pid = fork();
 	if (-1 == pid) {
@@ -35,9 +35,9 @@ void run(char *filename)
 			exit(EXIT_FAILURE);
 		}
 		if (WIFEXITED(status)) {
-			printf("status = %d\n", WEXITSTATUS(status));
+			printf("[run] status = %d\n", WEXITSTATUS(status));
 		} else if (WIFSIGNALED(status)) {
-			printf("signal = %d\n", WTERMSIG(status));
+			printf("[run] signal = %d\n", WTERMSIG(status));
 		}
 	}
 }

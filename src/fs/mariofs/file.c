@@ -202,5 +202,6 @@ struct file_operations mario_file_fops = {
 	mario_file_read,
 	mario_file_write,
 	NULL,	/* readdir */
-	generic_file_mmap
+	generic_file_mmap,
+	NULL
 };

@@ -311,7 +311,7 @@ ENTRY(sys_call_table)
 	.long sys_dup
 	.long sys_dup2
 	.long sys_getdents
-	.long 0	/* sys_ioctl */
+	.long sys_ioctl
 	.long sys_link
 	.long sys_lseek
 	.long sys_mkdir

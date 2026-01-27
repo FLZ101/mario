@@ -139,6 +139,7 @@ struct file_operations {
 	int (*write)(struct inode *, struct file *, char *, int);
 	int (*readdir)(struct inode *, struct file *, void *, filldir_t);
 	int (*mmap)(struct inode *, struct file *, struct vm_area_struct *);
+	int (*ioctl)(struct inode *, struct file *, unsigned int, unsigned long);
 };
 
 struct file {
