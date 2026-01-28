@@ -12,4 +12,9 @@ int puts(const char *s);
 
 void perror(const char *s);
 
+#define STRINGIFY(x)	#x
+#define TO_STRING(x)	STRINGIFY(x)
+
+#define _perror()	perror(__FILE__ ":" TO_STRING(__LINE__))
+
 #endif /* _STDIO_H */

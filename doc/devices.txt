@@ -5,7 +5,6 @@ Devices currently supported by mario:
 1	char	  Memory devices
 		0 = /dev/zero
 		1 = /dev/null
-		2 = /dev/full
 
 	block	  Ramdisks
 		0 = /dev/rd0
@@ -17,13 +16,3 @@ Devices currently supported by mario:
 		1 = /dev/tty1	1st virtual console
 		2 = /dev/tty2
 		3 = /dev/tty3
-
-3	char	  Virtual console capture devices
-		0 = /dev/vcs0	tty0 text contents
-		1 = /dev/vcs1	tty1 text contents
-		2 = /dev/vcs2
-		3 = /dev/vcs3
-		4 = /dev/vcsa0	tty0 text/attribute contents
-		5 = /dev/vcsa1	tty1 text/attribute contents
-		6 = /dev/vcsa2
-		7 = /dev/vcsa3

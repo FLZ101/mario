@@ -96,21 +96,17 @@ static int bad_pipe_rw(struct inode *i, struct file *f, char *buf, int count)
 }
 
 struct file_operations read_pipe_fops = {
-	NULL,	/* open */
-	pipe_read_release,	/* release */
-	pipe_lseek,
-	pipe_read,
-	bad_pipe_rw,
-	NULL,	/* readdir */
+	.release = pipe_read_release,
+	.lseek = pipe_lseek,
+	.read = pipe_read,
+	.write = bad_pipe_rw,
 };
 
 struct file_operations write_pipe_fops = {
-	NULL,	/* open */
-	pipe_write_release,	/* release */
-	pipe_lseek,
-	bad_pipe_rw,
-	pipe_write,
-	NULL,	/* readdir */
+	.release = pipe_write_release,
+	.lseek = pipe_lseek,
+	.read = bad_pipe_rw,
+	.write = pipe_write,
 };
 
 int do_pipe(int pipefd[2]) {

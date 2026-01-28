@@ -196,12 +196,7 @@ tail_3:
 }
 
 struct file_operations mario_file_fops = {
-	NULL,	/* open */
-	NULL,	/* release */
-	NULL,	/* lseek - default */
-	mario_file_read,
-	mario_file_write,
-	NULL,	/* readdir */
-	generic_file_mmap,
-	NULL
+	.read = mario_file_read,
+	.write = mario_file_write,
+	.mmap = generic_file_mmap,
 };

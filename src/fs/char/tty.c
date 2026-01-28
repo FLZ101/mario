@@ -1,4 +1,4 @@
-#include <fs/chrdev.h>
+#include <fs/fs.h>
 #include <fs/tty/tty.h>
 
 #include <misc.h>
@@ -48,10 +48,8 @@ int tty_write(dev_t dev, char *c)
 	return 0;
 }
 
-struct chrdev_operations tty_ops = {
-	tty_open,
-	tty_read,
-	tty_write
+struct file_operations tty_ops = {
+	NULL
 };
 
 void __tinit tty_init(void)

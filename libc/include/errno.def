@@ -1,3 +1,5 @@
+// messages are from `errno -l`
+
 #ifndef USE
 #define USE(name,code,message)
 #endif

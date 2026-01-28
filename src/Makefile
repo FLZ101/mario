@@ -17,7 +17,7 @@ CFLAGS	:=-c -D__KERNEL__ $(INCLUDE) \
 	-nostdinc -ffreestanding \
 	-fno-pic -fno-unwind-tables -fno-asynchronous-unwind-tables \
 	-ggdb -Wall -O0 -fno-omit-frame-pointer -fno-stack-protector
-LDFLAGS	:=-T kernel.ld -nostdlib
+LDFLAGS	:=-T kernel.ld --orphan-handling=warn -nostdlib
 
 .PHONY:	all depend clean
 

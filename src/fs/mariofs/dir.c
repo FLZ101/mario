@@ -540,11 +540,5 @@ read_a_block:
 }
 
 struct file_operations mario_dir_fops = {
-	NULL,	/* open */
-	NULL,	/* release */
-	NULL,	/* lseek - default */
-	NULL,	/* read */
-	NULL,	/* write */
-	mario_readdir,
-	NULL
+	.readdir = mario_readdir
 };

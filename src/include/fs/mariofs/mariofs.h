@@ -2,12 +2,12 @@
 #define _MARIOFS_H
 
 /*
- * A file or a directory in mariofs is organized as a block chain. Currently 
- * contents of a directory entry must lie in the same block. The last 4 bytes 
- * in a block is the next block number in the same chain, and a value 
- * of 0 indicates the end of chain. All free blocks are in a chain of which 
- * the first block number is free@mario_super_block. Mariofs doesn't support 
- * hard link and soft link. Offset into rd of a directory entry is used as 
+ * A file or a directory in mariofs is organized as a block chain. Currently
+ * contents of a directory entry must lie in the same block. The last 4 bytes
+ * in a block is the next block number in the same chain, and a value
+ * of 0 indicates the end of chain. All free blocks are in a chain of which
+ * the first block number is free@mario_super_block. Mariofs doesn't support
+ * hard link and soft link. Offset into rd of a directory entry is used as
  * inode number, kind of weird
  */
 
@@ -27,7 +27,7 @@ struct mario_dir_entry {
 	/* bytes of data, for directoty and special file this field is 0 */
 	__u32 size;
 	/*
-	 * the number of blocks occupied by this file, for directory and 
+	 * the number of blocks occupied by this file, for directory and
 	 * special file this field is 0
 	 */
 	__u32 blocks;

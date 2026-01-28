@@ -1,6 +1,8 @@
 #ifndef _SYSCALL_H
 #define _SYSCALL_H
 
+#include <errno.h>
+
 #define __SYS_brk			 0
 #define __SYS_mmap			 1
 #define __SYS_munmap		 2

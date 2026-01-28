@@ -91,7 +91,8 @@ struct file_operations;
  */
 struct inode {
 	dev_t i_dev;
-	unsigned long i_rdev;	/* ??? */
+	unsigned long i_rdev;	/* Used in mariofs to store block chain address or
+							   device number (for files under /dev/) */
 	unsigned long i_ino;
 	struct super_block *i_sb;
 	off_t i_size;

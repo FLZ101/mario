@@ -44,7 +44,7 @@ static int write_super(struct super_block *sb)
 	clear_bit(SB_Dirty, &(sb)->s_state);
 	if (sb->s_op && sb->s_op->write_super)
 		return sb->s_op->write_super(sb);
-	
+
 	return 0;
 }
 

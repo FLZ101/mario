@@ -27,12 +27,22 @@ clean:
 	find tmp -mindepth 1 -maxdepth 1 ! -name '.gitignore' -exec rm -rf {} +
 	rm -f hd.img
 
+#	-display gtk
+#
 #	-display curses
+#
+#	  https://www.qemu.org/docs/master/system/keys.html
+#	    `Ctrl+a x` won't work
+#
+#	  https://www.qemu.org/docs/master/system/keys.html
+#	    Type `Alt+2` to switch to monitor tab, and type `Alt+1` to switch back.
+#	    Make sure the keys are not handled by the terminal emulator (e.g. Windows Terminal, Kconsole)
+
 QEMU_FLAGS := \
 	-boot order=c \
 	-m 256M \
 	-drive file=hd.img,format=raw,index=0,media=disk \
-	-display gtk
+	-display curses
 
 run:
 	qemu-system-i386 $(QEMU_FLAGS)
@@ -40,12 +50,13 @@ run:
 debug:
 	qemu-system-i386 -s -S $(QEMU_FLAGS)
 
+#	-display gtk
 #	-display curses
 QUICK_QEMU_FLAGS := \
 	-m 256M \
 	-kernel tmp/kernel.exe \
 	-initrd tmp/rd0 \
-	-display gtk
+	-display curses
 
 quick-run: tmp/kernel.exe tmp/rd0
 	qemu-system-i386 $(QUICK_QEMU_FLAGS)

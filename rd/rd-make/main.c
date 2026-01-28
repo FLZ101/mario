@@ -62,7 +62,7 @@ void print_hlp_msg(void)
 		"modes by mariofs is MODE_BLK (2) and MODE_CHR (3). For "
 		"complete list of devices currently supported by mario, see "
 		"doc/devices.txt in source code directory of mario\n\n",
-		MAX_NAME_LEN);
+		MARIO_NAME_LEN);
 	puts("Exit status is 0 if OK, -1 if error");
 }
 
@@ -324,7 +324,7 @@ void pass1(void)
 		struct stat st;
 		struct mario_dir_entry tmp;
 
-		if (strlen(entry->d_name) > MAX_NAME_LEN - 1) {
+		if (strlen(entry->d_name) > MARIO_NAME_LEN - 1) {
 			printf("Error:\t\"%s\" is a really long name\n",
 				entry->d_name);
 			exit(-1);
@@ -344,7 +344,7 @@ void pass1(void)
 		}
 
 		tmp.flags = 7;
-		memset(tmp.name, 0, MAX_NAME_LEN);
+		memset(tmp.name, 0, MARIO_NAME_LEN);
 		strcpy(tmp.name, entry->d_name);
 		pour_data(&tmp, sizeof(tmp), 1);
 

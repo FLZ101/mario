@@ -1,14 +1,12 @@
 #ifndef _UNISTD_H
 #define _UNISTD_H
 
-#include <errno.h>
 #include <types.h>
 #include <syscall.h>
 
 static inline __attribute__((always_inline)) _syscall0(int,fork)
 static inline __attribute__((always_inline)) _syscall0(int,pause)
 
-static inline _syscall2(int,open,const char *,pathname,int,flags)
 static inline _syscall3(ssize_t,read,int,fd,void *,buf,size_t,count)
 static inline _syscall3(int,write,int,fd,const char *,buf,off_t,count)
 static inline _syscall1(int,close,int,fd)

@@ -1,4 +1,4 @@
-#include <fs/chrdev.h>
+#include <fs/fs.h>
 
 #include <misc.h>
 #include <errno.h>
@@ -6,9 +6,10 @@
 #include <lib/stddef.h>
 
 struct {
-	struct chrdev_operations *chrdev_ops;
+	struct file_operations *chrdev_fops;
 } chrdevs[MAX_CHRDEV];
 
+extern void mem_init(void);
 extern void tty_init(void);
 
 void __tinit chrdev_init(void)
@@ -16,74 +17,47 @@ void __tinit chrdev_init(void)
 	int i;
 
 	for (i = 0; i < MAX_CHRDEV; i++)
-		chrdevs[i].chrdev_ops = NULL;
+		chrdevs[i].chrdev_fops = NULL;
 
 	tty_init();
+	mem_init();
 }
 
-int register_chrdev(unsigned int major, struct chrdev_operations *chrdev_ops)
+int register_chrdev(unsigned int major, struct file_operations *chrdev_fops)
 {
 	if (major == NODEV || major >= MAX_CHRDEV)
 		return -EINVAL;
 
-	if (chrdevs[major].chrdev_ops)
+	if (chrdevs[major].chrdev_fops)
 		return -EBUSY;
 
-	chrdevs[major].chrdev_ops = chrdev_ops;
+	chrdevs[major].chrdev_fops = chrdev_fops;
 	return 0;
 }
 
 /* check whether @major is registered */
 int check_chrdev(unsigned int major)
 {
-	if (major == NODEV || major >= MAX_CHRDEV)
-		return 0;
-	if (!chrdevs[major].chrdev_ops)
-		return 0;
-	return 1;
-}
-
-int chrdev_open(dev_t dev)
-{
-	unsigned int major;
-	struct chrdev_operations *chrdev_ops;
-
-	major = MAJOR(dev);
-	if (!check_chrdev(major))
-		return -EINVAL;
-
-	chrdev_ops = chrdevs[major].chrdev_ops;
-	if (chrdev_ops->chrdev_open)
-		return chrdev_ops->chrdev_open(dev);
+	if (major == NODEV || major >= MAX_CHRDEV || !chrdevs[major].chrdev_fops)
+		return -ENODEV;
 	return 0;
 }
 
-int chrdev_read(dev_t dev, char *c)
+int chr_file_open(struct inode *i, struct file *f)
 {
+	int err;
 	unsigned int major;
-	struct chrdev_operations *chrdev_ops;
 
-	major = MAJOR(dev);
-	if (!check_chrdev(major))
-		return -EINVAL;
+	major = MAJOR(i->i_rdev);
+	if ((err = check_chrdev(major)))
+		return err;
 
-	chrdev_ops = chrdevs[major].chrdev_ops;
-	if (chrdev_ops->chrdev_read)
-		return chrdev_ops->chrdev_read(dev, c);
+	f->f_op = chrdevs[major].chrdev_fops;
+	if (f->f_op->open)
+		return f->f_op->open(i, f);
 	return 0;
 }
 
-int chrdev_write(dev_t dev, char *c)
-{
-	unsigned int major;
-	struct chrdev_operations *chrdev_ops;
-
-	major = MAJOR(dev);
-	if (!check_chrdev(major))
-		return -EINVAL;
-
-	chrdev_ops = chrdevs[major].chrdev_ops;
-	if (chrdev_ops->chrdev_write)
-		return chrdev_ops->chrdev_write(dev, c);
-	return 0;
-}
+struct file_operations chrdev_fops = {
+	.open = chr_file_open,
+};

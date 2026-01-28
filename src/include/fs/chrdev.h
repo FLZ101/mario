@@ -5,24 +5,19 @@
 
 #include <types.h>
 
-struct chrdev_operations {
-	int (*chrdev_open)(dev_t dev);
-	int (*chrdev_read)(dev_t dev, char *c);
-	int (*chrdev_write)(dev_t dev, char *c);
-};
-
-int register_chrdev(unsigned int, struct chrdev_operations *);
+struct file_operations;
 
 void chrdev_init(void);
-int check_chrdev(unsigned int major);
-int chrdev_open(dev_t dev);
-int chrdev_read(dev_t dev, char *c);
-int chrdev_write(dev_t dev, char *c);
+
+int register_chrdev(unsigned int, struct file_operations *);
 
 #define MAX_CHRDEV	64
 
 #define MEM_MAJOR	1
+
+#define MEM_MINOR_ZERO	0	// /dev/zero
+#define MEM_MINOR_NULL	1	// /dev/null
+
 #define TTY_MAJOR	2
-#define VCS_MAJOR	3
 
 #endif /* _CHRDEV_H */

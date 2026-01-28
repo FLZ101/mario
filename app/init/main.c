@@ -63,6 +63,6 @@ int main(int argc, char *argv[], char *envp[])
 		putchar(ch);
 	}
 
-	run("/bin/test_pipe.exe");
+	run("/bin/test_chrdev.exe");
 	return 0;
 }
