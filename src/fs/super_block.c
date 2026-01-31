@@ -203,9 +203,10 @@ int sys_umount(char *name)
 	if (S_ISBLK(inode->i_mode)) {
 		dev = inode->i_rdev;
 	} else if (S_ISDIR(inode->i_mode)) {
-		if (!inode->i_mount)
+		// If inode->i_sb is not mounted or inode is not the root
+		if (!inode->i_sb->s_covered || inode->i_sb->s_mounted != inode)
 			return -EINVAL;
-		dev = inode->i_mount->i_dev;
+		dev = inode->i_dev;
 	} else {
 		return -EINVAL;
 	}

@@ -8,6 +8,6 @@ struct timespec {
 	long	tv_nsec;	/* nanoseconds */
 };
 
-_syscall2(int,nanosleep,const struct timespec *,req,struct timespec *,rem)
+static inline _syscall2(int,nanosleep,const struct timespec *,req,struct timespec *,rem)
 
 #endif /* _TIME_H */

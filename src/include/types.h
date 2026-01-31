@@ -14,7 +14,8 @@ typedef unsigned long long   __u64;
 typedef int pid_t;
 
 typedef long off_t;
-typedef long long loff_t;
+// typedef long long loff_t;
+typedef long loff_t;
 
 typedef int ssize_t;
 typedef unsigned int size_t;

@@ -1,9 +1,21 @@
 zero 3 1 0
 null 3 1 1
+
 rd0 2 1 0
 rd1 2 1 1
 rd2 2 1 2
+
+tty 3 2 128
+
 tty0 3 2 0
 tty1 3 2 1
 tty2 3 2 2
 tty3 3 2 3
+tty4 3 2 4
+tty5 3 2 5
+tty6 3 2 6
+
+ttyS0 3 2 64
+ttyS1 3 2 65
+ttyS2 3 2 66
+ttyS3 3 2 67

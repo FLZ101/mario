@@ -54,8 +54,8 @@ struct super_block {
 	unsigned long s_block_size;
 	unsigned long s_state;
 	struct super_operations *s_op;
-	struct inode *s_covered;
-	struct inode *s_mounted;
+	struct inode *s_covered; // the inode covering this filesystem tree
+	struct inode *s_mounted; // the / inode
 	struct semaphore s_sem;
 	unsigned long s_magic;
 	union {
@@ -91,7 +91,7 @@ struct file_operations;
  */
 struct inode {
 	dev_t i_dev;
-	unsigned long i_rdev;	/* Used in mariofs to store block chain address or
+	unsigned long i_rdev;	/* Used in mariofs to store block number or
 							   device number (for files under /dev/) */
 	unsigned long i_ino;
 	struct super_block *i_sb;
@@ -100,7 +100,7 @@ struct inode {
 	unsigned long i_nr_block;
 	struct inode_operations *i_op;
 	struct file_operations *i_fop;
-	struct inode *i_mount;
+	struct inode *i_mount; // a weak reference
 	struct list_head i_list;
 	struct semaphore i_sem;
 	unsigned long i_state;

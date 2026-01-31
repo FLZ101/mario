@@ -12,6 +12,7 @@ AR :=$(TOOLCHAIN)ar
 .PHONY: all clean
 
 OBJS =$(addsuffix .o,$(basename $(wildcard *.[Ssc])))
+OBJS +=$(addsuffix .o,$(basename $(wildcard */*.[Ssc])))
 
 all: crt0.o libc.a
 	cp -u $^ lib

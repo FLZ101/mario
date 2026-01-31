@@ -160,6 +160,7 @@ int _namei(char *pathname, struct inode *base, struct inode **res_inode)
 	return 0;
 }
 
+// This always go down a mount point
 int namei(const char *pathname, struct inode **res_inode)
 {
 	int error;
@@ -215,10 +216,9 @@ int open_namei(char *pathname, int flags, struct inode **res_inode,
 	return error;
 SHE__:
 	up(&dir->i_sem);
-	if (error) {
-		iput(dir);
+	iput(dir);
+	if (error)
 		return error;
-	}
 	if (S_ISDIR(inode->i_mode) && (flags & 2)) {
 		iput(inode);
 		return -EISDIR;

@@ -34,7 +34,7 @@ void test_zero()
 	puts("ok");
 }
 
-int test_null()
+void test_null()
 {
 	puts("test /dev/null");
 

@@ -162,6 +162,9 @@ static void into_lru_list(struct inode *i)
 void iput(struct inode *i)
 {
 	ACQUIRE_LOCK(&inode_lock);
+
+	early_assert(i->i_count > 0);
+
 	if (!--i->i_count) {
 		write_inode(i);
 		into_lru_list(i);

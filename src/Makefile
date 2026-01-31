@@ -29,21 +29,15 @@ OBJS	:=kernel/start.o $(OBJS)
 
 DEPS	:=$(patsubst %.o,%.dep,$(OBJS))
 
-ifeq (.depend,$(wildcard .depend))
-all:
-else
 all: depend
-endif
 	@$(MAKE) -f Makeit
 	@echo :\)
 
-# `make depend' when files are added in
 depend: $(DEPS)
-	@touch .depend
 
 clean:
 	$(RM) $(OBJS)
-	$(RM) $(DEPS) .depend
+	$(RM) $(DEPS)
 	$(RM) boot/boot.bin boot/boot.lst \
 		kernel/kernel.exe
 

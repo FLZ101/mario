@@ -20,4 +20,12 @@ int register_chrdev(unsigned int, struct file_operations *);
 
 #define TTY_MAJOR	2
 
+#define TTY_MINOR_0		0	// /dev/tty0
+#define TTY_MINOR_MAX	6	// /dev/tty6
+
+#define TTY_MINOR_S_0	64	// /dev/ttyS0
+#define TTY_MINOR_S_MAX	67	// /dev/ttyS3
+
+#define TTY_MINOR		128	// /dev/tty
+
 #endif /* _CHRDEV_H */
