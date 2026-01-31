@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdarg.h>
-#include <unistd.h>
+
+#include <syscall.h>
 
 _syscall1(int,putchar,char,c)
 

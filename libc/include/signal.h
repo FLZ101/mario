@@ -63,7 +63,7 @@ struct sigaction {
 	void (*sa_restorer)(void);
 };
 
-#include <unistd.h>
+#include <sys/types.h>
 int kill(pid_t pid, int sig);
 int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
 

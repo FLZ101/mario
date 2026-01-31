@@ -1,10 +1,15 @@
-#ifndef _WAIT_H
-#define _WAIT_H
+#ifndef _SYS_WAIT_H
+#define _SYS_WAIT_H
 
-#include <types.h>
+#include <sys/types.h>
 #include <syscall.h>
 
 static inline _syscall3(pid_t,waitpid,pid_t,pid,int *,wstatus,int,options)
+
+static inline pid_t wait(int *wstatus)
+{
+	return waitpid(-1, wstatus, 0);
+}
 
 /* If WIFEXITED(STATUS), the low-order 8 bits of the status.  */
 #define	WEXITSTATUS(status) (((status) & 0xff00) >> 8)
@@ -25,4 +30,4 @@ static inline _syscall3(pid_t,waitpid,pid_t,pid,int *,wstatus,int,options)
 /* Nonzero if STATUS indicates the child is stopped.  */
 #define	WIFSTOPPED(status)	(((status) & 0xff) == 0x7f)
 
-#endif /* _WAIT_H */
+#endif /* _SYS_WAIT_H */

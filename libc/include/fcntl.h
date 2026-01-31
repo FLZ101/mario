@@ -20,5 +20,6 @@
 #define F_SETFL		4
 
 static inline _syscall2(int,open,const char *,pathname,int,flags)
+static inline _syscall1(int,creat,const char *,pathname)
 
 #endif /* _FCNTL_H */

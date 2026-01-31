@@ -1,4 +1,4 @@
-#include <unistd.h>
+#include <syscall.h>
 #include <signal.h>
 
 _syscall2(int,kill,int,pid,int,sig)

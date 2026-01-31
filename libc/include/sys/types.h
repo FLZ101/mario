@@ -1,5 +1,5 @@
-#ifndef _TYPES_H
-#define _TYPES_H
+#ifndef _SYS_TYPES_H
+#define _SYS_TYPES_H
 
 typedef signed char        __s8;
 typedef signed short       __s16;
@@ -30,4 +30,4 @@ typedef unsigned short nlink_t;
 typedef long time_t;
 typedef long clock_t;
 
-#endif	/* _TYPES_H */
+#endif	/* _SYS_TYPES_H */

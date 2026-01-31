@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdlib.h>
-#include <wait.h>
+#include <sys/wait.h>
 
 void cat(char *filename)
 {
