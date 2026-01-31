@@ -15,5 +15,9 @@ void *sbrk(int increment)
         return (void *) -1;
     if (!increment)
         return (void *) addr;
-    return (void *) brk_((void *) (addr + increment));
+
+    int new = brk_((void *) (addr + increment));
+    if (-1 == new)
+        return (void *) -1;
+    return (void *) addr;
 }
