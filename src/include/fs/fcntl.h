@@ -5,6 +5,7 @@
 #define O_RDONLY	     00
 #define O_WRONLY	     01
 #define O_RDWR		     02
+
 #define O_CREAT		   0100	/* not fcntl */
 #define O_EXCL		   0200	/* not fcntl */
 #define O_NOCTTY	   0400	/* not fcntl */
@@ -12,6 +13,7 @@
 #define O_APPEND	  02000
 #define O_NONBLOCK	  04000
 #define O_CLOEXEC    010000
+#define O_DIRECTORY  020000
 
 #define F_DUPFD		0	/* dup */
 #define F_GETFD		1	/* get f_flags */

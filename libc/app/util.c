@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+#include <dirent.h>
 
 void cat(char *filename)
 {
@@ -71,5 +72,45 @@ void run(char *filename)
 		} else if (WIFSIGNALED(status)) {
 			printf("[run] signal = %d\n", WTERMSIG(status));
 		}
+	}
+}
+
+#define N 1024
+
+void ls(char *pathname)
+{
+	int err;
+	char buf[N];
+
+	printf("ls %s\n", pathname);
+
+	int fd = open(pathname, O_RDONLY | O_DIRECTORY);
+	if (-1 == fd) {
+		_perror();
+		exit(EXIT_FAILURE);
+	}
+
+	while (1) {
+		int count = getdents(fd, buf, N);
+		if (-1 == count) {
+			_perror();
+			exit(EXIT_FAILURE);
+		}
+		// end of directory
+		if (0 == count)
+			break;
+
+		int off = 0;
+		while (off < count) {
+			struct mario_dirent *dirent = (struct mario_dirent *) (buf + off);
+			printf("%x %x %s\n", dirent->d_ino, dirent->d_off, dirent->d_name);
+			off += dirent->d_reclen;
+		}
+	}
+
+	err = close(fd);
+	if (-1 == err) {
+		_perror();
+		exit(EXIT_FAILURE);
 	}
 }

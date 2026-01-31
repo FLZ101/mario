@@ -5,8 +5,8 @@
 
 struct mario_dirent {
 	unsigned long d_ino;
-	unsigned long d_off;
-	unsigned short d_reclen;
+	unsigned long d_off; // f_pos. End of this entry, and start of next one
+	unsigned short d_reclen; // length of this entry
 	char d_name[1];
 };
 
@@ -35,7 +35,7 @@ static int filldir(void *__buf, char *name, int namelen, off_t offset, ino_t ino
 	put_fs_word(reclen, &dirent->d_reclen);
 	memcpy_tofs(dirent->d_name, name, namelen);
 	put_fs_byte(0, dirent->d_name + namelen);
-	buf->next = (struct mario_dirent *)((char *)dirent + reclen);;
+	buf->next = (struct mario_dirent *)((char *)dirent + reclen);
 	buf->count -= reclen;
 	return 0;
 }

@@ -185,6 +185,7 @@ int open_namei(char *pathname, int flags, struct inode **res_inode,
 	if (error)
 		return error;
 	if (!namelen) {		/* cases like dir/ */
+		// can not write a dir
 		if (flags & 2) {
 			iput(dir);
 			return -EISDIR;
@@ -219,10 +220,17 @@ SHE__:
 	iput(dir);
 	if (error)
 		return error;
+	// can not write a dir
 	if (S_ISDIR(inode->i_mode) && (flags & 2)) {
 		iput(inode);
 		return -EISDIR;
 	}
+
+	if ((flags & O_DIRECTORY) && !S_ISDIR(inode->i_mode)) {
+		iput(inode);
+		return -ENOTDIR;
+	}
+
 	if (S_ISBLK(inode->i_mode) || S_ISCHR(inode->i_mode))
 		flags &= ~O_TRUNC;
 

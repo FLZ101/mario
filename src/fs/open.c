@@ -30,7 +30,6 @@ int do_open(char *filename, int flags)
 		FD_SET(fd, &current->files->close_on_exec);
 	if (!(f = get_empty_file()))
 		return -ENFILE;
-	current->files->fd[fd] = f;
 
 	f->f_flags = namei_flags = flags;
 	f->f_mode = (namei_flags+1) & O_ACCMODE;
@@ -41,7 +40,6 @@ int do_open(char *filename, int flags)
 
 	error = open_namei(filename, namei_flags, &i, NULL);
 	if (error) {
-		current->files->fd[fd] = NULL;
 		put_file(f);
 		return error;
 	}
@@ -57,6 +55,7 @@ int do_open(char *filename, int flags)
 			return error;
 		}
 	}
+	current->files->fd[fd] = f;
 	f->f_flags &= ~(O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC);
 	return fd;
 }
