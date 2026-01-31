@@ -122,7 +122,7 @@ int dup_mmap(struct task_struct *t)
  * Case 4 involves the creation of 2 new areas, for each side of
  * the hole.
  */
-void unmap_fixup(struct vm_area_struct *vma, 
+void unmap_fixup(struct vm_area_struct *vma,
 	unsigned long addr, unsigned long len)
 {
 	struct vm_area_struct *mpnt;
@@ -302,7 +302,7 @@ unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
 	return 0;
 }
 #if 0
-static inline void 
+static inline void
 zeromap_pde_range(pde_t *pd, unsigned long addr, unsigned long len, pte_t zero_pte)
 {
 	pte_t *pt;
@@ -361,7 +361,7 @@ static unsigned long get_page_prot(unsigned long flags)
 	return PG_PRESENT;
 }
 
-unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot, 
+unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 	unsigned long flags, int fd, unsigned long off)
 {
 	int error;
@@ -413,7 +413,7 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 	default:
 		return -EINVAL;
 	}
-	
+
 	vma = (struct vm_area_struct *)kmalloc(sizeof(*vma));
 	if (!vma)
 		return -ENOMEM;
@@ -497,8 +497,10 @@ unsigned long sys_brk(unsigned long brk)
 	 * Always allow shrinking brk
 	 */
 	if (brk <= current->mm->brk) {
+		int err = do_munmap(newbrk, oldbrk - newbrk);
+		if (err)
+			return err;
 		current->mm->brk = brk;
-		do_munmap(newbrk, oldbrk - newbrk);
 		return brk;
 	}
 	/*
@@ -512,8 +514,10 @@ unsigned long sys_brk(unsigned long brk)
 	 */
 	if (find_vma_intersection(current->mm, oldbrk, newbrk + PAGE_SIZE))
 		return current->mm->brk;
-	current->mm->brk = brk;
-	do_mmap(oldbrk, newbrk - oldbrk, PROT_READ|PROT_WRITE|PROT_EXEC,
+	int err = do_mmap(oldbrk, newbrk - oldbrk, PROT_READ|PROT_WRITE|PROT_EXEC,
 		MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (err < 0)
+		return err;
+	current->mm->brk = brk;
 	return brk;
 }

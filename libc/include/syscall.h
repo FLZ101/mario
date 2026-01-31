@@ -3,8 +3,8 @@
 
 #include <errno.h>
 
-#define __SYS_brk			 0
-#define __SYS_mmap			 1
+#define __SYS_brk_			 0
+#define __SYS_mmap_			 1
 #define __SYS_munmap		 2
 #define __SYS_alarm			 3
 #define __SYS_execve		 4

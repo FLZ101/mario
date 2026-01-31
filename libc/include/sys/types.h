@@ -17,7 +17,6 @@ typedef long off_t;
 // typedef long long loff_t;
 typedef long loff_t;
 
-typedef int ssize_t;
 typedef unsigned int size_t;
 
 typedef unsigned long ino_t;
