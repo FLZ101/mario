@@ -78,9 +78,6 @@ long get_cmos_time(void)
 	if ((year += 1900) < 1970)
 		year += 100;
 
-	early_print("%d/%d/%d, %d:%d:%d\n",
-		year, mon, day, hour, min, sec);
-
 	return mktime(year, mon, day, hour, min, sec);
 }
 
@@ -128,7 +125,7 @@ void __tinit time_init(void)
 void irq_PIT(struct trap_frame tr)
 {
 	jiffies++;
-	
+
 	if (&init_task == current) {
 		current->need_resched = 1;
 		goto tail;

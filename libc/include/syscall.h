@@ -45,7 +45,7 @@
 #define __SYS_getitimer		39
 #define __SYS_setitimer		40
 #define __SYS_getpgid		41
-#define __SYS_getpgrp		42
+#define __SYS_getsid		42
 #define __SYS_setpgid		43
 #define __SYS_setsid		44
 #define __SYS_kill			45
@@ -54,7 +54,7 @@
 #define __SYS_sigsuspend	48
 #define __SYS_sigpending	49
 #define __SYS_sigprocmask	50
-#define __SYS_sigreturn		51
+
 #define __SYS_putchar		52
 
 #define __syscall_return(type, __res) \

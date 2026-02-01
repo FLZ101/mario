@@ -46,7 +46,7 @@
 #define __SYS_getitimer		39
 #define __SYS_setitimer		40
 #define __SYS_getpgid		41
-#define __SYS_getpgrp		42
+#define __SYS_getsid		42
 #define __SYS_setpgid		43
 #define __SYS_setsid		44
 #define __SYS_kill			45
@@ -116,7 +116,7 @@ __asm__ volatile ("int $0x80" \
 	: "0" (__SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)), \
 	  "d" ((long)(arg3)),"S" ((long)(arg4))); \
 __syscall_return(type, __res); \
-} 
+}
 
 #define _syscall5(type,name,type1,arg1,type2,arg2,type3,arg3,type4,arg4, \
 	  type5,arg5) \

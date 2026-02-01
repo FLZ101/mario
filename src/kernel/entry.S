@@ -333,7 +333,7 @@ ENTRY(sys_call_table)
 	.long sys_getitimer
 	.long sys_setitimer
 	.long sys_getpgid
-	.long sys_getpgrp
+	.long sys_getsid
 	.long sys_setpgid
 	.long sys_setsid
 	.long sys_kill

@@ -143,6 +143,10 @@ struct file_operations {
 	int (*ioctl)(struct inode *, struct file *, unsigned int, unsigned long);
 };
 
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+
 struct file {
 	loff_t f_pos;
 	mode_t f_mode;

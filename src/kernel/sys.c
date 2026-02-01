@@ -17,9 +17,9 @@ int sys_getpgid(pid_t pid)
 	return -ESRCH;
 }
 
-int sys_getpgrp(void)
+int sys_getsid(void)
 {
-	return current->pgrp;
+	return current->session;
 }
 
 int sys_setpgid(pid_t pid, pid_t pgid)

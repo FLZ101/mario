@@ -132,3 +132,5 @@ int puts(const char *s)
 {
 	return printf("%s\n", s);
 }
+
+_syscall2(int,rename,const char *,oldpath, const char *,newpath)

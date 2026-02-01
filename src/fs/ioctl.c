@@ -7,7 +7,7 @@ static int file_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 	return -EINVAL;
 }
 
-int sys_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
+int sys_ioctl(int fd, unsigned int cmd, unsigned long arg)
 {
 	struct file *f;
 

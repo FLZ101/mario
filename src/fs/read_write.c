@@ -15,16 +15,19 @@ int sys_lseek(unsigned int fd, off_t offset, unsigned int origin)
 
 	/* the default lseek */
 	switch (origin) {
-	case 0:
+	case SEEK_SET:
 		tmp = offset;
 		break;
-	case 1:
+	case SEEK_CUR:
 		tmp = f->f_pos + offset;
 		break;
-	case 2:
+	case SEEK_END:
 		tmp = f->f_inode->i_size + offset;
 		break;
+	default:
+		return -EINVAL;
 	}
+
 	/*
 	 * file position can not be bigger than file size !!!
 	 */

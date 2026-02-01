@@ -17,4 +17,6 @@ void perror(const char *s);
 
 #define _perror()	perror(__FILE__ ":" TO_STRING(__LINE__))
 
+int rename(const char *oldpath, const char *newpath);
+
 #endif /* _STDIO_H */
