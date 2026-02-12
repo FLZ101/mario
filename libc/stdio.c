@@ -1,9 +1,15 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-#include <syscall.h>
+#include <unistd.h>
 
-_syscall1(int,putchar,char,c)
+int putchar(char c)
+{
+	int n = write(0, &c, 1);
+	if (n == -1)
+		return EOF;
+	return n;
+}
 
 static void sput_c(char **buf, char c)
 {

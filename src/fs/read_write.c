@@ -52,6 +52,8 @@ int sys_read(unsigned int fd, char *buf, unsigned int count)
 
 	if (!count)
 		return 0;
+	// only if count > 0 then return 0 means EOF
+
 	error = verify_area(VERIFY_WRITE, buf, count);
 	if (error)
 		return error;

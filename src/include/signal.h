@@ -68,7 +68,11 @@ struct sigaction {
 #define signal_pending(p)      ((p)->signal & ~(p)->blocked)
 
 struct task_struct;
-extern int send_sig(unsigned long sig, struct task_struct *p, int priv);
+
+int send_sig(unsigned long sig, struct task_struct *p, int priv);
+int kill_pg(int pgrp, int sig, int priv);
+int kill_sl(int session, int sig, int priv);
+int kill_proc(int pid, int sig, int priv);
 
 struct sigcontext_struct {
 	unsigned short es, __esh;

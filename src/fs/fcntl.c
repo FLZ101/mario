@@ -8,7 +8,7 @@ static int dupfd(unsigned int fd, unsigned int arg)
 		return -EBADF;
 	if (arg >= NR_OPEN)
 		return -EINVAL;
-	for (; arg < NR_OPEN && current->files->fd[fd]; arg++)
+	for (; arg < NR_OPEN && current->files->fd[arg]; arg++)
 		;
 	if (arg >= NR_OPEN)
 		return -EMFILE;

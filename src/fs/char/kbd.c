@@ -3,6 +3,7 @@
 #include <io.h>
 
 #include <fs/tty/tty.h>
+#include <fs/tty/console.h>
 
 static void wait_input_empty(void)
 {
@@ -154,25 +155,6 @@ unsigned int get_e0_key(unsigned int code)
 	return 0;
 }
 
-extern struct tty_struct *tty_one;
-extern void write_char(struct console *con, unsigned char c);
-extern int ahead(int head);
-
-static void into_buf(char c)
-{
-	if (ahead(tty_one->tail) == tty_one->head)
-		return;
-	tty_one->buf[tty_one->tail] = c;
-	wake_up_interruptible(&tty_one->wait);
-	tty_one->tail = ahead(tty_one->tail);
-}
-
-static void put_c(char c)
-{
-	write_char(&tty_one->con, c);
-	into_buf(c);
-}
-
 void csi(unsigned int __k)
 {
 	char c;
@@ -193,71 +175,97 @@ void csi(unsigned int __k)
 	default:
 		return;
 	}
-	into_buf('\033');
-	into_buf('[');
-	into_buf(c);
+	early_print("\033[%c", c);
 }
 
-void handle_key(void)
+void handle_key(struct tty_struct *tty, struct console *con)
 {
 	unsigned int __i;
 	unsigned int __k;
-	struct v_key *v;
 
-	v = &tty_one->k.key;
-	if ((v->v_flags & 0x0100)) {			/* pressed */
-		if (v->v_key & (1 << c_trl)) {
-			__i = v->v_key & 0xff;
+	struct kbd *k = &con->k;
+
+	if ((k->v_flags & 0x0100)) {			/* pressed */
+		if (k->v_key & (1 << c_trl)) {
+			__i = k->v_key & 0xff;
 
 			if ((__i == NUMLOCK) || (__i == CAPLOCK))
-				v->v_flags ^= __i;
+				k->v_flags ^= __i;
 			else
-				v->v_flags |= __i;
+				k->v_flags |= __i;
 		} else {
-			__k = v->v_key & 0xffff;
+			__k = k->v_key & 0xffff;
 
-			if (v->v_key & (1 << n_um)) {	/* keypad */
-				if ((v->v_flags & NUMLOCK) && (!(v->v_flags & RSHL)) && (!(v->v_flags & LSHL)))
-					__k = v->v_key >> 16;
+			if (k->v_key & (1 << n_um)) {	/* keypad */
+				if ((k->v_flags & NUMLOCK) && (!(k->v_flags & RSHL)) && (!(k->v_flags & LSHL)))
+					__k = k->v_key >> 16;
 
 			} else {
 				int tmp = -1;
-				if ((v->v_key & (1 << s_hift)) && \
-						((v->v_flags & LSHL) || (v->v_flags & RSHL)))
+				if ((k->v_key & (1 << s_hift)) && \
+						((k->v_flags & LSHL) || (k->v_flags & RSHL)))
 					tmp *= -1;
-				if ((v->v_key & (1 << c_ap)) && \
-						(v->v_flags & CAPLOCK))
+				if ((k->v_key & (1 << c_ap)) && \
+						(k->v_flags & CAPLOCK))
 					tmp *= -1;
 				if (tmp == 1)
-					__k = v->v_key >> 16;
+					__k = k->v_key >> 16;
 			}
-			if (v->v_flags & 0x3c) {
-				/* CONTROL */
-				return ;
+			if (k->v_flags & 0x3c) {
+				if (k->v_flags & (LALT | RALT))
+					;
+
+				if (k->v_flags & (LCTL | RCTL)) {
+					uint8_t ch = __k & 0xff;
+					if ('@' <= ch && ch <= '_') {
+						tty_receive_c(tty, ch - '@');
+					} else if ('a' <= ch && ch <= 'z') {
+						tty_receive_c(tty, ch - 'a');
+					} else if (ch == '?') {
+						tty_receive_c(tty, 0x7f); // DEL
+					}
+				}
+				return;
 			}
 			if (__k & (1 << f_0)) {
 				__k &= 0xff;
 
 				if (__k == ENTER)
-					put_c('\n');
+					tty_receive_c(tty, '\n');
 				else if (__k == SPACE)
-					put_c(' ');
+					tty_receive_c(tty, ' ');
 				else if (__k == TAB)
-					put_c('\t');
+					tty_receive_c(tty, '\t');
 				else if (__k == BACKSPACE)
-					write_char(&tty_one->con, '\b');
+					tty_receive_c(tty, '\b');
 				else if (__k == LEFT || __k == RIGHT || __k == UP || __k == DOWN)
 					csi(__k);
+				else if (__k == ESC)
+					tty_receive_c(tty, 033);
+				else if (__k == DELETE)
+					tty_receive_c(tty, 0x7f);
+				else if (__k == F1)
+					switch_fg_console(0);
+				else if (__k == F2)
+					switch_fg_console(1);
+				else if (__k == F3)
+					switch_fg_console(2);
+				else if (__k == F4)
+					switch_fg_console(3);
+				else if (__k == F5)
+					switch_fg_console(4);
+				else if (__k == F6)
+					switch_fg_console(5);
 				else
 					/* Do nothing */;
 			} else {
-				put_c(__k & 0xff);
+				tty_receive_c(tty, __k & 0xff);
 			}
 		}
-	} else if (v->v_key & (1 << c_trl)) { 	/* released */
-		__i = v->v_key & 0xff;
+	} else if (k->v_key & (1 << c_trl)) { 	/* released */
+		__i = k->v_key & 0xff;
 		if ((__i != NUMLOCK) && (__i != CAPLOCK))
-			v->v_flags &= (~__i);
+			k->v_flags &= (~__i);
 	}
 }
 
@@ -267,88 +275,83 @@ void handle_key(void)
 
 void irq_PS2(void)
 {
-	static int stat = 0;
+	static int state = 0;
 
 	unsigned int __i;
 	unsigned int __b;
-	struct v_key *v;
 
-	v = &tty_one->k.key;
+	struct tty_struct *tty = get_fg_tty();
+	struct console *con = get_fg_console();
+	struct kbd *k = &con->k;
 
 	__b = inb(0x60);
 
-	switch (stat) {
+	switch (state) {
 	case 0:
 		if (__b == 0xe1) {
-			stat = PAUSE;
+			state = PAUSE;
 			break;
 		}
 		if (__b == 0xe0) {
-			stat = 1;
+			state = 1;
 			break;
 		}
 		if (__b == 0xf0) {
-			stat = 2;
+			state = 2;
 			break;
 		}
 		__i = code_table[__b];
 		if (__i != 0) {
-			v->v_key    = __i;
-			v->v_flags |= 0x0100; /* pressed */
-			handle_key();
+			k->v_key    = __i;
+			k->v_flags |= 0x0100; /* pressed */
+			handle_key(tty, con);
 		}
 		break;
 
 	case 1:
 		if (__b == 0x12) {
-			stat = PRINT_P;
+			state = PRINT_P;
 			break;
 		}
 		if (__b == 0xf0) {
-			stat = 3;
+			state = 3;
 			break;
 		}
 		__i = get_e0_key(__b);
 		if (__i != 0) {
-			v->v_key    = __i;
-			v->v_flags |= 0x0100;	/* pressed */
-			handle_key();
+			k->v_key    = __i;
+			k->v_flags |= 0x0100;	/* pressed */
+			handle_key(tty, con);
 		}
-		stat = 0;
+		state = 0;
 		break;
 
 	case 2:
 		__i = code_table[__b];
 		if (__i != 0) {
-			v->v_key    = __i;
-			v->v_flags &= (~0x0100);	/* released */
-			handle_key();
+			k->v_key    = __i;
+			k->v_flags &= (~0x0100);	/* released */
+			handle_key(tty, con);
 		}
-		stat = 0;
+		state = 0;
 		break;
 
 	case 3:
 		if (__b == 0x7c) {
-			stat = PRINT_R;
+			state = PRINT_R;
 			break;
 		}
 		__i = get_e0_key(__b);
 		if (__i != 0) {
-			v->v_key    = __i;
-			v->v_flags &= (~0x0100);	/* released */
-			handle_key();
+			k->v_key    = __i;
+			k->v_flags &= (~0x0100);	/* released */
+			handle_key(tty, con);
 		}
-		stat = 0;
+		state = 0;
 		break;
 	default:
-		stat++;
+		state++;
 	}
-}
-
-void kbd_init(struct kbd *k)
-{
-	k->key.v_flags = 0;
-	k->key.v_key = 0;
 }
 
 void __tinit ps2_init(void)

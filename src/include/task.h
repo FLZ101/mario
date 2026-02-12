@@ -29,6 +29,7 @@ struct thread_struct {
 struct fs_struct;
 struct files_struct;
 struct wait_queue;
+struct tty_struct;
 struct task_struct {
 	volatile long state;
 	int counter;
@@ -47,7 +48,7 @@ struct task_struct {
 	struct list_head run_list;
 	struct task_struct *next_task, *prev_task;
 	/*
-	 * pointers to parent, youngest child, younger sibling, 
+	 * pointers to parent, youngest child, younger sibling,
 	 * older sibling, respectively.
 	 */
 	struct task_struct *p_pptr, *p_cptr, *p_ysptr, *p_osptr;
@@ -60,6 +61,7 @@ struct task_struct {
 	struct files_struct *files;
 	struct thread_struct thread;
 	struct sigaction sigaction[32];
+	struct tty_struct *tty;
 	char comm[16];
 };
 

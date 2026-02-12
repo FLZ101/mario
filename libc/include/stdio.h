@@ -19,4 +19,6 @@ void perror(const char *s);
 
 int rename(const char *oldpath, const char *newpath);
 
+#define EOF -1
+
 #endif /* _STDIO_H */

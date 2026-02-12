@@ -245,6 +245,11 @@ irq1:
 irq2:
 irq3:
 irq4:
+	pushl $-1
+	SAVE_ALL
+	call irq_uart
+	EOI_MASTER
+	jmp ret_from_intr
 irq5:
 irq6:
 	pushl %eax
@@ -343,4 +348,3 @@ ENTRY(sys_call_table)
 	.long sys_sigpending
 	.long sys_sigprocmask
 	.long sys_sigreturn
-	.long sys_putchar

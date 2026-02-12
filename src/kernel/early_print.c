@@ -12,8 +12,8 @@
 
 #define SPACE MAKEC(' ')
 
-int pos_x __dinit = 0;
-int pos_y __dinit = 0;
+static int pos_x __dinit = 0;
+static int pos_y __dinit = 0;
 
 void __tinit move_cursor(void)
 {
@@ -55,6 +55,11 @@ void __tinit write_c(unsigned char c)
 	} else if (c == '\n') {
 		pos_x = 0;
 		pos_y++;
+	} else if (c == '\b') {
+		if (pos_x > 0) {
+			pos_x--;
+			*((short *)TEXT + 80*pos_y + pos_x) = SPACE;
+		}
 	} else if (c >= ' ') {
 		*((short *)TEXT + 80*pos_y + pos_x) = MAKEC(c);
 		pos_x++;
@@ -204,14 +209,4 @@ void __tinit early_print_init(struct multiboot_info *m)
 	} else {
 		cls();
 	}
-}
-
-/*
- * will be removed when the TTY driver is implemented
- */
-void sys_putchar(char c)
-{
-	irq_save();
-	write_c(c);
-	irq_restore();
 }

@@ -19,8 +19,8 @@ void __tinit chrdev_init(void)
 	for (i = 0; i < MAX_CHRDEV; i++)
 		chrdevs[i].chrdev_fops = NULL;
 
-	tty_init();
 	mem_init();
+	tty_init();
 }
 
 int register_chrdev(unsigned int major, struct file_operations *chrdev_fops)

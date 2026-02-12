@@ -103,3 +103,23 @@ int ring_buffer_empty(const struct ring_buffer *rb) {
 int ring_buffer_full(const struct ring_buffer *rb) {
 	return rb->len == rb->size;
 }
+
+// pop last written byte
+void ring_buffer_pop(struct ring_buffer *rb) {
+	if (!ring_buffer_empty(rb)) {
+		size_t mask = rb->size - 1;
+		rb->head = (rb->head - 1) & mask;
+		--rb->len;
+	}
+}
+
+// peek last written byte
+int ring_buffer_peek(struct ring_buffer *rb) {
+	int res = -1;
+	if (!ring_buffer_empty(rb)) {
+		size_t mask = rb->size - 1;
+		size_t head = (rb->head - 1) & mask;
+		res = (uint8_t) rb->data[head];
+	}
+	return res;
+}

@@ -55,8 +55,6 @@
 #define __SYS_sigpending	49
 #define __SYS_sigprocmask	50
 
-#define __SYS_putchar		52
-
 #define __syscall_return(type, __res) \
 do { \
 	if (__res >= 0) \
