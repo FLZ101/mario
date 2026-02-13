@@ -112,14 +112,3 @@ void ring_buffer_pop(struct ring_buffer *rb) {
 		--rb->len;
 	}
 }
-
-// peek last written byte
-int ring_buffer_peek(struct ring_buffer *rb) {
-	int res = -1;
-	if (!ring_buffer_empty(rb)) {
-		size_t mask = rb->size - 1;
-		size_t head = (rb->head - 1) & mask;
-		res = (uint8_t) rb->data[head];
-	}
-	return res;
-}

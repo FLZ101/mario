@@ -4,6 +4,9 @@
 #include <sys/types.h>
 #include <syscall.h>
 
+#define WNOHANG		0x00000001
+#define WUNTRACED	0x00000002
+
 static inline _syscall3(pid_t,waitpid,pid_t,pid,int *,wstatus,int,options)
 
 static inline pid_t wait(int *wstatus)

@@ -164,7 +164,7 @@ int sys_pause(void)
 {
 	current->state = TASK_INTERRUPTIBLE;
 	schedule();
-	return 0;
+	return -ERESTARTNOHAND;
 }
 
 /*

@@ -48,16 +48,16 @@
 #define SIG_SETMASK        2
 
 /* Type of a signal handler.  */
-typedef void (*__sighandler_t)(int);
+typedef void (*sighandler_t)(int);
 
 typedef unsigned long sigset_t;		/* at least 32 bits */
 
-#define SIG_DFL	((__sighandler_t)0)	/* default signal handling */
-#define SIG_IGN	((__sighandler_t)1)	/* ignore signal */
-#define SIG_ERR	((__sighandler_t)-1)	/* error return from signal */
+#define SIG_DFL	((sighandler_t)0)	/* default signal handling */
+#define SIG_IGN	((sighandler_t)1)	/* ignore signal */
+#define SIG_ERR	((sighandler_t)-1)	/* error return from signal */
 
 struct sigaction {
-	__sighandler_t sa_handler;
+	sighandler_t sa_handler;
 	sigset_t sa_mask;
 	unsigned long sa_flags;
 	void (*sa_restorer)(void);
@@ -66,5 +66,15 @@ struct sigaction {
 #include <sys/types.h>
 int kill(pid_t pid, int sig);
 int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
+int sigsuspend(const sigset_t *mask);
+int sigpending(sigset_t *set);
+int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
+
+/*
+ * The only portable use of signal() is to set a signal's disposition to SIG_DFL or SIG_IGN.
+ */
+int signal(int signum, sighandler_t handler);
+
+typedef int sig_atomic_t;
 
 #endif	/* _SIGNAL_H */

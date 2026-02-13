@@ -26,9 +26,9 @@
 #define E2BIG			23
 #define EINTR			24
 #define ESRCH			25
-#define ERESTARTNOHAND	26
-#define ERESTARTSYS		27
-#define ERESTARTNOINTR	28
+#define ERESTARTNOHAND	26 // internal error code. Restart the syscall if no handler
+#define ERESTARTSYS		27 // internal error code. Restart the syscall if handler has SA_RESTART
+#define ERESTARTNOINTR	28 // internal error code. Restart the syscall
 #define ESPIPE          29
 #define EPIPE           30
 

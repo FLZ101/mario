@@ -44,6 +44,9 @@ int pipe_write(struct inode *i, struct file *f, char *buf, int count)
 	struct pipe_inode_info *info = &i->u.pipe_i;
 
 try:
+	if (current->signal & ~current->blocked)
+		return -ERESTARTSYS;
+
 	ACQUIRE_LOCK(&info->lock);
 	if (ring_buffer_full(&info->rb)) {
 		if (!info->n_reader) {
@@ -68,6 +71,9 @@ int pipe_read(struct inode *i, struct file *f, char *buf, int count)
 	struct pipe_inode_info *info = &i->u.pipe_i;
 
 try:
+	if (current->signal & ~current->blocked)
+		return -ERESTARTSYS;
+
 	ACQUIRE_LOCK(&info->lock);
 	if (ring_buffer_empty(&info->rb)) {
 		if (!info->n_writer) {

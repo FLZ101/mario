@@ -529,6 +529,7 @@ void console_init()
 		ring_buffer_init(&tty->read_buf);
 
 		INIT_LOCK(&tty->lock);
+		init_wait_queue(&tty->wait_read);
 
 		tty->termios = default_termios;
 	}

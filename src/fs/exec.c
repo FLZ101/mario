@@ -319,8 +319,9 @@ void flush_old_exec(struct exec *exe)
 	for (i = 0; i < 32; i++) {
 		current->sigaction[i].sa_mask = 0;
 		current->sigaction[i].sa_flags = 0;
+		// Signal handlers are reset to their default actions, except for signals that are being ignored.
 		if (current->sigaction[i].sa_handler != SIG_IGN)
-			current->sigaction[i].sa_handler = NULL;
+			current->sigaction[i].sa_handler = SIG_DFL;
 	}
 	for (i = 0; i < NR_OPEN; i++)
 		if (FD_ISSET(i, &current->files->close_on_exec))
@@ -490,13 +491,13 @@ int do_execve(char *filename, char **argv, char **envp, struct trap_frame *tr)
 	if (error)
 		goto tail_2;
 	error = do_exec(&exe, fd, tr);
-	if (!error)
-		return 0;
+	goto tail_1;
+
 tail_2:
 	for (i = 0; i < MAX_ARG_PAGES && exe.arg_page[i]; i++)
 		page_free(exe.arg_page[i]);
 tail_1:
-	sys_close(fd);
+	sys_close(fd); // close fd won't invalidate the memory mappings set up
 	return error;
 }
 

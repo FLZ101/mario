@@ -6,3 +6,4 @@ _syscall3(int,sigaction,int,signum,const struct sigaction *,act, struct sigactio
 _syscall1(int,sigsuspend,const sigset_t *,mask)
 _syscall1(int,sigpending,sigset_t *,set)
 _syscall3(int,sigprocmask,int,how,const sigset_t *,set,sigset_t *,oldset)
+_syscall2(int,signal,int,signum,sighandler_t,handler)

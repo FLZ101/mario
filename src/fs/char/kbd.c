@@ -220,7 +220,7 @@ void handle_key(struct tty_struct *tty, struct console *con)
 					if ('@' <= ch && ch <= '_') {
 						tty_receive_c(tty, ch - '@');
 					} else if ('a' <= ch && ch <= 'z') {
-						tty_receive_c(tty, ch - 'a');
+						tty_receive_c(tty, ch - 'a' + 1);
 					} else if (ch == '?') {
 						tty_receive_c(tty, 0x7f); // DEL
 					}

@@ -141,7 +141,6 @@ static inline _syscall3(int,execve,const char *,file,char **,argv,char **,envp)
 static inline _syscall3(int,open,const char *,file,int,flag,int,mode)
 static inline _syscall1(int,close,int,fd)
 static inline _syscall1(int,_exit,int,exitcode)
-static inline _syscall0(int,setsid)
 
 #endif	/* __KERNEL_SYSCALLS__ */
 

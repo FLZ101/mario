@@ -24,6 +24,5 @@ int ring_buffer_empty(const struct ring_buffer *rb);
 int ring_buffer_full(const struct ring_buffer *rb);
 
 void ring_buffer_pop(struct ring_buffer *rb);
-int ring_buffer_peek(struct ring_buffer *rb);
 
 #endif // _RING_BUFFER_H

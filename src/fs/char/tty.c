@@ -58,40 +58,21 @@ void tty_receive_c(struct tty_struct *tty, char c)
 
 	if (c_lflag & ISIG) {
 		if (c == c_cc[VINTR]) {
-			kill_pg(SIGINT, tty->pgrp, 0);
-			goto tail;
+			kill_pg(tty->pgrp, SIGINT, 0);
+			goto tail_1;
 		} else if (c == c_cc[VQUIT]) {
-			kill_pg(SIGQUIT, tty->pgrp, 0);
-			goto tail;
+			kill_pg(tty->pgrp, SIGQUIT, 0);
+			goto tail_1;
 		} else if (c == c_cc[VSUSP]) {
-			kill_pg(SIGTSTP, tty->pgrp, 0);
-			goto tail;
+			kill_pg(tty->pgrp, SIGTSTP, 0);
+			goto tail_1;
 		}
 	}
 
 	if (c_lflag & ICANON) {
 		if (c == c_cc[VERASE]) {
 			ring_buffer_pop(rb);
-
-			if (c_lflag & ECHO) {
-				if (c_lflag & ECHOE) {
-					tty_put_c(tty, '\b');
-					goto tail;
-				}
-			}
-		}
-
-		if (c == c_cc[VKILL]) {
-			while (1) {
-				int ch = ring_buffer_peek(rb);
-				// empty
-				if (ch < 0)
-					break;
-				if (ch == c_cc[VEOF] || ch == '\n' || ch == c_cc[VEOL])
-					break;
-				ring_buffer_pop(rb);
-			}
-			goto tail;
+			goto tail_1;
 		}
 
 		if (c == c_cc[VEOF] || c == '\n' || c == c_cc[VEOL]) {
@@ -102,18 +83,31 @@ void tty_receive_c(struct tty_struct *tty, char c)
 	}
 
 	ring_buffer_write(rb, &c, 1, 0);
+tail_1:
 	if (c_lflag & ECHO) {
-		if (0 <= c && c <= 037) {
-			// control codes
-			if (c_lflag & ECHOCTL) {
-				tty_put_c(tty, c + 0x40);
-			}
-		} else {
-			tty_put_c(tty, c);
+		if (c == c_cc[VERASE] && c_lflag & ECHOE) {
+			tty_put_c(tty, '\b');
+			goto tail_2;
 		}
+
+		if (c_lflag & ECHOCTL) {
+			// ASCII control characters (0–31 and 127) other than TAB, NL, and CR are
+			// echoed as ^X, where X is the character obtained by adding 0x40 to
+			// the control character.
+			if (0 <= c && c <= 31 && c != '\t' && c != '\n' && c != '\r') {
+				tty_put_c(tty, '^');
+				tty_put_c(tty, c + 0x40);
+				goto tail_2;
+			}
+			if (c == 127) {
+				tty_put_s(tty, "^?");
+				goto tail_2;
+			}
+		}
+		tty_put_c(tty, c);
 	}
 
-tail:
+tail_2:
 	if (wake)
 		wake_up_interruptible(&tty->wait_read);
 	RELEASE_LOCK(&tty->lock);
@@ -204,6 +198,9 @@ int tty_read(struct inode *i, struct file *f, char *buf, int count)
 	struct ring_buffer *rb = &tty->read_buf;
 
 try:
+	if (current->signal & ~current->blocked)
+		return -ERESTARTSYS;
+
 	ACQUIRE_LOCK(&tty->lock);
 
 	tcflag_t c_lflag = tty->termios.c_lflag;

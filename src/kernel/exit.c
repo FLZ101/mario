@@ -201,8 +201,8 @@ void do_exit(long code)
 			(current->p_pptr->session == current->session) &&
 				is_orphaned_pgrp(current->pgrp) &&
 					has_stopped_jobs(current->pgrp)) {
-		kill_pg(current->pgrp,SIGHUP,1);
-		kill_pg(current->pgrp,SIGCONT,1);
+		kill_pg(current->pgrp, SIGHUP, 1);
+		kill_pg(current->pgrp, SIGCONT, 1);
 	}
 
 	notify_parent(current);
@@ -223,8 +223,8 @@ void do_exit(long code)
 				(p->session == current->session) &&
 					is_orphaned_pgrp(p->pgrp) &&
 						has_stopped_jobs(p->pgrp)) {
-			kill_pg(p->pgrp,SIGHUP,1);
-			kill_pg(p->pgrp,SIGCONT,1);
+			kill_pg(p->pgrp, SIGHUP, 1);
+			kill_pg(p->pgrp, SIGCONT, 1);
 		}
 	}
 	current->state = TASK_ZOMBIE;
@@ -290,7 +290,7 @@ repeat:
 		current->state = TASK_INTERRUPTIBLE;
 		schedule();
 		current->signal &= ~(1<<(SIGCHLD-1));
-		res = -EINTR;
+		res = -ERESTARTSYS;
 		if (current->signal & ~current->blocked)
 			goto tail;
 		goto repeat;

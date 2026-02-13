@@ -226,7 +226,7 @@ void setup_frame(struct sigaction *sa, unsigned long **fp, unsigned long eip,
 	put_fs_long(old_mask, frame+20);
 	put_fs_long(current->thread.cr2, frame+21);
 	/* set up the return code... */
-	put_fs_long(0x0000b858, CODE(0));	/* popl %eax ; movl $,%eax */
+	put_fs_long(0x0000b858, CODE(0));	/* popl %eax ; movl $__SYS_sigreturn, %eax */
 	put_fs_long(0x80cd0000, CODE(4));	/* int $0x80 */
 	put_fs_long(__SYS_sigreturn, CODE(2));
 	*fp = frame;
@@ -254,8 +254,9 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 	struct sigaction *sa;
 
 	while ((signr = current->signal & m)) {
+		// get & clear lowest signal no
 		__asm__ __volatile__ (
-				"bsf %0, %1\n\t"
+				"bsf %1, %1\n\t"
 				"btrl %1, %0"
 				:"+m"(current->signal), "+r"(signr)
 				:);
@@ -299,19 +300,19 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 		 */
 		if (tr->error_code >= 0) {	/* Is from system call? */
 			if (tr->eax == -ERESTARTNOHAND ||
-					(tr->eax == -ERESTARTSYS &&
-							!(sa->sa_flags & SA_RESTART)))
+					(tr->eax == -ERESTARTSYS && !(sa->sa_flags & SA_RESTART)))
 				tr->eax = -EINTR;
 		}
 		to_handle |= 1 << (signr-1);
 		m &= ~sa->sa_mask;
 	}
+
 	if (tr->error_code >= 0) {
 		if (tr->eax == -ERESTARTNOHAND ||
 				tr->eax == -ERESTARTSYS ||
 					tr->eax == -ERESTARTNOINTR) {
 			tr->eax = tr->error_code;
-			tr->eip -= 2;
+			tr->eip -= 2; // restart the system call
 		}
 	}
 
@@ -321,6 +322,8 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 	frame = (unsigned long *)tr->esp;
 	signr = 1;
 	sa = current->sigaction;
+	// set up the stack frames for signal handlers.
+	// return from or restart the system call after all signal handlers are run
 	for (m = 1; m; sa++, signr++, m += m) {
 		if (m > to_handle)
 			break;
@@ -330,6 +333,12 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 		eip = (unsigned long)sa->sa_handler;
 		if (sa->sa_flags & SA_ONESHOT)
 			sa->sa_handler = SIG_DFL;
+
+		/* force a supervisor-mode page-in of the signal handler to reduce races */
+		__asm__("testb $0,%%fs:%0": :"m" (*(char *) eip));
+		tr->cs = USER_CS; tr->ss = USER_DS;
+		tr->ds = USER_DS; tr->es = USER_DS;
+
 		current->blocked |= sa->sa_mask;
 		old_mask |= sa->sa_mask;
 	}

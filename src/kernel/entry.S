@@ -79,7 +79,7 @@ need_resched = 20
 	.text
 
 ENTRY(fork_ret)
-	jmp ret_from_sys_call
+	jmp ret_common
 
 ENTRY(system_call)
 	pushl %eax	/* the system call number */
@@ -88,6 +88,9 @@ ENTRY(system_call)
 	movl %eax, EAX(%esp)	/* save the return value */
 
 ret_from_sys_call:
+	jmp ret_common
+
+ret_common:
 	/* handle bottom_half */
 	movl bh_mask, %eax
 	andl bh_active, %eax
@@ -105,6 +108,10 @@ ret_from_sys_call:
 	call schedule
 	popl %ebx
 2:
+	/* only handle signal if return to userland */
+	testl $3, CS(%esp)
+	jz 3f
+
 	movl blocked(%ebx), %ecx
 	movl %ecx, %edx
 	notl %ecx
@@ -203,7 +210,7 @@ trap_common:
 	movw %ax, %ds
 	call *%edi
 	addl $8, %esp
-	jmp ret_from_sys_call
+	jmp ret_common
 
 /****************
  * IRQ handlers *
@@ -226,7 +233,7 @@ trap_common:
 	outb %al, $0xa0
 
 ret_from_intr:
-	jmp ret_from_sys_call
+	jmp ret_common
 
 irq0:
 	pushl $-1
