@@ -4,8 +4,6 @@
 
 int main()
 {
-	int err;
-
 	char ch;
 	while (1) {
 		int ret = read(0, &ch, 1);

@@ -38,7 +38,7 @@ void irq_uart(unsigned short port)
         // While LSR says data is ready
         while (inb(port + 5) & 0x01) {
             char c = inb(COM1 + 0); // Read RBR
-            early_print("%c", c);
+            printk("%c", c);
         }
         break;
     default:
@@ -65,7 +65,7 @@ void uart_init(unsigned short port)
     // Check if serial is faulty (i.e: not same byte as sent)
     if (inb(port + 0) != 0xAE)
     {
-        early_print("not ok\n");
+        printk("not ok\n");
     }
 
     // If serial is not faulty set it in normal operation mode

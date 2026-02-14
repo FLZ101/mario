@@ -163,7 +163,7 @@ void iput(struct inode *i)
 {
 	ACQUIRE_LOCK(&inode_lock);
 
-	early_assert(i->i_count > 0);
+	assert(i->i_count > 0);
 
 	if (!--i->i_count) {
 		write_inode(i);

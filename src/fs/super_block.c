@@ -98,7 +98,7 @@ void mount_root(void)
 	up(&sb_sem);
 
 	if (!sb)
-		early_hang("mount_root fails");
+		hang("mount_root fails");
 }
 
 extern int fs_may_mount(dev_t dev);

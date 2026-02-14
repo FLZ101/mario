@@ -42,7 +42,7 @@ int mario_nth_block(struct inode *inode, int n, int *block_nr)
 
 /*
  * Get a free block chain which contains @nr free blocks;
- * if this functions succeeds, *head will be block number of the first 
+ * if this functions succeeds, *head will be block number of the first
  * block and *tail will be block number of the last one
  */
 int mario_get_block(struct super_block *sb, int nr, int *head, int *tail)
@@ -63,7 +63,7 @@ int mario_get_block(struct super_block *sb, int nr, int *head, int *tail)
 		k = j;
 		if (!j) {	/* terribly bad */
 			up(&sb->s_sem);
-			early_print("%s%s", __FUNCTION__, ": Corrupt mariofs\n");
+			printk("%s%s", __FUNCTION__, ": Corrupt mariofs\n");
 			return -EIO;
 		}
 		/*
@@ -95,7 +95,7 @@ int mario_get_block(struct super_block *sb, int nr, int *head, int *tail)
 
 /*
  * Insert a block chain into the free block chain;
- * head is block number of the first block and *tail is 
+ * head is block number of the first block and *tail is
  * block number of the last one
  */
 int mario_put_block(struct super_block *sb, int head, int tail)
@@ -197,7 +197,7 @@ int mario_write_super(struct super_block *sb)
 }
 
 static struct super_operations mario_sops = {
-	mario_read_inode, 
+	mario_read_inode,
 	mario_write_inode,
 	mario_write_super
 };

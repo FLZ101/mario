@@ -1,6 +1,7 @@
 #ifndef _CONSOLE_H
 #define _CONSOLE_H
 
+#include <types.h>
 #include <misc.h>
 
 struct kbd {
@@ -12,6 +13,13 @@ struct kbd {
 #define N_ROW 25
 
 #define ESC_BUF_SIZE 6
+
+enum esc_state {
+	NORMAL,
+	ESC,
+	CSI,
+	BAD
+};
 
 struct console {
 	struct kbd k;
@@ -26,11 +34,10 @@ struct console {
 
 	char esc_buf[ESC_BUF_SIZE];
 	int esc_buf_p;
+	enum esc_state state;
 
 	uint16_t mem[N_ROW][N_COL];
 };
-
-#define VIDEO_MEM ((uint16_t (*)[N_COL])(0xb8000 + KERNEL_BASE))
 
 struct tty_struct *get_fg_tty();
 

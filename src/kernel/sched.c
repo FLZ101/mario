@@ -20,7 +20,7 @@ void print_runqueue(void)
 	irq_save();
 	list_for_each(tmp, &runqueue_head) {
 		p = list_entry(tmp, struct task_struct, run_list);
-		early_print("%d-", p->pid);
+		printk("%d-", p->pid);
 	}
 	irq_restore();
 }
@@ -174,7 +174,7 @@ int sys_pause(void)
 void sleep_on(wait_queue_t *q, long state, spinlock_t *lock)
 {
 	if (current->pid == 0)
-		early_hang("task 0 is trying to sleep");
+		hang("task 0 is trying to sleep");
 
 	wait_queue_node_t node;
 	init_wait_queue_node(&node, current);

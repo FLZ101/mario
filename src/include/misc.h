@@ -44,19 +44,17 @@
 /* Mark data as being only used at initialization time */
 #define __dinit __attribute__ ((section (".dinit")))
 
-#include <multiboot.h>
+int printk(const char *fmt, ...);
+int sprintk(char *buf, const char *fmt, ...);
 
-void early_print_init(struct multiboot_info *m);
-void early_print(const char *fmt, ...);
-
-#define early_hang(...) do {\
-	early_print(__VA_ARGS__);\
+#define hang(...) do {\
+	printk(__VA_ARGS__);\
 	__asm__ __volatile__ ("cli; 1:hlt; jmp 1b");\
 } while (0)
 
-#define early_assert(expr) do { \
+#define assert(expr) do { \
 	if (!(expr)) { \
-		early_hang("Assertion '" #expr "' failed in %s() @ %s:%d", \
+		hang("Assertion '" #expr "' failed in %s() @ %s:%d", \
 			__func__, __FILE__, __LINE__); \
 	} \
 } while (0)
@@ -81,12 +79,12 @@ __asm__ __volatile__("pushl %0; popfl": :"g"(x):"memory")
  * Really ugly
  */
 #define irq_save() \
-	unsigned long flags; \
-	save_flags(flags); \
+	unsigned long __irq_flags; \
+	save_flags(__irq_flags); \
 	cli()
 
 #define irq_restore() \
-	restore_flags(flags)
+	restore_flags(__irq_flags)
 
 /*
  * On the Intel 386, the fastcall attribute causes the compiler to pass

@@ -14,7 +14,7 @@ extern void do_exit(long code);
  */
 void oom(struct task_struct *p)
 {
-	early_print("Out of memory for %s\n", current->comm);
+	printk("Out of memory for %s\n", current->comm);
 	p->sigaction[SIGKILL-1].sa_handler = SIG_DFL;
 	p->blocked &= ~(1<<(SIGKILL-1));
 	send_sig(SIGKILL, p, 1);
@@ -179,7 +179,7 @@ good_area:
 	return;
 
 bad_area:
-	early_print("[page fault] %d %x; ", current->pid, addr);
+	printk("[page fault] %d %x; ", current->pid, addr);
 
 	if (error_code & 4) {
 		current->thread.cr2 = addr;
@@ -190,14 +190,14 @@ bad_area:
 	__asm__("movl %%cr3, %0" : "=r" (page));
 	page = __vir(page);
 	pde = ((unsigned long *) page)[addr >> 22];
-	early_print("pde = %x ", pde);
+	printk("pde = %x ", pde);
 
 	if (pde & 1) {
 		pde &= PAGE_MASK;
 		addr &= 0x003ff000;
 		pde = __vir(pde);
 		pte = ((unsigned long *) pde)[addr >> PAGE_SHIFT];
-		early_print("pte = %x\n", pte);
+		printk("pte = %x\n", pte);
 	}
 
 	die_if_kernel("Oops", tr, error_code);

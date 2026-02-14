@@ -41,7 +41,7 @@ void __tinit buffer_init(void)
 
 	buf = (char *)pages_alloc(NR_PAGE_ORDER);
 	if (!buf)
-		early_hang("buffer_init fails");
+		hang("buffer_init fails");
 
 	INIT_LIST_HEAD(&lru);
 
@@ -69,7 +69,7 @@ static struct buffer_head *find_buffer(dev_t dev, unsigned long sector)
 			res = all + i;
 			/*
 			 * Reserve this buffer;
-			 * This is the only thing we can do to a buffer 
+			 * This is the only thing we can do to a buffer
 			 * we didn't get.
 			 */
 			res->b_count++;

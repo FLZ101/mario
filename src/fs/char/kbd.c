@@ -155,7 +155,7 @@ unsigned int get_e0_key(unsigned int code)
 	return 0;
 }
 
-void csi(unsigned int __k)
+void csi(struct tty_struct *tty, unsigned int __k)
 {
 	char c;
 
@@ -175,7 +175,9 @@ void csi(unsigned int __k)
 	default:
 		return;
 	}
-	early_print("\033[%c", c);
+	tty_receive_c(tty, '\033');
+	tty_receive_c(tty, '[');
+	tty_receive_c(tty, c);
 }
 
 void handle_key(struct tty_struct *tty, struct console *con)
@@ -239,7 +241,7 @@ void handle_key(struct tty_struct *tty, struct console *con)
 				else if (__k == BACKSPACE)
 					tty_receive_c(tty, '\b');
 				else if (__k == LEFT || __k == RIGHT || __k == UP || __k == DOWN)
-					csi(__k);
+					csi(tty, __k);
 				else if (__k == ESC)
 					tty_receive_c(tty, 033);
 				else if (__k == DELETE)

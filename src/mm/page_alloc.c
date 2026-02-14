@@ -23,7 +23,7 @@ struct page *mem_map;
 #define __free_list_del(page) list_del(&(page)->list)
 
 #define __free_list_add(page, order) do { \
-	early_assert(PAGE_TO_PFN(page) < max_pfn); \
+	assert(PAGE_TO_PFN(page) < max_pfn); \
 	list_add_tail(&(page)->list, &free_area[order].free_list); \
 } while (0)
 

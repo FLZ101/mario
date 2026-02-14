@@ -180,7 +180,7 @@ void do_exit(long code)
 		return;
 
 	if (current == init_task.next_task) {
-		early_hang("init exits with %d", code);
+		hang("init exits with %d", code);
 	}
 
 	exit_mmap(current);

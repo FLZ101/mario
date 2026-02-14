@@ -6,13 +6,13 @@
 
 void print_tr(struct trap_frame *tr)
 {
-	early_print("ebx=%x, ecx=%x, edx=%x, esi=%x\n",
+	printk("ebx=%x, ecx=%x, edx=%x, esi=%x\n",
 		tr->ebx, tr->ecx, tr->edx, tr->esi);
-	early_print("edi=%x, ebp=%x, eax=%x,  ds=%x\n",
+	printk("edi=%x, ebp=%x, eax=%x,  ds=%x\n",
 		tr->edi, tr->ebp, tr->eax, tr->ds);
-	early_print(" es=%x, err=%x, eip=%x,  cs=%x\n", 
+	printk(" es=%x, err=%x, eip=%x,  cs=%x\n",
 		tr->es, tr->error_code, tr->eip, tr->cs);
-	early_print("elf=%x, esp=%x,  ss=%x\n",
+	printk("elf=%x, esp=%x,  ss=%x\n",
 		tr->eflags, tr->esp, tr->ss);
 }
 
@@ -65,7 +65,7 @@ void __tinit trap_init(void)
 
 static void die(char *str, struct trap_frame *tr, long err)
 {
-	early_print("[%u] %s\n", err, str);
+	printk("[%u] %s\n", err, str);
 	print_tr(tr);
 	do_exit(SIGSEGV);
 }
@@ -109,7 +109,7 @@ void do_general_protection(struct trap_frame *tr, long error_code)
 
 void do_nmi(struct trap_frame *tr, long error_code)
 {
-	early_print("[WARN] NMI received\n");
+	printk("[WARN] NMI received\n");
 	print_tr(tr);
 }
 

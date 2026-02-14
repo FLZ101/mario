@@ -116,7 +116,7 @@ read_a_block:
 	if (start == end)
 		return res;
 	if (!block) {
-		early_print("%s%s", __FUNCTION__, ": Corrupt mariofs\n");
+		printk("%s%s", __FUNCTION__, ": Corrupt mariofs\n");
 		return res;
 	}
 	goto read_a_block;

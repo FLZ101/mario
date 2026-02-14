@@ -42,7 +42,7 @@ void insert_vm_struct(struct mm_struct *mm, struct vm_area_struct *vma)
 		if (mpnt->vm_start > vma->vm_start)
 			break;
 		if (mpnt->vm_end > vma->vm_start)
-			early_print("%s: overlapping vm_areas\n", __FUNCTION__);
+			printk("%s: overlapping vm_areas\n", __FUNCTION__);
 		p = &mpnt->vm_next;
 	}
 	vma->vm_next = mpnt;
@@ -465,7 +465,7 @@ void print_mmap(struct mm_struct *mm)
 	struct vm_area_struct *vma;
 
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {
-		early_print("%x, %x, ", vma->vm_start, vma->vm_end);
+		printk("%x, %x, ", vma->vm_start, vma->vm_end);
 		char c1, c2;
 		if (vma->vm_flags & VM_WRITE)
 			c1 = 'w';
@@ -477,7 +477,7 @@ void print_mmap(struct mm_struct *mm)
 			c2 = 'S';
 		else
 			c2 = 'P';
-		early_print("%c, %c\n", c1, c2);
+		printk("%c, %c\n", c1, c2);
 	}
 }
 

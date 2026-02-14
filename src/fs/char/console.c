@@ -61,7 +61,8 @@ static void move_cursor(struct console *con)
 	outb(0x3d5, pos);
 }
 
-static void get_cursor(unsigned int *pos_y, unsigned int *pos_x) {
+static void get_cursor(unsigned int *pos_y, unsigned int *pos_x)
+{
 	uint16_t pos;
 
 	outb(0x3D4, 0x0E);
@@ -86,7 +87,9 @@ static void set_pos(struct console *con, int x, int y)
 	move_cursor(con);
 }
 
-static void reset_console(struct console *con)
+#define VIDEO_MEM ((uint16_t (*)[N_COL])(0xb8000 + KERNEL_BASE))
+
+void clear_screen(struct console *con)
 {
 	con->bg_color = Black;
 	con->fg_color = Light_Gray;
@@ -99,17 +102,20 @@ static void reset_console(struct console *con)
 
 static void scroll_one_line(struct console *con)
 {
-	memmove((void *)con->mem, (void *)(con->mem + N_COL), N_COL * (N_ROW - 1) * sizeof (uint16_t));
-	memsetw((void *)(con->mem + N_COL * (N_ROW - 1) * sizeof (uint16_t)), SPACE, N_COL);
+	memmove(&con->mem[0][0], &con->mem[1][0], N_COL * (N_ROW - 1) * sizeof (uint16_t));
+	memsetw(&con->mem[N_ROW - 1][0], SPACE, N_COL);
 
 	if (is_fg(con)) {
-		memmove((void *)VIDEO_MEM, (void *)(VIDEO_MEM + N_COL), N_COL * (N_ROW - 1) * sizeof (uint16_t));
-		memsetw((void *)(VIDEO_MEM + N_COL * (N_ROW - 1) * sizeof (uint16_t)), SPACE, N_COL);
+		memmove(&VIDEO_MEM[0][0], &VIDEO_MEM[1][0], N_COL * (N_ROW - 1) * sizeof (uint16_t));
+		memsetw(&VIDEO_MEM[N_ROW - 1][0], SPACE, N_COL);
 	}
 }
 
 void write_char(struct console *con, unsigned char c)
 {
+	if (c == '\r')
+		return;
+
 	if (c == '\t') {
 		con->pos_x += 8;
 		con->pos_x &= ~7;
@@ -416,45 +422,36 @@ void console_write_char(struct console *con, unsigned char c)
 	if (!c)
 		return;
 
-	enum _state {
-		NORMAL,
-		ESC,
-		CSI,
-		BAD
-	};
-
-	static enum _state state;
-
-	switch (state) {
+	switch (con->state) {
 	case NORMAL:
 		if (c == '\033')
-			state = ESC;
+			con->state = ESC;
 		else
 			write_char(con, c);
 		break;
 	case ESC:
 		if (c == '[') {
 			reset_esc_buf(con);
-			state = CSI;
+			con->state = CSI;
 		} else if (c == 'c') {
-			state = NORMAL;
-			reset_console(con);
+			con->state = NORMAL;
+			clear_screen(con);
 		} else {
-			state = NORMAL;
+			con->state = NORMAL;
 			write_char(con, c);
 		}
 		break;
 	case CSI:
 		if (isalpha(c)) {
 			csi(con, c);
-			state = NORMAL;
+			con->state = NORMAL;
 		}
 		if (into_esc_buf(con, c))
-			state = BAD;
+			con->state = BAD;
 		break;
 	case BAD:
 		if (isalpha(c))
-			state = NORMAL;
+			con->state = NORMAL;
 		break;
 	default:
 		;
@@ -488,7 +485,7 @@ struct tty_driver console_driver = {
 
 void switch_fg_console(int i)
 {
-	early_assert(0 <= i && i < NUM_CONSOLE);
+	assert(0 <= i && i < NUM_CONSOLE);
 
 	if (i == fg_console)
 		return;
@@ -500,6 +497,30 @@ void switch_fg_console(int i)
 	move_cursor(con);
 }
 
+void console_sync(struct console *con)
+{
+	memcpy(con->mem, VIDEO_MEM, N_ROW * N_COL * sizeof(uint16_t));
+	get_cursor(&con->pos_y, &con->pos_x);
+}
+
+void console_reset(struct console *con)
+{
+	con->k.v_flags = 0;
+	con->k.v_key = 0;
+
+	con->bg_color = Black;
+	con->fg_color = Light_Gray;
+	con->pos_x = 0;
+	con->pos_y = 0;
+	con->save_x = 0;
+	con->save_y = 0;
+	memset(con->mem, 0, N_ROW * N_COL);
+
+	memset(con->esc_buf, 0, ESC_BUF_SIZE);
+	con->esc_buf_p = 0;
+	con->state = NORMAL;
+}
+
 void console_init()
 {
 	struct console *con;
@@ -507,20 +528,7 @@ void console_init()
 	for (int i = 0; i < NUM_CONSOLE; ++i) {
 		struct tty_struct *tty = &console_tty_table[i];
 		con = &console_table[i];
-
-		con->k.v_flags = 0;
-		con->k.v_key = 0;
-
-		con->bg_color = Black;
-		con->fg_color = Light_Gray;
-		con->pos_x = 0;
-		con->pos_y = 0;
-		con->save_x = 0;
-		con->save_y = 0;
-		memset(con->mem, 0, N_ROW * N_COL);
-
-		memset(con->esc_buf, 0, ESC_BUF_SIZE);
-		con->esc_buf_p = 0;
+		console_reset(con);
 
 		tty->dev = MKDEV(TTY_MAJOR, TTY_MINOR_1 + i);
 		tty->driver = &console_driver;
@@ -534,10 +542,8 @@ void console_init()
 		tty->termios = default_termios;
 	}
 
-	fg_console = 0;
 	con = get_fg_console();
-	memcpy(con->mem, VIDEO_MEM, N_ROW * N_COL * sizeof(uint16_t));
-	get_cursor(&con->pos_y, &con->pos_x);
+	console_sync(con);
 
 	register_tty_driver(&console_driver);
 }

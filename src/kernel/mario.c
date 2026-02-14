@@ -44,7 +44,7 @@ void init(void *arg)
 
 	// pid of init.exe is 1
 	if (-1 == execve("/bin/init.exe", argv_init, envp_init))
-		early_hang("Fail to start init.exe: %d", errno);
+		hang("Fail to start init.exe: %d", errno);
 
 	while (1)
 		sys_pause();
@@ -67,9 +67,11 @@ void cpu_idle(void)
 	}
 }
 
+void printk_init(struct multiboot_info *m);
+
 void mario(struct multiboot_info *m)
 {
-	early_print_init(m);
+	printk_init(m);
 	setup_memory_region(m);
 	paging_init();
 	page_alloc_init();

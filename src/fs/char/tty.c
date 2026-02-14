@@ -221,7 +221,7 @@ try:
 	n = MIN(n, count);
 
 	int m = ring_buffer_read(rb, buf, n, 1);
-	early_assert(n == m);
+	assert(n == m);
 
 	if (buf[n-1] == c_cc[VEOF] || buf[n-1] == c_cc[VEOL])
 		--n;

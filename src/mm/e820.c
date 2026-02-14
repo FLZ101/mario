@@ -43,7 +43,7 @@ void __tinit add_memory_region(__u64 addr, __u64 len, __u32 type)
 		len = MAX_MEMORY - addr;
 
 	if ((i = e820.nr_map) >= E820MAX) {
-		early_print("Too many entries in the memory map!\n");
+		printk("Too many entries in the memory map!\n");
 		return;
 	}
 
@@ -57,14 +57,14 @@ void __tinit print_e820_map(void)
 {
 	int i;
 
-	early_print("Available memory:\n");
-	early_print("base\t\tlength\n");
+	printk("Available memory:\n");
+	printk("base\t\tlength\n");
 
 	for (i = 0; i < e820.nr_map; i++) {
 		/*
 		 * :) Don't forget the (unsigned int)
 		 */
-		early_print("%x\t%x\n", (unsigned int)e820.map[i].addr, 
+		printk("%x\t%x\n", (unsigned int)e820.map[i].addr,
 			(unsigned int)e820.map[i].len);
 	}
 }
@@ -77,7 +77,7 @@ void __tinit make_e820_map(struct multiboot_info *m)
 	 * Did the bootloader give us a memory map?
 	 */
 	if (MB_FLAG_MMAP & m->flags) {
-		struct multiboot_mmap_entry *e = 
+		struct multiboot_mmap_entry *e =
 				(struct multiboot_mmap_entry *)m->mmap_addr;
 
 		while (m->mmap_length) {
@@ -88,10 +88,10 @@ void __tinit make_e820_map(struct multiboot_info *m)
 				((char *)e + e->size + 4);
 		}
 	}
-	
+
 	/*
-	 * A correct memory map should contain at least 2 memory regions 
-	 * of type E820_RAM, one is 0 ~ somewhere below 1M, the other one 
+	 * A correct memory map should contain at least 2 memory regions
+	 * of type E820_RAM, one is 0 ~ somewhere below 1M, the other one
 	 * is 1M ~ XXOO
 	 */
 	if (e820.nr_map >= 2)
@@ -141,10 +141,10 @@ void __tinit setup_memory_region(struct multiboot_info *m)
 		if (k > max_pfn)
 			max_pfn = k;
 	}
-	early_print("max_pfn=%x\n", max_pfn);
+	printk("max_pfn=%x\n", max_pfn);
 
 	if (max_pfn < PFN_DOWN(MIN_MEMORY))
-		early_hang("More physical memory required!\n");
+		hang("More physical memory required!\n");
 
 	ramdisk_setup(m);
 }
