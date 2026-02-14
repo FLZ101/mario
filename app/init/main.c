@@ -49,7 +49,7 @@ do { \
 
 	cat("/etc/welcome.txt");
 
-	run("/bin/cat.exe");
+	run("/bin/kilo.exe");
 
 tail:
 	while (1) {

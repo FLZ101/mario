@@ -33,6 +33,10 @@ static inline _syscall1(pid_t,getpgid,pid_t,pid)
 static inline _syscall1(pid_t,getsid,pid_t,pid)
 static inline _syscall0(pid_t,setsid)
 
+#define STDIN_FILENO  0
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+
 #define SEEK_SET 0
 #define SEEK_CUR 1
 #define SEEK_END 2
@@ -42,5 +46,8 @@ static inline _syscall3(off_t,lseek,int,fd, off_t, offset, int, whence)
 __attribute__ ((__noreturn__)) void _exit(int);
 
 unsigned int sleep(unsigned int seconds);
+
+pid_t tcgetpgrp(int fd);
+int tcsetpgrp(int fd, pid_t pgrp);
 
 #endif	/* _UNISTD_H */

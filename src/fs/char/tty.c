@@ -223,16 +223,16 @@ try:
 	int m = ring_buffer_read(rb, buf, n, 1);
 	assert(n == m);
 
-	if (buf[n-1] == c_cc[VEOF] || buf[n-1] == c_cc[VEOL])
+	// Except in the case of EOF, the line delimiter is included in the buffer returned by read(2).
+	if (buf[n-1] == c_cc[VEOF])
 		--n;
 
 	RELEASE_LOCK(&tty->lock);
 	return n;
 }
 
-int tty_write(struct inode *i, struct file *f, char *buf, int count)
+static int tty_check(struct tty_struct *tty)
 {
-	struct tty_struct *tty = (struct tty_struct *)f->private_data;
 	if (!tty)
 		return -EIO;
 
@@ -243,6 +243,15 @@ int tty_write(struct inode *i, struct file *f, char *buf, int count)
 		kill_pg(current->pgrp, SIGTTOU, 1);
 		return -ERESTARTSYS;
 	}
+	return 0;
+}
+
+int tty_write(struct inode *i, struct file *f, char *buf, int count)
+{
+	struct tty_struct *tty = (struct tty_struct *)f->private_data;
+	int err = tty_check(tty);
+	if (err)
+		return err;
 
 	ACQUIRE_LOCK(&tty->lock);
 
@@ -258,8 +267,41 @@ static int tty_lseek(struct inode *i, struct file *f, off_t offset, int orig)
 	return -ESPIPE;
 }
 
+static int set_termios(struct tty_struct * tty, unsigned long arg, int opt)
+{
+	struct termios tmp_termios;
+	int err = verify_area(VERIFY_READ, (void *) arg, sizeof(struct termios));
+	if (err)
+		return err;
+	memcpy_fromfs(&tmp_termios, (struct termios *) arg, sizeof (struct termios));
+
+	cli();
+	tty->termios = tmp_termios;
+	sti();
+	return 0;
+}
+
 static int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long arg)
 {
+	int err;
+	int opt = 0;
+	struct tty_struct *tty = (struct tty_struct *) f->private_data;
+	int err = tty_check(tty);
+	if (err)
+		return err;
+
+	switch (cmd) {
+		case TCGETS:
+			err = verify_area(VERIFY_WRITE, (void *) arg, sizeof (struct termios));
+			if (err)
+				return err;
+			memcpy_tofs((struct termios *) arg, &tty->termios, sizeof (struct termios));
+			return 0;
+		case TCSETSF: // Allow the output buffer to drain, discard pending input
+		case TCSETSW: // Allow the output buffer to drain
+		case TCSETS:
+			return set_termios(tty, arg, opt);
+	}
 	return 0;
 }
 

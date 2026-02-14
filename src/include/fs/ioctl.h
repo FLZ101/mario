@@ -1,9 +1,7 @@
-#ifndef _SYS_IOCTL_H
-#define _SYS_IOCTL_H
+#ifndef _IOCTL_H
+#define _IOCTL_H
 
-#include <syscall.h>
-
-static inline _syscall3(int,ioctl,int,fd,unsigned int,cmd,unsigned long,arg)
+#define _IOR(a, b) ((((a) & 0xffff) << 16) + ((b) & 0xffff))
 
 #define TCGETS      _IOR('t', 0)    // tcgetattr(fd, argp)
 #define TCSETSF     _IOR('t', 1)    // tcsetattr(fd, TCSAFLUSH, argp)
