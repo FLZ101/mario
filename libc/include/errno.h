@@ -12,4 +12,6 @@ enum {
 
 extern int errno;
 
+#define __set_errno(e) do { errno = (e); } while (0)
+
 #endif	/* _ERRNO_H */

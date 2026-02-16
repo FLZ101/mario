@@ -233,19 +233,19 @@ void handle_key(struct tty_struct *tty, struct console *con)
 				__k &= 0xff;
 
 				if (__k == ENTER)
-					tty_receive_c(tty, '\n');
+					tty_receive_c(tty, '\r');
 				else if (__k == SPACE)
 					tty_receive_c(tty, ' ');
 				else if (__k == TAB)
 					tty_receive_c(tty, '\t');
 				else if (__k == BACKSPACE)
-					tty_receive_c(tty, '\b');
+					tty_receive_c(tty, 0x7f);
 				else if (__k == LEFT || __k == RIGHT || __k == UP || __k == DOWN)
 					csi(tty, __k);
 				else if (__k == ESC)
 					tty_receive_c(tty, 033);
 				else if (__k == DELETE)
-					tty_receive_c(tty, 0x7f);
+					tty_receive_s(tty, "\033[3~");
 				else if (__k == F1)
 					switch_fg_console(0);
 				else if (__k == F2)

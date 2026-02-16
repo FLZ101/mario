@@ -113,12 +113,11 @@ static void scroll_one_line(struct console *con)
 
 void write_char(struct console *con, unsigned char c)
 {
-	if (c == '\r')
-		return;
-
 	if (c == '\t') {
 		con->pos_x += 8;
 		con->pos_x &= ~7;
+	} else if (c == '\r') {
+		con->pos_x = 0;
 	} else if (c == '\n') {
 		con->pos_x = 0;
 		con->pos_y++;
@@ -126,9 +125,6 @@ void write_char(struct console *con, unsigned char c)
 		if (con->pos_x == 0)
 			return;
 		con->pos_x--;
-		con->mem[con->pos_y][con->pos_x] = SPACE;
-		if (is_fg(con))
-			VIDEO_MEM[con->pos_y][con->pos_x] = SPACE;
 	} else if (c >= ' ') {
 		con->mem[con->pos_y][con->pos_x] = MAKEC(con, c);
 		if (is_fg(con))
@@ -540,6 +536,8 @@ void console_init()
 		init_wait_queue(&tty->wait_read);
 
 		tty->termios = default_termios;
+		tty->winsize.ws_col = N_COL;
+		tty->winsize.ws_row = N_ROW;
 	}
 
 	con = get_fg_console();

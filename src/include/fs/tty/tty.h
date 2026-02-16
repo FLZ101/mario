@@ -24,6 +24,8 @@ struct tty_struct {
 	struct tty_driver *driver;
 	struct termios termios;
 
+	struct winsize winsize;
+
 	struct ring_buffer read_buf;
 	spinlock_t lock;
 	wait_queue_t wait_read;

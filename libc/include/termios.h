@@ -1,7 +1,7 @@
 #ifndef _TERMIOS_H
 #define _TERMIOS_H
 
-#include <fs/ioctl.h>
+#include <sys/ioctl.h>
 
 typedef unsigned char cc_t;
 typedef unsigned int tcflag_t;
@@ -101,9 +101,15 @@ struct termios {
 #define VLNEXT 15
 #define VEOL2 16
 
-struct winsize {
-    unsigned short ws_row;
-    unsigned short ws_col;
-};
+#include <sys/types.h>
+
+int tcgetattr(int fd, struct termios *termios_p);
+int tcsetattr(int fd, int optional_actions, const struct termios *termios_p);
+
+#define TCSANOW     0
+#define TCSADRAIN   1
+#define TCSAFLUSH   2
+
+pid_t tcgetsid(int fd);
 
 #endif /* _TERMIOS_H */

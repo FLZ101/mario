@@ -31,6 +31,8 @@
 #define ERESTARTNOINTR	28 // internal error code. Restart the syscall
 #define ESPIPE          29
 #define EPIPE           30
+#define ENOTTY          31
+#define EAGAIN          32
 
 extern int errno;
 

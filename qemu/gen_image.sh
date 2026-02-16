@@ -32,7 +32,6 @@ sudo mkfs -t fat -F 32 ${loopdev}p7
 
 echo "Install grub4dos to hd.img ..."
 
-mkdir -p tmp
 cp grub4dos-0.4.6a/grldr.mbr tmp/
 
 mkdir -p tmp/{p1,p6}

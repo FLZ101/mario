@@ -7,34 +7,35 @@
 
 struct termios default_termios = {
 	.c_cflag = 0,
-	.c_iflag = 0,
+	.c_iflag = ICRNL,
 	.c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHOCTL | TOSTOP,
-	.c_oflag = 0,
+	.c_oflag = OPOST | ONLCR,
 	.c_cc = {
-		003, // Ctrl-C
-		034, /* Ctrl-\ */
-		010, // Ctrl-H
-		025, // Ctrl-U, Ctrl-X
-		004, // Ctrl-D
+		003, 	// Ctrl-C
+		034, 	/* Ctrl-\ */
+		0x7f, 	// Delete
+		025, 	// Ctrl-U, Ctrl-X
+		004, 	// Ctrl-D
 		0,
 		0,
 		0,
-		021, // Ctrl-Q
-		023, // Ctrl-S
-		032, // Ctrl-Z
-		000, // NUL
+		021, 	// Ctrl-Q
+		023, 	// Ctrl-S
+		032, 	// Ctrl-Z
+		000, 	// NUL
 	 }
 };
 
-void tty_receive_s(struct tty_struct *tty, char *s)
+void tty_put_c(struct tty_struct *tty, unsigned char c)
 {
-	char c;
-	while ((c = *s++))
-		tty_receive_c(tty, c);
-}
-
-void tty_put_c(struct tty_struct *tty, char c)
-{
+	tcflag_t c_oflag = tty->termios.c_oflag;
+	if (c_oflag & OPOST) {
+		if (c == '\n') {
+			if (c_oflag & ONLCR) {
+				tty->driver->put_char(tty, '\r');
+			}
+		}
+	}
 	tty->driver->put_char(tty, c);
 }
 
@@ -53,6 +54,7 @@ void tty_receive_c(struct tty_struct *tty, char c)
 
 	int wake = 0;
 
+	tcflag_t c_iflag = tty->termios.c_iflag;
 	tcflag_t c_lflag = tty->termios.c_lflag;
 	cc_t *c_cc = tty->termios.c_cc;
 
@@ -70,12 +72,21 @@ void tty_receive_c(struct tty_struct *tty, char c)
 	}
 
 	if (c_lflag & ICANON) {
+		if (c == '\r') {
+			if (c_iflag & IGNCR)
+				goto tail_2;
+			if (c_iflag & ICRNL)
+				c = '\n';
+		} else if (c == '\n' && (c_iflag & INLCR)) {
+			c = '\r';
+		}
+
 		if (c == c_cc[VERASE]) {
 			ring_buffer_pop(rb);
 			goto tail_1;
 		}
 
-		if (c == c_cc[VEOF] || c == '\n' || c == c_cc[VEOL]) {
+		if (c == c_cc[VEOF] || c == '\n' || c == '\r' || c == c_cc[VEOL]) {
 			wake = 1;
 		}
 	} else {
@@ -86,7 +97,7 @@ void tty_receive_c(struct tty_struct *tty, char c)
 tail_1:
 	if (c_lflag & ECHO) {
 		if (c == c_cc[VERASE] && c_lflag & ECHOE) {
-			tty_put_c(tty, '\b');
+			tty_put_s(tty, "\b \b");
 			goto tail_2;
 		}
 
@@ -111,6 +122,13 @@ tail_2:
 	if (wake)
 		wake_up_interruptible(&tty->wait_read);
 	RELEASE_LOCK(&tty->lock);
+}
+
+void tty_receive_s(struct tty_struct *tty, char *s)
+{
+	char c;
+	while ((c = *s++))
+		tty_receive_c(tty, c);
 }
 
 static struct tty_driver *tty_drivers = NULL;
@@ -223,16 +241,16 @@ try:
 	int m = ring_buffer_read(rb, buf, n, 1);
 	assert(n == m);
 
-	if (buf[n-1] == c_cc[VEOF] || buf[n-1] == c_cc[VEOL])
+	// Except in the case of EOF, the line delimiter is included in the buffer returned by read(2).
+	if (buf[n-1] == c_cc[VEOF])
 		--n;
 
 	RELEASE_LOCK(&tty->lock);
 	return n;
 }
 
-int tty_write(struct inode *i, struct file *f, char *buf, int count)
+static int tty_check(struct tty_struct *tty)
 {
-	struct tty_struct *tty = (struct tty_struct *)f->private_data;
 	if (!tty)
 		return -EIO;
 
@@ -243,6 +261,15 @@ int tty_write(struct inode *i, struct file *f, char *buf, int count)
 		kill_pg(current->pgrp, SIGTTOU, 1);
 		return -ERESTARTSYS;
 	}
+	return 0;
+}
+
+int tty_write(struct inode *i, struct file *f, char *buf, int count)
+{
+	struct tty_struct *tty = (struct tty_struct *)f->private_data;
+	int err = tty_check(tty);
+	if (err)
+		return err;
 
 	ACQUIRE_LOCK(&tty->lock);
 
@@ -258,9 +285,107 @@ static int tty_lseek(struct inode *i, struct file *f, off_t offset, int orig)
 	return -ESPIPE;
 }
 
+static int set_termios(struct tty_struct * tty, unsigned long arg, int opt)
+{
+	struct termios tmp_termios;
+	int err = verify_area(VERIFY_READ, (void *) arg, sizeof(struct termios));
+	if (err)
+		return err;
+	memcpy_fromfs(&tmp_termios, (struct termios *) arg, sizeof (struct termios));
+
+	cli();
+	tty->termios = tmp_termios;
+	sti();
+	return 0;
+}
+
+int session_of_pgrp(int pgrp)
+{
+	struct task_struct *p;
+	int fallback;
+
+	fallback = -1;
+	for_each_task(p) {
+ 		if (p->session <= 0)
+ 			continue;
+		if (p->pgrp == pgrp)
+			return p->session;
+		if (p->pid == pgrp)
+			fallback = p->session;
+	}
+	return fallback;
+}
+
 static int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long arg)
 {
-	return 0;
+	int opt = 0;
+	struct tty_struct *tty = (struct tty_struct *) f->private_data;
+	int err = tty_check(tty);
+	if (err)
+		return err;
+
+	switch (cmd) {
+		case TCGETS:
+			err = verify_area(VERIFY_WRITE, (void *) arg, sizeof (struct termios));
+			if (err)
+				return err;
+			memcpy_tofs((struct termios *) arg, &tty->termios, sizeof (struct termios));
+			return 0;
+		case TCSETSF: // Allow the output buffer to drain, discard pending input
+		case TCSETSW: // Allow the output buffer to drain
+		case TCSETS:
+			return set_termios(tty, arg, opt);
+		case TIOCGWINSZ:
+			err = verify_area(VERIFY_WRITE, (void *) arg, sizeof (struct winsize));
+			if (err)
+				return err;
+			memcpy_tofs((struct winsize *) arg, &tty->winsize, sizeof (struct winsize));
+			return 0;
+		case TIOCSWINSZ:
+			return -EINVAL;
+		case TIOCSTI:
+			if (current->tty != tty)
+				return -EPERM;
+			err = verify_area(VERIFY_READ, (void *) arg, 1);
+			if (err)
+				return err;
+			unsigned char ch = get_fs_byte((char *) arg);
+			tty_put_c(tty, ch);
+			return 0;
+		case TIOCSCTTY:
+			return -EINVAL;
+		case TIOCNOTTY:
+			return -EINVAL;
+		case TIOCGPGRP:
+			if (current->tty != tty)
+				return -ENOTTY;
+			err = verify_area(VERIFY_WRITE, (void *) arg, sizeof (pid_t));
+			if (err)
+				return err;
+			put_fs_long(tty->pgrp, (pid_t *) arg);
+			return 0;
+		case TIOCSPGRP:
+			if (!current->tty ||
+			    (current->tty != tty) ||
+			    (tty->session != current->session))
+				return -ENOTTY;
+			pid_t pgrp = get_fs_long((pid_t *) arg);
+			if (pgrp < 0)
+				return -EINVAL;
+			if (session_of_pgrp(pgrp) != current->session)
+				return -EPERM;
+			tty->pgrp = pgrp;
+			return 0;
+		case TIOCGSID:
+			if (current->tty != tty)
+				return -ENOTTY;
+			err = verify_area(VERIFY_WRITE, (void *) arg, sizeof (pid_t));
+			if (err)
+				return err;
+			put_fs_long(tty->session, (pid_t *) arg);
+			return 0;
+	}
+	return -EINVAL;
 }
 
 static void tty_release(struct inode *i, struct file *f)

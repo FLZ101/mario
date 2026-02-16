@@ -1,9 +1,5 @@
-#ifndef _SYS_IOCTL_H
-#define _SYS_IOCTL_H
-
-#include <syscall.h>
-
-static inline _syscall3(int,ioctl,int,fd,unsigned int,cmd,void *,arg)
+#ifndef _IOCTL_H
+#define _IOCTL_H
 
 #define _IOR(a, b) ((((a) & 0xffff) << 16) + ((b) & 0xffff))
 
@@ -14,7 +10,7 @@ static inline _syscall3(int,ioctl,int,fd,unsigned int,cmd,void *,arg)
 #define TIOCGWINSZ  _IOR('t', 4)
 #define TIOCSWINSZ  _IOR('t', 5)
 #define TIOCSTI     _IOR('t', 6)    // Insert the given byte in the input queue.
-#define TIOCSCTTY   _IOR('t', 7)
+#define TIOCSCTTY   _IOR('t', 7)    // Make the given terminal the controlling terminal of the calling process
 #define TIOCNOTTY   _IOR('t', 8)
 #define TIOCGPGRP   _IOR('t', 9)    // *argp = tcgetpgrp(fd)
 #define TIOCSPGRP   _IOR('t', 10)   // tcsetpgrp(fd, *argp)

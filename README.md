@@ -15,6 +15,10 @@ A simple UNIX-like OS for x86.
 $ sudo dnf install make gcc binutils nasm qemu-system-x86
 ```
 
+```
+$ pip install compiledb
+```
+
 ### build the kernel (and the bootloader)
 
 ```

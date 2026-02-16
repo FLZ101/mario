@@ -9,5 +9,5 @@
 
 *.img
 
-tmp/
+/tmp/
 compile_commands.json
