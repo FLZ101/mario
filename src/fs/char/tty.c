@@ -46,11 +46,9 @@ void tty_put_s(struct tty_struct *tty, char *s)
 		tty_put_c(tty, c);
 }
 
-void tty_receive_c(struct tty_struct *tty, char c)
+void tty_receive_c_no_lock(struct tty_struct *tty, char c)
 {
 	struct ring_buffer *rb = &tty->read_buf;
-
-	ACQUIRE_LOCK(&tty->lock);
 
 	int wake = 0;
 
@@ -121,14 +119,27 @@ tail_1:
 tail_2:
 	if (wake)
 		wake_up_interruptible(&tty->wait_read);
+}
+
+void tty_receive_c(struct tty_struct *tty, char c)
+{
+	ACQUIRE_LOCK(&tty->lock);
+	tty_receive_c_no_lock(tty, c);
 	RELEASE_LOCK(&tty->lock);
+}
+
+void tty_receive_s_no_lock(struct tty_struct *tty, char *s)
+{
+	char c;
+	while ((c = *s++))
+		tty_receive_c_no_lock(tty, c);
 }
 
 void tty_receive_s(struct tty_struct *tty, char *s)
 {
-	char c;
-	while ((c = *s++))
-		tty_receive_c(tty, c);
+	ACQUIRE_LOCK(&tty->lock);
+	tty_receive_s_no_lock(tty, s);
+	RELEASE_LOCK(&tty->lock);
 }
 
 static struct tty_driver *tty_drivers = NULL;
@@ -350,7 +361,7 @@ static int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned
 			if (err)
 				return err;
 			unsigned char ch = get_fs_byte((char *) arg);
-			tty_put_c(tty, ch);
+			tty_receive_c(tty, ch);
 			return 0;
 		case TIOCSCTTY:
 			return -EINVAL;

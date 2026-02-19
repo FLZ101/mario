@@ -1,5 +1,5 @@
 
-#include <unistd.h>
+#include <stdlib.h>
 
 extern int main(int, char **, char **);
 
@@ -12,5 +12,5 @@ void __libc_init(unsigned long *xarg)
 	argv = (char **)(*xarg++);
 	envp = (char **)(*xarg);
 
-	_exit(main(argc, argv, envp));
+	exit(main(argc, argv, envp));
 }

@@ -10,7 +10,7 @@ INCLUDE :=-I$(LIBC)/../include
 CFLAGS	:=-c $(INCLUDE) \
 	-nostdinc -ffreestanding \
 	-fno-pic -fno-unwind-tables -fno-asynchronous-unwind-tables \
-	-ggdb -Wall -O0 -fno-omit-frame-pointer -fno-stack-protector
+	-ggdb -Wall -Werror -O0 -fno-omit-frame-pointer -fno-stack-protector
 LD :=$(TOOLCHAIN)ld -m elf_i386
 LDFLAGS :=-L$(LIBC) -T Link.ld --orphan-handling=warn -nostdlib -lc
 OBJDUMP :=$(TOOLCHAIN)objdump

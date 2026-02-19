@@ -10,6 +10,9 @@ int putchar(char c);
 int printf(const char *s, ...);
 int puts(const char *s);
 
+int vscanf(const char *s, const char *fmt, va_list ap);
+int sscanf(const char *s, const char *fmt, ...);
+
 void perror(const char *s);
 
 #define STRINGIFY(x)	#x

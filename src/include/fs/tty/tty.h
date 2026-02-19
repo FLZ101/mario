@@ -35,5 +35,7 @@ extern struct termios default_termios;
 
 void tty_receive_c(struct tty_struct *tty, char c);
 void tty_receive_s(struct tty_struct *tty, char *s);
+void tty_receive_c_no_lock(struct tty_struct *tty, char c);
+void tty_receive_s_no_lock(struct tty_struct *tty, char *s);
 
 #endif /* _TTY_H */

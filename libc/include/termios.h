@@ -101,6 +101,11 @@ struct termios {
 #define VLNEXT 15
 #define VEOL2 16
 
+struct winsize {
+    unsigned short ws_row;
+    unsigned short ws_col;
+};
+
 #include <sys/types.h>
 
 int tcgetattr(int fd, struct termios *termios_p);

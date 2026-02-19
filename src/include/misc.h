@@ -47,10 +47,14 @@
 int printk(const char *fmt, ...);
 int sprintk(char *buf, const char *fmt, ...);
 
-#define hang(...) do {\
-	printk(__VA_ARGS__);\
-	__asm__ __volatile__ ("cli; 1:hlt; jmp 1b");\
+#define hang(...) do { \
+	printk(__VA_ARGS__); \
+	__asm__ __volatile__ ("cli; 1:hlt; jmp 1b"); \
 } while (0)
+
+#define unreachable() \
+	hang("unreachable"); \
+	__builtin_unreachable()
 
 #define assert(expr) do { \
 	if (!(expr)) { \

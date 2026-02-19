@@ -18,7 +18,7 @@ int atexit(void (*f)(void))
 
 void exit(int status)
 {
-    for (int i = n_exit_fn; i >= 0; --i)
+    for (int i = n_exit_fn - 1; i >= 0; --i)
         exit_functions[i]();
     _exit(status);
 }

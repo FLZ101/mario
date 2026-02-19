@@ -6,7 +6,7 @@ INCLUDE :=-I include
 CFLAGS	:=-c $(INCLUDE) \
 	-nostdinc -ffreestanding \
 	-fno-pic -fno-unwind-tables -fno-asynchronous-unwind-tables \
-	-ggdb -Wall -O0 -fno-omit-frame-pointer -fno-stack-protector
+	-ggdb -Wall -Werror -O0 -fno-omit-frame-pointer -fno-stack-protector
 AR :=$(TOOLCHAIN)ar
 
 .PHONY: all clean

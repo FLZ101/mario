@@ -100,6 +100,9 @@ int vsprintf(char *buf, const char *fmt, va_list ap)
 			case 's':
 				sput_s(&p1, va_arg(ap, char *));
 				break;
+			case '%':
+				sput_c(&p1, '%');
+				break;
 			default:
 				break;
 			}
