@@ -46,7 +46,7 @@ void tty_put_s(struct tty_struct *tty, char *s)
 		tty_put_c(tty, c);
 }
 
-void tty_receive_c_no_lock(struct tty_struct *tty, char c)
+void tty_receive_c(struct tty_struct *tty, char c)
 {
 	struct ring_buffer *rb = &tty->read_buf;
 
@@ -121,25 +121,11 @@ tail_2:
 		wake_up_interruptible(&tty->wait_read);
 }
 
-void tty_receive_c(struct tty_struct *tty, char c)
-{
-	// ACQUIRE_LOCK(&tty->lock);
-	tty_receive_c_no_lock(tty, c);
-	// RELEASE_LOCK(&tty->lock);
-}
-
-void tty_receive_s_no_lock(struct tty_struct *tty, char *s)
+void tty_receive_s(struct tty_struct *tty, char *s)
 {
 	char c;
 	while ((c = *s++))
-		tty_receive_c_no_lock(tty, c);
-}
-
-void tty_receive_s(struct tty_struct *tty, char *s)
-{
-	// ACQUIRE_LOCK(&tty->lock);
-	tty_receive_s_no_lock(tty, s);
-	// RELEASE_LOCK(&tty->lock);
+		tty_receive_c(tty, c);
 }
 
 static struct tty_driver *tty_drivers = NULL;
@@ -230,19 +216,17 @@ try:
 	if (current->signal & ~current->blocked)
 		return -ERESTARTSYS;
 
-	ACQUIRE_LOCK(&tty->lock);
-
 	tcflag_t c_lflag = tty->termios.c_lflag;
 	cc_t *c_cc = tty->termios.c_cc;
 	int n = 0;
 	if (c_lflag & ICANON) {
 		while (!(n = max_canon_read(rb, c_cc))) {
-			sleep_on(&tty->wait_read, TASK_INTERRUPTIBLE, &tty->lock);
+			sleep_on(&tty->wait_read, TASK_INTERRUPTIBLE, NULL);
 			goto try;
 		}
 	} else {
 		while (!(n = ring_buffer_avail(rb))) {
-			sleep_on(&tty->wait_read, TASK_INTERRUPTIBLE, &tty->lock);
+			sleep_on(&tty->wait_read, TASK_INTERRUPTIBLE, NULL);
 			goto try;
 		}
 	}
@@ -255,8 +239,6 @@ try:
 	// Except in the case of EOF, the line delimiter is included in the buffer returned by read(2).
 	if (buf[n-1] == c_cc[VEOF])
 		--n;
-
-	RELEASE_LOCK(&tty->lock);
 	return n;
 }
 
@@ -282,13 +264,7 @@ int tty_write(struct inode *i, struct file *f, char *buf, int count)
 	if (err)
 		return err;
 
-	ACQUIRE_LOCK(&tty->lock);
-
-	int n = tty->driver->write(tty, (unsigned char *) buf, count);
-
-	RELEASE_LOCK(&tty->lock);
-
-	return n;
+	return tty->driver->write(tty, (unsigned char *) buf, count);
 }
 
 static int tty_lseek(struct inode *i, struct file *f, off_t offset, int orig)

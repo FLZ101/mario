@@ -497,7 +497,7 @@ static void csi_n(struct console *con)
 		char resp[32];
 		sprintk(resp, "\033[%d;%dR", tty->winsize.ws_row, tty->winsize.ws_col);
 
-		tty_receive_s_no_lock(tty, resp);
+		tty_receive_s(tty, resp);
 		break;
 	}
 	}
@@ -714,7 +714,6 @@ void console_init()
 		tty->session = 0;
 		ring_buffer_init(&tty->read_buf);
 
-		INIT_LOCK(&tty->lock);
 		init_wait_queue(&tty->wait_read);
 
 		tty->termios = default_termios;

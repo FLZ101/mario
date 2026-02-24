@@ -4,11 +4,11 @@
 #include <types.h>
 
 struct ring_buffer {
-	char *data; 	// dynamically allocated buffer
-	size_t size;	// total capacity (must be power of two)
-	size_t head;	// index of next write
-	size_t tail;	// index of next read
-	size_t len; 	// number of bytes currently stored
+	char *data; 			// dynamically allocated buffer
+	size_t size;			// total capacity (must be power of two)
+	size_t head;			// index of next write
+	size_t tail;			// index of next read
+	volatile size_t len; 	// number of bytes currently stored
 };
 
 int ring_buffer_init(struct ring_buffer *rb);
