@@ -131,8 +131,9 @@ void irq_PIT(struct trap_frame tr)
 		goto tail;
 	}
 
-	if (!--current->counter)
-		current->need_resched = 1;
+	if (current->counter > 0)
+		if (!--current->counter)
+			current->need_resched = 1;
 
 	if (userland(&tr)) {
 		if (current->it_virt_value && !--current->it_virt_value) {

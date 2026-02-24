@@ -123,9 +123,9 @@ tail_2:
 
 void tty_receive_c(struct tty_struct *tty, char c)
 {
-	ACQUIRE_LOCK(&tty->lock);
+	// ACQUIRE_LOCK(&tty->lock);
 	tty_receive_c_no_lock(tty, c);
-	RELEASE_LOCK(&tty->lock);
+	// RELEASE_LOCK(&tty->lock);
 }
 
 void tty_receive_s_no_lock(struct tty_struct *tty, char *s)
@@ -137,9 +137,9 @@ void tty_receive_s_no_lock(struct tty_struct *tty, char *s)
 
 void tty_receive_s(struct tty_struct *tty, char *s)
 {
-	ACQUIRE_LOCK(&tty->lock);
+	// ACQUIRE_LOCK(&tty->lock);
 	tty_receive_s_no_lock(tty, s);
-	RELEASE_LOCK(&tty->lock);
+	// RELEASE_LOCK(&tty->lock);
 }
 
 static struct tty_driver *tty_drivers = NULL;

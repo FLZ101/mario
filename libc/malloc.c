@@ -134,6 +134,9 @@ void *calloc(unsigned num, unsigned size)
 
 void *realloc(void *ptr, unsigned new_size)
 {
+	if (!ptr)
+		return malloc(new_size);
+
 	block *b = (block *)(ptr - BLOCK_META_SIZE);
 	if (b->size >= new_size) {
 		if (b->size - new_size >= BLOCK_META_SIZE + MIN_ALLOC_SIZE) {

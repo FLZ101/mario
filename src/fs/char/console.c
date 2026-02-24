@@ -57,6 +57,29 @@ enum Color {
 #define MAKEC(con, c) ((((con->bg_color) << 4) | ((con->fg_color) & 0x0f)) << 8 | (c))
 #define SPACE MAKEC(con, ' ')
 
+static void hide_cursor(struct console *con) {
+	con->cursor_hidden = 1;
+
+	if (!is_fg(con))
+		return;
+
+	// Disable cursor by setting bit 5 (0x20) in Cursor Start register
+	outb(0x3D4, 0x0A);          // Select Cursor Start register
+	unsigned char start = inb(0x3D5);
+	outb(0x3D5, start | 0x20);  // Set bit 5 to disable cursor
+}
+
+static void show_cursor(struct console *con) {
+	con->cursor_hidden = 0;
+
+	if (!is_fg(con))
+		return;
+
+	outb(0x3D4, 0x0A);
+	unsigned char start = inb(0x3D5);
+	outb(0x3D5, start & ~0x20); // Clear bit 5 to re-enable
+}
+
 static void move_cursor(struct console *con)
 {
 	if (!is_fg(con))
@@ -85,12 +108,12 @@ static void get_cursor(unsigned int *pos_y, unsigned int *pos_x)
 	*pos_x = pos - *pos_y * N_COL;
 }
 
-static void set_pos(struct console *con, int x, int y)
+static void set_pos(struct console *con, int y, int x)
 {
-	if (0 <= x && x < N_COL)
-		con->pos_x = x;
 	if (0 <= y && y < N_ROW)
 		con->pos_y = y;
+	if (0 <= x && x < N_COL)
+		con->pos_x = x;
 
 	move_cursor(con);
 }
@@ -103,6 +126,33 @@ void clear_screen(struct console *con)
 
 	if (is_fg(con))
 		memsetw(VIDEO_MEM, SPACE, N_ROW * N_COL);
+}
+
+void erase_line(struct console *con)
+{
+	for (int i = 0; i < N_COL; ++i) {
+		con->mem[con->pos_y][i] = SPACE;
+		if (is_fg(con))
+			VIDEO_MEM[con->pos_y][i] = SPACE;
+	}
+}
+
+void erase_line_left(struct console *con)
+{
+	for (int i = 0; i < con->pos_x; ++i) {
+		con->mem[con->pos_y][i] = SPACE;
+		if (is_fg(con))
+			VIDEO_MEM[con->pos_y][i] = SPACE;
+	}
+}
+
+void erase_line_right(struct console *con)
+{
+	for (int i = con->pos_x; i < N_COL; ++i) {
+		con->mem[con->pos_y][i] = SPACE;
+		if (is_fg(con))
+			VIDEO_MEM[con->pos_y][i] = SPACE;
+	}
 }
 
 static void scroll_one_line(struct console *con)
@@ -180,10 +230,9 @@ static int isalpha(unsigned char c)
 
 static int into_esc_buf(struct console *con, unsigned char c)
 {
-	con->esc_buf[con->esc_buf_p++] = c;
-
-	if (con->esc_buf_p == ESC_BUF_SIZE - 1)
+	if (con->esc_buf_p >= ESC_BUF_SIZE - 1)
 		return 1;
+	con->esc_buf[con->esc_buf_p++] = c;
 	return 0;
 }
 
@@ -193,11 +242,11 @@ static void reset_esc_buf(struct console *con)
 	con->esc_buf_p = 0;
 }
 
-static char *get_esc_arg(char **s)
+static char *get_esc_arg(char **s, int n)
 {
 	char *p, *q;
 
-	for (p = *s; *p; ++p) {
+	for (p = *s; p < *s + n; ++p) {
 		if (*p == ';' || isalpha(*p)) {
 			*p = 0;
 			break;
@@ -219,28 +268,28 @@ static void csi_H(struct console *con)
 	pos_x = pos_y = 0;
 
 	esc_buf = con->esc_buf;
-	arg = get_esc_arg(&esc_buf);
-	if (!arg)
-		goto __set_pos;
-	pos_x = simple_atou(arg);
-	if (-1 == pos_x)
-		return;
-
-	arg = get_esc_arg(&esc_buf);
+	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
 	if (!arg)
 		goto __set_pos;
 	pos_y = simple_atou(arg);
 	if (-1 == pos_y)
 		return;
 
+	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
+	if (!arg)
+		goto __set_pos;
+	pos_x = simple_atou(arg);
+	if (-1 == pos_x)
+		return;
+
 __set_pos:
-	if (pos_x == 0)
-		pos_x = 1;
 	if (pos_y == 0)
 		pos_y = 1;
-	--pos_x;
+	if (pos_x == 0)
+		pos_x = 1;
 	--pos_y;
-	set_pos(con, pos_x, pos_y);
+	--pos_x;
+	set_pos(con, pos_y, pos_x);
 }
 
 // arrow keys
@@ -252,7 +301,7 @@ static void csi_ABCD(struct console *con, unsigned char c)
 	count = 1;
 
 	esc_buf = con->esc_buf;
-	arg = get_esc_arg(&esc_buf);
+	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
 	if (!arg)
 		goto __move;
 	count = simple_atou(arg);
@@ -307,7 +356,7 @@ static void csi_m(struct console *con)
 {
 	char *arg = NULL;
 	char *esc_buf = con->esc_buf;
-	while ((arg = get_esc_arg(&esc_buf))) {
+	while ((arg = get_esc_arg(&esc_buf, con->esc_buf_p))) {
 		int action = simple_atou(arg);
 		switch (action) {
 		case 0:
@@ -375,7 +424,7 @@ static void csi_J(struct console *con)
 
 	esc_buf = con->esc_buf;
 
-	arg = get_esc_arg(&esc_buf);
+	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
 	if (arg) {
 		m = simple_atou(arg);
 		if (-1 == m)
@@ -395,7 +444,29 @@ static void csi_J(struct console *con)
 
 static void csi_K(struct console *con)
 {
+	char *arg, *esc_buf;
+	unsigned int m = 0;
 
+	esc_buf = con->esc_buf;
+
+	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
+	if (arg) {
+		m = simple_atou(arg);
+		if (-1 == m)
+			return;
+	}
+
+	switch (m) {
+	case 0:
+		erase_line_right(con);
+		break;
+	case 1:
+		erase_line_left(con);
+		break;
+	case 2:
+		erase_line(con);
+		break;
+	}
 }
 
 static void csi_L(struct console *con)
@@ -409,7 +480,7 @@ static void csi_n(struct console *con)
 
 	esc_buf = con->esc_buf;
 
-	arg = get_esc_arg(&esc_buf);
+	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
 	if (!arg)
 		return;
 
@@ -432,8 +503,45 @@ static void csi_n(struct console *con)
 	}
 }
 
+static void csi_q(struct console *con, unsigned char c)
+{
+	char *arg = NULL;
+	char *esc_buf = con->esc_buf;
+	switch (c) {
+	case 'l': {
+		while ((arg = get_esc_arg(&esc_buf, con->esc_buf_p))) {
+			int action = simple_atou(arg);
+			switch (action) {
+				case 25:
+					hide_cursor(con);
+				break;
+			}
+		}
+		break;
+	}
+	case 'h': {
+		while ((arg = get_esc_arg(&esc_buf, con->esc_buf_p))) {
+			int action = simple_atou(arg);
+			switch (action) {
+				case 25:
+					show_cursor(con);
+				break;
+			}
+		}
+		break;
+	}
+	default:
+		;
+	}
+}
+
 static void csi(struct console *con, unsigned char c)
 {
+	if (con->state == CSI_Q) {
+		csi_q(con, c);
+		return;
+	}
+
 	switch (c) {
 	case 'H': case 'f':
 		csi_H(con);
@@ -500,9 +608,15 @@ void console_write_char(struct console *con, unsigned char c)
 		}
 		break;
 	case CSI:
+		if ('?' == c) {
+			con->state = CSI_Q;
+			break;
+		}
+	case CSI_Q:
 		if (isalpha(c)) {
 			csi(con, c);
 			con->state = NORMAL;
+			break;
 		}
 		if (into_esc_buf(con, c))
 			con->state = BAD;
@@ -553,6 +667,11 @@ void switch_fg_console(int i)
 
 	memcpy(VIDEO_MEM, con->mem, N_ROW * N_COL * sizeof(uint16_t));
 	move_cursor(con);
+
+	if (con->cursor_hidden)
+		hide_cursor(con);
+	else
+		show_cursor(con);
 }
 
 void console_sync(struct console *con)
@@ -572,6 +691,7 @@ void console_reset(struct console *con)
 	con->pos_y = 0;
 	con->save_x = 0;
 	con->save_y = 0;
+	con->cursor_hidden = 0;
 	memset(con->mem, SPACE, N_ROW * N_COL);
 
 	memset(con->esc_buf, 0, ESC_BUF_SIZE);

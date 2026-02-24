@@ -12,5 +12,7 @@ int atexit(void (*f)(void));
 
 void *malloc(size_t size);
 void free(void *ptr);
+void *realloc(void *ptr, unsigned new_size);
+void *calloc(unsigned num, unsigned size);
 
 #endif /* _STDLIB_H */

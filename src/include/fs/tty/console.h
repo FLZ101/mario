@@ -12,12 +12,13 @@ struct kbd {
 #define N_COL 80
 #define N_ROW 25
 
-#define ESC_BUF_SIZE 6
+#define ESC_BUF_SIZE 64
 
 enum esc_state {
 	NORMAL,
 	ESC,
 	CSI,
+	CSI_Q, // ?
 	BAD
 };
 
@@ -31,6 +32,7 @@ struct console {
 	unsigned int pos_x, pos_y;
 	unsigned int save_x, save_y;
 	uint8_t fg_color, bg_color;
+	int cursor_hidden;
 
 	char esc_buf[ESC_BUF_SIZE];
 	int esc_buf_p;
