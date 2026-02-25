@@ -246,6 +246,16 @@ void handle_key(struct tty_struct *tty, struct console *con)
 					tty_receive_c(tty, 033);
 				else if (__k == DELETE)
 					tty_receive_s(tty, "\033[3~");
+				else if (__k == INSERT)
+					tty_receive_s(tty, "\033[2~");
+				else if (__k == PGDOWN)
+					tty_receive_s(tty, "\033[6~");
+				else if (__k == PGUP)
+					tty_receive_s(tty, "\033[5~");
+				else if (__k == HOME)
+					tty_receive_s(tty, "\033[1~");
+				else if (__k == END)
+					tty_receive_s(tty, "\033[4~");
 				else if (__k == F1)
 					switch_fg_console(0);
 				else if (__k == F2)
