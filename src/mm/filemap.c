@@ -103,7 +103,8 @@ static int filemap_nopage(struct vm_area_struct *vma,
 	f.f_mode = 1;	/* read-only */
 	f.f_op = i->i_fop;	/* NULL? */
 	f.f_pos = vma->vm_offset + addr - vma->vm_start;
-	if (f.f_op->read(i, &f, (char *)page, 4096) < 0)
+	int n = MIN(PAGE_SIZE, vma->vm_end - addr);
+	if (f.f_op->read(i, &f, (char *)page, n) < 0)
 		return -1;
 	return 0;
 

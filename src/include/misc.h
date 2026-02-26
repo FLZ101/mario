@@ -36,6 +36,8 @@
 #define PAGE_MASK	(~(PAGE_SIZE-1))
 #define PAGE_ALIGN(x)	(((x)+PAGE_SIZE-1)&PAGE_MASK)
 
+#define PAGE_ALIGNED(x) (PAGE_ALIGN(x) == (x))
+
 #define PFN_UP(x)	(((unsigned long)(x) + PAGE_SIZE-1) >> PAGE_SHIFT)
 #define PFN_DOWN(x)	((unsigned long)(x) >> PAGE_SHIFT)
 

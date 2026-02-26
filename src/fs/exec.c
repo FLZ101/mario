@@ -89,8 +89,7 @@ int fill_exec(struct Elf32_Phdr *phdr_tbl, int nr, struct exec *exe)
 	enum State {
 		BEGIN,
 		CODE,
-		DATA,
-		BRK
+		DATA
 	} state = BEGIN;
 
 	for (i = 0; i < MAX_PHDRS; ++i) {
@@ -114,43 +113,18 @@ int fill_exec(struct Elf32_Phdr *phdr_tbl, int nr, struct exec *exe)
 				exe->end_code = phdr->p_vaddr + phdr->p_memsz;
 				break;
 			case PF_RODATA:
+			case PF_DATA:
 				exe->start_data = phdr->p_vaddr;
 				exe->end_data = phdr->p_vaddr + phdr->p_memsz;
 				state = DATA;
-				break;
-			case PF_DATA:
-				if (phdr->p_filesz > 0) {
-					exe->start_data = phdr->p_vaddr;
-					exe->end_data = phdr->p_vaddr + phdr->p_memsz;
-					state = DATA;
-				} else {
-					exe->start_brk = phdr->p_vaddr;
-					exe->brk = phdr->p_vaddr + phdr->p_memsz;
-					state = BRK;
-				}
 				break;
 			default:
 				return 1;
 			}
 			break;
 		case DATA:
-			if (flags == PF_DATA) {
-				if (phdr->p_filesz > 0) {
-					exe->end_data = phdr->p_vaddr + phdr->p_memsz;
-				} else {
-					exe->start_brk = phdr->p_vaddr;
-					exe->brk = phdr->p_vaddr + phdr->p_memsz;
-					state = BRK;
-				}
-			} else {
-				return 1;
-			}
-			break;
-		case BRK:
-			if (flags == PF_DATA) {
-				if (phdr->p_filesz > 0)
-					return 1;
-				exe->brk = phdr->p_vaddr + phdr->p_memsz;
+			if (flags == PF_RODATA || flags == PF_DATA) {
+				exe->end_data = phdr->p_vaddr + phdr->p_memsz;
 			} else {
 				return 1;
 			}
@@ -163,9 +137,8 @@ int fill_exec(struct Elf32_Phdr *phdr_tbl, int nr, struct exec *exe)
 		return 1;
 
 	if (exe->start_data == 0)
-		exe->start_data = exe->end_data = exe->end_code;
-	if (exe->start_brk == 0)
-		exe->start_brk = exe->brk = exe->end_data;
+		exe->start_data = exe->end_data = PAGE_ALIGN(exe->end_code);
+	exe->start_brk = exe->brk = PAGE_ALIGN(exe->end_data);
 
 	return 0;
 }
@@ -437,6 +410,8 @@ int do_exec(struct exec *exe, int fd, struct trap_frame *tr)
 		struct Elf32_Phdr *phdr = &exe->phdr[i];
 		if (phdr->p_vaddr == 0)
 			break;
+		assert(PAGE_ALIGNED(phdr->p_vaddr));
+
 		__u32 flags = PF_MASK & phdr->p_flags;
 		switch (flags) {
 		case PF_CODE:
@@ -451,9 +426,30 @@ int do_exec(struct exec *exe, int fd, struct trap_frame *tr)
 			break;
 		case PF_DATA:
 			if (phdr->p_filesz > 0) {
-				do_mmap(phdr->p_vaddr, phdr->p_memsz,
+				do_mmap(phdr->p_vaddr, phdr->p_filesz,
 					PROT_READ | PROT_WRITE, MAP_FIXED | MAP_PRIVATE,
 						fd, phdr->p_offset);
+
+				// .data and .bss may be in the same segment. For example,
+				//
+				// readelf --segments app/init/init.exe
+				//
+				// Program Headers:
+				//   Type           Offset   VirtAddr   PhysAddr   FileSiz MemSiz  Flg Align
+				//   LOAD           0x001000 0x00401000 0x00401000 0x03000 0x03000 R E 0x1000
+				//   LOAD           0x004000 0x00404000 0x00404000 0x00014 0x014ec RW  0x1000
+				//
+				//  Section to Segment mapping:
+				//   Segment Sections...
+				//    00     .text
+				//    01     .data .bss
+
+				size_t sz = PAGE_ALIGN(phdr->p_filesz);
+				if (phdr->p_memsz > sz) {
+					do_mmap(phdr->p_vaddr + sz, phdr->p_memsz - sz,
+						PROT_READ | PROT_WRITE, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
+							-1, 0);
+				}
 			} else {
 				do_mmap(phdr->p_vaddr, phdr->p_memsz,
 					PROT_READ | PROT_WRITE, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
