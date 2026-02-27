@@ -49,7 +49,8 @@ do { \
 
 	cat("/etc/welcome.txt");
 
-	run("/bin/kilo.exe");
+	char *args[] = { "/bin/kilo.exe", "/etc/welcome.txt", NULL };
+	run_arg("/bin/kilo.exe", args);
 
 tail:
 	while (1) {

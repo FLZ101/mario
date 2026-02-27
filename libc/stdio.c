@@ -1,15 +1,10 @@
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include <unistd.h>
-
-int putchar(char c)
-{
-	int n = write(0, &c, 1);
-	if (n == -1)
-		return EOF;
-	return n;
-}
+#include <fcntl.h>
 
 static void sput_c(char **buf, char c)
 {
@@ -137,9 +132,184 @@ int printf(const char *fmt, ...)
 	return n;
 }
 
+int fputc(int c, FILE *stream)
+{
+	unsigned char buf = (unsigned char ) c;
+	size_t n = fwrite(&buf, 1, 1, stream);
+	if (!n)
+		return EOF;
+	return n;
+}
+
+int putchar(int c)
+{
+	return putc(c, stdout);
+}
+
+int fputs(const char *s, FILE *stream)
+{
+	int c;
+	while ((c = *(s++))) {
+		int n = fputc(c, stream);
+		if (EOF == n)
+			return EOF;
+	}
+	return 0;
+}
+
 int puts(const char *s)
 {
-	return printf("%s\n", s);
+	int n = fputs(s, stdout);
+	if (EOF == n)
+		return EOF;
+
+	n = fputc('\n', stdout);
+	if (EOF == n)
+		return EOF;
+	return 0;
 }
 
 _syscall2(int,rename,const char *,oldpath, const char *,newpath)
+
+FILE *fopen(const char *pathname, const char *mode)
+{
+    int flags = 0;
+
+    if (strcmp(mode, "r") == 0 || strcmp(mode, "rb") == 0) {
+        flags = O_RDONLY;
+    } else if (strcmp(mode, "w") == 0 || strcmp(mode, "wb") == 0) {
+        flags = O_WRONLY | O_CREAT | O_TRUNC;
+    } else if (strcmp(mode, "a") == 0 || strcmp(mode, "ab") == 0) {
+        flags = O_WRONLY | O_CREAT | O_APPEND;
+    } else if (strcmp(mode, "r+") == 0 || strcmp(mode, "rb+") == 0) {
+        flags = O_RDWR;
+    } else if (strcmp(mode, "w+") == 0 || strcmp(mode, "wb+") == 0) {
+        flags = O_RDWR | O_CREAT | O_TRUNC;
+    } else if (strcmp(mode, "a+") == 0 || strcmp(mode, "ab+") == 0) {
+        flags = O_RDWR | O_CREAT | O_APPEND;
+    } else {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    int fd = open(pathname, flags);
+    if (fd == -1) {
+        return NULL;
+    }
+
+    FILE *f = (FILE *) malloc(sizeof(FILE));
+    if (!f) {
+        close(fd);
+        return NULL;
+    }
+
+    f->fd = fd;
+    return f;
+}
+
+int fclose(FILE *stream) {
+    if (!stream) return EOF;
+
+    int ret = 0;
+    if (close(stream->fd) == -1) {
+        ret = EOF;
+    }
+    free(stream);
+    return ret;
+}
+
+size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+{
+    if (!stream || stream->fd < 0) return 0;
+
+    size_t total = size * nmemb;
+    if (total == 0) return 0;
+
+    ssize_t n = read(stream->fd, ptr, total);
+    if (n == -1) return 0;
+
+    return (size_t) n / size;
+}
+
+size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
+{
+    if (!stream || stream->fd < 0) return 0;
+
+    size_t total = size * nmemb;
+    if (total == 0) return 0;
+
+    ssize_t n = write(stream->fd, ptr, total);
+    if (n == -1) return 0;
+
+    return (size_t) n / size;
+}
+
+static FILE stdin_file = { .fd = 0 };
+static FILE stdout_file = { .fd = 1 };
+static FILE stderr_file = { .fd = 2 };
+
+FILE *stdin = &stdin_file;
+FILE *stdout = &stdout_file;
+FILE *stderr = &stderr_file;
+
+ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
+    // 1. Validation
+    if (!lineptr || !n || !stream) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    // 2. Initialize buffer if needed
+    if (*lineptr == NULL || *n == 0) {
+        *n = 128; // Default initial size
+        *lineptr = malloc(*n);
+        if (*lineptr == NULL) {
+            return -1; // Memory allocation failed
+        }
+    }
+
+    size_t len = 0;
+    char c;
+
+    // 3. Read loop
+    while (1) {
+        // Read one character
+        if (fread(&c, 1, 1, stream) == 0) {
+            // EOF or Error
+            if (len == 0) {
+                return EOF; // No data read, true EOF
+            }
+            break; // Data was read, but now EOF. Finish the line.
+        }
+
+        // 4. Check if we need to resize the buffer
+        // We need space for the new char + the null terminator '\0'
+        if (len + 1 >= *n) {
+            size_t new_size = *n * 2; // Double the size
+            char *new_ptr = realloc(*lineptr, new_size);
+
+            if (new_ptr == NULL) {
+                // Reallocation failed.
+                // We stop here, null-terminate what we have, and return.
+                (*lineptr)[len] = '\0';
+                return (ssize_t)len;
+            }
+
+            *lineptr = new_ptr;
+            *n = new_size;
+        }
+
+        // 5. Store character
+        (*lineptr)[len++] = c;
+
+        // 6. Stop if newline
+        if (c == '\n') {
+            break;
+        }
+    }
+
+    // 7. Null-terminate the string
+    (*lineptr)[len] = '\0';
+
+    return (ssize_t)len;
+}

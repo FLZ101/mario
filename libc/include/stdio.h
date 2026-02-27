@@ -3,14 +3,30 @@
 
 #include <stdarg.h>
 #include <stddef.h>
+#include <sys/types.h>
+
+typedef struct {
+	int fd;
+} FILE;
+
+extern FILE *stdin;
+extern FILE *stdout;
+extern FILE *stderr;
 
 int vsprintf(char *buf, const char *fmt, va_list ap);
 int sprintf(char *buf, const char *fmt, ...);
-int putchar(char c);
 int printf(const char *s, ...);
+
+int fputc(int c, FILE *stream);
+
+#define putc(c, stream) fputc((c), (stream))
+
+int putchar(int c);
+
+int fputs(const char *s, FILE *stream);
 int puts(const char *s);
 
-int vscanf(const char *s, const char *fmt, va_list ap);
+int vsscanf(const char *s, const char *fmt, va_list ap);
 int sscanf(const char *s, const char *fmt, ...);
 
 void perror(const char *s);
@@ -23,5 +39,13 @@ void perror(const char *s);
 int rename(const char *oldpath, const char *newpath);
 
 #define EOF -1
+
+FILE *fopen(const char *pathname, const char *mode);
+int fclose(FILE *stream);
+
+size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
+size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);
+
+ssize_t getline(char **lineptr, size_t *n, FILE *stream);
 
 #endif /* _STDIO_H */

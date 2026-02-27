@@ -37,7 +37,21 @@ void cat(char *filename)
 	}
 }
 
+// NOTE: argv and envp can not contain "", or EFAULT happens
+static char *empty_argv[] = { NULL };
+static char *empty_envp[] = { NULL };
+
 void run(char *filename)
+{
+	run_arg_env(filename, empty_argv, empty_envp);
+}
+
+void run_arg(char *filename, char **argv)
+{
+	run_arg_env(filename, argv, empty_envp);
+}
+
+void run_arg_env(char *filename, char **argv, char **envp)
 {
 	int err;
 	pid_t pid;
@@ -51,10 +65,6 @@ void run(char *filename)
 	}
 
 	if (!pid) {
-		// NOTE: argv and envp can not contain "", or EFAULT happens
-		static char *argv[] = { NULL };
-		static char *envp[] = { NULL };
-
 		err = execve(filename, argv, envp);
 		if (-1 == err) {
 			_perror();

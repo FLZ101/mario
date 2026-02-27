@@ -1,7 +1,7 @@
 #ifndef _ASSERT_H
 #define _ASSERT_H
 
-void exit(int status);
+#include <stdlib.h>
 
 #define assert(expr) \
 do { \
