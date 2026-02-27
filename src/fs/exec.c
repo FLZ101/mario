@@ -369,6 +369,10 @@ int setup_arg_pages(struct exec *exe)
 	*(p2++) = 0;
 	current->mm->env_end = (unsigned long)pc;
 
+	/* mmap arguments and environment variables */
+	do_mmap(start_stack, KERNEL_BASE - start_stack, PROT_READ | PROT_WRITE,
+		MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
 	/* mmap stack */
 	do_mmap(start_stack - PAGE_SIZE, PAGE_SIZE, PROT_READ | PROT_WRITE,
 		MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS | VM_GROWSDOWN, -1, 0);
