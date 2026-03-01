@@ -9,13 +9,16 @@
 
 #include <lib/stddef.h>
 
+void verify_vma(struct mm_struct *mm)
+{
+}
+
+// return first vma that may contain addr
 struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
 {
 	struct vm_area_struct *vma;
 
-	for (vma = mm->mmap ; ; vma = vma->vm_next) {
-		if (!vma)
-			return NULL;
+	for (vma = mm->mmap ; vma ; vma = vma->vm_next) {
 		if (vma->vm_end > addr)
 			return vma;
 	}
@@ -39,10 +42,11 @@ void insert_vm_struct(struct mm_struct *mm, struct vm_area_struct *vma)
 
 	p = &mm->mmap;
 	while ((mpnt = *p) != NULL) {
-		if (mpnt->vm_start > vma->vm_start)
+		if (mpnt->vm_start > vma->vm_start) {
+			assert(mpnt->vm_start >= vma->vm_end);
 			break;
-		if (mpnt->vm_end > vma->vm_start)
-			printk("%s: overlapping vm_areas\n", __FUNCTION__);
+		}
+		assert(mpnt->vm_end <= vma->vm_start);
 		p = &mpnt->vm_next;
 	}
 	vma->vm_next = mpnt;
@@ -108,22 +112,7 @@ int dup_mmap(struct task_struct *t)
 	return 0;
 }
 
-/*
- * By the time this function is called, the area struct has been
- * removed from the process mapping list, so it needs to be
- * reinserted if necessary.
- *
- * The 4 main cases are:
- *    Unmapping the whole area
- *    Unmapping from the start of the segment to a point in it
- *    Unmapping from an intermediate point to the end
- *    Unmapping between to intermediate points, making a hole.
- *
- * Case 4 involves the creation of 2 new areas, for each side of
- * the hole.
- */
-void unmap_fixup(struct vm_area_struct *vma,
-	unsigned long addr, unsigned long len)
+void unmap_fixup(struct vm_area_struct *vma, unsigned long addr, unsigned long len)
 {
 	struct vm_area_struct *mpnt;
 	unsigned long end = addr + len;
@@ -136,6 +125,7 @@ void unmap_fixup(struct vm_area_struct *vma,
 			iput(vma->vm_inode);
 		return;
 	}
+
 	/* Work out to one of the ends */
 	if (end == vma->vm_end) {
 		vma->vm_end = addr;
@@ -156,6 +146,7 @@ void unmap_fixup(struct vm_area_struct *vma,
 		vma->vm_end = addr;	/* Truncate area */
 		insert_vm_struct(current->mm, mpnt);
 	}
+
 	/* construct whatever mapping is needed */
 	mpnt = (struct vm_area_struct *)kmalloc(sizeof(*mpnt));
 	if (!mpnt)
@@ -208,34 +199,29 @@ int unmap_page_range(unsigned long addr, unsigned long len)
 	return 0;
 }
 
-/*
- * Munmap is split into 2 main parts -- this part which finds
- * what needs doing, and the areas themselves, which do the
- * work.  This now handles partial unmappings.
- * Jeremy Fitzhardine <jeremy@sw.oz.au>
- */
 int do_munmap(unsigned long addr, unsigned long len)
 {
 	struct vm_area_struct *vma, *free, **p;
 
-	if ((addr & ~PAGE_MASK) || addr > KERNEL_BASE || len > KERNEL_BASE-addr)
+	if ((addr & ~PAGE_MASK) || addr > KERNEL_BASE || len > KERNEL_BASE - addr)
 		return -EINVAL;
 	if ((len = PAGE_ALIGN(len)) == 0)
 		return 0;
-	/*
-	 * Check if this memory area is ok - put it on the temporary
-	 * list if so..  The checks here are pretty simple --
-	 * every area affected in some way (by any overlap) is put
-	 * on the list.  If nothing is put on, nothing is affected.
-	 */
+
 	free = NULL;
 	for (vma = current->mm->mmap, p = &current->mm->mmap; vma; ) {
-		if (vma->vm_start >= addr+len)
+		assert(vma == *p);
+
+		if (vma->vm_start >= addr + len)
 			break;
 		if (vma->vm_end <= addr) {
+			p = &vma->vm_next;
 			vma = vma->vm_next;
 			continue;
 		}
+		// vma overlaps the range
+
+		// remove vma from mm and add it to free list
 		*p = vma->vm_next;
 		vma->vm_next = free;
 		free = vma;
@@ -243,30 +229,26 @@ int do_munmap(unsigned long addr, unsigned long len)
 	}
 	if (!free)
 		return 0;
-	/*
-	 * Ok - we have the memory areas we should free on the 'free' list,
-	 * so release them, and unmap the page range..
-	 * If the one of the segments is only being partially unmapped,
-	 * it will put new vm_area_struct(s) into the address space.
-	 */
-	while (free) {
-		unsigned long st, end;
 
+	while (free) {
+		unsigned long start, end;
+
+		// remove vma from free list
 		vma = free;
 		free = free->vm_next;
 
 		remove_shared_vm_struct(vma);
 
-		st = addr < vma->vm_start ? vma->vm_start : addr;
-		end = addr+len;
-		end = end > vma->vm_end ? vma->vm_end : end;
+		start = MAX(addr, vma->vm_start);
+		end = MIN(addr + len, vma->vm_end);
 
 		if (vma->vm_ops && vma->vm_ops->unmap)
-			vma->vm_ops->unmap(vma, st, end-st);
+			vma->vm_ops->unmap(vma, start, end - start);
 
-		unmap_fixup(vma, st, end-st);
+		unmap_fixup(vma, start, end - start);
 		kfree(vma);
 	}
+
 	unmap_page_range(addr, len);
 	return 0;
 }
@@ -276,9 +258,9 @@ int sys_munmap(unsigned long addr, unsigned long len)
 	return do_munmap(addr, len);
 }
 
-unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
+static unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
 {
-	struct vm_area_struct * vma;
+	struct vm_area_struct *vma;
 
 	if (len > KERNEL_BASE)
 		return 0;
@@ -287,6 +269,8 @@ unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
 	addr = PAGE_ALIGN(addr);
 
 	for (vma = current->mm->mmap; ; vma = vma->vm_next) {
+		// addr is not in any previous vm area
+
 		if (KERNEL_BASE - len < addr)
 			return 0;
 		if (!vma)
@@ -297,58 +281,13 @@ unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
 			addr = vma->vm_end;
 			continue;
 		}
+
+		// can be fit in the gap
 		return addr;
 	}
 	return 0;
 }
-#if 0
-static inline void
-zeromap_pde_range(pde_t *pd, unsigned long addr, unsigned long len, pte_t zero_pte)
-{
-	pte_t *pt;
-	unsigned long end;
 
-	pt = pte_offset(__vir(*pd), addr);
-	addr &= ~PGDIR_MASK;
-	end = addr + len;
-	if (end >= PGDIR_SIZE)
-		end = PGDIR_SIZE;
-	do {
-		*pt = zero_pte;
-		addr += PAGE_SIZE;
-		pt++;
-	} while (addr < end);
-}
-
-int zeromap_page_range(unsigned long addr, unsigned long len, unsigned long prot)
-{
-	int error;
-	pde_t *pd;
-	pte_t zero_pte;
-	unsigned long end;
-
-	pd = pde_offset(current->mm->pd, addr);
-	zero_pte = mk_pte(ZERO_PAGE, prot & ~PG_RW);
-	while (addr < end) {
-		pte_t *tmp = alloc_pt();
-		if (!tmp)
-			return -ENOMEM;
-		*pd = mk_pde(tmp, _PDE);
-		error = zeromap_pde_range(pd, addr, end - addr, zero_pte);
-		if (error)
-			break;
-		addr = (addr + PGDIR_SIZE) & PGDIR_MASK;
-		pd++;
-	}
-}
-
-static int anon_map(struct inode *ino, struct file *file, struct vm_area_struct *vma)
-{
-	if (zeromap_page_range(vma->vm_start, vma->vm_end - vma->vm_start, vma->vm_page_prot))
-		return -ENOMEM;
-	return 0;
-}
-#endif
 /*
  * In i386, VM_WRITE implies VM_READ, and VM_READ and VM_EXEC implies each other
  */
@@ -400,7 +339,6 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 			return -EINVAL;
 	}
 
-
 	switch (flags & MAP_TYPE) {
 	case MAP_SHARED:
 		if (file && (prot & PROT_WRITE) && !(file->f_mode & 2))
@@ -417,7 +355,7 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 	vma = (struct vm_area_struct *)kmalloc(sizeof(*vma));
 	if (!vma)
 		return -ENOMEM;
-	vma->vm_mm= current->mm;
+	vma->vm_mm = current->mm;
 	vma->vm_start = addr;
 	vma->vm_end = addr + len;
 	vma->vm_flags = prot & (VM_READ | VM_WRITE | VM_EXEC);
@@ -428,6 +366,7 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 
 	/* initialize the share ring */
 	vma->vm_next_share = vma->vm_prev_share = vma;
+
 	vma->vm_page_prot = get_page_prot(vma->vm_flags);
 	vma->vm_ops = NULL;
 	if (file)
@@ -435,7 +374,9 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 	else
 		vma->vm_offset = 0;
 	vma->vm_inode = NULL;
+
 	do_munmap(addr, len);	/* Clear old maps */
+
 	if (file) {
 		error = file->f_op->mmap(file->f_inode, file, vma);
 		if (error) {
@@ -443,8 +384,8 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 			return error;
 		}
 	}
+
 	insert_vm_struct(current->mm, vma);
-	/* merge_segments(current->mm, vma->vm_start, vma->vm_end); */
 	return addr;
 }
 
@@ -496,25 +437,28 @@ unsigned long sys_brk(unsigned long brk)
 	/*
 	 * Always allow shrinking brk
 	 */
-	if (brk <= current->mm->brk) {
+	if (brk < current->mm->brk) {
 		int err = do_munmap(newbrk, oldbrk - newbrk);
 		if (err)
 			return err;
 		current->mm->brk = brk;
 		return brk;
 	}
+
 	/*
 	 * Check against rlimit
 	 */
 	 rlim = current->rlim[RLIMIT_DATA].rlim_cur;
 	 if (brk - current->mm->end_code > rlim)
 	 	return current->mm->brk;
+
 	/*
 	 * Check against existing mmap mappings
 	 */
 	if (find_vma_intersection(current->mm, oldbrk, newbrk + PAGE_SIZE))
 		return current->mm->brk;
-	int err = do_mmap(oldbrk, newbrk - oldbrk, PROT_READ|PROT_WRITE|PROT_EXEC,
+
+	int err = do_mmap(oldbrk, newbrk - oldbrk, PROT_READ | PROT_WRITE | PROT_EXEC,
 		MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if (err < 0)
 		return err;

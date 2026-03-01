@@ -14,6 +14,7 @@ typedef struct block_t {
 
 #define MIN_ALLOC_SIZE 16
 
+// ordered by address
 static block free_list_head = {NULL, NULL, 0};
 
 #ifndef NDEBUG
@@ -31,7 +32,7 @@ void print_free_list()
 }
 #endif
 
-static block *get_new_block(block *prev, unsigned size)
+static block *get_new_block(unsigned size)
 {
 	if (size < MIN_ALLOC_SIZE)
 		size = MIN_ALLOC_SIZE;
@@ -40,9 +41,7 @@ static block *get_new_block(block *prev, unsigned size)
 	if (res == (void *)-1)
 		return NULL;
 
-	prev->next = res;
-
-	res->prev = prev;
+	res->prev = NULL;
 	res->next = NULL;
 	res->size = size;
 	return res;
@@ -53,44 +52,42 @@ static block *get_free_block(unsigned size)
 	if (!size)
 		return NULL;
 
-	block *p = &free_list_head;
-	while (p->next) {
+	block *p = free_list_head.next;
+	while (p) {
+		if (p->size >= size) {
+			p->prev->next = p->next;
+			if (p->next)
+				p->next->prev = p->prev;
+			return p;
+		}
 		p = p->next;
-		if (p->size >= size)
-			break;
 	}
 
-	if (p->size < size)
-		p = get_new_block(p, size);
-
-	p->prev->next = p->next;
-	if (p->next)
-		p->next->prev = p->prev;
-
-	return p;
+	return get_new_block(size);
 }
 
-void merge_free_blocks(block *p)
+void merge_free_blocks()
 {
-	if (p == &free_list_head)
-		p = p->next;
-	if (!p)
-		return;
+	block *o = &free_list_head;
+	while (o->next) {
+		block *p = o->next;
 
-	while (p->data + p->size == (void *)p->next) {
-		block *q = p->next;
-		p->size += BLOCK_META_SIZE + q->size;
+		if (p->data + p->size == (void *)p->next) {
+			block *q = p->next;
+			p->size += BLOCK_META_SIZE + q->size;
 
-		p->next = q->next;
-		if (q->next)
-			q->next->prev = p;
+			p->next = q->next;
+			if (q->next)
+				q->next->prev = p;
+		} else {
+			o = o->next;
+		}
 	}
 
-	if (sbrk(0) == p->data + p->size) {
-		assert(!p->next);
-
-		sbrk(-(BLOCK_META_SIZE + p->size));
-		p->prev->next = NULL;
+	if (o->data + o->size == sbrk(0)) {
+		sbrk(-(BLOCK_META_SIZE + o->size));
+		if (o->prev)
+			o->prev->next = NULL;
 	}
 }
 
@@ -109,7 +106,7 @@ void put_free_block(block *b)
 		p->next->prev = b;
 	p->next = b;
 
-	merge_free_blocks(b->prev);
+	merge_free_blocks();
 }
 
 static void zero_block(block *p) { memset(p->data, 0, p->size); }
@@ -125,11 +122,7 @@ void *malloc(unsigned size)
 
 void *calloc(unsigned num, unsigned size)
 {
-	void *p = malloc(num * size);
-	if (!p)
-		return NULL;
-	memset(p, 0, num * size);
-	return p;
+	return malloc(num * size);
 }
 
 void *realloc(void *ptr, unsigned new_size)
@@ -138,19 +131,13 @@ void *realloc(void *ptr, unsigned new_size)
 		return malloc(new_size);
 
 	block *b = (block *)(ptr - BLOCK_META_SIZE);
-	if (b->size >= new_size) {
-		if (b->size - new_size >= BLOCK_META_SIZE + MIN_ALLOC_SIZE) {
-			block *b2 = (block *)(b->data + new_size);
-			b2->size = b->size - new_size - BLOCK_META_SIZE;
-			b->size = new_size;
-			put_free_block(b2);
-		}
+	if (b->size >= new_size)
 		return ptr;
-	}
 
 	block *p = get_free_block(new_size);
 	if (!p)
 		return NULL;
+	zero_block(p);
 	memcpy(p->data, b->data, b->size);
 
 	put_free_block(b);
