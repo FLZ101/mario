@@ -5,7 +5,7 @@
 
 #include <lib/string.h>
 
-extern void die_if_kernel(char *str, struct trap_frame *tr, long err);
+extern void die(char *str, struct trap_frame *tr, long err);
 extern void do_exit(long code);
 
 /*
@@ -197,9 +197,14 @@ bad_area:
 		addr &= 0x003ff000;
 		pde = __vir(pde);
 		pte = ((unsigned long *) pde)[addr >> PAGE_SHIFT];
-		printk("pte = %x\n", pte);
+		printk("pte = %x", pte);
 	}
+	printk("\n");
 
-	die_if_kernel("Oops", tr, error_code);
-	do_exit(SIGKILL);
+	if (userland(tr)) {
+		print_tr(tr);
+		do_exit(SIGKILL);
+	} else {
+		die("Oops", tr, error_code);
+	}
 }

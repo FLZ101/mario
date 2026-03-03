@@ -3,6 +3,7 @@
 
 #define ADDR (*(volatile long *)addr)
 
+// set bit
 static __inline__ void set_bit(int nr, volatile void *addr)
 {
 	__asm__ __volatile__(
@@ -11,6 +12,7 @@ static __inline__ void set_bit(int nr, volatile void *addr)
 		:"Ir"(nr));
 }
 
+// clear bit
 static __inline__ void clear_bit(int nr, volatile void *addr)
 {
 	__asm__ __volatile__ (
@@ -19,6 +21,7 @@ static __inline__ void clear_bit(int nr, volatile void *addr)
 		:"Ir"(nr));
 }
 
+// toggle bit
 static __inline__ void change_bit(int nr, volatile void *addr)
 {
 	__asm__ __volatile__(
@@ -40,6 +43,7 @@ static __inline__ int test_bit(int nr, volatile void *addr)
 	return oldbit;
 }
 
+// set a bit and return its old value
 static __inline__ int test_and_set_bit(int nr, volatile void *addr)
 {
 	int oldbit;
@@ -53,6 +57,7 @@ static __inline__ int test_and_set_bit(int nr, volatile void *addr)
 	return oldbit;
 }
 
+// clear a bit and return its old value
 static __inline__ int test_and_clear_bit(int nr, volatile void *addr)
 {
 	int oldbit;
@@ -66,6 +71,7 @@ static __inline__ int test_and_clear_bit(int nr, volatile void *addr)
 	return oldbit;
 }
 
+// toggle a bit and return its old value
 static __inline__ int test_and_change_bit(int nr, volatile void *addr)
 {
 	int oldbit;

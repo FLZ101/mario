@@ -63,7 +63,7 @@ void __tinit trap_init(void)
 	set_system_gate(SYSCALL_VECTOR, system_call);
 }
 
-static void die(char *str, struct trap_frame *tr, long err)
+void die(char *str, struct trap_frame *tr, long err)
 {
 	printk("[%u] %s\n", err, str);
 	print_tr(tr);

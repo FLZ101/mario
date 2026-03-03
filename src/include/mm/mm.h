@@ -74,6 +74,4 @@ struct vm_area_struct *find_vma(struct mm_struct *, unsigned long);
 
 int generic_file_mmap(struct inode *, struct file *, struct vm_area_struct *);
 
-void print_mmap(struct mm_struct *mm);
-
 #endif /* _MM_H */

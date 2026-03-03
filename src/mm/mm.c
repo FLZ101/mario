@@ -9,11 +9,56 @@
 
 #include <lib/stddef.h>
 
-void verify_vma(struct mm_struct *mm)
+void print_mmap(struct mm_struct *mm, char *tag)
 {
+	struct vm_area_struct *vma;
+
+	if (tag)
+		printk("%s\n", tag);
+	for (vma = mm->mmap; vma; vma = vma->vm_next) {
+		if (vma->vm_next && vma->vm_next->vm_next)
+			continue;
+		printk("%x, %x, ", vma->vm_start, vma->vm_end);
+		char c1, c2;
+		if (vma->vm_flags & VM_WRITE)
+			c1 = 'w';
+		else if (vma->vm_flags & (VM_READ | VM_EXEC))
+			c1 = 'r';
+		else
+			c1 = 'o';
+		if (vma->vm_flags & VM_SHARED)
+			c2 = 'S';
+		else
+			c2 = 'P';
+		printk("%c, %c\n", c1, c2);
+	}
 }
 
-// return first vma that may contain addr
+size_t get_vm_size(struct mm_struct *mm)
+{
+	size_t n = 0;
+	struct vm_area_struct *vma;
+
+	for (vma = mm->mmap ; vma ; vma = vma->vm_next) {
+		n += vma->vm_end - vma->vm_start;
+	}
+	return n;
+}
+
+void verify_vm(struct mm_struct *mm)
+{
+	struct vm_area_struct *vma;
+
+	for (vma = mm->mmap ; vma ; vma = vma->vm_next) {
+		assert(vma->vm_start < vma->vm_end);
+		assert(PAGE_ALIGNED(vma->vm_start));
+		assert(PAGE_ALIGNED(vma->vm_end));
+		if (vma->vm_next)
+			assert(vma->vm_end <= vma->vm_next->vm_start);
+	}
+}
+
+// return first vma whose end > addr
 struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
 {
 	struct vm_area_struct *vma;
@@ -51,6 +96,8 @@ void insert_vm_struct(struct mm_struct *mm, struct vm_area_struct *vma)
 	}
 	vma->vm_next = mpnt;
 	*p = vma;
+
+	verify_vm(mm);
 }
 
 void remove_shared_vm_struct(struct vm_area_struct *vma)
@@ -134,23 +181,25 @@ void unmap_fixup(struct vm_area_struct *vma, unsigned long addr, unsigned long l
 		vma->vm_start = end;
 	} else {
 		mpnt = (struct vm_area_struct *)kmalloc(sizeof(*mpnt));
-		if (!mpnt)
-			return;
+		assert(mpnt);
+
 		*mpnt = *vma;
 		mpnt->vm_offset += (end - vma->vm_start);
 		mpnt->vm_start = end;
+
 		if (mpnt->vm_inode)
 			iref(mpnt->vm_inode);
 		if (mpnt->vm_ops && mpnt->vm_ops->open)
 			mpnt->vm_ops->open(mpnt);
+
 		vma->vm_end = addr;	/* Truncate area */
 		insert_vm_struct(current->mm, mpnt);
 	}
 
 	/* construct whatever mapping is needed */
 	mpnt = (struct vm_area_struct *)kmalloc(sizeof(*mpnt));
-	if (!mpnt)
-		return;
+	assert(mpnt);
+
 	*mpnt = *vma;
 	if (mpnt->vm_ops && mpnt->vm_ops->open)
 		mpnt->vm_ops->open(mpnt);
@@ -181,7 +230,7 @@ void unmap_pte_range(pde_t *pd, unsigned long addr, unsigned long len)
 		}
 		addr += PAGE_SIZE;
 		pt++;
-	} while (addr < len);
+	} while (addr < end);
 }
 
 int unmap_page_range(unsigned long addr, unsigned long len)
@@ -401,27 +450,6 @@ int sys_mmap(struct mmap_arg_struct *arg)
 	return do_mmap(a.addr, a.len, a.prot, a.flags, a.fd, a.offset);
 }
 
-void print_mmap(struct mm_struct *mm)
-{
-	struct vm_area_struct *vma;
-
-	for (vma = mm->mmap; vma; vma = vma->vm_next) {
-		printk("%x, %x, ", vma->vm_start, vma->vm_end);
-		char c1, c2;
-		if (vma->vm_flags & VM_WRITE)
-			c1 = 'w';
-		else if (vma->vm_flags & (VM_READ | VM_EXEC))
-			c1 = 'r';
-		else
-			c1 = 'o';
-		if (vma->vm_flags & VM_SHARED)
-			c2 = 'S';
-		else
-			c2 = 'P';
-		printk("%c, %c\n", c1, c2);
-	}
-}
-
 unsigned long sys_brk(unsigned long brk)
 {
 	unsigned long rlim;
@@ -450,13 +478,13 @@ unsigned long sys_brk(unsigned long brk)
 	 */
 	 rlim = current->rlim[RLIMIT_DATA].rlim_cur;
 	 if (brk - current->mm->end_code > rlim)
-	 	return current->mm->brk;
+	 	return -ENOMEM;
 
 	/*
 	 * Check against existing mmap mappings
 	 */
 	if (find_vma_intersection(current->mm, oldbrk, newbrk + PAGE_SIZE))
-		return current->mm->brk;
+		return -ENOMEM;
 
 	int err = do_mmap(oldbrk, newbrk - oldbrk, PROT_READ | PROT_WRITE | PROT_EXEC,
 		MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);

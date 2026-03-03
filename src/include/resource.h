@@ -15,4 +15,10 @@ struct rlimit {
  */
 #define RLIM_INFINITY	(~0UL)
 
+#define INIT_RLIMITS \
+{ \
+	{RLIM_INFINITY, RLIM_INFINITY},	\
+	{8192 * 1024, 8192 * 1024}	\
+}
+
 #endif	/* _RESOURCE_H */

@@ -15,7 +15,7 @@ LD :=$(TOOLCHAIN)ld -m elf_i386
 LDFLAGS :=-L$(LIBC) -T Link.ld --orphan-handling=warn -nostdlib -lc
 OBJDUMP :=$(TOOLCHAIN)objdump
 
-$(EXE): $(OBJS)
+$(EXE): $(OBJS) $(LIBC)/libc.a
 	$(LD) -o $@ $^ $(LDFLAGS)
 
 %.o: %.S
