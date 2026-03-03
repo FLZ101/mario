@@ -222,11 +222,26 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
 {
     if (!stream || stream->fd < 0) return 0;
 
-    size_t total = size * nmemb;
-    if (total == 0) return 0;
+    size_t left = size * nmemb;
+	ssize_t n = 0;
+	while (left > 0) {
+		// if cache is empty, load
+		if (stream->p >= stream->p_end) {
+			int n_read = read(stream->fd, stream->cache, FILE_CACHE_SIZE);
+			if (n_read == -1) // error
+				break;
+			if (n_read == 0) // EOF
+				break;
+			stream->p = 0;
+			stream->p_end = n_read;
+		}
 
-    ssize_t n = read(stream->fd, ptr, total);
-    if (n == -1) return 0;
+		while (left > 0 && stream->p < stream->p_end) {
+			*(char *)ptr++ = stream->cache[stream->p++];
+			--left;
+			++n;
+		}
+	}
 
     return (size_t) n / size;
 }
@@ -244,9 +259,9 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
     return (size_t) n / size;
 }
 
-static FILE stdin_file = { .fd = 0 };
-static FILE stdout_file = { .fd = 1 };
-static FILE stderr_file = { .fd = 2 };
+static FILE stdin_file = { .fd = 0, .cache = { 0 }, .p = 0, .p_end = 0 };
+static FILE stdout_file = { .fd = 1, .cache = { 0 }, .p = 0, .p_end = 0 };
+static FILE stderr_file = { .fd = 2, .cache = { 0 }, .p = 0, .p_end = 0 };
 
 FILE *stdin = &stdin_file;
 FILE *stdout = &stdout_file;

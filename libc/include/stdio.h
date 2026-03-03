@@ -5,8 +5,12 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#define FILE_CACHE_SIZE 512
+
 typedef struct {
 	int fd;
+	char cache[FILE_CACHE_SIZE];
+	int p, p_end;
 } FILE;
 
 extern FILE *stdin;
