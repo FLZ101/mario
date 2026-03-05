@@ -168,6 +168,13 @@ static void scroll_one_line(struct console *con)
 
 void write_char(struct console *con, unsigned char c)
 {
+	if (con->pending_wrap) {
+		if (c != '\n' && c != '\r') {
+			con->pos_x = 0;
+			con->pos_y++;
+		}
+		con->pending_wrap = 0;
+	}
 	if (c == '\t') {
 		con->pos_x += 8;
 		con->pos_x &= ~7;
@@ -188,8 +195,8 @@ void write_char(struct console *con, unsigned char c)
 	}
 
 	if (con->pos_x >= N_COL) {
-		con->pos_x = 0;
-		con->pos_y++;
+		con->pending_wrap = 1;
+		con->pos_x = N_COL;
 	}
 	if (con->pos_y >= N_ROW) {
 		con->pos_y = N_ROW - 1;
@@ -594,7 +601,7 @@ void console_write_char(struct console *con, unsigned char c)
 		if (c == '\033')
 			con->state = ESC;
 		else
-			write_char(con, c);
+			return write_char(con, c);
 		break;
 	case ESC:
 		if (c == '[') {
@@ -604,7 +611,7 @@ void console_write_char(struct console *con, unsigned char c)
 			reset_screen(con);
 		} else {
 			con->state = NORMAL;
-			write_char(con, c);
+			return write_char(con, c);
 		}
 		break;
 	case CSI:
@@ -628,6 +635,7 @@ void console_write_char(struct console *con, unsigned char c)
 	default:
 		;
 	}
+	con->pending_wrap = 0;
 }
 
 void console_put_char(struct tty_struct *tty, unsigned char c)
@@ -692,6 +700,7 @@ void console_reset(struct console *con)
 	con->save_x = 0;
 	con->save_y = 0;
 	con->cursor_hidden = 0;
+	con->pending_wrap = 0;
 	memset(con->mem, SPACE, N_ROW * N_COL);
 
 	memset(con->esc_buf, 0, ESC_BUF_SIZE);

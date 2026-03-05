@@ -33,6 +33,7 @@ struct console {
 	unsigned int save_x, save_y;
 	uint8_t fg_color, bg_color;
 	int cursor_hidden;
+	int pending_wrap;
 
 	char esc_buf[ESC_BUF_SIZE];
 	int esc_buf_p;

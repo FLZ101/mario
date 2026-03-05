@@ -50,13 +50,8 @@ do { \
 	cat("/etc/welcome.txt");
 
 	{
-		char *args[] = { "/bin/cp.exe", "/root/04.aTextViewer.html", "/root/tmp.html", NULL };
-		run_arg("/bin/cp.exe", args);
-	}
-
-	{
-		char *args[] = { "/bin/cat.exe", "/root/tmp.html", NULL };
-		run_arg("/bin/cat.exe", args);
+		char *args[] = { "/bin/kilo.exe", "/root/04.aTextViewer.html", NULL };
+		run_arg("/bin/kilo.exe", args);
 	}
 
 tail:
