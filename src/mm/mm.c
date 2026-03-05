@@ -9,15 +9,11 @@
 
 #include <lib/stddef.h>
 
-void print_mmap(struct mm_struct *mm, char *tag)
+void print_mmap(struct mm_struct *mm)
 {
 	struct vm_area_struct *vma;
 
-	if (tag)
-		printk("%s\n", tag);
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {
-		if (vma->vm_next && vma->vm_next->vm_next)
-			continue;
 		printk("%x, %x, ", vma->vm_start, vma->vm_end);
 		char c1, c2;
 		if (vma->vm_flags & VM_WRITE)

@@ -17,6 +17,9 @@ char *strerror(int errnum)
 
 void perror(const char *s)
 {
+    if (!errno)
+        return;
+
     if (s && *s)
         printf("%s : %s\n", s, strerror(errno));
     else

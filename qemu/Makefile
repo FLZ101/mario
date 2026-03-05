@@ -42,7 +42,8 @@ QEMU_FLAGS := \
 	-boot order=c \
 	-m 256M \
 	-drive file=hd.img,format=raw,index=0,media=disk \
-	-display curses
+	-display curses \
+	-no-reboot -no-shutdown
 
 run:
 	qemu-system-i386 $(QEMU_FLAGS)
@@ -56,7 +57,8 @@ QUICK_QEMU_FLAGS := \
 	-m 256M \
 	-kernel tmp/kernel.exe \
 	-initrd tmp/rd0 \
-	-display curses
+	-display curses \
+	-no-reboot -no-shutdown
 
 quick-run: tmp/kernel.exe tmp/rd0
 	qemu-system-i386 $(QUICK_QEMU_FLAGS)
