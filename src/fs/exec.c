@@ -252,7 +252,11 @@ int prep_args(struct exec *exe, char **argv, char **envp)
 {
 	int i, error;
 
-	if (!(exe->arg_page[0] = page_alloc()))
+	// Use get_zero_page (rather than page_alloc):
+	//   * the page should be zeroed
+	//   * for userspace pages (shared between forks), use get/put wrapper (rather than alloc/free) for reference counting
+	//
+	if (!(exe->arg_page[0] = get_zero_page()))
 		return -ENOMEM;
 	for (i = 1; i < MAX_ARG_PAGES; i++)
 		exe->arg_page[i] = 0;
