@@ -128,7 +128,7 @@ read_a_block:
  */
 int mario_file_write(struct inode *i, struct file *f, char *buf, int count)
 {
-	int n, block, nr, res = 0;
+	int n, block, nr, res = 0, ret = 0;
 	unsigned int start, end, write;
 	struct buffer_head *bh = NULL;
 
@@ -144,7 +144,7 @@ int mario_file_write(struct inode *i, struct file *f, char *buf, int count)
 		start = f->f_pos;
 	end = start + count;
 	if (!i->i_nr_block) {	/* empty file? */
-		if (mario_get_block(i->i_sb, 1, &block, &block))
+		if ((ret = mario_get_block(i->i_sb, 1, &block, &block)))
 			goto tail_3;
 		i->i_rdev = block;
 		i->i_nr_block++;
@@ -176,10 +176,12 @@ new_block:
 	if (block)
 		goto next_1;
 
-	if (mario_get_block(i->i_sb, 1, &block, &block))
+	if ((ret = mario_get_block(i->i_sb, 1, &block, &block)))
 		goto tail_1;
 
 	*(int *)(bh->b_data + n) = block;
+	set_dirty(bh); // !!! MUST ensure bh's dirty bit is set after modifying it
+
 	i->i_nr_block++;
 next_1:
 	brelse(bh);
@@ -192,6 +194,13 @@ tail_2:
 	set_bit(I_Dirty, &i->i_state);
 tail_3:
 	up(&i->i_sem);
+	if (ret && res == 0)
+		return ret;
+
+	if (i->i_nr_block > 0)
+		assert((i->i_nr_block - 1) * n < i->i_size);
+	assert(i->i_size <= i->i_nr_block * n);
+
 	return res;
 }
 

@@ -115,9 +115,8 @@ try:
 	/*
 	 * Expand that directory
 	 */
-	if (mario_get_block(dir->i_sb, 1, &block, &block)) {
+	if ((ret = mario_get_block(dir->i_sb, 1, &block, &block))) {
 		brelse(bh);
-		ret = -ENOSPC;
 		goto tail;
 	}
 	*next_block = block;
@@ -289,8 +288,8 @@ int mario_mkdir(struct inode *dir, char *name, int len)
 	}
 	if (mario_find_entry(dir, name, len))
 		return -EEXIST;
-	if (mario_get_block(dir->i_sb, 1, &block, &block))
-		return -ENOSPC;
+	if ((ret = mario_get_block(dir->i_sb, 1, &block, &block)))
+		return ret;
 
 	entry.data = block;
 	entry.mode = MODE_DIR;
