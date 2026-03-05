@@ -34,6 +34,8 @@ struct console {
 	uint8_t fg_color, bg_color;
 	int cursor_hidden;
 	int pending_wrap;
+	int color_inverted;
+	int bold;
 
 	char esc_buf[ESC_BUF_SIZE];
 	int esc_buf_p;

@@ -36,7 +36,7 @@ static struct tty_struct *get_console_tty(struct console *con)
 }
 
 enum Color {
-	Black,
+	Black = 0,
 	Blue,
 	Green,
 	Cyan,
@@ -54,8 +54,16 @@ enum Color {
 	White
 };
 
-#define MAKEC(con, c) ((((con->bg_color) << 4) | ((con->fg_color) & 0x0f)) << 8 | (c))
-#define SPACE MAKEC(con, ' ')
+static uint16_t makec(struct console *con, unsigned char c)
+{
+	uint8_t bg_color = con->color_inverted ? con->fg_color : con->bg_color;
+	uint8_t fg_color = con->color_inverted ? con->bg_color : con->fg_color;
+	if (con->bold && fg_color < 8)
+		fg_color += 8;
+	return (((bg_color << 4) | fg_color) << 8) | c;
+}
+
+#define SPACE makec(con, ' ')
 
 static void hide_cursor(struct console *con) {
 	con->cursor_hidden = 1;
@@ -188,9 +196,9 @@ void write_char(struct console *con, unsigned char c)
 			return;
 		con->pos_x--;
 	} else if (c >= ' ') {
-		con->mem[con->pos_y][con->pos_x] = MAKEC(con, c);
+		con->mem[con->pos_y][con->pos_x] = makec(con, c);
 		if (is_fg(con))
-			VIDEO_MEM[con->pos_y][con->pos_x] = MAKEC(con, c);
+			VIDEO_MEM[con->pos_y][con->pos_x] = makec(con, c);
 		con->pos_x++;
 	}
 
@@ -358,70 +366,92 @@ static void csi_u(struct console *con)
 	move_cursor(con);
 }
 
+static void do_csi_m(struct console *con, int action)
+{
+	switch (action) {
+	case 0:
+		con->fg_color = Light_Gray;
+		con->bg_color = Black;
+		con->bold = 0;
+		con->color_inverted = 0;
+		break;
+
+	case 1:
+		con->bold = 1;
+		break;
+	case 7:
+		con->color_inverted = 1;
+		break;
+
+	case 30:
+		con->fg_color = Black;
+		break;
+	case 31:
+		con->fg_color = Red;
+		break;
+	case 32:
+		con->fg_color = Green;
+		break;
+	case 33:
+		con->fg_color = Yellow;
+		break;
+	case 34:
+		con->fg_color = Blue;
+		break;
+	case 35:
+		con->fg_color = Magenta;
+		break;
+	case 36:
+		con->fg_color = Cyan;
+		break;
+	case 37:
+		con->fg_color = White;
+		break;
+
+	case 40:
+		con->bg_color = Black;
+		break;
+	case 41:
+		con->bg_color = Red;
+		break;
+	case 42:
+		con->bg_color = Green;
+		break;
+	case 43:
+		con->bg_color = Yellow;
+		break;
+	case 44:
+		con->bg_color = Blue;
+		break;
+	case 45:
+		con->bg_color = Magenta;
+		break;
+	case 46:
+		con->bg_color = Cyan;
+		break;
+	case 47:
+		con->bg_color = White;
+		break;
+	}
+}
+
 // SGR - SELECT GRAPHIC RENDITION
 static void csi_m(struct console *con)
 {
 	char *arg = NULL;
 	char *esc_buf = con->esc_buf;
-	while ((arg = get_esc_arg(&esc_buf, con->esc_buf_p))) {
-		int action = simple_atou(arg);
-		switch (action) {
-		case 0:
-			con->fg_color = Light_Gray;
-			con->bg_color = Black;
-			break;
+	int action = 0;
 
-		case 30:
-			con->fg_color = Black;
-			break;
-		case 31:
-			con->fg_color = Red;
-			break;
-		case 32:
-			con->fg_color = Green;
-			break;
-		case 33:
-			con->fg_color = Yellow;
-			break;
-		case 34:
-			con->fg_color = Blue;
-			break;
-		case 35:
-			con->fg_color = Magenta;
-			break;
-		case 36:
-			con->fg_color = Cyan;
-			break;
-		case 37:
-			con->fg_color = White;
-			break;
-
-		case 40:
-			con->bg_color = Black;
-			break;
-		case 41:
-			con->bg_color = Red;
-			break;
-		case 42:
-			con->bg_color = Green;
-			break;
-		case 43:
-			con->bg_color = Yellow;
-			break;
-		case 44:
-			con->bg_color = Blue;
-			break;
-		case 45:
-			con->bg_color = Magenta;
-			break;
-		case 46:
-			con->bg_color = Cyan;
-			break;
-		case 47:
-			con->bg_color = White;
-			break;
-		}
+	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
+	if (!arg) {
+		do_csi_m(con, action);
+		return;
 	}
+
+	do {
+		action = simple_atou(arg);
+		do_csi_m(con, action);
+	} while ((arg = get_esc_arg(&esc_buf, con->esc_buf_p)));
 }
 
 static void csi_J(struct console *con)
@@ -700,6 +730,8 @@ void console_reset(struct console *con)
 	con->save_x = 0;
 	con->save_y = 0;
 	con->cursor_hidden = 0;
+	con->color_inverted = 0;
+	con->bold = 0;
 	con->pending_wrap = 0;
 	memset(con->mem, SPACE, N_ROW * N_COL);
 
