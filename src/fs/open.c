@@ -128,7 +128,6 @@ int sys_ftruncate(unsigned int fd, int length)
 	down(&inode->i_sem);
 	error = inode->i_op->truncate(inode, length);
 	up(&inode->i_sem);
-	iput(inode);
 	return error;
 }
 
