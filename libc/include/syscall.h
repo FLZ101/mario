@@ -93,6 +93,16 @@ __asm__ volatile ("int $0x80" \
 __syscall_return(type, __res); \
 }
 
+#define _syscall2v(type,name,type1,arg1,type2,arg2) \
+type name(type1 arg1,type2 arg2,...) \
+{ \
+long __res; \
+__asm__ volatile ("int $0x80" \
+	: "=a" (__res) \
+	: "0" (__SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2))); \
+__syscall_return(type, __res); \
+}
+
 #define _syscall3(type,name,type1,arg1,type2,arg2,type3,arg3) \
 type name(type1 arg1,type2 arg2,type3 arg3) \
 { \
