@@ -48,11 +48,7 @@ do { \
 	HANDLE_ERR(signal(SIGQUIT, SIG_IGN));
 
 	cat("/etc/welcome.txt");
-
-	{
-		char *args[] = { "/bin/kilo.exe", "/root/main.c", NULL };
-		run_arg("/bin/kilo.exe", args);
-	}
+	cat("/root/main.c");
 
 tail:
 	while (1) {
