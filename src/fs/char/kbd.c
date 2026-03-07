@@ -296,6 +296,9 @@ void irq_PS2(void)
 	struct console *con = get_fg_console();
 	struct kbd *k = &con->k;
 
+	if (!tty->count)
+        return;
+
 	__b = inb(0x60);
 
 	switch (state) {

@@ -189,7 +189,6 @@ void write_char(struct console *con, unsigned char c)
 	} else if (c == '\r') {
 		con->pos_x = 0;
 	} else if (c == '\n') {
-		con->pos_x = 0;
 		con->pos_y++;
 	} else if (c == '\b') {
 		if (con->pos_x == 0)
@@ -685,25 +684,15 @@ void console_write_char(struct console *con, unsigned char c)
 void console_put_char(struct tty_struct *tty, unsigned char c)
 {
 	dev_t minor = MINOR(tty->dev);
-	struct console *con = &console_table[minor - 1];
+	struct console *con = &console_table[minor - tty->driver->minor];
 
 	console_write_char(con, c);
-}
-
-static int console_write(struct tty_struct *tty, unsigned char *buf, int count)
-{
-	for (int i = 0; i < count; ++i) {
-		unsigned char c = get_fs_byte(buf + i);
-		console_put_char(tty, c);
-	}
-	return count;
 }
 
 struct tty_driver console_driver = {
 	.minor = TTY_MINOR_1,
 	.n = NUM_CONSOLE,
 	.tty_table = console_tty_table,
-	.write = console_write,
 	.put_char = console_put_char,
 };
 
@@ -774,6 +763,9 @@ void console_init()
 		tty->termios = default_termios;
 		tty->winsize.ws_col = N_COL;
 		tty->winsize.ws_row = N_ROW;
+
+		tty->count = 0;
+		tty->initialized = 1;
 	}
 
 	con = get_fg_console();

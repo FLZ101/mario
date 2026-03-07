@@ -50,10 +50,10 @@ void __tinit ramdisk_setup(struct multiboot_info *m)
 	}
 tail:
 	if (!end)
-		hang("no ramdisk loaded!\n");
+		hang("No ramdisk loaded!\n");
 	end += KERNEL_BASE;	/* !!! */
 
-	printk("ramdisk(s):\n");
+	printk("Ramdisks:\n");
 	for (i = 0; i < nr_rd; i++) {
 		printk("rd_start=%x, rd_end=%x, name=%s\n",
 			rd_info[i].rd_start += KERNEL_BASE,

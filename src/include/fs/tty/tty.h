@@ -12,7 +12,6 @@ struct tty_driver {
 	dev_t n; // max number of devices
 
 	struct tty_struct *tty_table;
-	int (*write)(struct tty_struct *tty, unsigned char *buf, int count);
 	void (*put_char)(struct tty_struct *tty, unsigned char c);
 };
 
@@ -28,11 +27,14 @@ struct tty_struct {
 
 	struct ring_buffer read_buf;
 	wait_queue_t wait_read;
+
+	int count;
+	int initialized;
 };
 
 extern struct termios default_termios;
 
-void tty_receive_c(struct tty_struct *tty, char c);
+void tty_receive_c(struct tty_struct *tty, unsigned char c);
 void tty_receive_s(struct tty_struct *tty, char *s);
 
 #endif /* _TTY_H */

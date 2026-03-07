@@ -27,6 +27,8 @@ void __tinit printk_init(struct multiboot_info *m)
 
 static void putchar(char c)
 {
+	if (c == '\n')
+		console_write_char(con, '\r');
 	console_write_char(con, c);
 }
 

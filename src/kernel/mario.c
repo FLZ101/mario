@@ -36,7 +36,7 @@ extern void bh_thread(void *arg);
 #define MAX_INIT_ENVS 8
 
 static char *argv_init[MAX_INIT_ARGS+2] = { "init", NULL, };
-static char *envp_init[MAX_INIT_ENVS+2] = { "HOME=/", NULL, };
+static char *envp_init[MAX_INIT_ENVS+2] = { "HOME=/root", NULL, };
 
 void init(void *arg)
 {

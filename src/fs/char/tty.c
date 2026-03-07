@@ -46,7 +46,7 @@ void tty_put_s(struct tty_struct *tty, char *s)
 		tty_put_c(tty, c);
 }
 
-void tty_receive_c(struct tty_struct *tty, char c)
+void tty_receive_c(struct tty_struct *tty, unsigned char c)
 {
 	struct ring_buffer *rb = &tty->read_buf;
 
@@ -159,12 +159,17 @@ int tty_open(struct inode *i, struct file *f)
 		minor = MINOR(dev);
 	}
 
-	struct tty_struct* tty = NULL;
+	struct tty_struct *tty = NULL;
 	int err = get_tty(minor, &tty);
 	if (err)
 		return err;
 
+	// the device is not successfully initialized
+	if (!tty->initialized)
+		return -EINVAL;
+
 	f->private_data = tty;
+	++tty->count;
 
 	int noctty = f->f_flags & O_NOCTTY;
 	if (!noctty &&
@@ -264,7 +269,11 @@ int tty_write(struct inode *i, struct file *f, char *buf, int count)
 	if (err)
 		return err;
 
-	return tty->driver->write(tty, (unsigned char *) buf, count);
+	for (int i = 0; i < count; ++i) {
+		unsigned char c = get_fs_byte(buf + i);
+		tty_put_c(tty, c);
+	}
+	return count;
 }
 
 static int tty_lseek(struct inode *i, struct file *f, off_t offset, int orig)
@@ -377,6 +386,12 @@ static int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned
 
 static void tty_release(struct inode *i, struct file *f)
 {
+	struct tty_struct *tty = (struct tty_struct *)f->private_data;
+	if (!tty)
+		return;
+
+	assert(tty->count > 0);
+	--tty->count;
 }
 
 struct file_operations tty_fops = {
@@ -390,12 +405,12 @@ struct file_operations tty_fops = {
 
 extern void ps2_init(void);
 extern void console_init(void);
-extern void uart_init(void);
+extern void serial_init(void);
 
 void __tinit tty_init(void)
 {
 	ps2_init();
 	console_init();
-	uart_init();
+	serial_init();
 	register_chrdev(TTY_MAJOR, &tty_fops);
 }

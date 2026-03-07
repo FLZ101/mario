@@ -1,18 +1,28 @@
 Devices currently supported by mario:
 
-0	NULL
+0       NULL
 
-1	char	  Memory devices
-		0 = /dev/zero
-		1 = /dev/null
+1       char    Memory devices
 
-	block	  Ramdisks
-		0 = /dev/rd0
-		1 = /dev/rd1
-		2 = /dev/rd2
+        0       /dev/zero
+        1       /dev/null
 
-2	char	  TTY devices
-		0 = /dev/tty0	Current virtual console
-		1 = /dev/tty1	1st virtual console
-		2 = /dev/tty2
-		3 = /dev/tty3
+        block   Ramdisks
+
+        0       /dev/rd0
+        1       /dev/rd1
+        2       /dev/rd2
+
+2       char    TTY devices
+
+        0       /dev/tty0       Current virtual console
+        1       /dev/tty1       1st virtual console
+        2       /dev/tty2
+        3       /dev/tty3
+
+        64      /dev/ttyS0      1st serial
+        65      /dev/ttyS1
+        66      /dev/ttyS2
+        67      /dev/ttyS3
+
+        128     /dev/tty        Current tty
