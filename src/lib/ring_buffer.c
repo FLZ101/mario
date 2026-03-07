@@ -17,6 +17,12 @@ int ring_buffer_init(struct ring_buffer *rb) {
 	return 0;
 }
 
+void ring_buffer_clear(struct ring_buffer *rb) {
+	rb->head = 0;
+	rb->tail = 0;
+	rb->len = 0;
+}
+
 void ring_buffer_destroy(struct ring_buffer *rb) {
 	if (rb->data) {
 		page_free((unsigned long)rb->data);

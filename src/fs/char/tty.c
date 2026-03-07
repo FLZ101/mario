@@ -397,7 +397,10 @@ static void tty_release(struct inode *i, struct file *f)
 		return;
 
 	assert(tty->count > 0);
-	--tty->count;
+	if (--tty->count)
+		return;
+
+	ring_buffer_clear(&tty->read_buf);
 }
 
 struct file_operations tty_fops = {

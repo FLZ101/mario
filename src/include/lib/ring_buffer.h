@@ -12,6 +12,7 @@ struct ring_buffer {
 };
 
 int ring_buffer_init(struct ring_buffer *rb);
+void ring_buffer_clear(struct ring_buffer *rb);
 void ring_buffer_destroy(struct ring_buffer *rb);
 
 size_t ring_buffer_space(const struct ring_buffer *rb);
