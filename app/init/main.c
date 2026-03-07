@@ -50,11 +50,9 @@ do { \
 	cat("/etc/welcome.txt");
 
 	{
-		char *args[] = { "/bin/kilo.exe", "/etc/welcome.txt", NULL };
+		char *args[] = { "/bin/kilo.exe", "/root/main.c", NULL };
 		run_arg("/bin/kilo.exe", args);
 	}
-
-	cat("/etc/welcome.txt");
 
 tail:
 	while (1) {

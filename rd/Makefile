@@ -13,7 +13,8 @@ rd-explorer:
 
 BINS := $(wildcard ../app/**/*.exe)
 
-rd0: $(BINS)
+rd0_files := $(shell find ramdisk0 -type f)
+rd0: $(BINS) $(rd0_files)
 	cp -u $(BINS) ramdisk0/bin
 	rd-make/rd-make.exe --block-size=512 --device-list=device_list --dir=ramdisk0 --rd=rd0 \
 		--nr-block=8192

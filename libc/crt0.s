@@ -1,5 +1,5 @@
 	.text
-	.globl start, ___main
+	.globl start
 
 start:
 	movl %esp, %eax
@@ -11,6 +11,3 @@ start:
 1:
 	hlt
 	jmp 1b
-
-___main:
-	ret
