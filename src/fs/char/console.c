@@ -244,7 +244,7 @@ static int isalpha(unsigned char c)
 
 static int into_esc_buf(struct console *con, unsigned char c)
 {
-	if (con->esc_buf_p >= ESC_BUF_SIZE - 1)
+	if (con->esc_buf_p >= ESC_BUF_SIZE - 4)
 		return 1;
 	con->esc_buf[con->esc_buf_p++] = c;
 	return 0;
@@ -256,20 +256,23 @@ static void reset_esc_buf(struct console *con)
 	con->esc_buf_p = 0;
 }
 
-static char *get_esc_arg(char **s, int n)
+// *s should be like "1", "1;2", "1;2;3"
+static char *get_esc_arg(char **s)
 {
 	char *p, *q;
 
-	for (p = *s; p < *s + n; ++p) {
-		if (*p == ';' || isalpha(*p)) {
+	for (p = *s; *p; ++p) {
+		if (*p == ';') {
 			*p = 0;
 			break;
 		}
 		if ('0' <= *p && *p <= '9')
 			continue;
-		// other characters (esp. \0) are invalid
+		// other characters (esp. '\0') are invalid
 		return NULL;
 	}
+	assert(!*p);
+
 	if (*s == p)
 		return NULL;
 	q = *s;
@@ -286,14 +289,14 @@ static void csi_H(struct console *con)
 	pos_x = pos_y = 0;
 
 	esc_buf = con->esc_buf;
-	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
+	arg = get_esc_arg(&esc_buf);
 	if (!arg)
 		goto __set_pos;
 	pos_y = simple_atou(arg);
 	if (-1 == pos_y)
 		return;
 
-	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
+	arg = get_esc_arg(&esc_buf);
 	if (!arg)
 		goto __set_pos;
 	pos_x = simple_atou(arg);
@@ -319,7 +322,7 @@ static void csi_ABCD(struct console *con, unsigned char c)
 	count = 1;
 
 	esc_buf = con->esc_buf;
-	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
+	arg = get_esc_arg(&esc_buf);
 	if (!arg)
 		goto __move;
 	count = simple_atou(arg);
@@ -455,7 +458,7 @@ static void csi_m(struct console *con)
 	char *esc_buf = con->esc_buf;
 	int action = 0;
 
-	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
+	arg = get_esc_arg(&esc_buf);
 	if (!arg) {
 		do_csi_m(con, action);
 		return;
@@ -464,7 +467,7 @@ static void csi_m(struct console *con)
 	do {
 		action = simple_atou(arg);
 		do_csi_m(con, action);
-	} while ((arg = get_esc_arg(&esc_buf, con->esc_buf_p)));
+	} while ((arg = get_esc_arg(&esc_buf)));
 }
 
 static void csi_J(struct console *con)
@@ -474,7 +477,7 @@ static void csi_J(struct console *con)
 
 	esc_buf = con->esc_buf;
 
-	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
+	arg = get_esc_arg(&esc_buf);
 	if (arg) {
 		m = simple_atou(arg);
 		if (-1 == m)
@@ -499,7 +502,7 @@ static void csi_K(struct console *con)
 
 	esc_buf = con->esc_buf;
 
-	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
+	arg = get_esc_arg(&esc_buf);
 	if (arg) {
 		m = simple_atou(arg);
 		if (-1 == m)
@@ -530,7 +533,7 @@ static void csi_n(struct console *con)
 
 	esc_buf = con->esc_buf;
 
-	arg = get_esc_arg(&esc_buf, con->esc_buf_p);
+	arg = get_esc_arg(&esc_buf);
 	if (!arg)
 		return;
 
@@ -559,7 +562,7 @@ static void csi_q(struct console *con, unsigned char c)
 	char *esc_buf = con->esc_buf;
 	switch (c) {
 	case 'l': {
-		while ((arg = get_esc_arg(&esc_buf, con->esc_buf_p))) {
+		while ((arg = get_esc_arg(&esc_buf))) {
 			int action = simple_atou(arg);
 			switch (action) {
 			case 25:
@@ -570,7 +573,7 @@ static void csi_q(struct console *con, unsigned char c)
 		break;
 	}
 	case 'h': {
-		while ((arg = get_esc_arg(&esc_buf, con->esc_buf_p))) {
+		while ((arg = get_esc_arg(&esc_buf))) {
 			int action = simple_atou(arg);
 			switch (action) {
 			case 25:
@@ -736,7 +739,7 @@ void console_reset(struct console *con)
 	con->color_inverted = 0;
 	con->bold = 0;
 	con->pending_wrap = 0;
-	memset(con->mem, SPACE, N_ROW * N_COL);
+	memsetw(con->mem, SPACE, N_ROW * N_COL);
 
 	memset(con->esc_buf, 0, ESC_BUF_SIZE);
 	con->esc_buf_p = 0;

@@ -48,6 +48,9 @@ void tty_put_s(struct tty_struct *tty, char *s)
 
 void tty_receive_c(struct tty_struct *tty, unsigned char c)
 {
+	if (!tty->count)
+		return;
+
 	struct ring_buffer *rb = &tty->read_buf;
 
 	int wake = 0;
@@ -123,6 +126,9 @@ tail_2:
 
 void tty_receive_s(struct tty_struct *tty, char *s)
 {
+	if (!tty->count)
+		return;
+
 	char c;
 	while ((c = *s++))
 		tty_receive_c(tty, c);
