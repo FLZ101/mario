@@ -266,6 +266,10 @@ static char *get_esc_arg(char **s, int n)
 			*p = 0;
 			break;
 		}
+		if ('0' <= *p && *p <= '9')
+			continue;
+		// other characters (esp. \0) are invalid
+		return NULL;
 	}
 	if (*s == p)
 		return NULL;
@@ -408,6 +412,11 @@ static void do_csi_m(struct console *con, int action)
 		con->fg_color = White;
 		break;
 
+	case 39:
+		// Set foreground color to default
+		con->fg_color = Light_Gray;
+		break;
+
 	case 40:
 		con->bg_color = Black;
 		break;
@@ -431,6 +440,11 @@ static void do_csi_m(struct console *con, int action)
 		break;
 	case 47:
 		con->bg_color = White;
+		break;
+
+	case 49:
+		// Set background color to default
+		con->bg_color = Black;
 		break;
 	}
 }
@@ -549,8 +563,8 @@ static void csi_q(struct console *con, unsigned char c)
 		while ((arg = get_esc_arg(&esc_buf, con->esc_buf_p))) {
 			int action = simple_atou(arg);
 			switch (action) {
-				case 25:
-					hide_cursor(con);
+			case 25:
+				hide_cursor(con);
 				break;
 			}
 		}
@@ -560,8 +574,8 @@ static void csi_q(struct console *con, unsigned char c)
 		while ((arg = get_esc_arg(&esc_buf, con->esc_buf_p))) {
 			int action = simple_atou(arg);
 			switch (action) {
-				case 25:
-					show_cursor(con);
+			case 25:
+				show_cursor(con);
 				break;
 			}
 		}
