@@ -1,20 +1,24 @@
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdlib.h>
 
-static void sput_c(char **buf, char c)
+static int sput_c(char **buf, char *end, char c)
 {
-	*((*buf)++) = c;
-	**buf = '\0';
+	if (*buf < end)
+		*((*buf)++) = c;
+	return 1;
 }
 
-static void sput_s(char **buf, char *str)
+static int sput_s(char **buf, char *end, char *str)
 {
+	int n = 0;
 	char c;
 	while ((c = *(str++)))
-		sput_c(buf, c);
+		n += sput_c(buf, end, c);
+	return n;
 }
 
-static void sput_x(char **buf, unsigned int n)
+static int sput_x(char **buf, char *end, unsigned int n)
 {
 	int i, j;
 	char s[11] = {'0', 'x'};
@@ -29,18 +33,16 @@ static void sput_x(char **buf, unsigned int n)
 			s[i] = '0';
 		}
 	}
-	sput_s(buf, s);
+	return sput_s(buf, end, s);
 }
 
-static void sput_u(char **buf, unsigned int n)
+static int sput_u(char **buf, char *end, unsigned int n)
 {
 	int i, j;
 	char s[11] = {0};
 
-	if (n == 0) {
-		sput_s(buf, "0");
-		return;
-	}
+	if (n == 0)
+		return sput_s(buf, end, "0");
 
 	for (i = 9; i >= 0; i--) {
 		if (n) {
@@ -51,56 +53,77 @@ static void sput_u(char **buf, unsigned int n)
 			break;
 		}
 	}
-	sput_s(buf, s + i + 1);
+	return sput_s(buf, end, s + i + 1);
 }
 
-static void sput_d(char **buf, int n)
+static int sput_d(char **buf, char *end, int n)
 {
-	if (0 <= n) {
-		sput_u(buf, n);
-	} else {
-		sput_s(buf, "-");
-		sput_u(buf, -n);
-	}
+	if (0 <= n)
+		return sput_u(buf, end, n);
+	else
+		return sput_s(buf, end, "-") + sput_u(buf, end, -n);
 }
 
 /*
  * %u, %d, %x, %c, %s
  */
-int vsprintf(char *buf, const char *fmt, va_list ap)
+int vsnprintf(char *buf, size_t len, const char *fmt, va_list ap)
 {
-	char *p0 = buf, *p1 = buf;
+	if (!buf) {
+		buf = (char *)&buf;
+		len = 0;
+	}
+
+	int n = 0;
+	char *p1 = buf;
+	char *end = buf + len - 1;
 	char c;
 	while ((c = *(fmt++))) {
 		if (c == '%') {
 			c = *(fmt++);
 			switch (c) {
 			case 'u':
-				sput_u(&p1, va_arg(ap, unsigned int));
+				n += sput_u(&p1, end, va_arg(ap, unsigned int));
 				break;
 			case 'd':
-				sput_d(&p1, va_arg(ap, int));
+				n += sput_d(&p1, end, va_arg(ap, int));
 				break;
 			case 'x':
-				sput_x(&p1, va_arg(ap, unsigned int));
+				n += sput_x(&p1, end, va_arg(ap, unsigned int));
 				break;
 			case 'c':
-				sput_c(&p1, va_arg(ap, char));
+				n += sput_c(&p1, end, va_arg(ap, char));
 				break;
 			case 's':
-				sput_s(&p1, va_arg(ap, char *));
+				n += sput_s(&p1, end, va_arg(ap, char *));
 				break;
 			case '%':
-				sput_c(&p1, '%');
+				n += sput_c(&p1, end, '%');
 				break;
 			default:
 				break;
 			}
 			continue;
 		}
-		sput_c(&p1, c);
+		n += sput_c(&p1, end, c);
 	}
-	return p1 - p0;
+
+	if (p1 <= end)
+		*p1 = '\0';
+	return n;
+}
+
+int snprintf(char *buf, size_t len, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	int n = vsnprintf(buf, len, fmt, ap);
+	va_end(ap);
+	return n;
+}
+
+int vsprintf(char *buf, const char *fmt, va_list ap) {
+	return vsnprintf(buf, 4096, fmt, ap);
 }
 
 int sprintf(char *buf, const char *fmt, ...)
@@ -112,17 +135,45 @@ int sprintf(char *buf, const char *fmt, ...)
 	return n;
 }
 
-int printf(const char *fmt, ...)
+int vfprintf(FILE *stream, const char *fmt, va_list ap)
 {
-	static char buf[1024] = {0};
-	char *p = NULL;
+	va_list ap_copy;
+	size_t len;
 
+	va_copy(ap_copy, ap);
+	len = vsnprintf(NULL, 0, fmt, ap_copy);
+	va_end(ap_copy);
+
+	char *buf = malloc(len + 1);
+	if (!buf)
+		return -1;
+
+	vsnprintf(buf, len + 1, fmt, ap);
+	size_t n_write = fwrite(buf, 1, len, stream);
+
+	free(buf);
+	return n_write;
+}
+
+int vprintf(const char *fmt, va_list ap)
+{
+	return vfprintf(stdout, fmt, ap);
+}
+
+int fprintf(FILE *stream, const char *fmt, ...)
+{
 	va_list ap;
 	va_start(ap, fmt);
-	int n = vsprintf(buf, fmt, ap);
+	int n = vfprintf(stream, fmt, ap);
 	va_end(ap);
+	return n;
+}
 
-	for (p = buf; *p; p++)
-		putchar(*p);
+int printf(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	int n = vprintf(fmt, ap);
+	va_end(ap);
 	return n;
 }

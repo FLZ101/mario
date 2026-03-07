@@ -31,9 +31,17 @@ extern FILE *stdin;
 extern FILE *stdout;
 extern FILE *stderr;
 
+int vsnprintf(char *buf, size_t len, const char *fmt, va_list ap);
+int snprintf(char *buf, size_t len, const char *fmt, ...);
+
 int vsprintf(char *buf, const char *fmt, va_list ap);
 int sprintf(char *buf, const char *fmt, ...);
-int printf(const char *s, ...);
+
+int vfprintf(FILE *stream, const char *fmt, va_list ap);
+int fprintf(FILE *stream, const char *fmt, ...);
+
+int vprintf(const char *fmt, va_list ap);
+int printf(const char *fmt, ...);
 
 int fputc(int c, FILE *stream);
 

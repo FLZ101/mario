@@ -8,5 +8,6 @@ typedef char *va_list;
 #define va_start(ap,v)  ( ap = (va_list)&v + _INTSIZEOF(v) )
 #define va_arg(ap,t)    ( *(t *)((ap += _INTSIZEOF(t)) - _INTSIZEOF(t)) )
 #define va_end(ap)      ( ap = (va_list)0 )
+#define va_copy(dst,src) ( (dst) = (src) )
 
 #endif	/* _STDARG_H */
