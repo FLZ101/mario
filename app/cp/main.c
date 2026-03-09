@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <errno.h>
 
+#include <app/util.h>
+
 int main(int argc, char *argv[])
 {
     if (argc < 3) {
@@ -10,11 +12,11 @@ int main(int argc, char *argv[])
 
     FILE *src_f = fopen(argv[1], "r");
     if (!src_f) {
-        _perror();
+        PError();
     }
     FILE *dst_f = fopen(argv[2], "w");
     if (!dst_f) {
-        _perror();
+        PError();
     }
 
     char c;

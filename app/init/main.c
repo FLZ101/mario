@@ -1,62 +1,141 @@
-#include <app/util.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/wait.h>
 #include <signal.h>
 #include <string.h>
+#include <time.h>
+#include <assert.h>
 
-static volatile sig_atomic_t should_exit = 0;
+#include <app/util.h>
 
-void sig_handler(int sig) {
-	if (sig == SIGCHLD) {
-		// reap zombies
-		while (waitpid(-1, NULL, WNOHANG) > 0)
-			;
-	} else if (sig == SIGTERM || sig == SIGINT) {
-		should_exit = 1;
-	}
+static volatile sig_atomic_t sigchld = 0;
+static volatile sig_atomic_t sigint = 0;
+static volatile sig_atomic_t sigterm = 0;
+
+static void handle_sig(int sig)
+{
+    switch (sig) {
+    case SIGCHLD:
+        sigchld = 1;
+        break;
+    case SIGINT:
+        sigint = 1;
+        break;
+    case SIGTERM:
+        sigterm = 1;
+        break;
+    }
+}
+
+struct getty {
+    const char *device;
+    pid_t pid;
+    time_t last_spawn;
+};
+
+static struct getty getties[] = {
+    {.device = "/dev/tty1"},
+    {.device = "/dev/tty2"},
+    {.device = "/dev/tty3"},
+    {.device = "/dev/tty4"},
+    {.device = "/dev/tty5"},
+    {.device = "/dev/tty6"},
+    {.device = "/dev/ttyS0"},
+    {.device = "/dev/ttyS1"},
+    {.device = "/dev/ttyS2"},
+    {.device = "/dev/ttyS3"},
+};
+
+#define N_GETTY (sizeof(getties) / sizeof(struct getty))
+
+static void spawn_getty(struct getty *gty) {
+    time_t now = time(NULL);
+    if (now - gty->last_spawn < 3) {
+        sleep(3);
+    }
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        execl("/bin/getty.exe", "getty", gty->device, NULL);
+        Exit();
+    } else if (pid > 0) {
+        gty->pid = pid;
+        gty->last_spawn = time(NULL);
+        printf("[init] getty %s\n", gty->device);
+    }
+}
+
+int tty_check(const char *device)
+{
+    if (!strcmp(device, "/dev/tty1"))
+        return 1;
+
+    int fd = open(device, O_RDWR);
+    if (-1 == fd)
+        return 1;
+    close(fd);
+    return 0;
 }
 
 int main(int argc, char *argv[], char *envp[])
 {
+    assert(0 == open("/dev/console", O_RDWR));
 
-#define HANDLE_ERR(x) \
-do { \
-	if (-1 == (x)) { \
-		_perror(); \
-		goto tail; \
-	} \
-} while (0)
+    HandleErr(dup(0));
+    HandleErr(dup(0));
 
-	HANDLE_ERR(setsid());
-	HANDLE_ERR(open("/dev/tty1", O_RDWR));
-	HANDLE_ERR(dup(0));
-	HANDLE_ERR(dup(0));
+    PrintFile("/etc/welcome.txt");
 
-	struct sigaction sa;
-	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = sig_handler;
-	sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = handle_sig;
+    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
 
-	HANDLE_ERR(sigaction(SIGCHLD, &sa, NULL));
-	HANDLE_ERR(sigaction(SIGTERM, &sa, NULL));
-	HANDLE_ERR(sigaction(SIGINT, &sa, NULL));
+    HandleErr(sigaction(SIGCHLD, &sa, NULL));
+    HandleErr(sigaction(SIGTERM, &sa, NULL));
+    HandleErr(sigaction(SIGINT, &sa, NULL));
 
-	HANDLE_ERR(signal(SIGPIPE, SIG_IGN));
-	HANDLE_ERR(signal(SIGHUP, SIG_IGN));
-	HANDLE_ERR(signal(SIGQUIT, SIG_IGN));
+    HandleErr(signal(SIGPIPE, SIG_IGN));
+    HandleErr(signal(SIGHUP, SIG_IGN));
+    HandleErr(signal(SIGQUIT, SIG_IGN));
 
-	cat("/etc/welcome.txt");
+    for (int i = 0; i < N_GETTY; i++) {
+        struct getty *gty = getties + i;
+        gty->pid = 0;
+        gty->last_spawn = 0;
 
-	{
-		char *args[] = { "/bin/kilo.exe", "/root/main.c", NULL };
-		run_arg("/bin/kilo.exe", args);
-	}
+        if (!tty_check(gty->device))
+            spawn_getty(gty);
+    }
 
-tail:
-	while (1) {
-		pause();
-	}
-	return 0;
+    while (1) {
+        pause();
+
+        if (sigchld) {
+            sigchld = 0;
+
+            int status;
+            pid_t pid;
+            // respawn getty and reap zombies
+            while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+                for (int i = 0; i < N_GETTY; i++) {
+                    if (getties[i].pid == pid) {
+                        spawn_getty(getties + i);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (sigint) {
+            // TODO: reboot
+        }
+
+        if (sigterm) {
+            // TODO: shutdown
+        }
+    }
+
+    return 0;
 }

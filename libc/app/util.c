@@ -6,121 +6,150 @@
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <dirent.h>
+#include <string.h>
+#include <stdarg.h>
 
-void cat(char *filename)
+char *Sprintf(const char *fmt, ...)
 {
-	int err;
+    size_t len;
+    va_list ap;
 
-	int fd = open(filename, O_RDONLY);
-	if (-1 == fd) {
-		_perror();
-		exit(EXIT_FAILURE);
-	}
+    va_start(ap, fmt);
+    len = vsprintf(NULL, fmt, ap);
+    va_end(ap);
 
-	char ch;
-	while (1) {
-		int ret = read(fd, &ch, 1);
-		if (-1 == ret) {
-			_perror();
-			exit(EXIT_FAILURE);
-		}
-		// EOF
-		if (ret == 0)
-			break;
-		putchar(ch);
-	}
+    char *buf = malloc(len + 1);
+    if (!buf)
+        return NULL;
 
-	err = close(fd);
-	if (-1 == err) {
-		_perror();
-		exit(EXIT_FAILURE);
-	}
+    va_start(ap, fmt);
+    (void) vsprintf(buf, fmt, ap);
+    va_end(ap);
+
+    return buf;
 }
 
-// NOTE: argv and envp can not contain "", or EFAULT happens
-static char *empty_argv[] = { NULL };
-static char *empty_envp[] = { NULL };
-
-void run(char *filename)
+void Run(char *filename, char **argv, char **envp)
 {
-	run_arg_env(filename, empty_argv, empty_envp);
+    int err;
+    pid_t pid;
+
+    printf("[run] %s\n", filename);
+
+    int p = !strstr(filename, "/");
+    if (p) {
+        filename = Sprintf("/bin/%s", filename);
+        if (!filename)
+            Exit();
+    }
+
+    pid = fork();
+    if (-1 == pid)
+        Exit();
+
+    if (!pid) {
+        err = execve(filename, argv, envp);
+        if (-1 == err)
+            Exit();
+    } else {
+        int status = 0;
+        err = waitpid(pid, &status, 0);
+        if (-1 == err)
+            Exit();
+        if (WIFEXITED(status)) {
+            printf("[run] status = %d\n", WEXITSTATUS(status));
+        } else if (WIFSIGNALED(status)) {
+            printf("[run] signal = %d\n", WTERMSIG(status));
+        }
+    }
+
+    if (p)
+        free(filename);
 }
 
-void run_arg(char *filename, char **argv)
+static void VRunL(char *filename, va_list ap)
 {
-	run_arg_env(filename, argv, empty_envp);
+    size_t n_arg = 1;
+    va_list ap_copy;
+    va_copy(ap_copy, ap);
+    while (va_arg(ap_copy, const char *) != NULL) {
+        ++n_arg;
+    }
+    va_end(ap_copy);
+
+    char **argv = (char **)calloc(n_arg + 1, sizeof(char *));
+    if (!argv)
+        Exit();
+
+    argv[0] = filename;
+    for (int i = 1; i < n_arg; i++) {
+        argv[i] = va_arg(ap, char *);
+    }
+
+    Run(filename, argv, environ);
 }
 
-void run_arg_env(char *filename, char **argv, char **envp)
+void RunL(char *filename, ...)
 {
-	int err;
-	pid_t pid;
+    va_list ap;
+    va_start(ap, filename);
+    VRunL(filename, ap);
+    va_end(ap);
+}
 
-	printf("[run] %s\n", filename);
+void PrintFile(char *filename)
+{
+    int err;
 
-	pid = fork();
-	if (-1 == pid) {
-		_perror();
-		exit(EXIT_FAILURE);
-	}
+    int fd = open(filename, O_RDONLY);
+    if (-1 == fd)
+        Exit();
 
-	if (!pid) {
-		err = execve(filename, argv, envp);
-		if (-1 == err) {
-			_perror();
-			exit(EXIT_FAILURE);
-		}
-	} else {
-		int status = 0;
-		err = waitpid(pid, &status, 0);
-		if (-1 == err) {
-			_perror();
-			exit(EXIT_FAILURE);
-		}
-		if (WIFEXITED(status)) {
-			printf("[run] status = %d\n", WEXITSTATUS(status));
-		} else if (WIFSIGNALED(status)) {
-			printf("[run] signal = %d\n", WTERMSIG(status));
-		}
-	}
+    char ch;
+    while (1) {
+        int ret = read(fd, &ch, 1);
+        if (-1 == ret)
+            Exit();
+        // EOF
+        if (ret == 0)
+            break;
+        putchar(ch);
+    }
+
+    err = close(fd);
+    if (-1 == err)
+        Exit();
 }
 
 #define N 1024
 
-void ls(char *pathname)
+void ListDir(char *pathname)
 {
-	int err;
-	char buf[N];
+    char buf[N];
 
-	printf("ls %s\n", pathname);
+    printf("[list] %s\n", pathname);
 
-	int fd = open(pathname, O_RDONLY | O_DIRECTORY);
-	if (-1 == fd) {
-		_perror();
-		exit(EXIT_FAILURE);
-	}
+    int fd = open(pathname, O_RDONLY | O_DIRECTORY);
+    if (-1 == fd)
+        Exit();
 
-	while (1) {
-		int count = getdents(fd, buf, N);
-		if (-1 == count) {
-			_perror();
-			exit(EXIT_FAILURE);
-		}
-		// end of directory
-		if (0 == count)
-			break;
+    while (1) {
+        int count = getdents(fd, buf, N);
+        if (-1 == count)
+            Exit();
+        // end of directory
+        if (0 == count)
+            break;
 
-		int off = 0;
-		while (off < count) {
-			struct mario_dirent *dirent = (struct mario_dirent *) (buf + off);
-			printf("%x %x %s\n", dirent->d_ino, dirent->d_off, dirent->d_name);
-			off += dirent->d_reclen;
-		}
-	}
+        int off = 0;
+        while (off < count) {
+            struct mario_dirent *dirent = (struct mario_dirent *) (buf + off);
+            printf("%x %x %s\n", dirent->d_ino, dirent->d_off, dirent->d_name);
+            off += dirent->d_reclen;
+        }
+    }
 
-	err = close(fd);
-	if (-1 == err) {
-		_perror();
-		exit(EXIT_FAILURE);
-	}
+    HandleErr(close(fd));
 }
+
+#undef N

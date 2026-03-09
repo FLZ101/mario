@@ -53,7 +53,7 @@ tail:
 		hang("No ramdisk loaded!\n");
 	end += KERNEL_BASE;	/* !!! */
 
-	printk("Ramdisks:\n");
+	printk("ramdisk(s):\n");
 	for (i = 0; i < nr_rd; i++) {
 		printk("rd_start=%x, rd_end=%x, name=%s\n",
 			rd_info[i].rd_start += KERNEL_BASE,

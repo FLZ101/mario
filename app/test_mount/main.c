@@ -6,22 +6,18 @@
 
 int main(int argc, char *argv[], char *envp[])
 {
-	ls("/mnt");
+	ListDir("/mnt");
 
 	int err = mount("/dev/rd2", "/mnt", "mariofs");
-	if (-1 == err) {
-		_perror();
-		exit(EXIT_FAILURE);
-	}
+	if (-1 == err)
+		Exit();
 
-	ls("/mnt");
-	cat("/mnt/quick/brown/fox.txt");
+	ListDir("/mnt");
+	PrintFile("/mnt/quick/brown/fox.txt");
 
 	err = umount("/mnt");
-	if (-1 == err) {
-		_perror();
-		exit(EXIT_FAILURE);
-	}
+	if (-1 == err)
+		Exit();
 
 	return 0;
 }

@@ -137,6 +137,4 @@ __asm__ volatile ("int $0x80" \
 __syscall_return(type, __res); \
 }
 
-#define __SYS__exit __SYS_exit
-
 #endif /* _SYSCALL_H */

@@ -1,7 +1,16 @@
 #include <syscall.h>
 #include <errno.h>
 
-_syscall1(int,_exit,int,status)
+__attribute__((noreturn)) void _exit(int status)
+{
+    __asm__ volatile (
+        "int $0x80"
+        :
+        : "a" (__SYS_exit),"b" (status & 0xff)
+        : "memory"
+    );
+    __builtin_unreachable();
+}
 
 #define MAX_EXIT_FN 32
 
@@ -16,7 +25,7 @@ int atexit(void (*f)(void))
     return 0;
 }
 
-void exit(int status)
+__attribute__((noreturn)) void exit(int status)
 {
     for (int i = n_exit_fn - 1; i >= 0; --i)
         exit_functions[i]();

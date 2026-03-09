@@ -60,8 +60,6 @@ void perror(const char *s);
 #define STRINGIFY(x)	#x
 #define TO_STRING(x)	STRINGIFY(x)
 
-#define _perror()	perror(__FILE__ ":" TO_STRING(__LINE__))
-
 int rename(const char *oldpath, const char *newpath);
 
 #define EOF -1

@@ -6,6 +6,7 @@ rd1 2 1 1
 rd2 2 1 2
 
 tty 3 2 128
+console 3 2 129
 
 tty0 3 2 0
 tty1 3 2 1

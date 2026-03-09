@@ -1,12 +1,30 @@
 #ifndef _APP_UTIL_H
 #define _APP_UTIL_H
 
-void cat(char *filename);
+#include <stdio.h>
+#include <stdlib.h>
 
-void run(char *filename);
-void run_arg(char *filename, char **argv);
-void run_arg_env(char *filename, char **argv, char **envp);
+#define PError() perror(__FILE__ ":" TO_STRING(__LINE__))
 
-void ls(char *pathname);
+#define Exit() \
+do { \
+    PError(); \
+    exit(EXIT_FAILURE); \
+} while (0)
+
+#define HandleErr(x) \
+do { \
+    if (-1 == (x)) { \
+        Exit(); \
+    } \
+} while (0)
+
+char *Sprintf(const char *fmt, ...);
+
+void Run(char *filename, char **argv, char **envp);
+void RunL(char *filename, ...);
+
+void PrintFile(char *filename);
+void ListDir(char *pathname);
 
 #endif /* _APP_UTIL_H */

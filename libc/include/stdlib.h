@@ -1,7 +1,7 @@
 #ifndef _STDLIB_H
 #define _STDLIB_H
 
-void exit(int);
+__attribute__((noreturn)) void exit(int);
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1

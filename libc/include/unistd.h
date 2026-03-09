@@ -15,7 +15,6 @@ static inline _syscall3(int,write,int,fd,const char *,buf,off_t,count)
 static inline _syscall1(int,close,int,fd)
 static inline _syscall1(int,dup,int,fd)
 static inline _syscall2(int,dup2,int,oldfd,int,newfd)
-static inline _syscall3(int,execve,const char *,file,char **,argv,char **,envp)
 static inline _syscall1(int,pipe,int *,pipefd)
 static inline _syscall0(pid_t,getpid)
 static inline _syscall0(pid_t,getppid)
@@ -49,5 +48,20 @@ unsigned int sleep(unsigned int seconds);
 
 pid_t tcgetpgrp(int fd);
 int tcsetpgrp(int fd, pid_t pgrp);
+
+extern char **environ;
+
+// NOTE:
+//
+// 1. argv and envp can not contain "", or EFAULT happens
+// 2. argv and envp can be NULL
+int execve(const char *pathname, char *argv[], char *envp[]);
+
+int execl(const char *pathname, char *arg, ... /*, (char *) NULL */);
+int execlp(const char *file, char *arg, ... /*, (char *) NULL */);
+int execle(const char *pathname, char *arg, ... /*, (char *) NULL, char *envp[] */);
+int execv(const char *pathname, char *argv[]);
+int execvp(const char *file, char *argv[]);
+int execvpe(const char *file, char *argv[], char *envp[]);
 
 #endif	/* _UNISTD_H */

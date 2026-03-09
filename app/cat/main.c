@@ -2,14 +2,14 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include <app/util.h>
+
 int main(int argc, char *argv[])
 {
 	if (argc > 1) {
 		FILE *f = fopen(argv[1], "r");
-		if (!f) {
-			_perror();
-			exit(EXIT_FAILURE);
-		}
+		if (!f)
+			Exit();
 
 		char *line = NULL;
 		size_t len = 0;
@@ -26,10 +26,9 @@ int main(int argc, char *argv[])
 	char ch;
 	while (1) {
 		int ret = read(0, &ch, 1);
-		if (-1 == ret) {
-			_perror();
-			exit(EXIT_FAILURE);
-		}
+		if (-1 == ret)
+			Exit();
+
 		// EOF
 		if (ret == 0)
 			break;
