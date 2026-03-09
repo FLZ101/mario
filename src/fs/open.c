@@ -88,7 +88,7 @@ int sys_close(unsigned int fd)
 	if (!(f = current->files->fd[fd]))
 		return -EBADF;
 	current->files->fd[fd] = NULL;
-	put_file(f);
+	release_file(f, 1);
 	return 0;
 }
 

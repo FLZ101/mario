@@ -56,9 +56,11 @@ int get_two_empty_files(struct file *res[2])
 	return 1;
 }
 
-void put_file(struct file *f)
+void release_file(struct file *f, int release)
 {
 	struct inode *i;
+
+	assert(f->f_count > 0);
 
 	if (f->f_count > 1) {
 		f->f_count--;
@@ -66,16 +68,19 @@ void put_file(struct file *f)
 	}
 
 	i = f->f_inode;
-	if (f->f_op && f->f_op->release && i)
+	if (release && f->f_op && f->f_op->release && i)
 		f->f_op->release(i, f);
 
-	ACQUIRE_LOCK(&file_lock);
 	f->f_count--;
 	f->f_inode = NULL;
-	RELEASE_LOCK(&file_lock);
 
 	if (i)
 		iput(i);
+}
+
+void put_file(struct file *f)
+{
+	release_file(f, 0);
 }
 
 /*

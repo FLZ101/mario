@@ -161,6 +161,7 @@ void file_init(void);
 struct file *get_empty_file(void);
 int get_two_empty_files(struct file *res[2]);
 void put_file(struct file *);
+void release_file(struct file *, int release);
 void fref(struct file *);
 
 struct fs_struct {
