@@ -84,7 +84,7 @@ static void serial_put_char(struct tty_struct *tty, unsigned char c)
 }
 
 struct tty_driver serial_driver = {
-    .minor = TTY_MINOR_S_0,
+    .minor = SERIAL_MINOR_0,
     .n = NUM_SERIAL,
     .tty_table = serial_tty_table,
     .put_char = serial_put_char,
@@ -103,7 +103,7 @@ void serial_init()
         struct serial *ser = &serial_table[i];
         struct tty_struct *tty = &serial_tty_table[i];
 
-        tty->dev = MKDEV(TTY_MAJOR, TTY_MINOR_S_0 + i);
+        tty->dev = MKDEV(TTY_MAJOR, SERIAL_MINOR_0 + i);
         tty->driver = &serial_driver;
         tty->pgrp = 0;
         tty->session = 0;

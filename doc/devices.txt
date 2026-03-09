@@ -19,6 +19,9 @@ Devices currently supported by mario:
         1       /dev/tty1       1st virtual console
         2       /dev/tty2
         3       /dev/tty3
+        4       /dev/tty4
+        5       /dev/tty5
+        6       /dev/tty6
 
         64      /dev/ttyS0      1st serial
         65      /dev/ttyS1
@@ -26,3 +29,4 @@ Devices currently supported by mario:
         67      /dev/ttyS3
 
         128     /dev/tty        Current tty
+        129     /dev/console    System console

@@ -22,6 +22,11 @@ struct console *get_fg_console()
 	return &console_table[fg_console];
 }
 
+dev_t get_fg_console_dev()
+{
+	return MKDEV(TTY_MAJOR, TTY_MINOR_1 + fg_console);
+}
+
 static int is_fg(struct console *con)
 {
 	return get_fg_console() == con;

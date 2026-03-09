@@ -1,5 +1,6 @@
 #include <fs/fs.h>
 #include <fs/tty/tty.h>
+#include <fs/tty/console.h>
 
 #include <misc.h>
 
@@ -155,6 +156,8 @@ int get_tty(dev_t minor, struct tty_struct **tty)
 
 int tty_open(struct inode *i, struct file *f)
 {
+	int noctty = f->f_flags & O_NOCTTY;
+
 	dev_t dev = i->i_rdev;
 	dev_t minor = MINOR(dev);
 
@@ -162,8 +165,14 @@ int tty_open(struct inode *i, struct file *f)
 		if (!current->tty)
 			return -ENXIO;
 		dev = current->tty->dev;
-		minor = MINOR(dev);
+	} else if (minor == TTY_MINOR_0) {
+		dev = get_fg_console_dev();
+	} else if (minor == SYSTEM_CONSOLE_MINOR) {
+		dev = MKDEV(TTY_MAJOR, TTY_MINOR_1);
+		noctty = 1;
 	}
+	i->i_rdev = dev;
+	minor = MINOR(dev);
 
 	struct tty_struct *tty = NULL;
 	int err = get_tty(minor, &tty);
@@ -177,7 +186,6 @@ int tty_open(struct inode *i, struct file *f)
 	f->private_data = tty;
 	++tty->count;
 
-	int noctty = f->f_flags & O_NOCTTY;
 	if (!noctty &&
 	    current->leader &&
 	    !current->tty &&
@@ -213,12 +221,11 @@ int tty_read(struct inode *i, struct file *f, char *buf, int count)
 	if (!tty)
 		return -EIO;
 
-	if (current->tty != tty)
-		return -EPERM;
-
-	if (current->pgrp != tty->pgrp) {
-		kill_pg(current->pgrp, SIGTTIN, 1);
-		return -ERESTARTSYS;
+	if (current->tty == tty) {
+		if (current->pgrp != tty->pgrp) {
+			kill_pg(current->pgrp, SIGTTIN, 1);
+			return -ERESTARTSYS;
+		}
 	}
 
 	struct ring_buffer *rb = &tty->read_buf;
@@ -258,12 +265,11 @@ static int tty_check(struct tty_struct *tty)
 	if (!tty)
 		return -EIO;
 
-	if (current->tty != tty)
-		return -EPERM;
-
-	if (current->pgrp != tty->pgrp) {
-		kill_pg(current->pgrp, SIGTTOU, 1);
-		return -ERESTARTSYS;
+	if (current->tty == tty) {
+		if (current->pgrp != tty->pgrp) {
+			kill_pg(current->pgrp, SIGTTOU, 1);
+			return -ERESTARTSYS;
+		}
 	}
 	return 0;
 }
@@ -343,8 +349,20 @@ static int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned
 				return err;
 			memcpy_tofs((struct winsize *) arg, &tty->winsize, sizeof (struct winsize));
 			return 0;
-		case TIOCSWINSZ:
-			return -EINVAL;
+		case TIOCSWINSZ: {
+			err = verify_area(VERIFY_READ, (void *) arg, sizeof (struct winsize));
+			if (err)
+				return err;
+
+			struct winsize ws;
+			memcpy_fromfs(&ws, (struct winsize *) arg, sizeof (struct winsize));
+			if (memcmp(&ws, &tty->winsize, sizeof(struct winsize))) {
+				tty->winsize = ws;
+				if (tty->pgrp > 0)
+					kill_pg(tty->pgrp, SIGWINCH, 1);
+			}
+			return 0;
+		}
 		case TIOCSTI:
 			if (current->tty != tty)
 				return -EPERM;
@@ -355,6 +373,8 @@ static int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned
 			tty_receive_c(tty, ch);
 			return 0;
 		case TIOCSCTTY:
+			if (current->leader && (current->session == tty->session))
+				return 0;
 			return -EINVAL;
 		case TIOCNOTTY:
 			return -EINVAL;

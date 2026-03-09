@@ -20,13 +20,14 @@ int register_chrdev(unsigned int, struct file_operations *);
 
 #define TTY_MAJOR	2
 
-#define TTY_MINOR_0	0	// /dev/tty0. current console
-#define TTY_MINOR_1	1	// /dev/tty1. first console
+#define TTY_MINOR_0	0	// /dev/tty0. foreground virtual console
+#define TTY_MINOR_1	1	// /dev/tty1. first virtual console
 #define NUM_CONSOLE 6
 
-#define TTY_MINOR_S_0	64	// /dev/ttyS0. first serial
+#define SERIAL_MINOR_0	64	// /dev/ttyS0. first serial
 #define NUM_SERIAL	4
 
 #define TTY_MINOR		128	// /dev/tty. current tty
+#define SYSTEM_CONSOLE_MINOR	129	// /dev/console. the system console
 
 #endif /* _CHRDEV_H */

@@ -44,10 +44,9 @@ struct console {
 	uint16_t mem[N_ROW][N_COL];
 };
 
+dev_t get_fg_console_dev();
 struct tty_struct *get_fg_tty();
-
 struct console *get_fg_console();
-
 void switch_fg_console(int i);
 
 #endif /* _CONSOLE_H */
