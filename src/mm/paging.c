@@ -107,6 +107,7 @@ int copy_page_tables(struct task_struct *p)
 			return error;
 		}
 	}
+	flush_tlb(); // !!!
 	return 0;
 }
 

@@ -7,6 +7,7 @@
 
 extern void die(char *str, struct trap_frame *tr, long err);
 extern void do_exit(long code);
+extern void print_mmap(struct mm_struct *mm);
 
 /*
  * oom() prints a message (so that the user knows why the process died),
@@ -37,6 +38,8 @@ void do_wp_page(struct vm_area_struct *vma, unsigned long addr,
 	}
 	pg = __vir((unsigned long)(*pt) & PAGE_MASK);
 	page = VIR_TO_PAGE(pg);
+
+	// printk("do_wp_page %x %d\n", addr, page->count.counter);
 
 	/* There is only one using that page */
 	if (atomic_read(&page->count) == 1) {
@@ -176,6 +179,7 @@ good_area:
 		do_wp_page(vma, addr, error_code & 2);
 	else
 		do_no_page(vma, addr, error_code & 2);
+	flush_tlb();
 	return;
 
 bad_area:
@@ -200,6 +204,7 @@ bad_area:
 		printk("pte = %x", pte);
 	}
 	printk("\n");
+	print_mmap(current->mm);
 
 	if (userland(tr)) {
 		print_tr(tr);

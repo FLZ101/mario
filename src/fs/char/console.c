@@ -185,6 +185,10 @@ void write_char(struct console *con, unsigned char c)
 		if (c != '\n' && c != '\r') {
 			con->pos_x = 0;
 			con->pos_y++;
+			if (con->pos_y >= N_ROW) {
+				con->pos_y = N_ROW - 1;
+				scroll_one_line(con);
+			}
 		}
 		con->pending_wrap = 0;
 	}
@@ -706,6 +710,8 @@ struct tty_driver console_driver = {
 
 void switch_fg_console(int i)
 {
+	irq_save();
+
 	assert(0 <= i && i < NUM_CONSOLE);
 
 	if (i == fg_console)
@@ -721,6 +727,15 @@ void switch_fg_console(int i)
 		hide_cursor(con);
 	else
 		show_cursor(con);
+
+	// reset keyboard state
+	con->k.v_flags = 0;
+	con->k.v_key = 0;
+	memset(con->esc_buf, 0, ESC_BUF_SIZE);
+	con->esc_buf_p = 0;
+	con->state = NORMAL;
+
+	irq_restore();
 }
 
 void console_sync(struct console *con)
@@ -731,9 +746,6 @@ void console_sync(struct console *con)
 
 void console_reset(struct console *con)
 {
-	con->k.v_flags = 0;
-	con->k.v_key = 0;
-
 	con->bg_color = Black;
 	con->fg_color = Light_Gray;
 	con->pos_x = 0;
@@ -746,6 +758,8 @@ void console_reset(struct console *con)
 	con->pending_wrap = 0;
 	memsetw(con->mem, SPACE, N_ROW * N_COL);
 
+	con->k.v_flags = 0;
+	con->k.v_key = 0;
 	memset(con->esc_buf, 0, ESC_BUF_SIZE);
 	con->esc_buf_p = 0;
 	con->state = NORMAL;

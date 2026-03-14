@@ -30,6 +30,22 @@ void print_mmap(struct mm_struct *mm)
 	}
 }
 
+void merge_mmap(struct mm_struct *mm)
+{
+	struct vm_area_struct *p1, *p2;
+
+	for (p1 = mm->mmap; p1 && (p2 = p1->vm_next);) {
+		if (p1->vm_end == p2->vm_start && p1->vm_flags == p2->vm_flags &&
+			!(p1->vm_flags & VM_SHARED) && !p1->vm_inode && !p2->vm_inode) {
+			p1->vm_end = p2->vm_end;
+			p1->vm_next = p2->vm_next;
+			kfree(p2);
+			continue;
+		}
+		p1 = p1->vm_next;
+	}
+}
+
 size_t get_vm_size(struct mm_struct *mm)
 {
 	size_t n = 0;
@@ -431,6 +447,7 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 	}
 
 	insert_vm_struct(current->mm, vma);
+	merge_mmap(current->mm);
 	return addr;
 }
 
@@ -451,8 +468,11 @@ unsigned long sys_brk(unsigned long brk)
 	unsigned long rlim;
 	unsigned long newbrk, oldbrk;
 
-	if (brk < current->mm->end_code)
+	if (!brk)
 		return current->mm->brk;
+
+	assert(brk >= current->mm->start_brk);
+
 	newbrk = PAGE_ALIGN(brk);
 	oldbrk = PAGE_ALIGN(current->mm->brk);
 	if (oldbrk == newbrk)

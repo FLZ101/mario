@@ -78,28 +78,8 @@ int tty_check(const char *device)
     return 0;
 }
 
-int main(int argc, char *argv[], char *envp[])
+void do_getty()
 {
-    assert(0 == open("/dev/console", O_RDWR));
-
-    HandleErr(dup(0));
-    HandleErr(dup(0));
-
-    PrintFile("/etc/welcome.txt");
-
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = handle_sig;
-    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
-
-    HandleErr(sigaction(SIGCHLD, &sa, NULL));
-    HandleErr(sigaction(SIGTERM, &sa, NULL));
-    HandleErr(sigaction(SIGINT, &sa, NULL));
-
-    HandleErr(signal(SIGPIPE, SIG_IGN));
-    HandleErr(signal(SIGHUP, SIG_IGN));
-    HandleErr(signal(SIGQUIT, SIG_IGN));
-
     for (int i = 0; i < N_GETTY; i++) {
         struct getty *gty = getties + i;
         gty->pid = 0;
@@ -136,6 +116,32 @@ int main(int argc, char *argv[], char *envp[])
             // TODO: shutdown
         }
     }
+}
 
+int main(int argc, char *argv[], char *envp[])
+{
+    if (0 != open("/dev/console", O_RDWR))
+        exit(EXIT_FAILURE);
+    if (1 != dup(0))
+        exit(EXIT_FAILURE);
+    if (2 != dup(0))
+        exit(EXIT_FAILURE);
+
+    PrintFile("/etc/welcome.txt");
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = handle_sig;
+    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+
+    HandleErr(sigaction(SIGCHLD, &sa, NULL));
+    HandleErr(sigaction(SIGTERM, &sa, NULL));
+    HandleErr(sigaction(SIGINT, &sa, NULL));
+
+    HandleErr(signal(SIGPIPE, SIG_IGN));
+    HandleErr(signal(SIGHUP, SIG_IGN));
+    HandleErr(signal(SIGQUIT, SIG_IGN));
+
+    do_getty();
     return 0;
 }

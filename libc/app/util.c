@@ -48,9 +48,8 @@ void Run(char *filename, char **argv, char **envp)
         Exit();
 
     if (!pid) {
-        err = execve(filename, argv, envp);
-        if (-1 == err)
-            Exit();
+        execve(filename, argv, envp);
+        Exit();
     } else {
         int status = 0;
         err = waitpid(pid, &status, 0);
@@ -89,6 +88,7 @@ static void VRunL(char *filename, va_list ap)
     Run(filename, argv, environ);
 }
 
+// must end with NULL
 void RunL(char *filename, ...)
 {
     va_list ap;

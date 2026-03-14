@@ -135,6 +135,8 @@ int sprintf(char *buf, const char *fmt, ...)
 	return n;
 }
 
+#define USE_STATIC_PRINTF_BUF
+
 int vfprintf(FILE *stream, const char *fmt, va_list ap)
 {
 	va_list ap_copy;
@@ -144,14 +146,26 @@ int vfprintf(FILE *stream, const char *fmt, va_list ap)
 	len = vsnprintf(NULL, 0, fmt, ap_copy);
 	va_end(ap_copy);
 
+#ifdef USE_STATIC_PRINTF_BUF
+	#define LEN 1024
+	static char buf[LEN] = {0};
+
+	if (len + 1 > LEN)
+		len = LEN - 1;
+#else
 	char *buf = malloc(len + 1);
 	if (!buf)
 		return -1;
+#endif
 
 	vsnprintf(buf, len + 1, fmt, ap);
 	size_t n_write = fwrite(buf, 1, len, stream);
 
+#ifdef USE_STATIC_PRINTF_BUF
+	#undef LEN
+#else
 	free(buf);
+#endif
 	return n_write;
 }
 

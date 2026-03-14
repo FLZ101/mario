@@ -29,14 +29,21 @@ clean:
 
 #	-display gtk
 #
+#     	https://www.qemu.org/docs/master/system/keys.html
+#
+#       Ctrl-Alt-1
+#       Ctrl-Alt-2
+#
 #	-display curses
 #
-#	  https://www.qemu.org/docs/master/system/keys.html
-#	    `Ctrl+a x` won't work
+#	    Alt-1
+#       Alt-2
 #
-#	  https://www.qemu.org/docs/master/system/keys.html
-#	    Type `Alt+2` to switch to monitor tab, and type `Alt+1` to switch back.
-#	    Make sure the keys are not handled by the terminal emulator (e.g. Windows Terminal, Kconsole)
+#	-nographic
+#
+#		https://www.qemu.org/docs/master/system/mux-chardev.html
+#
+#		Ctrl+a x
 
 QEMU_FLAGS := \
 	-boot order=c \
