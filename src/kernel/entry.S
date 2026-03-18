@@ -210,7 +210,7 @@ trap_common:
 	movw %ax, %ds
 	call *%edi
 	addl $8, %esp
-	jmp ret_common
+	RESTORE_ALL
 
 /****************
  * IRQ handlers *

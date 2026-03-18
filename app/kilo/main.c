@@ -775,7 +775,7 @@ void editorDrawRows(struct abuf *ab) {
           }
         } else if (hl[j] == HL_NORMAL) {
           if (current_color != -1) {
-            abAppend(ab, "\x1b[39m", 5);
+            abAppend(ab, "\x1b[m", 3); // CSI 39m
             current_color = -1;
           }
           abAppend(ab, &c[j], 1);
@@ -790,7 +790,7 @@ void editorDrawRows(struct abuf *ab) {
           abAppend(ab, &c[j], 1);
         }
       }
-      abAppend(ab, "\x1b[39m", 5);
+      abAppend(ab, "\x1b[m", 3); // CSI 39m
     }
 
     abAppend(ab, "\x1b[K", 3);

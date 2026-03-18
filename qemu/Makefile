@@ -60,6 +60,7 @@ debug:
 
 #	-display gtk
 #	-display curses
+#	-d int,mmu,guest_errors -D qemu.log
 QUICK_QEMU_FLAGS := \
 	-m 256M \
 	-kernel tmp/kernel.exe \
