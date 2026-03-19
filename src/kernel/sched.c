@@ -27,18 +27,14 @@ void print_runqueue(void)
 
 static void in_runqueue(struct task_struct *p)
 {
-	irq_save();
 	list_add(&p->run_list, &runqueue_head);
-	irq_restore();
 }
 
 static void out_runqueue(struct task_struct *p)
 {
-	irq_save();
 	list_del(&p->run_list);
 	p->run_list.prev = NULL;
 	p->run_list.next = NULL;
-	irq_restore();
 }
 
 static int task_on_runqueue(struct task_struct *p)
@@ -50,9 +46,12 @@ void wake_up_process(struct task_struct *p)
 {
 	if (!p)
 		return;
+
+	irq_save();
 	p->state = TASK_RUNNING;
 	if (!task_on_runqueue(p))
 		in_runqueue(p);
+	irq_restore();
 }
 
 void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
