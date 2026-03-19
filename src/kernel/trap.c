@@ -56,7 +56,42 @@ void __tinit trap_init(void)
 	set_trap_gate(11, segment_not_present);
 	set_trap_gate(12, stack_segment);
 	set_trap_gate(13, general_protection);
-	set_trap_gate(14, page_fault);
+	/*
+	 * IA-32 Intel® Architecture Software Developer’s Manual
+	 * Volume 3: System Programming Guide
+	 *
+	 * 5. INTERRUPT AND EXCEPTION HANDLING
+	 *
+	 * If more than one exception or interrupt is pending at an instruction boundary,
+	 * the processor services them in a predictable order.
+	 *
+	 *   - External Interrupts: NMI Interrupts, Maskable Hardware Interrupts
+	 *   - Faults on Executing an Instruction: Data Page Fault
+	 *
+	 * ---
+	 *
+	 * The only difference between an interrupt gate and a trap gate is the way the
+	 * processor handles the IF flag in the EFLAGS register. When accessing an
+	 * exception- or interrupt-handling procedure through an interrupt gate, the processor
+	 * clears the IF flag to prevent other interrupts from interfering with the current
+	 * interrupt handler. A subsequent IRET instruction restores the IF flag to its value
+	 * in the saved contents of the EFLAGS register on the stack. Accessing a handler
+	 * procedure through a trap gate does not affect the IF flag.
+	 *
+	 * ---
+	 *
+	 * If trap gate is used here, when executing an instruction triggers a page fault
+	 * and if there is a pending external interrupt. The page fault handler is entered
+	 * and IF is not cleared, so pending external interrupt will be serviced at the next
+	 * instruction boundary (just after the first instruction of the page fault handler
+	 * is executed?). When the interrupt handler returns, another task may be switched
+	 * to and the task may trigger a page fault; later when current task is switched back,
+	 * the cr2 has already been changed!
+	 *
+	 * The solution is using interrupt gate here, which keeps IF cleared during the
+	 * page fault handler.
+	 */
+	set_intr_gate(14, page_fault);
 	set_trap_gate(15, spurious_interrupt_bug);
 	set_trap_gate(16, coprocessor_error);
 
