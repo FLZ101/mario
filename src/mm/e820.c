@@ -141,7 +141,6 @@ void __tinit setup_memory_region(struct multiboot_info *m)
 		if (k > max_pfn)
 			max_pfn = k;
 	}
-	printk("max_pfn=%x\n", max_pfn);
 
 	if (max_pfn < PFN_DOWN(MIN_MEMORY))
 		hang("More physical memory required!\n");
