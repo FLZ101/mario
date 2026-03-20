@@ -19,6 +19,10 @@ $ sudo dnf install make gcc binutils nasm qemu-system-x86 gdb
 $ pip install compiledb
 ```
 
+```
+$ sudo dnf install socat tmux
+```
+
 ### build the kernel (and the bootloader)
 
 ```

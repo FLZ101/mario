@@ -1,4 +1,4 @@
-.PHONY: all image run debug quick-run quick-debug clean
+.PHONY: all image run debug quick-run quick-debug clean tmux-run tmux-debug tmux-attach tmux-kill
 
 all: image
 
@@ -73,3 +73,15 @@ quick-run: tmp/kernel.exe tmp/rd0
 
 quick-debug: tmp/kernel.exe tmp/rd0
 	qemu-system-i386 -s -S $(QUICK_QEMU_FLAGS)
+
+tmux-run: tmp/kernel.exe tmp/rd0
+	./tmux.sh start $(QUICK_QEMU_FLAGS)
+
+tmux-debug: tmp/kernel.exe tmp/rd0
+	./tmux.sh start -s -S $(QUICK_QEMU_FLAGS)
+
+tmux-attach:
+	./tmux.sh attach
+
+tmux-kill:
+	./tmux.sh kill

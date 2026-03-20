@@ -55,3 +55,7 @@ clean-image:
 
 clean-compile_db:
 	$(RM) compile_commands.json
+
+.PHONY: tmux-run tmux-debug tmux-attach tmux-kill
+tmux-run tmux-debug tmux-attach tmux-kill:
+	$(MAKE) $@ -C qemu

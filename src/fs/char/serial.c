@@ -40,7 +40,7 @@ void irq_uart()
         case 0x04: // Received Data Available
             // While LSR says data is ready
             while (inb(port + 5) & 0x01) {
-                unsigned char c = inb(COM1 + 0); // Read RBR
+                unsigned char c = inb(port + 0); // Read RBR
                 tty_receive_c(tty, c);
             }
             break;
