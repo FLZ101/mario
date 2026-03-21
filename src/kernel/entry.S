@@ -355,3 +355,4 @@ ENTRY(sys_call_table)
 	.long sys_sigpending
 	.long sys_sigprocmask
 	.long sys_sigreturn
+	.long sys_fcntl

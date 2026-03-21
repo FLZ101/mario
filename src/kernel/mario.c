@@ -16,7 +16,7 @@ void kernel_thread(void (*fun)(void *), void *arg)
 {
 	__asm__ __volatile__(
 		"movl %%esp, %%esi\n\t"
-		"movl $6, %%eax\n\t" /* fork */
+		"movl %2, %%eax\n\t"
 		"int $0x80\n\t"
 		"cmpl %%esp, %%esi\n\t"
 		"je 1f\n\t"
@@ -25,7 +25,7 @@ void kernel_thread(void (*fun)(void *), void *arg)
 		"jmp .\n\t"
 		"1:"
 		:
-		:"b"(arg), "c"(fun)
+		:"b"(arg), "c"(fun), "i"(__SYS_fork)
 		:"eax", "esi", "memory");
 }
 

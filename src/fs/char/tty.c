@@ -197,11 +197,13 @@ int tty_open(struct inode *i, struct file *f)
 	return 0;
 }
 
-// return maximum number of bytes to read in canonical mode
-int max_canon_read(struct ring_buffer *rb, cc_t *c_cc) {
+int get_n_canon_read(struct ring_buffer *rb, cc_t *c_cc) {
 	size_t mask = rb->size - 1;
 	size_t p = rb->head;
 	int n = 0;
+
+	if (ring_buffer_full(rb))
+		return ring_buffer_avail(rb);
 
 	while (p != rb->tail) {
 		uint8_t ch = (uint8_t) rb->data[p];
@@ -210,9 +212,22 @@ int max_canon_read(struct ring_buffer *rb, cc_t *c_cc) {
 		++n;
 
 		if (ch == '\n' || ch == c_cc[VEOF] || ch == c_cc[VEOL])
-			break;
+			return n;
 	}
-	return n;
+	return 0;
+}
+
+// return number of bytes to read
+int get_n_read(struct tty_struct *tty)
+{
+	struct ring_buffer *rb = &tty->read_buf;
+	tcflag_t c_lflag = tty->termios.c_lflag;
+	cc_t *c_cc = tty->termios.c_cc;
+
+	if (c_lflag & ICANON)
+		return get_n_canon_read(rb, c_cc);
+	else
+		return ring_buffer_avail(rb);
 }
 
 int tty_read(struct inode *i, struct file *f, char *buf, int count)
@@ -229,24 +244,18 @@ int tty_read(struct inode *i, struct file *f, char *buf, int count)
 	}
 
 	struct ring_buffer *rb = &tty->read_buf;
+	cc_t *c_cc = tty->termios.c_cc;
 
 try:
 	if (current->signal & ~current->blocked)
 		return -ERESTARTSYS;
 
-	tcflag_t c_lflag = tty->termios.c_lflag;
-	cc_t *c_cc = tty->termios.c_cc;
-	int n = 0;
-	if (c_lflag & ICANON) {
-		while (!(n = max_canon_read(rb, c_cc))) {
-			sleep_on(&tty->wait_read, TASK_INTERRUPTIBLE, NULL);
+	int n = get_n_read(tty);
+	if (!n) {
+		if (f->f_flags & O_NONBLOCK)
+			return -EAGAIN;
+		sleep_on(&tty->wait_read, TASK_INTERRUPTIBLE, NULL);
 			goto try;
-		}
-	} else {
-		while (!(n = ring_buffer_avail(rb))) {
-			sleep_on(&tty->wait_read, TASK_INTERRUPTIBLE, NULL);
-			goto try;
-		}
 	}
 
 	n = MIN(n, count);

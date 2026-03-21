@@ -42,11 +42,20 @@ struct console {
 	enum esc_state state;
 
 	uint16_t mem[N_ROW][N_COL];
+
+	struct {
+		uint16_t mem[N_ROW][N_COL];
+		unsigned int pos_x, pos_y;
+		unsigned int save_x, save_y;
+	} orig;
 };
 
 dev_t get_fg_console_dev();
 struct tty_struct *get_fg_tty();
 struct console *get_fg_console();
 void switch_fg_console(int i);
+
+#define SCREEN_BUF_SIZE (N_ROW * N_COL)
+#define SCREEN_BUF_BYTE_SIZE (N_ROW * N_COL * sizeof(uint16_t))
 
 #endif /* _CONSOLE_H */

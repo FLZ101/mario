@@ -213,66 +213,89 @@ void handle_key(struct tty_struct *tty, struct console *con)
 				if (tmp == 1)
 					__k = k->v_key >> 16;
 			}
-			if (k->v_flags & 0x3c) {
-				if (k->v_flags & (LALT | RALT))
-					;
 
-				if (k->v_flags & (LCTL | RCTL)) {
-					uint8_t ch = __k & 0xff;
-					if ('@' <= ch && ch <= '_') {
-						tty_receive_c(tty, ch - '@');
-					} else if ('a' <= ch && ch <= 'z') {
-						tty_receive_c(tty, ch - 'a' + 1);
-					} else if (ch == '?') {
-						tty_receive_c(tty, 0x7f); // DEL
-					}
+			int ctl = k->v_flags & (LCTL | RCTL);
+			int alt = k->v_flags & (LALT | RALT);
+			int fn = __k & (1 << f_0);
+			uint8_t ch = __k & 0xff;
+
+			if (ctl) {
+				if ('@' <= ch && ch <= '_') {
+					tty_receive_c(tty, ch - '@');
+				} else if ('a' <= ch && ch <= 'z') {
+					tty_receive_c(tty, ch - 'a' + 1);
+				} else if (ch == '?') {
+					tty_receive_c(tty, 0x7f); // DEL
+				}
+			}
+
+			if (ctl || alt)
+				return;
+
+			if (fn) {
+				switch (ch) {
+				case ENTER:
+					tty_receive_c(tty, '\r');
+					break;
+				case SPACE:
+					tty_receive_c(tty, ' ');
+					break;
+				case TAB:
+					tty_receive_c(tty, '\t');
+					break;
+				case BACKSPACE:
+					tty_receive_c(tty, 0x7f);
+					break;
+				case LEFT:
+				case RIGHT:
+				case UP:
+				case DOWN:
+					csi(tty, ch);;
+					break;
+				case ESC:
+					tty_receive_c(tty, 033);
+					break;
+				case DELETE:
+					tty_receive_s(tty, "\033[3~");
+					break;
+				case INSERT:
+					tty_receive_s(tty, "\033[2~");
+					break;
+				case PGDOWN:
+					tty_receive_s(tty, "\033[6~");
+					break;
+				case PGUP:
+					tty_receive_s(tty, "\033[5~");
+					break;
+				case HOME:
+					tty_receive_s(tty, "\033[1~");
+					break;
+				case END:
+					tty_receive_s(tty, "\033[4~");
+					break;
+				case F1:
+					switch_fg_console(0);
+					break;
+				case F2:
+					switch_fg_console(1);
+					break;
+				case F3:
+					switch_fg_console(2);
+					break;
+				case F4:
+					switch_fg_console(3);
+					break;
+				case F5:
+					switch_fg_console(4);
+					break;
+				case F6:
+					switch_fg_console(5);
+					break;
 				}
 				return;
 			}
-			if (__k & (1 << f_0)) {
-				__k &= 0xff;
 
-				if (__k == ENTER)
-					tty_receive_c(tty, '\r');
-				else if (__k == SPACE)
-					tty_receive_c(tty, ' ');
-				else if (__k == TAB)
-					tty_receive_c(tty, '\t');
-				else if (__k == BACKSPACE)
-					tty_receive_c(tty, 0x7f);
-				else if (__k == LEFT || __k == RIGHT || __k == UP || __k == DOWN)
-					csi(tty, __k);
-				else if (__k == ESC)
-					tty_receive_c(tty, 033);
-				else if (__k == DELETE)
-					tty_receive_s(tty, "\033[3~");
-				else if (__k == INSERT)
-					tty_receive_s(tty, "\033[2~");
-				else if (__k == PGDOWN)
-					tty_receive_s(tty, "\033[6~");
-				else if (__k == PGUP)
-					tty_receive_s(tty, "\033[5~");
-				else if (__k == HOME)
-					tty_receive_s(tty, "\033[1~");
-				else if (__k == END)
-					tty_receive_s(tty, "\033[4~");
-				else if (__k == F1)
-					switch_fg_console(0);
-				else if (__k == F2)
-					switch_fg_console(1);
-				else if (__k == F3)
-					switch_fg_console(2);
-				else if (__k == F4)
-					switch_fg_console(3);
-				else if (__k == F5)
-					switch_fg_console(4);
-				else if (__k == F6)
-					switch_fg_console(5);
-				else
-					/* Do nothing */;
-			} else {
-				tty_receive_c(tty, __k & 0xff);
-			}
+			tty_receive_c(tty, ch);
 		}
 	} else if (k->v_key & (1 << c_trl)) { 	/* released */
 		__i = k->v_key & 0xff;

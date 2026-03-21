@@ -142,6 +142,9 @@ int main(int argc, char *argv[], char *envp[])
     HandleErr(signal(SIGHUP, SIG_IGN));
     HandleErr(signal(SIGQUIT, SIG_IGN));
 
+    RunL("/bin/sl.exe", NULL);
+    return 0;
+
     do_getty();
     return 0;
 }

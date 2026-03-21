@@ -35,3 +35,38 @@ int sys_dup(unsigned int old_fd)
 {
 	return dupfd(old_fd, 0);
 }
+
+int sys_fcntl(unsigned int fd, unsigned int cmd, unsigned long arg)
+{
+	struct file *f;
+	if (fd >= NR_OPEN || !(f = current->files->fd[fd]))
+		return -EBADF;
+
+	fd_set *close_on_exec = &current->files->close_on_exec;
+
+	switch (cmd) {
+	case F_DUPFD:
+		return dupfd(fd, arg);
+
+	case F_GETFD:
+		return FD_ISSET(fd, close_on_exec);
+
+	case F_SETFD:
+		if (arg & 1)
+			FD_SET(fd, close_on_exec);
+		else
+			FD_CLR(fd, close_on_exec);
+		return 0;
+
+	case F_GETFL:
+		return f->f_flags;
+
+	case F_SETFL:
+		f->f_flags &= ~(O_APPEND | O_NONBLOCK);
+		f->f_flags |= arg & (O_APPEND | O_NONBLOCK);
+		return 0;
+
+	default:
+		return -EINVAL;
+	}
+}

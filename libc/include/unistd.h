@@ -45,6 +45,7 @@ static inline _syscall3(off_t,lseek,int,fd, off_t, offset, int, whence)
 __attribute__ ((__noreturn__)) void _exit(int);
 
 unsigned int sleep(unsigned int seconds);
+int usleep(unsigned int usec);
 
 pid_t tcgetpgrp(int fd);
 int tcsetpgrp(int fd, pid_t pgrp);

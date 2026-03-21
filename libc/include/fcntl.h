@@ -25,5 +25,6 @@
 
 static inline _syscall2v(int,open,const char *,pathname,int,flags)
 static inline _syscall1(int,creat,const char *,pathname)
+int fcntl(int fd,int cmd,...);
 
 #endif /* _FCNTL_H */

@@ -1,4 +1,5 @@
 #include <time.h>
+#include <stddef.h>
 
 unsigned int sleep(unsigned int seconds)
 {
@@ -7,4 +8,10 @@ unsigned int sleep(unsigned int seconds)
     if (!err)
         return 0;
     return rem.tv_sec;
+}
+
+int usleep(unsigned int usec)
+{
+    struct timespec req = { 0, usec * 1000 };
+    return nanosleep(&req, NULL);
 }

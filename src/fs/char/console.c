@@ -135,10 +135,10 @@ static void set_pos(struct console *con, int y, int x)
 
 void clear_screen(struct console *con)
 {
-	memsetw(con->mem, SPACE, N_ROW * N_COL);
+	memsetw(con->mem, SPACE, SCREEN_BUF_SIZE);
 
 	if (is_fg(con))
-		memsetw(VIDEO_MEM, SPACE, N_ROW * N_COL);
+		memsetw(VIDEO_MEM, SPACE, SCREEN_BUF_SIZE);
 }
 
 void erase_line(struct console *con)
@@ -565,6 +565,44 @@ static void csi_n(struct console *con)
 	}
 }
 
+static void use_alt_screen_buffer(struct console *con)
+{
+	// save
+	memcpy(con->orig.mem, con->mem, SCREEN_BUF_BYTE_SIZE);
+	con->orig.pos_x = con->pos_x;
+	con->orig.pos_y = con->pos_y;
+	con->orig.save_x = con->save_x;
+	con->orig.save_y = con->save_y;
+
+	// clear the alternate screen buffer
+
+	memsetw(con->mem, SPACE, SCREEN_BUF_SIZE);
+	con->pos_x = 0;
+	con->pos_y = 0;
+	con->save_x = 0;
+	con->save_y = 0;
+
+	if (is_fg(con)) {
+		memcpy(VIDEO_MEM, con->mem, SCREEN_BUF_BYTE_SIZE);
+		move_cursor(con);
+	}
+}
+
+static void use_normal_screen_buffer(struct console *con)
+{
+	// restore
+	memcpy(con->mem, con->orig.mem, SCREEN_BUF_BYTE_SIZE);
+	con->pos_x = con->orig.pos_x;
+	con->pos_y = con->orig.pos_y;
+	con->save_x = con->orig.save_x;
+	con->save_y = con->orig.save_y;
+
+	if (is_fg(con)) {
+		memcpy(VIDEO_MEM, con->mem, SCREEN_BUF_BYTE_SIZE);
+		move_cursor(con);
+	}
+}
+
 static void csi_q(struct console *con, unsigned char c)
 {
 	char *arg = NULL;
@@ -577,6 +615,9 @@ static void csi_q(struct console *con, unsigned char c)
 			case 25:
 				hide_cursor(con);
 				break;
+			case 1049:
+				use_normal_screen_buffer(con);
+				break;
 			}
 		}
 		break;
@@ -587,6 +628,9 @@ static void csi_q(struct console *con, unsigned char c)
 			switch (action) {
 			case 25:
 				show_cursor(con);
+				break;
+			case 1049:
+				use_alt_screen_buffer(con);
 				break;
 			}
 		}
@@ -720,7 +764,7 @@ void switch_fg_console(int i)
 	struct console *con = &console_table[i];
 	fg_console = i;
 
-	memcpy(VIDEO_MEM, con->mem, N_ROW * N_COL * sizeof(uint16_t));
+	memcpy(VIDEO_MEM, con->mem, SCREEN_BUF_BYTE_SIZE);
 	move_cursor(con);
 
 	if (con->cursor_hidden)
@@ -740,7 +784,7 @@ void switch_fg_console(int i)
 
 void console_sync(struct console *con)
 {
-	memcpy(con->mem, VIDEO_MEM, N_ROW * N_COL * sizeof(uint16_t));
+	memcpy(con->mem, VIDEO_MEM, SCREEN_BUF_BYTE_SIZE);
 	get_cursor(&con->pos_y, &con->pos_x);
 }
 
@@ -756,7 +800,7 @@ void console_reset(struct console *con)
 	con->color_inverted = 0;
 	con->bold = 0;
 	con->pending_wrap = 0;
-	memsetw(con->mem, SPACE, N_ROW * N_COL);
+	memsetw(con->mem, SPACE, SCREEN_BUF_SIZE);
 
 	con->k.v_flags = 0;
 	con->k.v_key = 0;
