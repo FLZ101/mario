@@ -3,12 +3,12 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/**"
+                "${workspaceFolder}/**/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
-            "cStandard": "c17",
-            "cppStandard": "gnu++17",
+            "cStandard": "gnu11",
+            "cppStandard": "gnu++11",
             "intelliSenseMode": "linux-gcc-x64",
             "compileCommands": [
                 "compile_commands.json"

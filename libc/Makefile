@@ -4,9 +4,10 @@ TOOLCHAIN :=
 CC :=$(TOOLCHAIN)gcc -m32
 INCLUDE :=-I include
 CFLAGS	:=-c $(INCLUDE) \
+	-std=gnu11 -Wall -Werror \
 	-nostdinc -ffreestanding \
 	-fno-pic -fno-unwind-tables -fno-asynchronous-unwind-tables \
-	-ggdb -Wall -Werror -O0 -fno-omit-frame-pointer -fno-stack-protector
+	-ggdb -O0 -fno-omit-frame-pointer -fno-stack-protector
 AR :=$(TOOLCHAIN)ar
 
 .PHONY: all clean

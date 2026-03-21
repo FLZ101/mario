@@ -14,9 +14,10 @@ CC	:=$(TOOLCHAIN)gcc -m32
 
 INCLUDE	:=-I include
 CFLAGS	:=-c -D__KERNEL__ $(INCLUDE) \
+	-std=gnu11 -Wall -Werror \
 	-nostdinc -ffreestanding \
 	-fno-pic -fno-unwind-tables -fno-asynchronous-unwind-tables \
-	-ggdb -Wall -Werror -O0 -fno-omit-frame-pointer -fno-stack-protector
+	-ggdb -O0 -fno-omit-frame-pointer -fno-stack-protector
 LDFLAGS	:=-T kernel.ld --orphan-handling=warn -nostdlib
 
 .PHONY:	all depend clean
