@@ -1,12 +1,5 @@
-.PHONY: all clean
-
 EXE		:= $(notdir $(CURDIR)).exe
 OBJS	:= $(patsubst %.c,%.o, $(wildcard *.c))
-
-all: $(EXE)
-
-clean:
-	$(RM) $(EXE) $(OBJS)
 
 LIBC :=../../libc/lib
 include $(LIBC)/Makefile

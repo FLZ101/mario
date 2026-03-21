@@ -32,6 +32,15 @@ SECTIONS
 	.debug_rnglists 0 : { *(.debug_rnglists) }
 	.debug_str 0 : { *(.debug_str) }
 
+	/*
+	 * Silence warnings. The following sections should not exist in the output binary
+	 */
+	.rel.dyn : { *(.rel.got) *(.rel.iplt) }
+	.got : { *(.got) }
+	.got.plt : { *(.got.plt) }
+	.iplt : { *(.iplt) }
+	.igot.plt : { *(.igot.plt) }
+
 	/DISCARD/ : {
 		*(.comment)
 		*(.note.GNU-stack)

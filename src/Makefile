@@ -17,10 +17,11 @@ CFLAGS	:=-c -D__KERNEL__ $(INCLUDE) \
 	-std=gnu11 -Wall -Werror \
 	-nostdinc -ffreestanding \
 	-fno-pic -fno-unwind-tables -fno-asynchronous-unwind-tables \
-	-ggdb -O0 -fno-omit-frame-pointer -fno-stack-protector
+	-ggdb -O0 -fno-omit-frame-pointer -fno-stack-protector \
+	-MMD -MP
 LDFLAGS	:=-T kernel.ld --orphan-handling=warn -nostdlib
 
-.PHONY:	all depend clean
+.PHONY:	all clean
 
 OBJS	:=$(addsuffix .o,$(basename $(wildcard */*.[Sc])))
 OBJS	+=$(addsuffix .o,$(basename $(wildcard */*/*.[Sc])))
@@ -28,28 +29,28 @@ OBJS	+=$(addsuffix .o,$(basename $(wildcard */*/*.[Sc])))
 OBJS	:=$(filter-out start.o,$(OBJS))
 OBJS	:=kernel/start.o $(OBJS)
 
-DEPS	:=$(patsubst %.o,%.dep,$(OBJS))
+DEPS	:=$(patsubst %.o,%.d,$(OBJS))
 
-all: depend
-	@$(MAKE) -f Makeit
-	@echo :\)
-
-depend: $(DEPS)
+all: boot/boot.bin kernel/kernel.exe
 
 clean:
 	$(RM) $(OBJS)
 	$(RM) $(DEPS)
-	$(RM) boot/boot.bin boot/boot.lst \
-		kernel/kernel.exe
+	$(RM) boot/boot.bin boot/boot.lst kernel/kernel.exe
 
-%.dep: %.S
-	@$(CC) -MM $(INCLUDE) -D__ASSEMBLY__ -o $@.tmp $<
-	@sed -e 's,\($(basename $(notdir $<))\).o[ :]*,$(dir $<)\1.o $@: ,g' < $@.tmp > $@
-	@$(RM) $@.tmp
+-include $(DEPS)
+
+%.bin: %.asm
+	@$(NASM) -f bin -l $*.lst -o $@ $<
 	@echo $@
 
-%.dep: %.c
-	@$(CC) -MM $(INCLUDE) -o $@.tmp $<
-	@sed -e 's,\($(basename $(notdir $<))\).o[ :]*,$(dir $<)\1.o $@: ,g' < $@.tmp > $@
-	@$(RM) $@.tmp
+kernel/kernel.exe: $(OBJS)
+	$(LD) $(LDFLAGS) -o $@ $^
+
+%.o: %.S
+	@$(CC) $(CFLAGS) -D__ASSEMBLY__ -o $@ $<
+	@echo $@
+
+%.o: %.c
+	@$(CC) $(CFLAGS) -o $@ $<
 	@echo $@
