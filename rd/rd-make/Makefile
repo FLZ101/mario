@@ -1,5 +1,5 @@
 CC :=gcc
-CFLAGS :=-Wall -ggdb
+CFLAGS :=-Wall -ggdb -Werror
 SOURCES :=$(wildcard *.c)
 HEADERS :=$(wildcard *.h)
 
@@ -14,5 +14,4 @@ clean:
 	rm -f rd-make.exe
 
 test:
-	@./rd-make.exe --block-size=512 --device-list=../device_list \
-		--dir=../ramdisk0/ --rd=../rd0
+	@./rd-make.exe --block-size=512 --device-list=../device_list --dir=../ramdisk0/ --rd=../rd0

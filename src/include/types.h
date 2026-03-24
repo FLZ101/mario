@@ -40,4 +40,10 @@ typedef unsigned short nlink_t;
 typedef long time_t;
 typedef long clock_t;
 
+typedef unsigned uid_t;
+typedef unsigned gid_t;
+
+typedef long blksize_t;
+typedef __s64 blkcnt_t;
+
 #endif	/* _TYPES_H */

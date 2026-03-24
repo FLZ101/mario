@@ -118,6 +118,24 @@ void do_getty()
     }
 }
 
+void run_tests()
+{
+    RunL("/bin/sl.exe", NULL);
+    RunL("/bin/cp.exe", "/etc/welcome.txt", "/etc/tmp.txt", NULL);
+    RunL("/bin/cat.exe", "/etc/tmp.txt", NULL);
+    RunL("/bin/test/chrdev.exe", NULL);
+    Run("/bin/test/exec.exe",
+        (char *[]){"hello", "world", NULL},
+        (char *[]){"quick", "brown", "fox", NULL});
+    RunL("/bin/test/fcntl.exe", NULL);
+    RunL("/bin/test/fork.exe", NULL);
+    RunL("/bin/test/mm.exe", NULL);
+    // Will fail if the number of ramdisks loaded is less than 3
+    RunL("/bin/test/mount.exe", NULL);
+    RunL("/bin/test/pipe.exe", NULL);
+    RunL("/bin/test/signal.exe", NULL);
+}
+
 int main(int argc, char *argv[], char *envp[])
 {
     if (0 != open("/dev/console", O_RDWR))
@@ -141,9 +159,6 @@ int main(int argc, char *argv[], char *envp[])
     HandleErr(signal(SIGPIPE, SIG_IGN));
     HandleErr(signal(SIGHUP, SIG_IGN));
     HandleErr(signal(SIGQUIT, SIG_IGN));
-
-    RunL("/bin/sl.exe", NULL);
-    return 0;
 
     do_getty();
     return 0;

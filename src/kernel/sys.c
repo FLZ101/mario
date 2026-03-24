@@ -2,6 +2,8 @@
 #include <errno.h>
 #include <task.h>
 #include <sched.h>
+#include <resource.h>
+#include <mm/uaccess.h>
 
 int sys_getpgid(pid_t pid)
 {
@@ -79,4 +81,40 @@ int sys_getpid(void)
 int sys_getppid(void)
 {
 	return current->p_pptr->pid;
+}
+
+int sys_getrlimit(unsigned int resource, struct rlimit *rlim)
+{
+	int error;
+
+	if (resource >= RLIM_NLIMITS)
+		return -EINVAL;
+	error = verify_area(VERIFY_WRITE,rlim,sizeof *rlim);
+	if (error)
+		return error;
+	memcpy_tofs(rlim, current->rlim + resource, sizeof(*rlim));
+	return 0;
+}
+
+int sys_setrlimit(unsigned int resource, struct rlimit *rlim)
+{
+	struct rlimit new_rlim, *old_rlim;
+	int err;
+
+	if (resource >= RLIM_NLIMITS)
+		return -EINVAL;
+	err = verify_area(VERIFY_READ, rlim, sizeof(*rlim));
+	if (err)
+		return err;
+	memcpy_fromfs(&new_rlim, rlim, sizeof(*rlim));
+	old_rlim = current->rlim + resource;
+	if (new_rlim.rlim_cur > old_rlim->rlim_max || new_rlim.rlim_max > old_rlim->rlim_max)
+		return -EPERM;
+	*old_rlim = new_rlim;
+	return 0;
+}
+
+int sys_not_exist(void)
+{
+	return -ENOSYS;
 }

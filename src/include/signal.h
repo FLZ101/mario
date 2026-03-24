@@ -35,10 +35,15 @@
 
 #define SIGPOLL		SIGIO
 
+#define _NSIG		32
+#define NSIG		_NSIG
+
 #define SA_NOCLDSTOP	1
-#define SA_RESTART		0x10000000
-#define SA_NOMASK		0x20000000
-#define SA_ONESHOT		0x40000000
+#define SA_STACK	0x08000000
+#define SA_RESTART	0x10000000
+#define SA_INTERRUPT	0x20000000
+#define SA_NOMASK	0x40000000
+#define SA_ONESHOT	0x80000000
 
 #define SA_RESETHAND	SA_ONESHOT
 #define SA_NODEFER		SA_NOMASK
@@ -75,6 +80,8 @@ int kill_sl(int session, int sig, int priv);
 int kill_proc(int pid, int sig, int priv);
 
 struct sigcontext_struct {
+	unsigned short gs, __gsh;
+	unsigned short fs, __fsh;
 	unsigned short es, __esh;
 	unsigned short ds, __dsh;
 	unsigned long edi;

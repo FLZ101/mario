@@ -4,16 +4,20 @@
 #include <fs/ioctl.h>
 
 typedef unsigned char cc_t;
+typedef unsigned int speed_t;
 typedef unsigned int tcflag_t;
 
-#define NCCS 19
+#define NCCS 32
 
 struct termios {
     tcflag_t c_iflag;	/* input mode flags */
     tcflag_t c_oflag;	/* output mode flags */
     tcflag_t c_cflag;	/* control mode flags */
     tcflag_t c_lflag;	/* local mode flags */
+    cc_t c_line;        // UNUSED
     cc_t c_cc[NCCS];	/* control characters */
+	speed_t __c_ispeed; // UNUSED
+	speed_t __c_ospeed; // UNUSED
 };
 
 /* c_iflag bits */
@@ -31,6 +35,7 @@ struct termios {
 #define IXANY	0004000
 #define IXOFF	0010000
 #define IMAXBEL	0020000
+#define IUTF8   0040000
 
 /* c_oflag bits */
 #define OPOST	0000001
@@ -104,6 +109,7 @@ struct termios {
 struct winsize {
     unsigned short ws_row;
     unsigned short ws_col;
+    unsigned short ws_xpixel, ws_ypixel; // UNUSED
 };
 
 #endif /* _TERMIOS_H */

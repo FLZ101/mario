@@ -451,16 +451,10 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 	return addr;
 }
 
-int sys_mmap(struct mmap_arg_struct *arg)
+int sys_mmap(unsigned long addr, unsigned long len, unsigned long prot,
+	unsigned long flags, int fd, unsigned long off)
 {
-	int error;
-	struct mmap_arg_struct a;
-
-	error = verify_area(VERIFY_READ, arg, sizeof(*arg));
-	if (error)
-		return error;
-	memcpy_fromfs(&a, arg, sizeof(*arg));
-	return do_mmap(a.addr, a.len, a.prot, a.flags, a.fd, a.offset);
+	return do_mmap(addr, len, prot, flags, fd, off);
 }
 
 unsigned long sys_brk(unsigned long brk)

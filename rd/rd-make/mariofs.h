@@ -1,3 +1,6 @@
+#ifndef _MARIOFS_H
+#define _MARIOFS_H
+
 #include <stdint.h>
 
 /*
@@ -30,10 +33,14 @@ struct mario_dir_entry {
 } __attribute__((gcc_struct, packed));
 
 /* directory entry modes */
-#define MODE_REG	0
-#define MODE_DIR	1
-#define MODE_BLK	2
-#define MODE_CHR	3
+
+#define MODE_DIR 0040000
+#define MODE_CHR 0020000
+#define MODE_BLK 0060000
+#define MODE_REG 0100000
+#define MODE_IFO 0010000
+#define MODE_LNK 0120000
+#define MODE_SOCK 0140000
 
 #define MARIO_ZERO_ENTRY	0xfefefefe
 
@@ -51,3 +58,5 @@ struct mario_super_block {
 	uint32_t free;		/* free block chain */
 	struct mario_dir_entry root;	/* root directory */
 } __attribute__((gcc_struct, packed));
+
+#endif

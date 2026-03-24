@@ -16,13 +16,4 @@
 #define MS_INVALIDATE	2	/* invalidate the caches */
 #define MS_SYNC		4	/* synchronous memory sync */
 
-struct mmap_arg_struct {
-	unsigned long addr;
-	unsigned long len;
-	unsigned long prot;
-	unsigned long flags;
-	unsigned long fd;
-	unsigned long offset;
-};
-
 #endif /* _MMAN_H */

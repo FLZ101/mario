@@ -173,9 +173,10 @@ void parse_device_list(void)
 	i = j = 0;
 	while (i < MAX_DEV) {
 		int c;
-		uint32_t mode, major, minor;
+		uint32_t major, minor;
 
-		c = fscanf(file, "%s%u%u%u", devs[i].name, &mode, &major, &minor);
+		char t;
+		c = fscanf(file, "%s %c %u %u", devs[i].name, &t, &major, &minor);
 		/* end of file? */
 		if (EOF == c)
 			break;
@@ -189,12 +190,12 @@ void parse_device_list(void)
 			exit(-1);
 		}
 
-		if (mode != MODE_BLK && mode != MODE_CHR) {
-			printf("Error:\t%d is not valid device file mode\n", mode);
+		if (t != 'B' && t != 'C') {
+			printf("Error:\t%d is not valid device file mode\n", t);
 			exit(-1);
 		}
 
-		devs[i].mode = mode;
+		devs[i].mode = t == 'B' ? MODE_BLK : MODE_CHR;
 		devs[i].data = MKDEV(major, minor);
 		devs[i].flags = 7;
 

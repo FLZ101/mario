@@ -1,5 +1,5 @@
 CC =gcc
-CFLAGS =-Wall -ggdb
+CFLAGS =-Wall -ggdb -Werror
 SOURCES =$(wildcard *.c)
 HEADERS =$(wildcard *.h)
 RM =rm

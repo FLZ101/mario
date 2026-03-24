@@ -8,6 +8,7 @@ int main(int argc, char *argv[], char *envp[])
 {
 	ListDir("/mnt");
 
+	// Will fail if the number of ramdisks loaded is less than 3
 	int err = mount("/dev/rd2", "/mnt", "mariofs");
 	if (-1 == err)
 		Exit();
@@ -19,5 +20,6 @@ int main(int argc, char *argv[], char *envp[])
 	if (-1 == err)
 		Exit();
 
+	ListDir("/mnt");
 	return 0;
 }

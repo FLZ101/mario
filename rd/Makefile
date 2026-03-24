@@ -11,15 +11,16 @@ rd-make:
 rd-explorer:
 	$(MAKE) -C rd-explorer
 
-EXES := $(wildcard ../app/**/*.exe)
-ROOT_FILES := ../app/kilo/main.c
+EXES := $(wildcard ../app/*/*.exe)
+EXES_TEST := $(wildcard ../app/test/*/*.exe)
 
 rd0_files := $(shell find ramdisk0 -type f)
-rd0: $(EXES) $(rd0_files)
+rd0: $(EXES) $(EXES_TEST) $(rd0_files) device_list
+	mkdir -p ramdisk0/{bin/test,mnt,root}
 	cp -u $(EXES) ramdisk0/bin
-	cp -u $(ROOT_FILES) ramdisk0/root
-	rd-make/rd-make.exe --block-size=512 --device-list=device_list --dir=ramdisk0 --rd=rd0 \
-		--nr-block=8192
+	cp -u $(EXES_TEST) ramdisk0/bin/test
+	cp -u rd-make/main.c ramdisk0/root/rd-make.c
+	rd-make/rd-make.exe --block-size=512 --device-list=device_list --dir=ramdisk0 --rd=rd0 --nr-block=8192
 
 rd1_files := $(shell find ramdisk1 -type f)
 rd1: $(rd1_files)
@@ -32,5 +33,5 @@ rd2: $(rd2_files)
 clean:
 	$(MAKE) clean -C rd-make
 	$(MAKE) clean -C rd-explorer
-	find ramdisk0/bin -mindepth 1 -maxdepth 1 ! -name '.gitignore' -exec rm -r {} +
+	rm -rf ramdisk0/{bin,mnt,root}
 	rm -f rd0 rd1 rd2

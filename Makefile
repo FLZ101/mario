@@ -22,7 +22,7 @@ image: kernel rd
 	$(MAKE) -C qemu
 
 compile_db:
-	compiledb $(MAKE) kernel libc app
+	compiledb $(MAKE) kernel libc app rd
 
 run:
 	$(MAKE) run -C qemu

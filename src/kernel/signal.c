@@ -169,6 +169,8 @@ int sys_sigreturn(unsigned long __unused)
 	current->blocked = context.old_mask & _BLOCKABLE;
 	COPY(ds);
 	COPY(es);
+	COPY(fs);
+	COPY(gs);
 	COPY(ss);
 	COPY(cs);
 	COPY(eip);
@@ -193,7 +195,7 @@ badframe:
 void setup_frame(struct sigaction *sa, unsigned long **fp, unsigned long eip,
 		struct trap_frame *tr, int signr, unsigned long old_mask)
 {
-#define __CODE ((unsigned long)(frame+22))
+#define __CODE ((unsigned long)(frame+24))
 #define CODE(x) ((unsigned long *) ((x)+__CODE))
 
 	unsigned long *frame = *fp;
@@ -204,27 +206,29 @@ void setup_frame(struct sigaction *sa, unsigned long **fp, unsigned long eip,
 	/* set up the "normal" stack seen by the signal handler (iBCS2) */
 	put_fs_long(__CODE, frame);
 	put_fs_long(signr, frame+1);
-	put_fs_long(tr->es, frame+2);
-	put_fs_long(tr->ds, frame+3);
-	put_fs_long(tr->edi, frame+4);
-	put_fs_long(tr->esi, frame+5);
-	put_fs_long(tr->ebp, frame+6);
-	put_fs_long((long)*fp, frame+7);
-	put_fs_long(tr->ebx, frame+8);
-	put_fs_long(tr->edx, frame+9);
-	put_fs_long(tr->ecx, frame+10);
-	put_fs_long(tr->eax, frame+11);
-	put_fs_long(current->thread.trap_no, frame+12);
-	put_fs_long(current->thread.error_code, frame+13);
-	put_fs_long(eip, frame+14);
-	put_fs_long(tr->cs, frame+15);
-	put_fs_long(tr->eflags, frame+16);
-	put_fs_long(tr->esp, frame+17);
-	put_fs_long(tr->ss, frame+18);
-	put_fs_long(0, frame+19);		/* 387 state pointer - not implemented*/
+	put_fs_long(tr->gs, frame+2);
+	put_fs_long(tr->fs, frame+3);
+	put_fs_long(tr->es, frame+4);
+	put_fs_long(tr->ds, frame+5);
+	put_fs_long(tr->edi, frame+6);
+	put_fs_long(tr->esi, frame+7);
+	put_fs_long(tr->ebp, frame+8);
+	put_fs_long((long)*fp, frame+9);
+	put_fs_long(tr->ebx, frame+10);
+	put_fs_long(tr->edx, frame+11);
+	put_fs_long(tr->ecx, frame+12);
+	put_fs_long(tr->eax, frame+13);
+	put_fs_long(current->thread.trap_no, frame+14);
+	put_fs_long(current->thread.error_code, frame+15);
+	put_fs_long(eip, frame+16);
+	put_fs_long(tr->cs, frame+17);
+	put_fs_long(tr->eflags, frame+18);
+	put_fs_long(tr->esp, frame+19);
+	put_fs_long(tr->ss, frame+20);
+	put_fs_long(0, frame+21);		/* 387 state pointer - not implemented*/
 	/* non-iBCS2 extensions.. */
-	put_fs_long(old_mask, frame+20);
-	put_fs_long(current->thread.cr2, frame+21);
+	put_fs_long(old_mask, frame+22);
+	put_fs_long(current->thread.cr2, frame+23);
 	/* set up the return code... */
 	put_fs_long(0x0000b858, CODE(0));	/* popl %eax ; movl $__SYS_sigreturn, %eax */
 	put_fs_long(0x80cd0000, CODE(4));	/* int $0x80 */

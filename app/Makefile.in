@@ -1,5 +1,4 @@
 EXE		:= $(notdir $(CURDIR)).exe
 OBJS	:= $(patsubst %.c,%.o, $(wildcard *.c))
 
-LIBC :=../../libc/lib
-include $(LIBC)/Makefile
+include $(LIBC_DIR)/Makefile

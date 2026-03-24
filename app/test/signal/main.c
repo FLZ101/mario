@@ -1,10 +1,18 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
+#include <app/util.h>
+#include <time.h>
+
+volatile sig_atomic_t done = 0;
 
 static void f(int sig)
 {
-	printf("[%d, %d]\n", getpid(), sig);
+	// NOT async-signal-safe
+	printf("pid:%d sig:%d\n", getpid(), sig);
+
+	if (sig == SIGUSR2)
+		done = 1;
 }
 
 int main(int argc, char *argv[])
@@ -19,15 +27,20 @@ int main(int argc, char *argv[])
 	sigaction(SIGUSR2, &sa, NULL);
 
 	kill(getpid(), SIGUSR1);
-	printf(":-)\n");
 
-	int pid;
-	if (!(pid = fork())) {
+	int pid = fork();
+	HandleErr(pid);
+
+	if (!pid) {
 		kill(getppid(), SIGUSR2);
-		pause();
-		return -1;
+	} else {
+		kill(pid, SIGUSR2);
 	}
-	kill(pid, SIGUSR1);
-	while (1)
+
+	while (!done)
 		pause();
+
+	printf("pid:%d exit\n", getpid());
+	sleep(1);
+	return 0;
 }

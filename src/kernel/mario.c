@@ -29,7 +29,6 @@ void kernel_thread(void (*fun)(void *), void *arg)
 		:"eax", "esi", "memory");
 }
 
-extern int sys_pause(void);
 extern void bh_thread(void *arg);
 
 #define MAX_INIT_ARGS 8
@@ -43,11 +42,8 @@ void init(void *arg)
 	kernel_thread(bh_thread, NULL); // child of init
 
 	// pid of init.exe is 1
-	if (-1 == execve("/bin/init.exe", argv_init, envp_init))
-		hang("Fail to start init.exe: %d", errno);
-
-	while (1)
-		sys_pause();
+	execve("/bin/init.exe", argv_init, envp_init);
+	hang("Fail to start init.exe: %d", errno);
 }
 
 void idle(void)

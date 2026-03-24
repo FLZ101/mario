@@ -11,6 +11,8 @@ struct trap_frame {
 	long eax;
 	unsigned short ds, __dsu;
 	unsigned short es, __esu;
+	unsigned short fs, __fsu;
+	unsigned short gs, __gsu;
 	long error_code;
 	long eip;
 	unsigned short cs, __csu;

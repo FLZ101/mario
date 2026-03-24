@@ -90,7 +90,7 @@ void freeList(List *li) {
 void test_linked_list() {
   puts("------ test_linked_list");
 
-  printf("%x\n", sbrk(0));
+  printf("brk: %x\n", sbrk(0));
 
   List li;
   initList(&li);
@@ -107,11 +107,11 @@ void test_linked_list() {
   freeList(&li);
   printf("size: %d\n", size(&li));
 
-  printf("%x\n", sbrk(0));
+  printf("brk: %x\n", sbrk(0));
 }
 
-// CHECK-NEXT: 0x00008000
+// CHECK-NEXT: brk: 0x00008000
 // CHECK-NEXT: size: 10
 // CHECK-NEXT: 9, 7, 5, 3, 1, 0, 2, 4, 6, 8
 // CHECK-NEXT: size: 0
-// CHECK-NEXT: 0x00008000
+// CHECK-NEXT: brk: 0x00008000

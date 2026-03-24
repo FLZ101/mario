@@ -12,10 +12,10 @@ struct blkdev_info {
 
 struct blkdev_operations {
 	/* read @nr sector(s) starting at @sector in @dev to @buf */
-	int (*blkdev_read)(dev_t dev, unsigned long sector, 
+	int (*blkdev_read)(dev_t dev, unsigned long sector,
 		unsigned long nr, char *buf);
 	/* write @buf to @nr sector(s) starting at @sector in @dev */
-	int (*blkdev_write)(dev_t dev, unsigned long sector, 
+	int (*blkdev_write)(dev_t dev, unsigned long sector,
 		unsigned long nr, char *buf);
 	/* get generic information about a block device */
 	int (*blkdev_get_info)(dev_t dev, struct blkdev_info *info);

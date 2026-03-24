@@ -518,8 +518,6 @@
 #define __SYS_sigprocmask	SYS_sigprocmask
 #define __SYS_sigreturn	SYS_sigreturn
 #define __SYS_fcntl	SYS_fcntl
-#define __SYS_getrlimit	SYS_getrlimit
-#define __SYS_setrlimit	SYS_setrlimit
 
 #define __syscall_return(type, __res) \
 do { \

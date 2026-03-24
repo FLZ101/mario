@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <sys/types.h>
+#include <syscall.h>
 
 #define PROT_NONE	0x00
 #define PROT_READ	0x01
@@ -19,16 +20,7 @@
 #define MS_INVALIDATE	2	/* invalidate the caches */
 #define MS_SYNC		4	/* synchronous memory sync */
 
-struct mmap_arg_struct {
-	unsigned long addr;
-	unsigned long len;
-	unsigned long prot;
-	unsigned long flags;
-	unsigned long fd;
-	unsigned long offset;
-};
-
-void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
-int munmap(void *addr, size_t length);
+static inline _syscall2(int,munmap,void *,addr,size_t,length)
+static inline _syscall6(void *,mmap,void *,addr, size_t, length, int, prot, int, flags, int, fd, off_t, offset)
 
 #endif

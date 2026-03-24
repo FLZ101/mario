@@ -1,6 +1,8 @@
 #ifndef _RESOURCE_H
 #define _RESOURCE_H
 
+#include <syscall.h>
+
 typedef unsigned long long rlim_t;
 
 struct rlimit {
@@ -14,16 +16,7 @@ struct rlimit {
 
 #define RLIM_NLIMITS RLIMIT_NLIMITS
 
-/*
- * SuS says limits have to be unsigned.
- * Which makes a ton more sense anyway.
- */
-#define RLIM_INFINITY	(~0UL)
-
-#define INIT_RLIMITS \
-{ \
-	{RLIM_INFINITY, RLIM_INFINITY},	\
-	{8192 * 1024, 8192 * 1024 * 16}	\
-}
+_syscall2(int,getrlimit,int,resource,struct rlimit *,rlim)
+_syscall2(int,setrlimit,int,resource,struct rlimit *,rlim)
 
 #endif	/* _RESOURCE_H */
