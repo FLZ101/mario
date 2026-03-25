@@ -60,7 +60,7 @@ int get_free_area_size()
 }
 
 extern unsigned long end;
-void __tinit page_alloc_init(void)
+void page_alloc_init(void)
 {
 	unsigned long i, j;
 
@@ -233,12 +233,4 @@ unsigned long get_zero_page(void)
 		memset((void *)tmp, 0, PAGE_SIZE);
 	}
 	return tmp;
-}
-
-extern unsigned long _init, _bss;
-void __tinit free_init_area(void)
-{
-	unsigned long i;
-	for (i = PFN_UP(&_init); i < PFN_DOWN(&_bss); i++)
-		free_page(mem_map + i);
 }

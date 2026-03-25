@@ -54,7 +54,7 @@ struct file_operations mem_fops = {
     .open = mem_open,
 };
 
-void __tinit mem_init(void)
+void mem_init(void)
 {
 	register_chrdev(MEM_MAJOR, &mem_fops);
 }

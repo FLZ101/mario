@@ -37,16 +37,6 @@ SECTIONS
 		. = ALIGN(0x1000);
 	}
 
-	_init = .;
-	.init :  AT(ADDR(.init) - ADDR(.text) + PHY_BASE)
-	{
-		*(.tinit)
-		*(.dinit)
-	}
-	_einit = .;
-
-	. = ALIGN(0x1000);
-
 	_bss = .;
 	.bss :  AT(ADDR(.bss) - ADDR(.text) + PHY_BASE)
 	{

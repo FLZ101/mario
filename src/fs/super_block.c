@@ -12,7 +12,7 @@ static struct super_block all[NR_SUPER];
 /* To simplify things, only one process can do mount/umount at a time */
 static struct semaphore sb_sem;
 
-void __tinit sb_init(void)
+void sb_init(void)
 {
 	int i;
 

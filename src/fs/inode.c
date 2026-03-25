@@ -12,7 +12,7 @@ static wait_queue_t inode_wait;
 
 static struct inode all[NR_INODE];
 
-void __tinit inode_init(void)
+void inode_init(void)
 {
 	int i;
 

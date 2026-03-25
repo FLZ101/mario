@@ -34,7 +34,7 @@ static wait_queue_t buffer_wait;
 
 static spinlock_t buffer_lock;
 
-void __tinit buffer_init(void)
+void buffer_init(void)
 {
 	int i;
 	char *buf;

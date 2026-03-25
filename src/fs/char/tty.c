@@ -445,7 +445,7 @@ extern void ps2_init(void);
 extern void console_init(void);
 extern void serial_init(void);
 
-void __tinit tty_init(void)
+void tty_init(void)
 {
 	ps2_init();
 	console_init();

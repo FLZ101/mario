@@ -1,7 +1,7 @@
 #include <fs/fs.h>
 #include <misc.h>
 
-void __tinit fs_init(void)
+void fs_init(void)
 {
 	sb_init();
 	inode_init();

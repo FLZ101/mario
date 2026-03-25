@@ -41,11 +41,6 @@
 #define PFN_UP(x)	(((unsigned long)(x) + PAGE_SIZE-1) >> PAGE_SHIFT)
 #define PFN_DOWN(x)	((unsigned long)(x) >> PAGE_SHIFT)
 
-/* Mark code as being only used at initialization time */
-#define __tinit __attribute__ ((section (".tinit")))
-/* Mark data as being only used at initialization time */
-#define __dinit __attribute__ ((section (".dinit")))
-
 int printk(const char *fmt, ...);
 int sprintk(char *buf, const char *fmt, ...);
 

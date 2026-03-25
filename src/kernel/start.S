@@ -8,11 +8,11 @@ multiboot:
 	.long MB_FLAGS
 	.long MB_CHECK
 
-	.long __phy(multiboot)
-	.long __phy(_text)
-	.long __phy(_einit)
-	.long __phy(_ebss)
-	.long __phy(start)
+	.long __phy(multiboot)	/* header_addr */
+	.long __phy(_text)		/* load_addr */
+	.long __phy(_bss)		/* load_end_addr */
+	.long __phy(_ebss)		/* bss_end_addr */
+	.long __phy(start)		/* entry_addr */
 
 	.globl start
 start:

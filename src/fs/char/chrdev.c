@@ -12,7 +12,7 @@ struct {
 extern void mem_init(void);
 extern void tty_init(void);
 
-void __tinit chrdev_init(void)
+void chrdev_init(void)
 {
 	int i;
 

@@ -6,9 +6,9 @@
  * Very simple boot-time physical memory allocator
  */
 
-unsigned long end __dinit;
+unsigned long end;
 
-void * __tinit __alloc_bootmem(unsigned long size, unsigned long p2align)
+void *__alloc_bootmem(unsigned long size, unsigned long p2align)
 {
 	unsigned long tmp;
 
@@ -19,12 +19,12 @@ void * __tinit __alloc_bootmem(unsigned long size, unsigned long p2align)
 	return (void *)tmp;
 }
 
-void * __tinit alloc_bootmem(unsigned long size)
+void *alloc_bootmem(unsigned long size)
 {
 	return __alloc_bootmem(size, 0);
 }
 
-void * __tinit alloc_page_bootmem(void)
+void *alloc_page_bootmem(void)
 {
 	return __alloc_bootmem(PAGE_SIZE, PAGE_SHIFT);
 }

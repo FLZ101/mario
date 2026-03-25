@@ -19,7 +19,7 @@ extern unsigned long max_pfn;
  * pagetable_init() sets up the page tables - note that the first 8MB
  * are already mapped by start.S
  */
-void __tinit pagetable_init(void)
+void pagetable_init(void)
 {
 	unsigned long pfn;
 	pde_t *pd;
@@ -44,7 +44,7 @@ void __tinit pagetable_init(void)
 	}
 }
 
-void __tinit paging_init(void)
+void paging_init(void)
 {
 	pagetable_init();
 	flush_tlb();

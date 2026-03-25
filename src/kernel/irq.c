@@ -4,14 +4,14 @@
 #include <io.h>
 
 typedef void irq_handler(void);
-extern irq_handler  
+extern irq_handler
 irq0, irq1, irq2, irq3, irq4, irq5, irq6, irq7,
 irq8, irq9, irqa, irqb, irqc, irqd, irqe, irqf;
 
 /*
  * Initialize the 8259A Programmable Interrupt Controller
  */
-void __tinit i8259_init(void)
+void i8259_init(void)
 {
 	/*
 	 * Master PIC
@@ -32,7 +32,7 @@ void __tinit i8259_init(void)
 	outb(0xa1, 0x00);	/* OCW1, enable IRQ8~15 */
 }
 
-void __tinit irq_init(void)
+void irq_init(void)
 {
 	i8259_init();
 

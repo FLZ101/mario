@@ -22,7 +22,7 @@ static int nr_rd;	/* the number of ramdisks loaded */
 
 extern unsigned long end;
 
-void __tinit ramdisk_setup(struct multiboot_info *m)
+void ramdisk_setup(struct multiboot_info *m)
 {
 	int i;
 
@@ -124,7 +124,7 @@ struct blkdev_operations rd_ops = {
 	rd_get_info
 };
 
-void __tinit rd_init(void)
+void rd_init(void)
 {
 	register_blkdev(RD_MAJOR, &rd_ops);
 }

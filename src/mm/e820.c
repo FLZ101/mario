@@ -25,7 +25,7 @@ struct e820map e820;
  */
 #define MAX_MEMORY  KERNEL_BASE
 
-void __tinit add_memory_region(__u64 addr, __u64 len, __u32 type)
+void add_memory_region(__u64 addr, __u64 len, __u32 type)
 {
 	int i;
 	__u64 start = addr, end = addr + len;
@@ -53,7 +53,7 @@ void __tinit add_memory_region(__u64 addr, __u64 len, __u32 type)
 	e820.nr_map++;
 }
 
-void __tinit print_e820_map(void)
+void print_e820_map(void)
 {
 	int i;
 
@@ -69,7 +69,7 @@ void __tinit print_e820_map(void)
 	}
 }
 
-void __tinit make_e820_map(struct multiboot_info *m)
+void make_e820_map(struct multiboot_info *m)
 {
 	e820.nr_map = 0;
 
@@ -120,7 +120,7 @@ extern void ramdisk_setup(struct multiboot_info *m);
 
 extern unsigned long max_pfn;
 
-void __tinit setup_memory_region(struct multiboot_info *m)
+void setup_memory_region(struct multiboot_info *m)
 {
 	int i;
 

@@ -49,7 +49,4 @@ static inline void ref_page(struct page *page)
 	atomic_inc(&page->count);
 }
 
-void free_init_area(void);
-
-
 #endif	/* _PAGE_ALLOC_H */

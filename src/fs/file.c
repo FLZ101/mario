@@ -7,7 +7,7 @@ static struct file all[NR_FILE];
 
 static spinlock_t file_lock;
 
-void __tinit file_init(void)
+void file_init(void)
 {
 	INIT_LOCK(&file_lock);
 }

@@ -389,7 +389,7 @@ void irq_PS2(void)
 	}
 }
 
-void __tinit ps2_init(void)
+void ps2_init(void)
 {
 	unsigned char c;
 

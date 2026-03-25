@@ -11,7 +11,7 @@ void clear_screen(struct console *con);
 
 static struct console *con;
 
-void __tinit printk_init(struct multiboot_info *m)
+void printk_init(struct multiboot_info *m)
 {
 	con = get_fg_console();
 	console_reset(con);

@@ -17,17 +17,17 @@ do {\
 		:"memory");\
 } while (0)
 
-void __tinit set_intr_gate(unsigned int n, void *addr)
+void set_intr_gate(unsigned int n, void *addr)
 {
 	_set_gate(n,14,0,addr);
 }
 
-void __tinit set_trap_gate(unsigned int n, void *addr)
+void set_trap_gate(unsigned int n, void *addr)
 {
 	_set_gate(n,15,0,addr);
 }
 
-void __tinit set_system_gate(unsigned int n, void *addr)
+void set_system_gate(unsigned int n, void *addr)
 {
 	_set_gate(n,15,3,addr);
 }

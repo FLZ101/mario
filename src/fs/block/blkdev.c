@@ -13,7 +13,7 @@ extern void rd_init(void);
 
 extern dev_t ROOT_DEV;
 
-void __tinit blkdev_init(void)
+void blkdev_init(void)
 {
 	int i;
 

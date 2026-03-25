@@ -37,7 +37,7 @@ spurious_interrupt_bug,
 coprocessor_error,
 system_call;
 
-void __tinit trap_init(void)
+void trap_init(void)
 {
 	set_trap_gate(0, divide_error);
 	set_trap_gate(1, debug);
