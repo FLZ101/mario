@@ -3,6 +3,15 @@ OUTPUT_ARCH(i386)
 
 STARTUP(crt0.o)
 ENTRY(start)
+
+PHDRS
+{
+	headers PT_PHDR PHDRS ;
+	text PT_LOAD FILEHDR PHDRS ;
+	rodata PT_LOAD ;
+	data PT_LOAD ;
+}
+
 SECTIONS
 {
 	. = 0x00401000;
@@ -10,16 +19,19 @@ SECTIONS
 	{
 		*(.text)
 		. = ALIGN(0x1000);
-	}
+	} :text
+
 	.rodata :
 	{
 		*(.rodata)
 		. = ALIGN(0x1000);
-	}
+	} :rodata
+
 	.data :
 	{
 		*(.data)
-	}
+	} :data
+
 	. = ALIGN(0x1000);
 	.bss : { *(.bss) }
 

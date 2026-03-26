@@ -18,12 +18,13 @@
  */
 #define MAX_ARG_PAGES	32
 
-#define MAX_PHDRS 10
+#define MAX_PHDRS 16
 
 struct exec {
 	char *comm;
 	struct Elf32_Phdr phdr[MAX_PHDRS];
 	unsigned long entry;
+	unsigned long at_phdr, at_phent, at_phnum;
 	int argc, envc;
 	unsigned long arg_page[MAX_ARG_PAGES], arg_p;
 
@@ -79,11 +80,22 @@ int fill_exec(struct Elf32_Phdr *phdr_tbl, int nr, struct exec *exe)
 	}
 
 	for (i = 0, j = 0; i < nr; ++i) {
+		if (phdr_tbl[i].p_type == PT_PHDR) {
+			exe->at_phdr = phdr_tbl[i].p_vaddr;
+			continue;
+		}
 		if (phdr_tbl[i].p_type != PT_LOAD)
 			continue;
-		if (j == MAX_PHDRS)
-			return 1;
+		if (j == MAX_PHDRS) {
+			printk("Too many program headers!\n");
+			return -EINVAL;
+		}
 		exe->phdr[j++] = phdr_tbl[i];
+	}
+
+	if (!exe->at_phdr) {
+		printk("No PT_PHDR program header found!\n");
+		return -EINVAL;
 	}
 
 	enum State {
@@ -132,9 +144,10 @@ int fill_exec(struct Elf32_Phdr *phdr_tbl, int nr, struct exec *exe)
 		}
 	}
 
-	// no code
-	if (state == BEGIN)
-		return 1;
+	if (state == BEGIN) {
+		printk("No code!\n");
+		return -EINVAL;
+	}
 
 	if (exe->start_data == 0)
 		exe->start_data = exe->end_data = PAGE_ALIGN(exe->end_code);
@@ -162,6 +175,9 @@ int prep_exec(struct file *file, struct exec *exe)
 	if (check_elf_header(&ehdr))
 		return -EINVAL;
 	exe->entry = ehdr.e_entry;
+	exe->at_phent = ehdr.e_phentsize;
+	exe->at_phnum = ehdr.e_phnum;
+	exe->at_phdr = 0;
 
 	// program header table
 	file->f_pos = ehdr.e_phoff;
@@ -173,8 +189,7 @@ int prep_exec(struct file *file, struct exec *exe)
 		error = -EIO;
 		goto tail;
 	}
-	if (fill_exec(phdr_tbl, ehdr.e_phnum, exe))
-		error = -EINVAL;
+	error = fill_exec(phdr_tbl, ehdr.e_phnum, exe);
 tail:
 	kfree(phdr_tbl);
 	return error;
@@ -310,14 +325,40 @@ void flush_old_exec(struct exec *exe)
 extern unsigned long do_mmap(unsigned long addr, unsigned long len,
 	unsigned long prot, unsigned long flags, int fd, unsigned long off);
 
-extern int set_page(struct mm_struct *mm,
-	unsigned long page, unsigned long addr);
+extern int set_page(struct mm_struct *mm, unsigned long page, unsigned long addr);
+
+void setup_aux_vector(struct exec *exe, auxv_t *av)
+{
+	av->a_type = AT_PHDR;
+	av->a_ptr = (void *) exe->at_phdr;
+	++av;
+
+	av->a_type = AT_PHENT;
+	av->a_val = exe->at_phent;
+	++av;
+
+	av->a_type = AT_PHNUM;
+	av->a_val = exe->at_phnum;
+	++av;
+
+	av->a_type = AT_PAGESZ;
+	av->a_val = PAGE_SIZE;
+	++av;
+}
+
+// Return number of words needed to store argc, argv[], envp[] and aux vector
+static inline int get_n_word(struct exec *exe)
+{
+	return 3 + exe->argc + 1 + exe->envc + 1 + AT_VECTOR_SIZE * 2;
+}
+
+extern void oom(struct task_struct *);
 
 int setup_arg_pages(struct exec *exe)
 {
 	int i;
 	char *pc;
-	unsigned long tmp, nr_page, start_stack, stack_page, *p1, *p2;
+	unsigned long nr_page, start_stack, stack_page, *p1, *p2;
 
 	nr_page = exe->arg_p / PAGE_SIZE + 1;
 	start_stack = KERNEL_BASE - nr_page * PAGE_SIZE;
@@ -331,21 +372,21 @@ int setup_arg_pages(struct exec *exe)
 	current->mm->start_stack = start_stack;
 
 	stack_page = get_zero_page();
-	if (!stack_page)
-		return 1;
+	if (!stack_page) {
+		oom(current);
+		goto tail_1;
+	}
 	if (set_page(current->mm, stack_page, start_stack - PAGE_SIZE)) {
-		put_page(stack_page);
-		return 1;
+		goto tail_2;
 	}
 
 	/*
 	 * `push' envp[], argv[], argc
 	 */
-	tmp = exe->argc + exe->envc + 5;	/* words we should push */
-	if (tmp >= 1024)	/* kind of ugly */
-		return 1;
+	unsigned n_word = get_n_word(exe);
+	assert(n_word * sizeof(long) <= PAGE_SIZE);
 
-	p1 = (unsigned long *)start_stack - tmp;
+	p1 = (unsigned long *)start_stack - n_word;
 	/* `push' argc */
 	*(p1) = exe->argc;
 
@@ -373,6 +414,8 @@ int setup_arg_pages(struct exec *exe)
 	*(p2++) = 0;
 	current->mm->env_end = (unsigned long)pc;
 
+	setup_aux_vector(exe, (auxv_t *)p2);
+
 	/* mmap arguments and environment variables */
 	do_mmap(start_stack, KERNEL_BASE - start_stack, PROT_READ | PROT_WRITE,
 		MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -382,11 +425,13 @@ int setup_arg_pages(struct exec *exe)
 		MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS | VM_GROWSDOWN, -1, 0);
 	return 0;
 
+tail_2:
+	put_page(stack_page);
 tail_1:
 	for (i = 0; i < MAX_ARG_PAGES; i++)
 		if (exe->arg_page[i])
 			put_page(exe->arg_page[i]);
-	return 1;
+	return -ENOMEM;
 }
 
 static inline void start_thread(struct trap_frame *tr,
@@ -403,6 +448,12 @@ static inline void start_thread(struct trap_frame *tr,
 int do_exec(struct exec *exe, int fd, struct trap_frame *tr)
 {
 	int i;
+	int err;
+
+	if (get_n_word(exe) * sizeof(long) > PAGE_SIZE) {
+		printk("Unable to fit argc, argv, envp and aux vector into one page!\n");
+		return -EINVAL;
+	}
 
 	/* no turning back */
 	flush_old_exec(exe);
@@ -467,12 +518,14 @@ int do_exec(struct exec *exe, int fd, struct trap_frame *tr)
 		}
 	}
 
-	setup_arg_pages(exe);
+	err = setup_arg_pages(exe);
+	if (err)
+		return err;
 
 	current->did_exec = 1;
 
 	start_thread(tr, exe->entry,
-		current->mm->start_stack - 4 * (exe->argc + exe->envc + 5));
+		current->mm->start_stack - 4 * get_n_word(exe));
 	return 0;
 }
 
@@ -495,11 +548,13 @@ int do_execve(char *filename, char **argv, char **envp, struct trap_frame *tr)
 	if (error)
 		goto tail_2;
 	error = do_exec(&exe, fd, tr);
+	if (error)
+		goto tail_2;
 	goto tail_1;
 
 tail_2:
 	for (i = 0; i < MAX_ARG_PAGES && exe.arg_page[i]; i++)
-		page_free(exe.arg_page[i]);
+		put_page(exe.arg_page[i]);
 tail_1:
 	sys_close(fd); // close fd won't invalidate the memory mappings set up
 	return error;

@@ -69,6 +69,7 @@ struct Elf32_Phdr {
 
 #define PT_NULL 0
 #define PT_LOAD 1
+#define PT_PHDR 6
 
 #define PF_X 0x1
 #define PF_W 0x2
@@ -78,5 +79,41 @@ struct Elf32_Phdr {
 #define PF_CODE (PF_X | PF_R)
 #define PF_DATA (PF_W | PF_R)
 #define PF_RODATA PF_R
+
+typedef struct
+{
+	int a_type;
+	union {
+		long a_val;
+		void *a_ptr;
+		void (*a_fnc)();
+	};
+} auxv_t;
+
+#define AT_NULL				0 	// ignored
+#define AT_IGNORE			1 	// ignored
+#define AT_EXECFD			2 	// a_val
+#define AT_PHDR				3 	// a_ptr
+#define AT_PHENT			4 	// a_val
+#define AT_PHNUM			5 	// a_val
+#define AT_PAGESZ			6 	// a_val
+#define AT_BASE				7 	// a_ptr
+#define AT_FLAGS			8 	// a_val
+#define AT_ENTRY			9 	// a_ptr
+#define AT_NOTELF			10 	// a_val
+#define AT_UID				11 	// a_val
+#define AT_EUID				12 	// a_val
+#define AT_GID				13 	// a_val
+#define AT_EGID				14 	// a_val
+#define AT_PLATFORM			15 	// a_ptr
+#define AT_HWCAP			16 	// a_val
+#define AT_CLKTCK			17 	// a_val
+#define AT_SECURE			23 	// a_val
+#define AT_BASE_PLATFORM	24 	// a_ptr
+#define AT_RANDOM			25 	// a_ptr
+#define AT_HWCAP2			26 	// a_val
+#define AT_EXECFN			31 	// a_ptr
+
+#define AT_VECTOR_SIZE		32
 
 #endif /* _ELF_H */
