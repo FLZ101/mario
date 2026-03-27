@@ -1,4 +1,42 @@
+
+.PHONY: all clean
+
 EXE		:= $(notdir $(CURDIR)).exe
 OBJS	:= $(patsubst %.c,%.o, $(wildcard *.c))
 
-include $(LIBC_DIR)/Makefile
+OBJS	+= $(patsubst %.c,%.o, $(wildcard $(ROOT)/lib/*.c))
+
+RM :=rm -f
+CP :=cp
+INCLUDE :=-I$(ROOT)/include
+CFLAGS	:=-c $(INCLUDE) \
+	-std=gnu11 -Wall -Werror \
+	-ggdb -O0 -fno-omit-frame-pointer \
+	-MMD -MP
+# LD :=$(CC)
+LDFLAGS	:=
+OBJDUMP :=objdump
+
+DEPS	:= $(OBJS:.o=.d)
+
+all: $(EXE)
+
+clean:
+	$(RM) $(EXE) $(OBJS) $(DEPS)
+
+$(EXE): $(OBJS)
+	$(LD) -o $@ $^ $(LDFLAGS)
+
+-include $(DEPS)
+
+%.o: %.S
+	@$(CC) $(CFLAGS) -D__ASSEMBLY__ -o $@ $<
+	@echo $@
+
+%.o: %.s
+	@$(CC) $(CFLAGS) -o $@ $<
+	@echo $@
+
+%.o: %.c
+	@$(CC) $(CFLAGS) -o $@ $<
+	@echo $@

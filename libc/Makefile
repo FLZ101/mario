@@ -1,17 +1,18 @@
 RM :=rm -f
 
-TOOLCHAIN :=
-CC :=$(TOOLCHAIN)gcc -m32
 INCLUDE :=-I include
 CFLAGS	:=-c $(INCLUDE) \
 	-std=gnu11 -Wall -Werror \
-	-nostdinc -ffreestanding \
-	-fno-pic -fno-unwind-tables -fno-asynchronous-unwind-tables \
-	-ggdb -O0 -fno-omit-frame-pointer -fno-stack-protector \
+	-ggdb -O0 -fno-omit-frame-pointer \
 	-MMD -MP
-AR :=$(TOOLCHAIN)ar
+AR :=ar
 
 .PHONY: all clean
+
+MESSAGE := $(shell $(CC) --mario-verify 2>&1)
+ifneq ($(MESSAGE),)
+  $(error Not a compiler for mario)
+endif
 
 OBJS =$(addsuffix .o,$(basename $(wildcard *.[Ssc])))
 OBJS +=$(addsuffix .o,$(basename $(wildcard */*.[Ssc])))

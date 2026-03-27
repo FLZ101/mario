@@ -57,5 +57,6 @@ SECTIONS
 		*(.comment)
 		*(.note.GNU-stack)
 		*(.note.gnu.property)
+		*(.note.gnu.build-id)
 	}
 }

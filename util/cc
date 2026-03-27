@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import subprocess
+import json
+import fcntl
+
+from pathlib import Path
+
+
+class Unreachable(Exception):
+    pass
+
+
+def get_args():
+    cwd = Path(__file__).resolve().parent
+
+    prog_name = os.path.basename(sys.argv[0])
+    args = ["gcc"] + sys.argv[1:]
+
+    for x in args:
+        if x in ["-v", "--version", "-h", "--help"]:
+            return args
+
+        if x == "--mario-verify":
+            sys.exit(0)
+
+    compile_only = False
+    link_only = True
+    for x in args:
+        if x == "-c":
+            compile_only = True
+        if x.endswith(".c"):
+            link_only = False
+
+    flags = [
+        "-m32",
+        "-nostdinc",
+        "-ffreestanding",
+        "-fno-pic",
+        "-fno-unwind-tables",
+        "-fno-asynchronous-unwind-tables",
+        "-fno-stack-protector",
+    ]
+    match prog_name:
+        case "cc":
+            flags = []
+
+        case "mario-cc":
+            pass
+
+        case "mario-libc-cc":
+            libc_dir = (cwd / ".." / "libc").resolve()
+
+            if not link_only:
+                inc_dir = libc_dir / "include"
+                flags.append(f"-I{inc_dir}")
+
+            if not compile_only:
+                lib_dir = libc_dir / "lib"
+                linker_script = lib_dir / "mario.ld"
+                flags.extend(
+                    [
+                        f"-L{lib_dir}",
+                        "-nostdlib",
+                        "-lgcc",
+                        "-lc",
+                        "-T",
+                        f"{linker_script}",
+                    ]
+                )
+                flags.append(
+                    ",".join(
+                        [
+                            "-Wl",
+                            "--orphan-handling=warn",
+                        ]
+                    )
+                )
+
+        case "mario-musl-cc":
+            pass
+
+        case _:
+            raise Unreachable()
+
+    args += flags
+
+    compile_commands_json = os.getenv("COMPILE_COMMANDS_JSON")
+    if compile_commands_json:
+        compile_commands_json = Path(compile_commands_json)
+        compile_commands_json.touch()
+
+        for x in args:
+            if x.endswith(".c") or x.endswith(".S"):
+                with open(compile_commands_json, "r+", encoding="utf-8") as f:
+                    fcntl.flock(f, fcntl.LOCK_EX)
+
+                    try:
+                        try:
+                            arr = json.load(f)
+                        except json.JSONDecodeError:
+                            arr = []
+
+                        item = {
+                            "directory": os.getcwd(),
+                            "arguments": args,
+                            "file": x,
+                        }
+                        for o in arr:
+                            if (
+                                item["directory"] == o["directory"]
+                                and item["file"] == o["file"]
+                            ):
+                                o["arguments"] = item["arguments"]
+                                break
+                        else:
+                            arr.append(item)
+
+                        f.seek(0, os.SEEK_SET)
+                        f.truncate()
+                        json.dump(arr, f, indent=2)
+
+                    finally:
+                        fcntl.flock(f, fcntl.LOCK_UN)
+
+    return args
+
+
+def main():
+    args = get_args()
+    subprocess.run(args, capture_output=False, check=True)
+
+
+if __name__ == "__main__":
+    main()

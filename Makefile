@@ -1,28 +1,35 @@
 RM	:=rm -f
 
-.PHONY: all kernel rd app libc image compile_db run debug quick-run quick-debug
+ROOT := $(shell pwd)
 
-.PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image clean-compile_db
+.PHONY: all kernel rd app libc image run debug quick-run quick-debug
+
+.PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image
 
 all: kernel rd
 
+COMPILE_COMMANDS_JSON := $(ROOT)/compile_commands.json
+export COMPILE_COMMANDS_JSON
+
+CC	:= $(ROOT)/util/cc
+export CC
+LD	:= $(ROOT)/util/ld
+export LD
+
 kernel:
-	$(MAKE) -C src
+	$(MAKE) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld -C src
 
 rd: app
 	$(MAKE) -C rd
 
 app: libc
-	$(MAKE) -C app
+	$(MAKE) CC=$(ROOT)/util/mario-libc-cc LD=$(ROOT)/util/mario-libc-ld -C app
 
 libc:
-	$(MAKE) -C libc
+	$(MAKE) CC=$(ROOT)/util/mario-cc -C libc
 
 image: kernel rd
 	$(MAKE) -C qemu
-
-compile_db:
-	compiledb $(MAKE) kernel libc app rd
 
 run:
 	$(MAKE) run -C qemu
@@ -37,6 +44,7 @@ quick-debug:
 	$(MAKE) quick-debug -C qemu
 
 clean: clean-kernel clean-rd clean-app clean-libc clean-image
+	$(RM) $(COMPILE_COMMANDS_JSON)
 
 clean-kernel:
 	$(MAKE) clean -C src
@@ -52,9 +60,6 @@ clean-libc:
 
 clean-image:
 	$(MAKE) clean -C qemu
-
-clean-compile_db:
-	$(RM) compile_commands.json
 
 .PHONY: tmux-run tmux-debug tmux-attach tmux-kill
 tmux-run tmux-debug tmux-attach tmux-kill:

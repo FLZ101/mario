@@ -1,27 +1,28 @@
-
-.EXPORT_ALL_VARIABLES:
-
 RM	:=rm -f
 NASM	:=nasm
 MAKE	:=make -R
 
-TOOLCHAIN :=
-LD	:=$(TOOLCHAIN)ld -m elf_i386
-STRIP	:=$(TOOLCHAIN)strip
-NM	:=$(TOOLCHAIN)nm
-OBJDUMP	:=$(TOOLCHAIN)objdump
-CC	:=$(TOOLCHAIN)gcc -m32
+STRIP	:=strip
+NM	:=nm
+OBJDUMP	:=objdump
 
 INCLUDE	:=-I include
 CFLAGS	:=-c -D__KERNEL__ $(INCLUDE) \
 	-std=gnu11 -Wall -Werror \
-	-nostdinc -ffreestanding \
-	-fno-pic -fno-unwind-tables -fno-asynchronous-unwind-tables \
-	-ggdb -O0 -fno-omit-frame-pointer -fno-stack-protector \
+	-ggdb -O0 -fno-omit-frame-pointer \
 	-MMD -MP
-LDFLAGS	:=-T kernel.ld --orphan-handling=warn -nostdlib
+LDFLAGS	:=-T kernel.ld
 
 .PHONY:	all clean
+
+MESSAGE := $(shell $(CC) --mario-verify 2>&1)
+ifneq ($(MESSAGE),)
+  $(error Not a compiler for mario)
+endif
+MESSAGE := $(shell $(LD) --mario-verify 2>&1)
+ifneq ($(MESSAGE),)
+  $(error Not a linker for mario)
+endif
 
 OBJS	:=$(addsuffix .o,$(basename $(wildcard */*.[Sc])))
 OBJS	+=$(addsuffix .o,$(basename $(wildcard */*/*.[Sc])))

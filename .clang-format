@@ -1,0 +1,8 @@
+---
+BasedOnStyle:  LLVM
+
+# Indentation
+IndentWidth:     4
+TabWidth:        4
+UseTab:          Never
+ContinuationIndentWidth: 4

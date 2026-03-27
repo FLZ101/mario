@@ -1,18 +1,24 @@
 SUBDIRS	:= $(patsubst %/main.c,%, $(wildcard */main.c))
 SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard */*/main.c))
-MAKE := make
 
 SHELL=/bin/bash
 
 .PHONY: all clean
 
-CWD	:= $(shell pwd)
+ROOT := $(shell pwd)
+export ROOT
 
-LIBC_DIR	:= $(CWD)/../libc/lib
-export LIBC_DIR
+MESSAGE := $(shell $(CC) --mario-verify 2>&1)
+ifneq ($(MESSAGE),)
+  $(error Not a compiler for mario)
+endif
+MESSAGE := $(shell $(LD) --mario-verify 2>&1)
+ifneq ($(MESSAGE),)
+  $(error Not a linker for mario)
+endif
 
 all:
-	@set -e ; for x in $(SUBDIRS) ; do $(MAKE) all -C $$x -f $(CWD)/Makefile.in; done
+	@set -e ; for x in $(SUBDIRS) ; do $(MAKE) all -C $$x -f $(ROOT)/Makefile.in; done
 
 clean:
-	@set -e ; for x in $(SUBDIRS) ; do $(MAKE) clean -C $$x -f $(CWD)/Makefile.in; done
+	@set -e ; for x in $(SUBDIRS) ; do $(MAKE) clean -C $$x -f $(ROOT)/Makefile.in; done

@@ -2,6 +2,11 @@
 
 all: rd
 
+MESSAGE := $(shell $(CC) --mario-verify 2>&1)
+ifneq ($(MESSAGE),)
+  $(error Not a compiler for mario)
+endif
+
 rd: rd-make rd-explorer
 	$(MAKE) rd0 rd1 rd2
 
