@@ -349,7 +349,7 @@ void setup_aux_vector(struct exec *exe, auxv_t *av)
 // Return number of words needed to store argc, argv[], envp[] and aux vector
 static inline int get_n_word(struct exec *exe)
 {
-	return 3 + exe->argc + 1 + exe->envc + 1 + AT_VECTOR_SIZE * 2;
+	return 1 + (exe->argc + 1) + (exe->envc + 1) + (AT_VECTOR_SIZE * 2);
 }
 
 extern void oom(struct task_struct *);
@@ -380,22 +380,18 @@ int setup_arg_pages(struct exec *exe)
 		goto tail_2;
 	}
 
-	/*
-	 * `push' envp[], argv[], argc
-	 */
 	unsigned n_word = get_n_word(exe);
 	assert(n_word * sizeof(long) <= PAGE_SIZE);
 
 	p1 = (unsigned long *)start_stack - n_word;
-	/* `push' argc */
+	/* argc */
 	*(p1) = exe->argc;
 
 	pc = (char *)start_stack;
 	current->mm->arg_start = (unsigned long)pc;
 
-	/* `push' argv[] */
-	p2 = p1 + 3;
-	*(p1 + 1) = (unsigned long)p2;
+	/* arguments */
+	p2 = p1 + 1;
 	for (i = 0; i < exe->argc; i++) {
 		*(p2++) = (unsigned long)pc;
 		while (*(pc++))
@@ -404,8 +400,7 @@ int setup_arg_pages(struct exec *exe)
 	*(p2++) = 0;
 	current->mm->arg_end = current->mm->env_start = (unsigned long)pc;
 
-	/* `push' envp[] */
-	*(p1 + 2) = (unsigned long)p2;
+	/* environment variables */
 	for (i = 0; i < exe->envc; i++) {
 		*(p2++) = (unsigned long)pc;
 		while (*(pc++))

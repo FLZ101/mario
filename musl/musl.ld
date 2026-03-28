@@ -18,18 +18,18 @@ SECTIONS
 	.init :
 	{
 		KEEP (*(SORT_NONE(.init)))
-	}
+	} :text
 
 	.text :
 	{
 		*(.text)
 		*(.text.*)
-		. = ALIGN(0x1000);
-	} :text
+	}
 
 	.fini :
 	{
 		KEEP (*(SORT_NONE(.fini)))
+		. = ALIGN(0x1000);
 	}
 
 	.rodata :

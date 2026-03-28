@@ -16,8 +16,8 @@ export CC
 LD	:= $(ROOT)/util/ld
 export LD
 
-# LIBC	:= musl
-LIBC	:= libc
+LIBC	:= musl
+# LIBC	:= libc
 
 ifeq ($(LIBC), libc)
   APP_CC	:= $(ROOT)/util/mario-libc-cc
