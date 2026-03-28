@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <time.h>
 #include <termios.h>
+#include <errno.h>
+
 #include <app/util.h>
 
 struct termios t;

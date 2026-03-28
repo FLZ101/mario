@@ -66,7 +66,6 @@ extern void copy_fs(struct task_struct *p);
 int do_fork(struct trap_frame *tr)
 {
 	struct task_struct *p;
-	
 	if (!(p = alloc_task_struct()))
 		return -ENOMEM;
 	*p = *current;

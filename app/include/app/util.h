@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define STRINGIFY(x)	#x
+#define TO_STRING(x)	STRINGIFY(x)
+
 #define PError() perror(__FILE__ ":" TO_STRING(__LINE__))
 
 #define Exit() \
@@ -14,7 +17,7 @@ do { \
 
 #define HandleErr(x) \
 do { \
-    if (-1 == (x)) { \
+    if (-1 == (int)(x)) { \
         Exit(); \
     } \
 } while (0)

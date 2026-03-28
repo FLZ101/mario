@@ -129,7 +129,7 @@ struct inode *iget(struct super_block *, int);
 void iput(struct inode *);
 void iref(struct inode *);
 
-typedef int (*filldir_t)(void *, char *, int, off_t, ino_t);
+typedef int (*filldir_t)(void *, char *, int, off_t, ino_t, unsigned char);
 
 struct file;
 struct file_operations {

@@ -337,7 +337,7 @@ ENTRY(sys_call_table)
 	.long sys_mount
 	.long sys_umount
 	.long sys_not_exist /* SYS_setuid */
-	.long sys_not_exist /* SYS_getuid */
+	.long sys_getuid
 	.long sys_not_exist /* SYS_stime */
 	.long sys_not_exist /* SYS_ptrace */
 	.long sys_alarm
@@ -556,7 +556,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_futex */
 	.long sys_not_exist /* SYS_sched_setaffinity */
 	.long sys_not_exist /* SYS_sched_getaffinity */
-	.long sys_not_exist /* SYS_set_thread_area */
+	.long sys_set_thread_area
 	.long sys_not_exist /* SYS_get_thread_area */
 	.long sys_not_exist /* SYS_io_setup */
 	.long sys_not_exist /* SYS_io_destroy */

@@ -55,7 +55,17 @@
 /* Type of a signal handler.  */
 typedef void (*sighandler_t)(int);
 
-typedef unsigned long sigset_t;		/* at least 32 bits */
+// Only first 32 bits are used
+typedef struct __sigset_t {
+	unsigned long __bits[128/sizeof(long)];
+} sigset_t;
+
+int sigdelset(sigset_t *set, int sig);
+int sigandset(sigset_t *dest, const sigset_t *left, const sigset_t *right);
+int sigaddset(sigset_t *set, int sig);
+int sigemptyset(sigset_t *set);
+int sigisemptyset(const sigset_t *set);
+int sigismember(const sigset_t *set, int sig);
 
 #define SIG_DFL	((sighandler_t)0)	/* default signal handling */
 #define SIG_IGN	((sighandler_t)1)	/* ignore signal */

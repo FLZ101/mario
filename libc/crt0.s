@@ -1,7 +1,7 @@
 	.text
-	.globl start
+	.globl _start
 
-start:
+_start:
 	movl %esp, %eax
 	xorl %ebp, %ebp
 	pushl %ebp

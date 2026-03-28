@@ -139,7 +139,8 @@ static int do_mount(dev_t dev, char *dir_name, char *type)
 	return 0;
 }
 
-int sys_mount(char *dev_name, char *dir_name, char *type)
+int sys_mount(char *dev_name, char *dir_name, char *type,
+	unsigned long mountflags, void *data)
 {
 	int error;
 	char *tmp;

@@ -1,14 +1,8 @@
 #include <fs/fs.h>
+#include <fs/dirent.h>
 
 #define NAME_OFFSET(de) ((int) ((de)->d_name - (char *) (de)))
 #define ROUND_UP(x) (((x)+sizeof(long)-1) & ~(sizeof(long)-1))
-
-struct mario_dirent {
-	unsigned long d_ino;
-	unsigned long d_off; // f_pos. End of this entry, and start of next one
-	unsigned short d_reclen; // length of this entry
-	char d_name[1];
-};
 
 struct getdents_callback {
 	struct mario_dirent *prev;
@@ -17,7 +11,7 @@ struct getdents_callback {
 	int error;
 };
 
-static int filldir(void *__buf, char *name, int namelen, off_t offset, ino_t ino)
+static int filldir(void *__buf, char *name, int namelen, off_t offset, ino_t ino, unsigned char type)
 {
 	struct mario_dirent *dirent;
 	struct getdents_callback *buf = (struct getdents_callback *)__buf;
@@ -33,6 +27,7 @@ static int filldir(void *__buf, char *name, int namelen, off_t offset, ino_t ino
 	buf->prev = dirent;
 	put_fs_long(ino, &dirent->d_ino);
 	put_fs_word(reclen, &dirent->d_reclen);
+	put_fs_byte(type, &dirent->d_type);
 	memcpy_tofs(dirent->d_name, name, namelen);
 	put_fs_byte(0, dirent->d_name + namelen);
 	buf->next = (struct mario_dirent *)((char *)dirent + reclen);

@@ -1,5 +1,6 @@
 #include <fs/fs.h>
 #include <fs/mariofs/mariofs.h>
+#include <fs/dirent.h>
 
 extern int mario_get_block(struct super_block *sb, int nr, int *head, int *tail);
 extern int mario_put_block(struct super_block *sb, int head, int tail);
@@ -524,7 +525,7 @@ read_a_block:
 		if (entry[i].data == MARIO_FREE_ENTRY)
 			continue;
 		if (filldir(dirent, entry[i].name, strlen(entry[i].name), f->f_pos,
-			block * size + i * MARIO_ENTRY_SIZE)) {
+			block * size + i * MARIO_ENTRY_SIZE, IFTODT(entry[i].mode))) {
 			brelse(bh);
 			return 0;
 		}

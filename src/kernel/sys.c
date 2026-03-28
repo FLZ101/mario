@@ -114,6 +114,11 @@ int sys_setrlimit(unsigned int resource, struct rlimit *rlim)
 	return 0;
 }
 
+uid_t sys_getuid(void)
+{
+	return 0;
+}
+
 int sys_not_exist(void)
 {
 	return -ENOSYS;

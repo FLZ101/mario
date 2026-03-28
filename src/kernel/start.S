@@ -122,6 +122,7 @@ ignore_int:
 
 	.data
 	.balign 8
+	.globl gdt
 gdt:
 	.quad 0x0000000000000000	/* NULL descriptor */
 	.quad 0x0000890000000067	/* 0x08, 104-byte tss */
@@ -129,6 +130,9 @@ gdt:
 	.quad 0x00cf92000000ffff	/* 0x18, 0 ~ 4GB kernel data */
 	.quad 0x00cffa000000ffff	/* 0x23, 0 ~ 4GB user code */
 	.quad 0x00cff2000000ffff	/* 0x2b, 0 ~ 4GB user data */
+	.quad 0x0000000000000000	/* TLS */
+	.quad 0x0000000000000000	/* TLS */
+	.quad 0x0000000000000000	/* TLS */
 
 gdtr:
 	.word 6*8 - 1

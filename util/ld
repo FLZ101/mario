@@ -12,11 +12,38 @@ class Unreachable(Exception):
     pass
 
 
+def get_libgcc_path():
+    cp = subprocess.run(
+        ["gcc", "-m32", "-print-libgcc-file-name"],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    s = cp.stdout.strip()
+    assert s
+    return s
+
+
+def get_gcc_file(name: str):
+    name = name.strip()
+    assert name and "/" not in name
+
+    cp = subprocess.run(
+        ["gcc", "-m32", f"--print-file-name={name}"],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    s = cp.stdout.strip()
+    assert s.startswith("/")
+    return s
+
+
 def get_args():
     cwd = Path(__file__).resolve().parent
 
     prog_name = os.path.basename(sys.argv[0])
-    args = ["ld"] + sys.argv[1:]
+    args = sys.argv[1:]
 
     for x in args:
         if x in ["-v", "--version", "-h", "--help"]:
@@ -25,7 +52,8 @@ def get_args():
         if x == "--mario-verify":
             sys.exit(0)
 
-    flags = ["-m", "elf_i386", "--orphan-handling=warn", "-nostdlib"]
+    flags_before = ["-m", "elf_i386"]
+    flags = ["--orphan-handling=warn", "-nostdlib"]
     match prog_name:
         case "ld":
             flags = []
@@ -42,23 +70,40 @@ def get_args():
                     "-lc",
                     "-T",
                     f"{linker_script}",
+                    f"{get_libgcc_path()}",
                 ]
             )
 
         case "mario-musl-ld":
-            pass
+            musl_dir = (cwd / ".." / "musl").resolve()
+            lib_dir = (musl_dir / "musl-1.2.5-install" / "lib").resolve()
+            linker_script = musl_dir / "musl.ld"
+
+            flags_before.extend(
+                [
+                    f'{lib_dir / "crt1.o"}',
+                    f'{lib_dir / "crti.o"}',
+                    f'{get_gcc_file("crtbegin.o")}',
+                ]
+            )
+
+            flags.extend(
+                [
+                    f"-L{lib_dir}",
+                    "-lc",
+                    "-T",
+                    f"{linker_script}",
+                    f"{get_libgcc_path()}",
+                    f'{get_gcc_file("crtend.o")}',
+                    f'{lib_dir / "crtn.o"}',
+                    "--gc-sections",
+                ]
+            )
 
         case _:
             raise Unreachable()
 
-    args += flags
-
-    for x in args:
-        if x.endswith(".c") or x.endswith(".S"):
-            with open(f"{x}.compile_command.json", "w", encoding="utf-8") as ofs:
-                compile_command = {"directory": os.getcwd(), "command": args, "file": x}
-                json.dump(compile_command, ofs)
-
+    args = ["ld"] + flags_before + args + flags
     return args
 
 

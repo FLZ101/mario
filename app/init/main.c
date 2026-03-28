@@ -160,6 +160,7 @@ int main(int argc, char *argv[], char *envp[])
     HandleErr(signal(SIGHUP, SIG_IGN));
     HandleErr(signal(SIGQUIT, SIG_IGN));
 
+    run_tests();
     do_getty();
     return 0;
 }

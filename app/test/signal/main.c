@@ -19,7 +19,7 @@ int main(int argc, char *argv[])
 {
 	struct sigaction sa;
 
-	sa.sa_mask = 0;
+	sigemptyset(&sa.sa_mask);
 	sa.sa_flags = 0;
 	sa.sa_handler = f;
 	sa.sa_restorer = NULL;

@@ -13,11 +13,26 @@ class Unreachable(Exception):
     pass
 
 
+def get_gcc_file(name: str):
+    name = name.strip()
+    assert name and "/" not in name
+
+    cp = subprocess.run(
+        ["gcc", "-m32", f"--print-file-name={name}"],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    s = cp.stdout.strip()
+    assert s.startswith("/")
+    return s
+
+
 def get_args():
     cwd = Path(__file__).resolve().parent
 
     prog_name = os.path.basename(sys.argv[0])
-    args = ["gcc"] + sys.argv[1:]
+    args = sys.argv[1:]
 
     for x in args:
         if x in ["-v", "--version", "-h", "--help"]:
@@ -34,8 +49,8 @@ def get_args():
         if x.endswith(".c"):
             link_only = False
 
+    flags_before = ["-m32"]
     flags = [
-        "-m32",
         "-nostdinc",
         "-ffreestanding",
         "-fno-pic",
@@ -80,12 +95,44 @@ def get_args():
                 )
 
         case "mario-musl-cc":
-            pass
+            musl_dir = (cwd / ".." / "musl").resolve()
+            libc_dir = (musl_dir / "musl-1.2.5-install").resolve()
+
+            if not link_only:
+                inc_dir = libc_dir / "include"
+                flags.extend([f"-I{inc_dir}", "-D_GNU_SOURCE", "-Wno-parentheses"])
+
+            if not compile_only:
+                lib_dir = libc_dir / "lib"
+                linker_script = musl_dir / "musl.ld"
+
+                flags_before.extend(
+                    [
+                        f'{lib_dir / "crt1.o"}',
+                        f'{lib_dir / "crti.o"}',
+                        f'{get_gcc_file("crtbegin.o")}',
+                    ]
+                )
+                flags.extend(
+                    [
+                        f"-L{lib_dir}",
+                        "-nostdlib",
+                        "-lc",
+                        "-T",
+                        f"{linker_script}",
+                        "-lgcc",
+                        f'{get_gcc_file("crtend.o")}',
+                        f'{lib_dir / "crtn.o"}',
+                    ]
+                )
+                flags.append(
+                    ",".join(["-Wl", "--orphan-handling=warn", "--gc-sections"])
+                )
 
         case _:
             raise Unreachable()
 
-    args += flags
+    args = ["gcc"] + flags_before + args + flags
 
     compile_commands_json = os.getenv("COMPILE_COMMANDS_JSON")
     if compile_commands_json:

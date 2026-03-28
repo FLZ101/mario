@@ -6,9 +6,9 @@ A simple UNIX-like OS for x86.
 
 ```
 $ sudo dnf install make gcc binutils nasm qemu-system-x86 gdb
-```
 
-```
+$ sudo dnf install wget
+
 $ sudo dnf install socat tmux
 ```
 

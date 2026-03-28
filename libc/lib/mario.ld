@@ -2,7 +2,7 @@ OUTPUT_FORMAT(elf32-i386)
 OUTPUT_ARCH(i386)
 
 STARTUP(crt0.o)
-ENTRY(start)
+ENTRY(_start)
 
 PHDRS
 {

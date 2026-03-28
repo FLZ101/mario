@@ -123,6 +123,28 @@ void PrintFile(char *filename)
 
 #define N 1024
 
+char *GetDirentTypeName(unsigned char d_type)
+{
+    switch (d_type) {
+    case DT_BLK:
+        return "Block";
+    case DT_CHR:
+        return "Char";
+    case DT_DIR:
+        return "Dir";
+    case DT_FIFO:
+        return "Fifo";
+    case DT_LNK:
+        return "Link";
+    case DT_REG:
+        return "Reg";
+    case DT_SOCK:
+        return "Sock";
+    default:
+        return "?";
+    }
+}
+
 void ListDir(char *pathname)
 {
     char buf[N];
@@ -134,7 +156,7 @@ void ListDir(char *pathname)
         Exit();
 
     while (1) {
-        int count = getdents(fd, buf, N);
+        int count = getdents(fd, (struct dirent *) buf, N);
         if (-1 == count)
             Exit();
         // end of directory
@@ -143,9 +165,9 @@ void ListDir(char *pathname)
 
         int off = 0;
         while (off < count) {
-            struct mario_dirent *dirent = (struct mario_dirent *) (buf + off);
-            printf("%x %x %s\n", dirent->d_ino, dirent->d_off, dirent->d_name);
-            off += dirent->d_reclen;
+            struct dirent *ent = (struct dirent *) (buf + off);
+            printf("%x %x %s %s\n", ent->d_ino, ent->d_off, GetDirentTypeName(ent->d_type), ent->d_name);
+            off += ent->d_reclen;
         }
     }
 

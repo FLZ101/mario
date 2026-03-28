@@ -57,9 +57,6 @@ int sscanf(const char *s, const char *fmt, ...);
 
 void perror(const char *s);
 
-#define STRINGIFY(x)	#x
-#define TO_STRING(x)	STRINGIFY(x)
-
 int rename(const char *oldpath, const char *newpath);
 
 #define EOF -1

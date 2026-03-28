@@ -3,6 +3,7 @@
 #include <timer.h>
 #include <misc.h>
 #include <tss.h>
+#include <ldt.h>
 
 #include <lib/spinlock.h>
 #include <lib/stddef.h>
@@ -64,6 +65,16 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	save_segment(gs, prev->gs);
 	load_segment(fs, next->fs);
 	load_segment(gs, next->gs);
+
+	// TLS
+	struct user_desc *ud = p->thread.user_descs;
+	for (int idx = 0; idx <= NR_USER_DESC; ++idx) {
+		if (user_desc_zero(ud + idx)) {
+			zero_desc(gdt + GDT_ENTRY_TLS_MIN_IDX + idx);
+		} else {
+			fill_desc(gdt + GDT_ENTRY_TLS_MIN_IDX + idx, ud + idx);
+		}
+	}
 }
 
 void switch_to(struct task_struct *next)

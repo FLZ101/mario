@@ -8,11 +8,17 @@
 #include <wait.h>
 #include <signal.h>
 #include <resource.h>
+#include <ldt.h>
 
 #include <mm/page_alloc.h>
 #include <mm/mm.h>
 
 #include <lib/spinlock.h>
+
+#define GDT_ENTRY_TLS_MIN_IDX 6
+#define GDT_ENTRY_TLS_MAX_IDX 8
+
+#define NR_USER_DESC 3
 
 struct thread_struct {
 	unsigned long esp0;
@@ -22,6 +28,7 @@ struct thread_struct {
 	unsigned long gs;
 
 	unsigned long cr2, trap_no, error_code;
+	struct user_desc user_descs[NR_USER_DESC];
 };
 
 #define NR_RLIMIT	2

@@ -70,7 +70,7 @@ void printList(List *li) {
   printf("\n");
 }
 
-void remove(Node *node) {
+void remove_node(Node *node) {
   node->prev->next = node->next;
   node->next->prev = node->prev;
   node->prev = NULL;
@@ -83,7 +83,7 @@ void freeList(List *li) {
   Node *node = li->head.next;
   while (node != &li->tail) {
     node = node->next;
-    remove(node->prev);
+    remove_node(node->prev);
   }
 }
 
