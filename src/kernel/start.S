@@ -133,9 +133,10 @@ gdt:
 	.quad 0x0000000000000000	/* TLS */
 	.quad 0x0000000000000000	/* TLS */
 	.quad 0x0000000000000000	/* TLS */
+gdt_end:
 
 gdtr:
-	.word 6*8 - 1
+	.word (gdt_end - gdt) - 1
 	.long __phy(gdt)
 
 stack_start:

@@ -31,17 +31,18 @@ int sys_set_thread_area(struct user_desc *u_info)
 		put_fs_long(idx, &u_info->entry_number);
 	}
 
-	if (idx < GDT_ENTRY_TLS_MIN_IDX || idx >= GDT_ENTRY_TLS_MAX_IDX)
+	if (idx < GDT_ENTRY_TLS_MIN_IDX || idx > GDT_ENTRY_TLS_MAX_IDX)
 		return -EINVAL;
+	idx -= GDT_ENTRY_TLS_MIN_IDX;
 
 	irq_save();
 
 	struct desc_struct *tls_desc = gdt + GDT_ENTRY_TLS_MIN_IDX;
 	if (empty) {
-		zero_user_desc(&ud[idx - GDT_ENTRY_TLS_MIN_IDX]);
+		zero_user_desc(&ud[idx]);
 		zero_desc(tls_desc + idx);
 	} else {
-		ud[idx - GDT_ENTRY_TLS_MIN_IDX] = info;
+		ud[idx] = info;
 		fill_desc(tls_desc + idx, &info);
 	}
 
@@ -49,3 +50,7 @@ int sys_set_thread_area(struct user_desc *u_info)
 	return 0;
 }
 
+int sys_set_tid_address(int *tidptr)
+{
+	return current->pid;
+}

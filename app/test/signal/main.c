@@ -9,7 +9,7 @@ volatile sig_atomic_t done = 0;
 static void f(int sig)
 {
 	// NOT async-signal-safe
-	printf("pid:%d sig:%d\n", getpid(), sig);
+	printf("[%d] sig:%d\n", getpid(), sig);
 
 	if (sig == SIGUSR2)
 		done = 1;
@@ -40,7 +40,7 @@ int main(int argc, char *argv[])
 	while (!done)
 		pause();
 
-	printf("pid:%d exit\n", getpid());
+	printf("[%d] exit\n", getpid());
 	sleep(1);
 	return 0;
 }

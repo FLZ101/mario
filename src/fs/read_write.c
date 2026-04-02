@@ -1,4 +1,5 @@
 #include <fs/fs.h>
+#include <fs/uio.h>
 
 int sys_lseek(unsigned int fd, off_t offset, unsigned int origin)
 {
@@ -79,4 +80,41 @@ int sys_write(unsigned int fd, char *buf, unsigned int count)
 	if (error)
 		return error;
 	return f->f_op->write(i, f, buf, count);
+}
+
+int sys_writev(unsigned int fd, struct iovec *vec, unsigned int vlen)
+{
+	int error;
+	struct file *f;
+	struct inode *i;
+
+	if (fd >= NR_OPEN || !(f = current->files->fd[fd]) || !(i = f->f_inode))
+		return -EBADF;
+	if (!(f->f_mode & 2))
+		return -EBADF;
+	if (!f->f_op || !f->f_op->write)
+		return -EINVAL;
+
+	if (!vlen)
+		return 0;
+
+	int total = 0;
+	for (unsigned int idx = 0; idx < vlen; ++idx) {
+		void *buf = vec[idx].iov_base;
+		size_t count = vec[idx].iov_len;
+
+		if (!buf || !count)
+			continue;
+
+		error = verify_area(VERIFY_READ, buf, count);
+		if (error)
+			return error;
+
+		error = f->f_op->write(i, f, buf, count);
+		if (error < 0)
+			return error;
+
+		total += error;
+	}
+	return total;
 }

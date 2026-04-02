@@ -62,12 +62,10 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 
 	init_tss.esp0 = next->esp0;
 	save_segment(fs, prev->fs);
-	save_segment(gs, prev->gs);
 	load_segment(fs, next->fs);
-	load_segment(gs, next->gs);
 
 	// TLS
-	struct user_desc *ud = p->thread.user_descs;
+	struct user_desc *ud = n->thread.user_descs;
 	for (int idx = 0; idx <= NR_USER_DESC; ++idx) {
 		if (user_desc_zero(ud + idx)) {
 			zero_desc(gdt + GDT_ENTRY_TLS_MIN_IDX + idx);
@@ -75,6 +73,8 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 			fill_desc(gdt + GDT_ENTRY_TLS_MIN_IDX + idx, ud + idx);
 		}
 	}
+	save_segment(gs, prev->gs);
+	load_segment(gs, next->gs);
 }
 
 void switch_to(struct task_struct *next)

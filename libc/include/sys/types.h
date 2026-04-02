@@ -14,20 +14,23 @@ typedef unsigned long long   __u64;
 typedef int pid_t;
 
 typedef long off_t;
-// typedef long long loff_t;
-typedef long loff_t;
+typedef long long off64_t;
 
 typedef unsigned int size_t;
 typedef int ssize_t;
 
+typedef int clockid_t;
+
 typedef unsigned long ino_t;
+typedef unsigned long long ino64_t;
 typedef unsigned short dev_t;
 
 typedef unsigned short mode_t;
 typedef unsigned short umode_t;
 typedef unsigned short nlink_t;
 
-typedef long time_t;
+typedef long long time_t;
+typedef long long suseconds_t;
 typedef long clock_t;
 
 typedef unsigned uid_t;

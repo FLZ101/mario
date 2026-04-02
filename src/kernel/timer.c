@@ -266,3 +266,8 @@ int sys_nanosleep(struct timespec *req, struct timespec *rem)
 	}
 	return -EINTR;
 }
+
+int sys_clock_nanosleep_time32(clockid_t clockid, int flags, struct timespec *req, struct timespec *rem)
+{
+	return sys_nanosleep(req, rem);
+}

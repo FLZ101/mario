@@ -148,7 +148,7 @@ struct file_operations {
 #define SEEK_END 2
 
 struct file {
-	loff_t f_pos;
+	off64_t f_pos;
 	mode_t f_mode;
 	unsigned short f_flags;
 	unsigned short f_count;

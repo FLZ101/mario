@@ -300,3 +300,8 @@ tail:
 	out_wait_queue(&current->wait_chldexit, &node);
 	return res;
 }
+
+int sys_wait4(int pid, int *stat_addr, int option/*, struct rusage *rusage */)
+{
+	return sys_waitpid(pid, stat_addr, option);
+}

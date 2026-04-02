@@ -55,10 +55,7 @@
 /* Type of a signal handler.  */
 typedef void (*sighandler_t)(int);
 
-// Only first 32 bits are used
-typedef struct __sigset_t {
-	unsigned long __bits[128/sizeof(long)];
-} sigset_t;
+typedef unsigned long sigset_t;		/* at least 32 bits */
 
 int sigdelset(sigset_t *set, int sig);
 int sigandset(sigset_t *dest, const sigset_t *left, const sigset_t *right);
@@ -73,9 +70,9 @@ int sigismember(const sigset_t *set, int sig);
 
 struct sigaction {
 	sighandler_t sa_handler;
-	sigset_t sa_mask;
 	unsigned long sa_flags;
 	void (*sa_restorer)(void);
+	sigset_t sa_mask;
 };
 
 #include <sys/types.h>

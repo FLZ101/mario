@@ -57,6 +57,10 @@ static inline void put_user_long(unsigned long val,int * addr)
 
 #define put_fs_long(x,addr) put_user_long((x),(int *)(addr))
 
+#define put_fs_long_long(x,addr) do { \
+	put_user_long((x), (int *)(addr)); \
+	put_user_long((unsigned long long)(x) >> 32, (int *)(addr) + 1); \
+} while (0)
 
 void memcpy_fromfs(void *to, const void *from, unsigned int n);
 

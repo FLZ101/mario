@@ -326,7 +326,7 @@ ENTRY(sys_call_table)
 	.long sys_unlink
 	.long sys_execve
 	.long sys_chdir
-	.long sys_time
+	.long sys_not_exist /* SYS_time. Obsolete */
 	.long sys_mknod
 	.long sys_not_exist /* SYS_chmod */
 	.long sys_not_exist /* SYS_lchown */
@@ -360,12 +360,12 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_prof */
 	.long sys_brk
 	.long sys_not_exist /* SYS_setgid */
-	.long sys_not_exist /* SYS_getgid */
+	.long sys_getgid
 	.long sys_signal
 	.long sys_not_exist /* SYS_geteuid */
 	.long sys_not_exist /* SYS_getegid */
 	.long sys_not_exist /* SYS_acct */
-	.long sys_not_exist /* SYS_umount2 */
+	.long sys_umount2
 	.long sys_not_exist /* SYS_lock */
 	.long sys_ioctl
 	.long sys_fcntl
@@ -391,7 +391,7 @@ ENTRY(sys_call_table)
 	.long sys_setrlimit
 	.long sys_getrlimit
 	.long sys_not_exist /* SYS_getrusage */
-	.long sys_not_exist /* SYS_gettimeofday_time32 */
+	.long sys_gettimeofday_time32 /* SYS_gettimeofday_time32 */
 	.long sys_not_exist /* SYS_settimeofday_time32 */
 	.long sys_not_exist /* SYS_getgroups */
 	.long sys_not_exist /* SYS_setgroups */
@@ -427,7 +427,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_vhangup */
 	.long sys_not_exist /* SYS_idle */
 	.long sys_not_exist /* SYS_vm86old */
-	.long sys_not_exist /* SYS_wait4 */
+	.long sys_wait4
 	.long sys_not_exist /* SYS_swapoff */
 	.long sys_not_exist /* SYS_sysinfo */
 	.long sys_not_exist /* SYS_ipc */
@@ -459,7 +459,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_flock */
 	.long sys_not_exist /* SYS_msync */
 	.long sys_not_exist /* SYS_readv */
-	.long sys_not_exist /* SYS_writev */
+	.long sys_writev
 	.long sys_getsid
 	.long sys_not_exist /* SYS_fdatasync */
 	.long sys_not_exist /* SYS__sysctl */
@@ -487,12 +487,12 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_getresgid */
 	.long sys_not_exist /* SYS_prctl */
 	.long sys_not_exist /* SYS_rt_sigreturn */
-	.long sys_not_exist /* SYS_rt_sigaction */
-	.long sys_not_exist /* SYS_rt_sigprocmask */
-	.long sys_not_exist /* SYS_rt_sigpending */
+	.long sys_sigaction /* SYS_rt_sigaction */
+	.long sys_sigprocmask /* SYS_rt_sigprocmask */
+	.long sys_sigpending /* SYS_rt_sigpending */
 	.long sys_not_exist /* SYS_rt_sigtimedwait */
 	.long sys_not_exist /* SYS_rt_sigqueueinfo */
-	.long sys_not_exist /* SYS_rt_sigsuspend */
+	.long sys_sigsuspend /* SYS_rt_sigsuspend */
 	.long sys_not_exist /* SYS_pread64 */
 	.long sys_not_exist /* SYS_pwrite64 */
 	.long sys_not_exist /* SYS_chown */
@@ -505,7 +505,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_putpmsg */
 	.long sys_not_exist /* SYS_vfork */
 	.long sys_not_exist /* SYS_ugetrlimit */
-	.long sys_not_exist /* SYS_mmap2 */
+	.long sys_mmap2
 	.long sys_not_exist /* SYS_truncate64 */
 	.long sys_not_exist /* SYS_ftruncate64 */
 	.long sys_not_exist /* SYS_stat64 */
@@ -533,8 +533,8 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_pivot_root */
 	.long sys_not_exist /* SYS_mincore */
 	.long sys_not_exist /* SYS_madvise */
-	.long sys_not_exist /* SYS_getdents64 */
-	.long sys_not_exist /* SYS_fcntl64 */
+	.long sys_getdents64
+	.long sys_fcntl64
 	.long sys_not_exist
 	.long sys_not_exist
 	.long sys_not_exist /* SYS_gettid */
@@ -565,22 +565,22 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_io_cancel */
 	.long sys_not_exist /* SYS_fadvise64 */
 	.long sys_not_exist
-	.long sys_not_exist /* SYS_exit_group */
+	.long sys_exit /* SYS_exit_group */
 	.long sys_not_exist /* SYS_lookup_dcookie */
 	.long sys_not_exist /* SYS_epoll_create */
 	.long sys_not_exist /* SYS_epoll_ctl */
 	.long sys_not_exist /* SYS_epoll_wait */
 	.long sys_not_exist /* SYS_remap_file_pages */
-	.long sys_not_exist /* SYS_set_tid_address */
+	.long sys_set_tid_address
 	.long sys_not_exist /* SYS_timer_create */
 	.long sys_not_exist /* SYS_timer_settime32 */
 	.long sys_not_exist /* SYS_timer_gettime32 */
 	.long sys_not_exist /* SYS_timer_getoverrun */
 	.long sys_not_exist /* SYS_timer_delete */
 	.long sys_not_exist /* SYS_clock_settime32 */
-	.long sys_not_exist /* SYS_clock_gettime32 */
+	.long sys_clock_gettime32
 	.long sys_not_exist /* SYS_clock_getres_time32 */
-	.long sys_not_exist /* SYS_clock_nanosleep_time32 */
+	.long sys_clock_nanosleep_time32
 	.long sys_not_exist /* SYS_statfs64 */
 	.long sys_not_exist /* SYS_fstatfs64 */
 	.long sys_not_exist /* SYS_tgkill */
@@ -716,7 +716,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_msgsnd */
 	.long sys_not_exist /* SYS_msgrcv */
 	.long sys_not_exist /* SYS_msgctl */
-	.long sys_not_exist /* SYS_clock_gettime64 */
+	.long sys_clock_gettime64
 	.long sys_not_exist /* SYS_clock_settime64 */
 	.long sys_not_exist /* SYS_clock_adjtime64 */
 	.long sys_not_exist /* SYS_clock_getres_time64 */

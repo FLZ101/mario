@@ -485,6 +485,7 @@
 #define __SYS_dup	SYS_dup
 #define __SYS_dup2	SYS_dup2
 #define __SYS_getdents	SYS_getdents
+#define __SYS_getdents64	SYS_getdents64
 #define __SYS_ioctl	SYS_ioctl
 #define __SYS_link	SYS_link
 #define __SYS_lseek	SYS_lseek
@@ -515,6 +516,7 @@
 #define __SYS_sigaction	SYS_sigaction
 #define __SYS_sigsuspend	SYS_sigsuspend
 #define __SYS_sigpending	SYS_sigpending
+#define __SYS_gettimeofday_time32	SYS_gettimeofday_time32
 #define __SYS_sigprocmask	SYS_sigprocmask
 #define __SYS_sigreturn	SYS_sigreturn
 #define __SYS_fcntl	SYS_fcntl

@@ -18,6 +18,9 @@ rd-explorer:
 
 EXES := $(wildcard ../app/*/*.exe)
 EXES_TEST := $(wildcard ../app/test/*/*.exe)
+ifeq ($(LIBC),musl)
+  EXES_TEST	+= $(wildcard ../app/test/musl/*/*.exe)
+endif
 
 rd0_files := $(shell find ramdisk0 -type f)
 rd0: $(EXES) $(EXES_TEST) $(rd0_files) device_list

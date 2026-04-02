@@ -50,8 +50,6 @@ int usleep(unsigned int usec);
 pid_t tcgetpgrp(int fd);
 int tcsetpgrp(int fd, pid_t pgrp);
 
-extern char **environ;
-
 // NOTE:
 //
 // 1. argv and envp can not contain "", or EFAULT happens

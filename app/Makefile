@@ -1,5 +1,8 @@
 SUBDIRS	:= $(patsubst %/main.c,%, $(wildcard */main.c))
-SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard */*/main.c))
+SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/*/main.c))
+ifeq ($(LIBC),musl)
+  SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/musl/*/main.c))
+endif
 
 SHELL=/bin/bash
 

@@ -10,6 +10,12 @@
 
 #include <mm/uaccess.h>
 
+time_t boot_time_sec = 0;
+
+#define LATCH (1193180/HZ)
+
+volatile long jiffies = 0;
+
 #define CMOS_READ(addr) ({ \
 outb(0x70, 0x80+(addr)); \
 inb(0x71); \
@@ -40,7 +46,7 @@ inb(0x71); \
  * machines were long is 32-bit! (However, as time_t is signed, we
  * will already get problems at other places on 2038-01-19 03:14:08)
  */
-static inline unsigned long mktime(unsigned int year, unsigned int mon,
+static inline time_t mktime(unsigned int year, unsigned int mon,
 	unsigned int day, unsigned int hour,
 	unsigned int min, unsigned int sec)
 {
@@ -49,14 +55,14 @@ static inline unsigned long mktime(unsigned int year, unsigned int mon,
 		year -= 1;
 	}
 	return (((
-	    (unsigned long)(year/4 - year/100 + year/400 + 367*mon/12 + day) +
+	    (time_t)(year/4 - year/100 + year/400 + 367*mon/12 + day) +
 	      year*365 - 719499
 	    )*24 + hour /* now have hours */
 	   )*60 + min /* now have minutes */
 	  )*60 + sec; /* finally seconds */
 }
 
-long get_cmos_time(void)
+time_t get_cmos_time(void)
 {
 	unsigned int year, mon, day, hour, min, sec;
 	do {
@@ -81,24 +87,72 @@ long get_cmos_time(void)
 	return mktime(year, mon, day, hour, min, sec);
 }
 
-int sys_time(long *tloc)
+int sys_gettimeofday_time32(struct timeval *tv)
 {
-	int i, error;
+	if (!tv)
+		return 0;
+	int error = verify_area(VERIFY_WRITE, tv, sizeof(*tv));
+	if (error)
+		return error;
 
-	i = get_cmos_time();
-
-	if (tloc) {
-		error = verify_area(VERIFY_WRITE, tloc, 4);
-		if (error)
-			return error;
-		put_fs_long(i, tloc);
-	}
-	return i;
+	put_fs_long(boot_time_sec + jiffies / HZ, &tv->tv_sec);
+	put_fs_long(jiffies % HZ * 1000000 / HZ, &tv->tv_usec);
+	return 0;
 }
 
-#define LATCH (1193180/HZ)
+static int do_clock_gettime64(clockid_t clockid, struct timespec64 *tp)
+{
+	tp->tv_sec = jiffies / HZ;
+	tp->tv_nsec = jiffies % HZ * 1000000000 / HZ;
 
-volatile long jiffies = 0;
+	switch (clockid) {
+	case CLOCK_REALTIME:
+	case CLOCK_REALTIME_COARSE:
+	case CLOCK_REALTIME_ALARM:
+		tp->tv_sec += boot_time_sec;
+		break;
+	case CLOCK_MONOTONIC:
+	case CLOCK_MONOTONIC_RAW:
+	case CLOCK_MONOTONIC_COARSE:
+	case CLOCK_BOOTTIME:
+	case CLOCK_BOOTTIME_ALARM:
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
+}
+
+int sys_clock_gettime64(clockid_t clockid, struct timespec64 *tp)
+{
+	int error = verify_area(VERIFY_WRITE, tp, sizeof(*tp));
+	if (error)
+		return error;
+
+	struct timespec64 ts;
+	int err = do_clock_gettime64(clockid, &ts);
+	if (err)
+		return err;
+
+	memcpy_tofs(tp, &ts, sizeof(ts));
+	return 0;
+}
+
+int sys_clock_gettime32(clockid_t clockid, struct timespec *tp)
+{
+	int error = verify_area(VERIFY_WRITE, tp, sizeof(*tp));
+	if (error)
+		return error;
+
+	struct timespec64 ts;
+	int err = do_clock_gettime64(clockid, &ts);
+	if (err)
+		return err;
+
+	put_fs_long(ts.tv_sec, &tp->tv_sec);
+	put_fs_long(ts.tv_nsec, &tp->tv_nsec);
+	return 0;
+}
 
 static void PIT_bh(void *unused)
 {
@@ -117,6 +171,8 @@ void i8253_init(void)
 
 void time_init(void)
 {
+	boot_time_sec = get_cmos_time();
+
 	i8253_init();
 	enable_bh(PIT_BH);
 	bh_base[PIT_BH].routine = PIT_bh;

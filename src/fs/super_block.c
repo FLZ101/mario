@@ -216,3 +216,8 @@ int sys_umount(char *name)
 		return -ENXIO;
 	return do_umount(dev);
 }
+
+int sys_umount2(char *name, int flags)
+{
+	return sys_umount(name);
+}

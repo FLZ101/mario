@@ -70,3 +70,8 @@ int sys_fcntl(unsigned int fd, unsigned int cmd, unsigned long arg)
 		return -EINVAL;
 	}
 }
+
+int sys_fcntl64(unsigned int fd, unsigned int cmd, unsigned long arg)
+{
+	return sys_fcntl(fd, cmd, arg);
+}

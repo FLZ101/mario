@@ -457,6 +457,12 @@ int sys_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 	return do_mmap(addr, len, prot, flags, fd, off);
 }
 
+int sys_mmap2(unsigned long addr, unsigned long len, unsigned long prot,
+	unsigned long flags, int fd, unsigned long off)
+{
+	return do_mmap(addr, len, prot, flags, fd, off * 4096);
+}
+
 unsigned long sys_brk(unsigned long brk)
 {
 	unsigned long rlim;

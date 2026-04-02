@@ -5,8 +5,8 @@
 #define ROUND_UP(x) (((x)+sizeof(long)-1) & ~(sizeof(long)-1))
 
 struct getdents_callback {
-	struct mario_dirent *prev;
-	struct mario_dirent *next;
+	void *prev; // previous dirent
+	void *next; // next dirent to write
 	int count;
 	int error;
 };
@@ -20,7 +20,7 @@ static int filldir(void *__buf, char *name, int namelen, off_t offset, ino_t ino
 	buf->error = -EINVAL;
 	if (reclen > buf->count)
 		return -EINVAL;
-	dirent = buf->prev;
+	dirent = (struct mario_dirent *) buf->prev;
 	if (dirent)
 		put_fs_long(offset, &dirent->d_off);
 	dirent = buf->next;
@@ -30,15 +30,38 @@ static int filldir(void *__buf, char *name, int namelen, off_t offset, ino_t ino
 	put_fs_byte(type, &dirent->d_type);
 	memcpy_tofs(dirent->d_name, name, namelen);
 	put_fs_byte(0, dirent->d_name + namelen);
-	buf->next = (struct mario_dirent *)((char *)dirent + reclen);
+	buf->next = (char *)dirent + reclen;
 	buf->count -= reclen;
 	return 0;
 }
 
-int sys_getdents(unsigned int fd, void *dirent, unsigned int count)
+static int filldir64(void *__buf, char *name, int namelen, off_t offset, ino_t ino, unsigned char type)
+{
+	struct mario_dirent64 *dirent;
+	struct getdents_callback *buf = (struct getdents_callback *)__buf;
+	int reclen = ROUND_UP(NAME_OFFSET(dirent) + namelen + 1);
+
+	buf->error = -EINVAL;
+	if (reclen > buf->count)
+		return -EINVAL;
+	dirent = (struct mario_dirent64 *) buf->prev;
+	if (dirent)
+		put_fs_long_long(offset, &dirent->d_off);
+	dirent = buf->next;
+	buf->prev = dirent;
+	put_fs_long_long(ino, &dirent->d_ino);
+	put_fs_word(reclen, &dirent->d_reclen);
+	put_fs_byte(type, &dirent->d_type);
+	memcpy_tofs(dirent->d_name, name, namelen);
+	put_fs_byte(0, dirent->d_name + namelen);
+	buf->next = (char *)dirent + reclen;
+	buf->count -= reclen;
+	return 0;
+}
+
+static int do_getdents(unsigned int fd, void *dirent, unsigned int count, filldir_t fn)
 {
 	struct file *file;
-	struct mario_dirent *lastdirent;
 	struct getdents_callback buf;
 	int error;
 
@@ -49,16 +72,33 @@ int sys_getdents(unsigned int fd, void *dirent, unsigned int count)
 	error = verify_area(VERIFY_WRITE, dirent, count);
 	if (error)
 		return error;
-	buf.next = (struct mario_dirent *)dirent;
+	buf.next = dirent;
 	buf.prev = NULL;
 	buf.count = count;
 	buf.error = 0;
-	error = file->f_op->readdir(file->f_inode, file, &buf, filldir);
+	error = file->f_op->readdir(file->f_inode, file, &buf, fn);
 	if (error < 0)
 		return error;
-	lastdirent = buf.prev;
-	if (!lastdirent)
-		return buf.error;
-	put_fs_long(file->f_pos, &lastdirent->d_off);
+	if (fn == filldir) {
+		struct mario_dirent *lastdirent = buf.prev;
+		if (!lastdirent)
+			return buf.error;
+		put_fs_long(file->f_pos, &lastdirent->d_off);
+	} else {
+		struct mario_dirent64 *lastdirent = buf.prev;
+		if (!lastdirent)
+			return buf.error;
+		put_fs_long_long(file->f_pos, &lastdirent->d_off);
+	}
 	return count - buf.count;
+}
+
+int sys_getdents(unsigned int fd, void *dirent, unsigned int count)
+{
+	return do_getdents(fd, dirent, count, filldir);
+}
+
+int sys_getdents64(unsigned int fd, void *dirent, unsigned int count)
+{
+	return do_getdents(fd, dirent, count, filldir64);
 }

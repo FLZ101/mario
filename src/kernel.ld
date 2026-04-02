@@ -52,6 +52,7 @@ SECTIONS
 	.debug_line_str 0 : { *(.debug_line_str) }
 	.debug_rnglists 0 : { *(.debug_rnglists) }
 	.debug_str 0 : { *(.debug_str) }
+	.eh_frame 0 : { *(.eh_frame) }
 
 	/*
 	 * Silence warnings. The following sections should not exist in the output binary
@@ -66,5 +67,6 @@ SECTIONS
 		*(.comment)
 		*(.note.GNU-stack)
 		*(.note.gnu.property)
+		*(.gnu.build.attributes)
 	}
 }

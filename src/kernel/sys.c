@@ -119,7 +119,13 @@ uid_t sys_getuid(void)
 	return 0;
 }
 
-int sys_not_exist(void)
+gid_t sys_getgid(void)
 {
+	return 0;
+}
+
+int sys_not_exist(struct trap_frame tr)
+{
+	printk("Not implemented: %d\n", tr.eax);
 	return -ENOSYS;
 }

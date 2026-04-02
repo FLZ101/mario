@@ -5,7 +5,8 @@
 
 #include <mario/util.h>
 
-char **environ = NULL;
+static char *dummy_envp[] = { NULL };
+char **environ = dummy_envp;
 
 _syscall3(int,execve,const char *,pathname,char **,argv,char **,envp)
 

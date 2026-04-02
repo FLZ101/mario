@@ -11,6 +11,14 @@ struct mario_dirent {
 	char d_name[256];
 };
 
+struct mario_dirent64 {
+	ino64_t d_ino;
+	off64_t d_off; // f_pos. End of this entry, and start of next one
+	unsigned short d_reclen; // length of this entry
+	unsigned char d_type;
+	char d_name[256];
+};
+
 #define DT_UNKNOWN 0
 #define DT_FIFO 1
 #define DT_CHR 2

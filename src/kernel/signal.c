@@ -352,13 +352,13 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 	return 1;
 }
 
-int sys_sigsuspend(int dummy0, int dummy1, sigset_t mask)
+int sys_sigsuspend(sigset_t *mask)
 {
 	sigset_t old_mask;
-	struct trap_frame *tr = (struct trap_frame *) &dummy0;
+	struct trap_frame *tr = (struct trap_frame *) &mask;
 
 	old_mask = current->blocked;
-	current->blocked = mask & _BLOCKABLE;
+	current->blocked = *mask & _BLOCKABLE;
 	tr->eax = -EINTR;
 	while (1) {
 		current->state = TASK_INTERRUPTIBLE;

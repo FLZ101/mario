@@ -2,6 +2,11 @@
 #include <sys/mman.h>
 #include <stdio.h>
 
+// musl libc's sbrk always return -1, except for `sbrk(0)`.
+//
+// Avoid using `brk()` and `sbrk()`: the `malloc(3)` memory allocation package is the
+// portable and comfortable way of allocating memory.
+//
 void test_sbrk()
 {
 	puts("------ test_sbrk");

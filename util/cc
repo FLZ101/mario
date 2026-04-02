@@ -100,7 +100,7 @@ def get_args():
 
             if not link_only:
                 inc_dir = libc_dir / "include"
-                flags.extend([f"-I{inc_dir}", "-D_GNU_SOURCE", "-Wno-parentheses"])
+                flags.extend([f"-I{inc_dir}", "-D_MUSL", "-Wno-parentheses"])
 
             if not compile_only:
                 lib_dir = libc_dir / "lib"

@@ -12,11 +12,11 @@ int main(int argc, char *argv[])
 
     FILE *src_f = fopen(argv[1], "r");
     if (!src_f) {
-        PError();
+        Exit();
     }
     FILE *dst_f = fopen(argv[2], "w");
     if (!dst_f) {
-        PError();
+        Exit();
     }
 
     char c;
@@ -24,15 +24,12 @@ int main(int argc, char *argv[])
     size_t n_write = 0;
 
     while (1) {
-        errno = 0;
         if (fread(&c, 1, 1, src_f)) {
             ++n_read;
         } else {
-            perror("fread");
             break;
         }
 
-        errno = 0;
         if (fwrite(&c, 1, 1, dst_f)) {
             ++n_write;
         } else {

@@ -63,9 +63,9 @@ typedef unsigned long sigset_t;		/* at least 32 bits */
 
 struct sigaction {
 	__sighandler_t sa_handler;
-	sigset_t sa_mask;
 	unsigned long sa_flags;
 	void (*sa_restorer)(void);
+	sigset_t sa_mask;
 };
 
 #ifdef __KERNEL__

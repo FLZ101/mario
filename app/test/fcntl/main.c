@@ -41,6 +41,8 @@ int main()
     int i = 0;
     while (1) {
         printf("%c", 'A' + i);
+        fflush(stdout);
+
         i = (i + 1) % 26;
 
         char c;

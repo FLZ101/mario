@@ -8,6 +8,7 @@
 #include <dirent.h>
 #include <string.h>
 #include <stdarg.h>
+#include <time.h>
 
 char *Sprintf(const char *fmt, ...)
 {
@@ -64,7 +65,10 @@ void Run(char *filename, char **argv, char **envp)
 
     if (p)
         free(filename);
+    sleep(1);
 }
+
+extern char **environ;
 
 static void VRunL(char *filename, va_list ap)
 {
@@ -100,6 +104,8 @@ void RunL(char *filename, ...)
 void PrintFile(char *filename)
 {
     int err;
+
+    printf("[print] %s\n", filename);
 
     int fd = open(filename, O_RDONLY);
     if (-1 == fd)
@@ -166,7 +172,9 @@ void ListDir(char *pathname)
         int off = 0;
         while (off < count) {
             struct dirent *ent = (struct dirent *) (buf + off);
-            printf("%x %x %s %s\n", ent->d_ino, ent->d_off, GetDirentTypeName(ent->d_type), ent->d_name);
+            // Size of d_ino and d_off might be 8 bytes, we must cast them to type of 4 bytes to match %x
+            printf("%x %x %s %s\n", (long) ent->d_ino, (long) ent->d_off,
+                GetDirentTypeName(ent->d_type), ent->d_name);
             off += ent->d_reclen;
         }
     }
