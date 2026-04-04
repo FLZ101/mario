@@ -66,6 +66,8 @@ void memcpy_fromfs(void *to, const void *from, unsigned int n);
 
 void memcpy_tofs(void *to, const void *from, unsigned int n);
 
+void memcpy_fs(void *to, const void *from, unsigned int n);
+
 static inline unsigned long get_fs(void)
 {
 	unsigned long _v;

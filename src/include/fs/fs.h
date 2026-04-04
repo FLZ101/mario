@@ -55,7 +55,7 @@ struct super_block {
 	unsigned long s_state;
 	struct super_operations *s_op;
 	struct inode *s_covered; // the inode covering this filesystem tree
-	struct inode *s_mounted; // the / inode
+	struct inode *s_mounted; // the / inode of this filesystem tree
 	struct semaphore s_sem;
 	unsigned long s_magic;
 	union {
@@ -100,7 +100,7 @@ struct inode {
 	unsigned long i_nr_block;
 	struct inode_operations *i_op;
 	struct file_operations *i_fop;
-	struct inode *i_mount; // a weak reference
+	struct inode *i_mount; // a weak reference to the covered inode
 	struct list_head i_list;
 	struct semaphore i_sem;
 	unsigned long i_state;

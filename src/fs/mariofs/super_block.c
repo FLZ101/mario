@@ -15,7 +15,7 @@ extern struct file_operations chrdev_fops;
  * if error occurs
  *   a negative value is returned
  * else
- *   return the block we touched
+ *   return the number of blocks we touched
  * NOTE:
  *   @inode:	a directory or a file not empty
  *   @n:	0 means the last block
@@ -118,20 +118,27 @@ int mario_put_block(struct super_block *sb, int head, int tail)
 
 static int mario_read_inode(struct inode *i)
 {
-	unsigned long off, block;
 	struct super_block *sb;
-	struct buffer_head *bh;
+	struct buffer_head *bh = NULL;
 	struct mario_dir_entry *entry;
 
 	sb = i->i_sb;
-	off = i->i_ino;
-	block = off / (sb->s_block_size);
-	off = off % (sb->s_block_size);
 
-	if (!(bh = bread(sb->s_dev, block)))
-		return -EIO;
+	if (i->i_ino == MARIO_ROOT_INO) {
+		entry = &MARIO_ROOT(sb);
+	} else {
+		unsigned long off, block;
 
-	entry = (struct mario_dir_entry *)(bh->b_data + off);
+		off = i->i_ino;
+		block = off / (sb->s_block_size);
+		off = off % (sb->s_block_size);
+
+		if (!(bh = bread(sb->s_dev, block)))
+			return -EIO;
+
+		entry = (struct mario_dir_entry *)(bh->b_data + off);
+	}
+
 	i->i_rdev = entry->data;
 	i->i_mode = entry->mode;
 	i->i_size = entry->size;
@@ -153,7 +160,8 @@ static int mario_read_inode(struct inode *i)
 		i->i_fop = &chrdev_fops;
 	}
 
-	brelse(bh);
+	if (bh)
+		brelse(bh);
 	return 0;
 }
 
@@ -225,6 +233,7 @@ static struct super_block *mario_read_super(struct super_block *sb)
 	MARIO_NR_BLOCKS(sb) = mario_sb->nr_blocks;
 	MARIO_NR_FREE(sb) = mario_sb->nr_free;
 	MARIO_FREE(sb) = mario_sb->free;
+	MARIO_ROOT(sb) = mario_sb->root;
 
 	sb->s_block_size = mario_sb->block_size;
 	sb->s_magic = MARIO_MAGIC;

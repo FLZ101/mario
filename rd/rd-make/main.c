@@ -469,14 +469,10 @@ scan_a_new_block:
 		}
 
 		if (entry.mode == MODE_DIR) {
-			struct mario_dir_entry tmp;
-
 			if (!strcmp(".", entry.name)) {
-				read_dir_entry(dent_offset, &tmp);
-				update_mario_dir_entry(dent, tmp.data);
+				update_mario_dir_entry(dent, dent_offset);
 			} else if (!strcmp("..", entry.name)) {
-				read_dir_entry(parent_dent_offset, &tmp);
-				update_mario_dir_entry(dent, tmp.data);
+				update_mario_dir_entry(dent, parent_dent_offset);
 			} else {
 				copy_dir(entry.name, dent, dent_offset);
 			}
@@ -540,7 +536,7 @@ void add_devices(void)
 	if (!device_list)
 		return;
 	n = MAX_USED / sizeof(struct mario_dir_entry);
-	offset = MARIO_ROOT * block_size;
+	offset = MARIO_ROOT_BLOCK * block_size;
 scan_a_new_block:
 	for (i = 0; i < n; i++) {
 		dent = offset + i*sizeof(entry);
@@ -585,7 +581,7 @@ add_dev:
 	fseek(rd_file, 0, SEEK_END);
 	strcpy(entry.name, ".");
 	pour_data(&entry, sizeof(entry), 1);
-	entry.data = MARIO_ROOT;
+	entry.data = MARIO_ROOT_BLOCK;
 	strcpy(entry.name, "..");
 	pour_data(&entry, sizeof(entry), 1);
 

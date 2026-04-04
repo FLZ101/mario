@@ -16,7 +16,7 @@ static int mario_find_entry(struct inode *dir, char *name, int len)
 	struct buffer_head *bh;
 	struct mario_dir_entry *entry;
 
-	if (len > MARIO_NAME_LEN - 1)
+	if (len > MARIO_NAME_LEN - 1 || len < 1)
 		return 0;
 
 	/* maximum mario_dir_entries a block could contain */
@@ -37,13 +37,13 @@ try:
 			continue;
 		if (!strncmp(name, entry[i].name, len) && !entry[i].name[len]) {
 			brelse(bh);	/* !!! */
-			/*
-			 * To make mount works, all inodes referring to
-			 * ROOT must have the same inode number
-			 */
-			if (entry[i].data == MARIO_ROOT)
-				return MARIO_ROOT_INO;
-			return block * dir->i_block_size + i * MARIO_ENTRY_SIZE;
+
+			ino_t ino = block * dir->i_block_size + i * MARIO_ENTRY_SIZE;
+			// For "." and ".." directory entries, the data field is the inode number
+			if (name[0] == '.' && (len == 1 || (len == 2 && name[1] == '.'))) {
+				ino = entry[i].data;
+			}
+			return ino;
 		}
 	}
 
@@ -55,6 +55,7 @@ try:
 	return 0;
 }
 
+// NOTE: dir is eaten
 static int mario_lookup(struct inode *dir, char *name, int len, struct inode **res)
 {
 	int ino;
@@ -95,10 +96,9 @@ static int mario_add_entry(struct inode *dir, struct mario_dir_entry *__entry,
 	 * Get an empty mario_dir_entry
 	 */
 try:
-	if (!(bh = bread(dir->i_dev, block))) {
-		ret = -EIO;
-		goto tail;
-	}
+	if (!(bh = bread(dir->i_dev, block)))
+		return -EIO;
+
 	entry = (struct mario_dir_entry *)bh->b_data;
 
 	for (i = 0; i < n; i++)
@@ -118,16 +118,15 @@ try:
 	 */
 	if ((ret = mario_get_block(dir->i_sb, 1, &block, &block))) {
 		brelse(bh);
-		goto tail;
+		return ret;
 	}
 	*next_block = block;
 	set_dirty(bh);
 	brelse(bh);
-	if (!(bh = bread(dir->i_dev, block))) {
-		ret = -EIO;
-		goto tail;
-	}
+	if (!(bh = bread(dir->i_dev, block)))
+		return -EIO;
 	entry = (struct mario_dir_entry *)bh->b_data;
+	memset(entry + 1, 0, MARIO_ENTRY_SIZE);	/* end of dir */
 
 get_entry_done:
 	memcpy(entry, __entry, MARIO_ENTRY_SIZE);
@@ -136,18 +135,17 @@ get_entry_done:
 	if (res)
 		*res = iget(dir->i_sb, block * block_size +
 			(char *)entry - bh->b_data);
-tail:
-	iput(dir);
-	return ret;
+	return 0;
 }
 
 int mario_create(struct inode *dir, char *name, int len, struct inode **res)
 {
+	int err = 0;
 	struct mario_dir_entry entry;
 
 	if (len > MARIO_NAME_LEN - 1) {
-		iput(dir);
-		return -ENAMETOOLONG;
+		err = -ENAMETOOLONG;
+		goto tail;
 	}
 
 	entry.data = MARIO_ZERO_ENTRY;
@@ -157,7 +155,10 @@ int mario_create(struct inode *dir, char *name, int len, struct inode **res)
 	strncpy(entry.name, name, len);
 	entry.name[len] = '\0';	/* !!! */
 
-	return mario_add_entry(dir, &entry, res);
+	err = mario_add_entry(dir, &entry, res);
+tail:
+	iput(dir);
+	return err;
 }
 
 /*
@@ -181,13 +182,17 @@ try:
 
 	for (i = 0; i < n; i++) {
 		/* end of dir? */
-		if (!entry[i].data)
+		if (!entry[i].data) {
+			brelse(bh);
 			return 1;
+		}
 		/* an unused entry? */
 		if (entry[i].data == MARIO_FREE_ENTRY)
 			continue;
-		if (++count > 2)
+		if (++count > 2) {
+			brelse(bh);
 			return 0;
+		}
 	}
 
 	next_block = (int *)(bh->b_data + dir->i_block_size - 4);
@@ -229,7 +234,9 @@ static int mario_del_entry(struct inode *i, int free)
 		ret = -EIO;
 		goto tail_2;
 	}
-	mario_put_block(i->i_sb, entry->data, block);
+	ret = mario_put_block(i->i_sb, entry->data, block);
+	if (ret)
+		goto tail_2;
 tail_1:
 	entry->data = MARIO_FREE_ENTRY;
 	set_dirty(bh);
@@ -256,7 +263,7 @@ int mario_rmdir(struct inode *dir, char *name, int len)
 	/*
 	 * We can not remove the root directory
 	 */
-	if (inode->i_rdev == MARIO_ROOT) {
+	if (inode->i_rdev == MARIO_ROOT_BLOCK) {
 		ret = -EBUSY;
 		goto tail;
 	}
@@ -284,13 +291,15 @@ int mario_mkdir(struct inode *dir, char *name, int len)
 	struct buffer_head *bh;
 
 	if (len > MARIO_NAME_LEN - 1) {
-		iput(dir);
-		return -ENAMETOOLONG;
+		ret = -ENAMETOOLONG;
+		goto tail_1;
 	}
-	if (mario_find_entry(dir, name, len))
-		return -EEXIST;
+	if (mario_find_entry(dir, name, len)) {
+		ret = -EEXIST;
+		goto tail_1;
+	}
 	if ((ret = mario_get_block(dir->i_sb, 1, &block, &block)))
-		return ret;
+		goto tail_1;
 
 	entry.data = block;
 	entry.mode = MODE_DIR;
@@ -301,28 +310,38 @@ int mario_mkdir(struct inode *dir, char *name, int len)
 
 	if (!(bh = bread(dir->i_dev, block))) {
 		ret = -EIO;
-		goto fail_1;
+		goto tail_2;
 	}
 	pe = (struct mario_dir_entry *)bh->b_data;
-	pe[0].data = block;
+	pe[0].data = 0; // inode number. To be set
 	pe[0].mode = MODE_DIR;
 	pe[0].size = 0;
 	pe[0].blocks = 0;
 	strcpy(pe[0].name, ".");
-	pe[1].data = dir->i_rdev;
+	pe[1].data = dir->i_ino; // inode number
 	pe[1].mode = MODE_DIR;
 	pe[1].size = 0;
 	pe[1].blocks = 0;
 	strcpy(pe[1].name, "..");
 	memset(pe + 2, 0, MARIO_ENTRY_SIZE);	/* end of dir */
-	ret = mario_add_entry(dir, &entry, NULL);
+
+	struct inode *inode = NULL;
+	ret = mario_add_entry(dir, &entry, &inode);
 	if (ret)
-		goto fail_2;
+		goto tail_3;
+	pe[0].data = inode->i_ino;
+	iput(inode);
+
 	set_dirty(bh);
-fail_2:
 	brelse(bh);
-fail_1:
+	iput(dir);
+	return 0;
+
+tail_3:
+	brelse(bh);
+tail_2:
 	mario_put_block(dir->i_sb, block, block);
+tail_1:
 	iput(dir);
 	return ret;
 }
@@ -380,38 +399,48 @@ int do_mario_rename(struct inode *old_dir, char *old_name, int old_len,
 		iput(old_inode);
 		return 0;
 	}
-	/* do some check */
+
+	/* do some checks */
+	error = 0;
 	if (S_ISDIR(new_inode->i_mode)) {
 		if (!S_ISDIR(old_inode->i_mode))
-			return -EISDIR;
+			error = -EISDIR;
 		if (!empty_dir(new_inode))
-			return -ENOTEMPTY;
+			error = -ENOTEMPTY;
 	} else {
 		if (S_ISDIR(old_inode->i_mode))
-			return -ENOTDIR;
+			error = -ENOTDIR;
 	}
+	if (error) {
+		iput(new_inode);
+		iput(old_inode);
+		return error;
+	}
+
 	/* delete new_inode */
 	down(&new_dir->i_sem);
-	if (new_inode->i_count > 1) {
+	if (new_inode->i_count > 1)
 		error = -EBUSY;
-		goto next_2;
-	}
-	mario_del_entry(new_inode, 1);
-next_2:
+	else
+		error = mario_del_entry(new_inode, 1);
 	iput(new_inode);
 	up(&new_dir->i_sem);
 	if (error) {
 		iput(old_inode);
 		return error;
 	}
+
 next_1:
 	/* delete old_inode but not free blocks occupied */
 	down(&old_dir->i_sem);
 	if (old_inode->i_count > 1) {
 		error = -EBUSY;
-		goto next_3;
+		goto tail_1;
 	}
-	mario_del_entry(old_inode, 0);
+
+	error = mario_del_entry(old_inode, 0);
+	if (error)
+		goto tail_1;
 	/* add old_inode to new_dir */
 	entry.data = old_inode->i_rdev;
 	entry.mode = old_inode->i_mode;
@@ -424,20 +453,20 @@ next_1:
 	 */
 	if (S_ISDIR(old_inode->i_mode) && old_dir != new_dir) {
 		struct buffer_head *bh;
-		struct mario_dir_entry *tmp;
+		struct mario_dir_entry *ent;
 
 		bh = bread(old_inode->i_dev, old_inode->i_rdev);
 		if (!bh) {
 			error = -EIO;
-			goto next_3;
+			goto tail_1;
 		}
-		tmp = (struct mario_dir_entry *)bh->b_data;
-		tmp[1].data = new_dir->i_rdev;	/* .. */
+		ent = (struct mario_dir_entry *)bh->b_data;
+		ent[1].data = new_dir->i_rdev;	/* .. */
 		set_dirty(bh);
 		brelse(bh);
 	}
-	mario_add_entry(new_dir, &entry, NULL);
-next_3:
+	error = mario_add_entry(new_dir, &entry, NULL);
+tail_1:
 	iput(old_inode);
 	up(&old_dir->i_sem);
 	return error;
@@ -464,13 +493,15 @@ int mario_mknod(struct inode *dir, char *name, int len, int mode, int rdev)
 	int ino, error = 0;
 	struct mario_dir_entry entry;
 
-	if (len > MARIO_NAME_LEN - 1)
-		return -ENAMETOOLONG;
+	if (len > MARIO_NAME_LEN - 1) {
+		error = -ENAMETOOLONG;
+		goto tail_1;
+	}
 
 	down(&dir->i_sem);
 	if ((ino = mario_find_entry(dir, name, len))) {
 		error = -EEXIST;
-		goto tail;
+		goto tail_2;
 	}
 	entry.mode = mode;
 	if (entry.mode == MODE_REG)
@@ -481,9 +512,11 @@ int mario_mknod(struct inode *dir, char *name, int len, int mode, int rdev)
 	entry.blocks = 0;
 	strncpy(entry.name, name, len);
 	entry.name[len] = '\0';
-	mario_add_entry(dir, &entry, NULL);
-tail:
+	error = mario_add_entry(dir, &entry, NULL);
+tail_2:
 	up(&dir->i_sem);
+tail_1:
+	iput(dir);
 	return error;
 }
 
@@ -499,8 +532,9 @@ struct inode_operations mario_dir_iops = {
 	mario_mknod
 };
 
-int mario_readdir(struct inode *dir, struct file *f, void *dirent, filldir_t filldir)
+int mario_readdir(struct inode *dir, struct file *f, void *dirent, filldir_t fn)
 {
+	int err = 0;
 	int i, n, size;
 	int block, start;
 	struct buffer_head *bh;
@@ -524,10 +558,11 @@ read_a_block:
 		/* an unused entry? */
 		if (entry[i].data == MARIO_FREE_ENTRY)
 			continue;
-		if (filldir(dirent, entry[i].name, strlen(entry[i].name), f->f_pos,
-			block * size + i * MARIO_ENTRY_SIZE, IFTODT(entry[i].mode))) {
+		err = fn(dirent, entry[i].name, strlen(entry[i].name), f->f_pos,
+			block * size + i * MARIO_ENTRY_SIZE, IFTODT(entry[i].mode));
+		if (err) {
 			brelse(bh);
-			return 0;
+			return err;
 		}
 		f->f_pos += MARIO_ENTRY_SIZE;
 		start++;

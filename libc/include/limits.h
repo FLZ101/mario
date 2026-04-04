@@ -7,5 +7,4 @@
                             /* Make sure size of a dirent is less than PAGE_SIZE */
 #define ARG_MAX       131072	/* # bytes of args + environ for exec() */
 
-#endif	/* _LIMITS_H */
-
+#endif

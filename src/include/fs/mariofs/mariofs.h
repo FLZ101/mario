@@ -10,10 +10,15 @@
  * inode number, kind of weird
  */
 
+/*
+ * Directory entry offset (the number of bytes from the begining) is used as inode number.
+ *
+ * For "." and ".." directory entries, the data field stores the inode number
+ */
+
 #define MARIO_MAGIC	0x4518cdef
 
-#define MARIO_ROOT	1	/* the block number of root directory */
-#define MARIO_ROOT_INO	(MARIO_ROOT * 512)
+#define MARIO_ROOT_BLOCK	1	/* the block number of root directory */
 
 #define MARIO_NAME_LEN	30
 
@@ -48,10 +53,11 @@ struct mario_super_block {
 	__u32 free;		/* free block chain */
 	/*
 	 * root directory entry
-	 * not used
 	 */
 	struct mario_dir_entry root;
 } __attribute__((gcc_struct, packed));
+
+#define MARIO_ROOT_INO	((size_t) &((struct mario_super_block *)0)->root)
 
 struct mario_inode_info {
 	char name[MARIO_NAME_LEN];
@@ -64,12 +70,14 @@ struct mario_sb_info {
 	unsigned long nr_blocks;
 	unsigned long nr_free;
 	unsigned long free;
+	struct mario_dir_entry root;
 };
 
 #define MARIO_SEC_PER_BLOCK(sb)	((sb)->u.mario_sb.sec_per_block)
 #define MARIO_NR_BLOCKS(sb)	((sb)->u.mario_sb.nr_blocks)
 #define MARIO_NR_FREE(sb)	((sb)->u.mario_sb.nr_free)
 #define MARIO_FREE(sb)		((sb)->u.mario_sb.free)
+#define MARIO_ROOT(sb)		((sb)->u.mario_sb.root)
 
 extern struct file_system_type mariofs;
 

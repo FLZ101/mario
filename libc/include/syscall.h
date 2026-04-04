@@ -522,6 +522,7 @@
 #define __SYS_fcntl	SYS_fcntl
 #define __SYS_getrlimit	SYS_getrlimit
 #define __SYS_setrlimit	SYS_setrlimit
+#define __SYS_getcwd SYS_getcwd
 
 #define __syscall_return(type, __res) \
 do { \

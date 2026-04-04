@@ -65,11 +65,9 @@ void putname(char *name)
 }
 
 /*
- * look up one part of a pathname
- * NOTE:
- *   @dir is eaten
+ * Look up `name` in `dir`. Note that `dir` is eaten
  */
-static int lookup(struct inode *dir, char *name, int len, struct inode **res)
+int lookup(struct inode *dir, char *name, int len, struct inode **res)
 {
 	struct super_block *sb;
 
@@ -100,8 +98,11 @@ static int lookup(struct inode *dir, char *name, int len, struct inode **res)
 }
 
 /*
- * dir_namei() returns the inode of the directory of the
- * specified name, and the name within that directory.
+ * Returns:
+ *
+ *   `res_inode`: inode for the dirname
+ *
+ *   `namelen`, `name`: the basename
  */
 static int dir_namei(char *pathname, int *namelen, char **name,
 	struct inode *base, struct inode **res_inode)

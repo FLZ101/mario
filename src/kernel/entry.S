@@ -496,7 +496,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_pread64 */
 	.long sys_not_exist /* SYS_pwrite64 */
 	.long sys_not_exist /* SYS_chown */
-	.long sys_not_exist /* SYS_getcwd */
+	.long sys_getcwd
 	.long sys_not_exist /* SYS_capget */
 	.long sys_not_exist /* SYS_capset */
 	.long sys_not_exist /* SYS_sigaltstack */
@@ -514,7 +514,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_lchown32 */
 	.long sys_not_exist /* SYS_getuid32 */
 	.long sys_not_exist /* SYS_getgid32 */
-	.long sys_not_exist /* SYS_geteuid32 */
+	.long sys_geteuid32
 	.long sys_not_exist /* SYS_getegid32 */
 	.long sys_not_exist /* SYS_setreuid32 */
 	.long sys_not_exist /* SYS_setregid32 */

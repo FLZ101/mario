@@ -41,9 +41,12 @@ def get_args():
         if x == "--mario-verify":
             sys.exit(0)
 
+    preprocess_only = False
     compile_only = False
     link_only = True
     for x in args:
+        if x == "-E":
+            preprocess_only = True
         if x == "-c":
             compile_only = True
         if x.endswith(".c"):
@@ -72,7 +75,7 @@ def get_args():
                 inc_dir = libc_dir / "include"
                 flags.append(f"-I{inc_dir}")
 
-            if not compile_only:
+            if not compile_only and not preprocess_only:
                 lib_dir = libc_dir / "lib"
                 linker_script = lib_dir / "mario.ld"
                 flags.extend(
@@ -102,7 +105,7 @@ def get_args():
                 inc_dir = libc_dir / "include"
                 flags.extend([f"-I{inc_dir}", "-D_MUSL", "-Wno-parentheses"])
 
-            if not compile_only:
+            if not compile_only and not preprocess_only:
                 lib_dir = libc_dir / "lib"
                 linker_script = musl_dir / "musl.ld"
 

@@ -10,9 +10,15 @@
  * the first block number is free@mario_super_block.
  */
 
+/*
+ * Directory entry offset (the number of bytes from the begining) is used as inode number.
+ *
+ * For "." and ".." directory entries, the data field stores the inode number
+ */
+
 #define MARIO_MAGIC	0x4518cdef
 
-#define MARIO_ROOT	1	/* the block number of root directory */
+#define MARIO_ROOT_BLOCK	1	/* the block number of root directory */
 
 #define MARIO_NAME_LEN	30
 

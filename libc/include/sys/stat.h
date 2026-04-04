@@ -53,7 +53,7 @@ struct stat {
 #define MODE_CHR	S_IFCHR
 #define MODE_FIFO	S_IFIFO
 
-static inline _syscall1(int,mkdir,const char *,pathname)
+static inline _syscall2(int,mkdir,const char *,pathname,mode_t,mode)
 static inline _syscall3(int,mknod,const char *,pathname, mode_t, mode, dev_t, dev)
 static inline _syscall2(int,stat,const char *, pathname, struct stat *,statbuf)
 static inline _syscall2(int,fstat,int, fd, struct stat *,statbuf)

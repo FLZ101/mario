@@ -119,6 +119,11 @@ uid_t sys_getuid(void)
 	return 0;
 }
 
+uid_t sys_geteuid32(void)
+{
+	return 0;
+}
+
 gid_t sys_getgid(void)
 {
 	return 0;

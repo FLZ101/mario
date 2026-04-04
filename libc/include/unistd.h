@@ -63,4 +63,6 @@ int execv(const char *pathname, char *argv[]);
 int execvp(const char *file, char *argv[]);
 int execvpe(const char *file, char *argv[], char *envp[]);
 
+char *getcwd(char *buf, size_t size);
+
 #endif	/* _UNISTD_H */

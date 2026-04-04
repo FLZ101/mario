@@ -89,8 +89,7 @@ void mount_root(void)
 			i = sb->s_mounted;
 			iref(i);
 			iref(i);
-			iref(i);
-			sb->s_covered = i;
+			sb->s_covered = NULL;
 			current->fs->pwd = i;
 			current->fs->root = i;
 		}
@@ -113,14 +112,17 @@ static int do_mount(dev_t dev, char *dir_name, char *type)
 	error = namei(dir_name, &dir_i);
 	if (error)
 		return error;
-	if (dir_i->i_count != 1 || dir_i->i_mount) {
-		iput(dir_i);
-		return -EBUSY;
-	}
 	if (!S_ISDIR(dir_i->i_mode)) {
 		iput(dir_i);
 		return -ENOTDIR;
 	}
+
+	// Does not allow overlay
+	if (dir_i->i_count != 1 || dir_i->i_mount) {
+		iput(dir_i);
+		return -EBUSY;
+	}
+
 	if (!fs_may_mount(dev)) {
 		iput(dir_i);
 		return -EBUSY;
@@ -130,10 +132,13 @@ static int do_mount(dev_t dev, char *dir_name, char *type)
 		iput(dir_i);
 		return -EINVAL;
 	}
+
+	// Already mounted
 	if (sb->s_covered) {
 		iput(dir_i);
 		return -EBUSY;
 	}
+
 	sb->s_covered = dir_i;
 	dir_i->i_mount = sb->s_mounted;
 	return 0;

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 /*
  * A very simple tool to explore a rd made by rd-make
@@ -67,8 +68,15 @@ scan_a_new_block:
 		/* end of that directory? */
 		if (!entry->data)
 			return;
-		if (!strcmp(entry->name, name))
+		if (!strcmp(entry->name, name)) {
+			// for "." and ".." directory entries, the data field is the inode number
+			// (i.e. the directory entry offset of the target directory)
+			if (!strcmp(entry->name, ".") || !strcmp(entry->name, "..")) {
+				read_dir_entry(entry->data, entry);
+				assert(entry->data);
+			}
 			return;
+		}
 	}
 	fseek(rd, offset + MAX_USED, SEEK_SET);
 	fread(&offset, 4, 1, rd);
@@ -188,9 +196,22 @@ void help(void)
 
 void print_entry(struct mario_dir_entry *entry)
 {
-	char *type[] = {"REG", "DIR", "BLK", "CHR"};
-
-	printf("%s   ", type[entry->mode]);
+	char *s = "?";
+	switch (entry->mode) {
+	case MODE_REG:
+		s = "REG";
+		break;
+	case MODE_DIR:
+		s = "DIR";
+		break;
+	case MODE_BLK:
+		s = "BLK";
+		break;
+	case MODE_CHR:
+		s = "CHR";
+		break;
+	}
+	printf("%s   ", s);
 	printf("%10u   ", entry->data);
 	if (entry->mode == MODE_REG)
 		printf("%6u    ", entry->size);

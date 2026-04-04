@@ -134,6 +134,7 @@ void run_tests()
     RunL("/bin/test/mount.exe", NULL);
     RunL("/bin/test/pipe.exe", NULL);
     RunL("/bin/test/signal.exe", NULL);
+    RunL("/bin/test/getcwd.exe", NULL);
 #ifdef _MUSL
     RunL("/bin/test/time.exe", NULL);
 #endif

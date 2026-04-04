@@ -57,15 +57,17 @@ SECTIONS
 		*(.bss.*)
 	}
 
-	.debug_abbrev 0 : { *(.debug_abbrev) }
-	.debug_aranges 0 : { *(.debug_aranges) }
-	.debug_frame 0 : { *(.debug_frame) }
-	.debug_info 0 : { *(.debug_info) }
-	.debug_line 0 : { *(.debug_line) }
-	.debug_line_str 0 : { *(.debug_line_str) }
-	.debug_rnglists 0 : { *(.debug_rnglists) }
-	.debug_str 0 : { *(.debug_str) }
-	.eh_frame 0 : { *(.eh_frame) }
+	.debug_abbrev : { *(.debug_abbrev) }
+	.debug_aranges : { *(.debug_aranges) }
+	.debug_frame : { *(.debug_frame) }
+	.debug_info : { *(.debug_info) }
+	.debug_line : { *(.debug_line) }
+	.debug_line_str : { *(.debug_line_str) }
+	.debug_rnglists : { *(.debug_rnglists) }
+	.debug_str : { *(.debug_str) }
+	.debug_loclists : { *(.debug_loclists) }
+	.eh_frame : { *(.eh_frame) }
+	.eh_frame_hdr : { *(.eh_frame_hdr) }
 
 	/*
 	 * Silence warnings. The following sections should not exist in the output binary
@@ -82,11 +84,10 @@ SECTIONS
 	.iplt : { *(.iplt) }
 	.igot.plt : { *(.igot.plt) }
 
+	.note : { *(.note.*) }
+
 	/DISCARD/ : {
 		*(.comment)
-		*(.note.GNU-stack)
-		*(.note.gnu.property)
-		*(.note.gnu.build-id)
 		*(.gnu.build.attributes)
 	}
 }
