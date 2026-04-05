@@ -196,7 +196,7 @@ void help(void)
 
 void print_entry(struct mario_dir_entry *entry)
 {
-	char *s = "?";
+	char *s = "???";
 	switch (entry->mode) {
 	case MODE_REG:
 		s = "REG";
@@ -212,12 +212,12 @@ void print_entry(struct mario_dir_entry *entry)
 		break;
 	}
 	printf("%s   ", s);
-	printf("%10u   ", entry->data);
+	printf("%-8u   ", entry->data);
 	if (entry->mode == MODE_REG)
-		printf("%6u    ", entry->size);
+		printf("%-8u   ", entry->size);
 	else
-		printf("          ");
-	printf("%6u    ", entry->blocks);
+		printf("%-8u   ", 0);
+	printf("%-8u   ", entry->blocks);
 	printf("%s\n", entry->name);
 }
 
@@ -230,7 +230,7 @@ void ls(void)
 	n = MAX_USED / sizeof(entry);
 	offset = cur_dir_entry.data * block_size;
 
-	printf("TYPE        DATA     SIZE    BLOCKS    NAME\n");
+	printf("TYPE  DATA       SIZE       BLOCKS     NAME\n");
 	printf("-------------------------------------------\n");
 
 scan_a_new_block:

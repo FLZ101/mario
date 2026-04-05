@@ -57,7 +57,7 @@ static void spawn_getty(struct getty *gty) {
 
     pid_t pid = fork();
     if (pid == 0) {
-        execl("/bin/getty.exe", "getty", gty->device, NULL);
+        execl("/bin/example/getty.exe", "getty", gty->device, NULL);
         Exit();
     } else if (pid > 0) {
         gty->pid = pid;
@@ -120,9 +120,10 @@ void do_getty()
 
 void run_tests()
 {
-    RunL("/bin/sl.exe", NULL);
-    RunL("/bin/cp.exe", "/etc/welcome.txt", "/etc/tmp.txt", NULL);
-    RunL("/bin/cat.exe", "/etc/tmp.txt", NULL);
+    RunL("/bin/example/sl.exe", NULL);
+    RunL("/bin/example/cp.exe", "/etc/welcome.txt", "/etc/tmp.txt", NULL);
+    RunL("/bin/example/cat.exe", "/etc/tmp.txt", NULL);
+
     RunL("/bin/test/chrdev.exe", NULL);
     Run("/bin/test/exec.exe",
         (char *[]){"hello", "world", NULL},

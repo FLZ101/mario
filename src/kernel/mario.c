@@ -42,7 +42,7 @@ void init(void *arg)
 	kernel_thread(bh_thread, NULL); // child of init
 
 	// pid of init.exe is 1
-	execve("/bin/init.exe", argv_init, envp_init);
+	execve("/bin/example/init.exe", argv_init, envp_init);
 	hang("Fail to start init.exe: %d", errno);
 }
 

@@ -7,19 +7,17 @@ CFLAGS	:=-c $(INCLUDE) \
 	-MMD -MP
 AR :=ar
 
-.PHONY: all clean
-
-MESSAGE := $(shell $(CC) --mario-verify 2>&1)
-ifneq ($(MESSAGE),)
-  $(error Not a compiler for mario)
-endif
+.PHONY: all check clean
 
 OBJS =$(addsuffix .o,$(basename $(wildcard *.[Ssc])))
 OBJS +=$(addsuffix .o,$(basename $(wildcard */*.[Ssc])))
 DEPS = $(OBJS:.o=.d)
 
-all: crt0.o libc.a
+all: crt0.o libc.a | check
 	cp -u $^ lib
+
+check:
+	@$(CC) --mario-verify
 
 libc.a: $(OBJS)
 	$(RM) $@

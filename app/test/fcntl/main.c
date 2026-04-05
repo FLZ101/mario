@@ -37,13 +37,11 @@ int main()
 {
     init();
 
-    printf("Press any key to exit.\n");
+    printf("Press any key or wait 30s to exit.\n");
     int i = 0;
-    while (1) {
-        printf("%c", 'A' + i);
+    while (i < 30) {
+        printf("%c", 'A' + (i++ % 26));
         fflush(stdout);
-
-        i = (i + 1) % 26;
 
         char c;
         int err = read(STDIN_FILENO, &c, 1);
@@ -56,4 +54,5 @@ int main()
         }
         break;
     }
+    putchar('\n');
 }

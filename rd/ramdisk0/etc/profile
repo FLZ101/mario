@@ -1,0 +1,11 @@
+PATH=/bin
+export PATH
+
+TERM=ansi
+export TERM
+
+TERMINFO=/usr/share/terminfo
+export TERMINFO
+
+PS1='$ '
+export PS1
