@@ -59,7 +59,11 @@ int get_free_area_size()
 	return n;
 }
 
-extern unsigned long end;
+extern unsigned long last_rd_end;
+
+extern unsigned long bootmem_j;
+extern unsigned long bootmem_end;
+
 void page_alloc_init(void)
 {
 	unsigned long i, j;
@@ -82,18 +86,23 @@ void page_alloc_init(void)
 		unsigned long addr = e820.map[i].addr;
 		unsigned long len = e820.map[i].len;
 
+		// skip address 0
 		if (!addr)
 			addr = 1;
 
-		// skip allocated memory
+		// skip ramdisks
 		if (0x100000 == addr) {
-			addr = end - KERNEL_BASE;
+			addr = last_rd_end - KERNEL_BASE;
 			len = 0x100000 + len - addr;
 		}
 
 		for (j = PFN_UP(addr); j < PFN_DOWN(addr + len); j++)
 			free_page(mem_map + j);
 	}
+
+	// free unused boot-time memory
+	for (j = PFN_UP(bootmem_j - KERNEL_BASE); j < PFN_DOWN(bootmem_end - KERNEL_BASE); j++)
+		free_page(mem_map + j);
 }
 
 struct page *alloc_pages(unsigned long order)

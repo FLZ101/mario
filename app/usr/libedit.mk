@@ -11,8 +11,9 @@ build-libedit: src-libedit
 
 src-libedit: $(LIBEDIT_SRC_DIR)/autogen.sh
 
-$(LIBEDIT_SRC_DIR)/autogen.sh: | $(LIBEDIT_SRC_FILE)
+$(LIBEDIT_SRC_DIR)/autogen.sh: $(LIBEDIT_SRC_FILE)
 	tar xf $(LIBEDIT_SRC_FILE)
+	touch $(LIBEDIT_SRC_DIR)/autogen.sh # Update timestamp
 
 $(LIBEDIT_SRC_FILE):
 	wget -c --no-check-certificate $(LIBEDIT_SRC_URL) -O $(LIBEDIT_SRC_FILE)

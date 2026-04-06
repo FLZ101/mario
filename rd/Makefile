@@ -1,18 +1,20 @@
-.PHONY:	all clean rd rd-make rd-explorer check
+.PHONY:	all clean
 
-all: rd
+all: rdx
 
-rd: rd-make rd-explorer
-	$(MAKE) rd0 rd1 rd2
+# Size of ramdisks are multiple of PAGE_SIZE (i.e. 4096B)
+rdx: rd0 rd1 rd2
+	cat rd0 rd1 rd2 >>rdx
 
-rd-make: | check
+RD_TOOLS	:= rd-make/rd-make.exe rd-explorer/rd-explorer.exe
+
+rd-make/rd-make.exe:
+	@$(CC) --mario-verify
 	$(MAKE) -C rd-make
 
-rd-explorer: | check
-	$(MAKE) -C rd-explorer
-
-check:
+rd-explorer/rd-explorer.exe:
 	@$(CC) --mario-verify
+	$(MAKE) -C rd-explorer
 
 EXES_EXAMPLE := $(wildcard ../app/example/*/*.exe)
 EXES_TEST := $(wildcard ../app/test/*/*.exe)
@@ -25,7 +27,7 @@ DASH_DIR	:= ../app/usr/dash-0.5.13-install
 OKSH_DIR	:= ../app/usr/oksh-7.8-install
 
 rd0_files := $(shell find ramdisk0 -type f)
-rd0: $(EXES_EXAMPLE) $(EXES_TEST) \
+rd0: $(RD_TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	$(NCURSES_DIR)/share/terminfo/a/ansi \
 	$(DASH_DIR)/bin/dash \
 	$(OKSH_DIR)/bin/oksh \
@@ -35,7 +37,7 @@ rd0: $(EXES_EXAMPLE) $(EXES_TEST) \
 	cp -u $(EXES_EXAMPLE) ramdisk0/bin/example
 	cp -u $(EXES_TEST) ramdisk0/bin/test
 
-	cp -u rd-make/main.c ramdisk0/root/work/rd-make.c.txt
+	cp -u rd-make/main.c ramdisk0/root/work/rd-make.c
 
 	# ncurses
 	mkdir -p ramdisk0/usr/share/terminfo/{a,l,v,x}
@@ -55,15 +57,15 @@ rd0: $(EXES_EXAMPLE) $(EXES_TEST) \
 	rd-make/rd-make.exe --dir=ramdisk0 --rd=rd0 --device-list=device_list --nr-block=81920
 
 rd1_files := $(shell find ramdisk1 -type f)
-rd1: $(rd1_files)
+rd1: $(RD_TOOLS) $(rd1_files)
 	rd-make/rd-make.exe --dir=ramdisk1 --rd=rd1
 
 rd2_files := $(shell find ramdisk2 -type f)
-rd2: $(rd2_files)
+rd2: $(RD_TOOLS) $(rd2_files)
 	rd-make/rd-make.exe --dir=ramdisk2 --rd=rd2
 
 clean:
 	$(MAKE) clean -C rd-make
 	$(MAKE) clean -C rd-explorer
 	rm -rf ramdisk0/{bin,mnt}
-	rm -f rd0 rd1 rd2
+	rm -f rd0 rd1 rd2 rdx

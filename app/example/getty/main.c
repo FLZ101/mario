@@ -22,7 +22,7 @@ int main(int argc, char *argv[], char *envp[])
 	dup2(fd, 1);
 	dup2(fd, 2);
 
-	RunL("/bin/example/kilo.exe", "/root/rd-make.c", NULL);
+	RunL("/bin/example/kilo.exe", "/root/work/rd-make.c", NULL);
 
 	while (1)
 		pause();

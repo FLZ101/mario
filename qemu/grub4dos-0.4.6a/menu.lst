@@ -7,6 +7,4 @@ chainloader /boot.bin
 title mario (grub4dos)
 find --set-root /kernel.exe
 kernel /kernel.exe
-module /rd0 MARIO_RAMDISK
-module /rd1 MARIO_RAMDISK
-module /rd2 MARIO_RAMDISK
+module /rdx

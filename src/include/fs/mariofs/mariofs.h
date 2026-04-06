@@ -2,7 +2,7 @@
 #define _MARIOFS_H
 
 /*
- * A file or a directory in mariofs is organized as a block chain. The last 4 bytes
+ * A file or a directory in MarioFS is organized as a block chain. The last 4 bytes
  * in a block is the next block number in the same chain, and a value
  * of 0 indicates the end of chain. All free blocks are in a chain of which
  * the first block number is free@mario_super_block. Mariofs doesn't support

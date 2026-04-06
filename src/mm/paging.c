@@ -15,21 +15,19 @@ do { \
 
 extern unsigned long max_pfn;
 
-/*
- * pagetable_init() sets up the page tables - note that the first 8MB
- * are already mapped by start.S
- */
-void pagetable_init(void)
+extern void ramdisk_setup(struct multiboot_info *m);
+
+void paging_init(struct multiboot_info *m)
 {
 	unsigned long pfn;
 	pde_t *pd;
 	pte_t *pt;
 
-	/* unmap 0~8M */
+	/*
+	 * Sets up the page tables - note that the first 16MB
+	 * are already mapped in start.S
+	 */
 	pd = swapper_pg_dir;
-	pd[0] = 0;
-	pd[1] = 0;
-
 	for (pd += __pde_offset(KERNEL_BASE), pfn = 0; pfn < max_pfn; pd++) {
 		if (*pd) {
 			pfn += PTES_PER_PT;
@@ -42,11 +40,19 @@ void pagetable_init(void)
 		for (i = 0; i < PTES_PER_PT && pfn < max_pfn; i++, pfn++, pt++)
 			set_pte(pt, __mk_pte(pfn*PAGE_SIZE, _PTE_KERNEL));
 	}
-}
+	flush_tlb();
 
-void paging_init(void)
-{
-	pagetable_init();
+	ramdisk_setup(m);
+
+	/*
+	 * Unmap 0~16M. We need to do this here since ramdisk_setup needs to
+	 * access multiboot info which is in lower memory space.
+	 */
+	pd = swapper_pg_dir; /* !!! */
+	pd[0] = 0;
+	pd[1] = 0;
+	pd[2] = 0;
+	pd[3] = 0;
 	flush_tlb();
 }
 

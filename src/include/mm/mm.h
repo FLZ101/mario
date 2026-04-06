@@ -1,11 +1,12 @@
 #ifndef _MM_H
 #define _MM_H
 
+#include <multiboot.h>
 #include <mm/pagetable.h>
 
 #include <lib/list.h>
 
-void paging_init(void);
+void paging_init(struct multiboot_info *m);
 
 #define flush_tlb() \
 do { \

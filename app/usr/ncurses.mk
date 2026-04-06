@@ -11,8 +11,9 @@ build-ncurses: src-ncurses
 
 src-ncurses: $(NCURSES_SRC_DIR)/autogen.sh
 
-$(NCURSES_SRC_DIR)/autogen.sh: | $(NCURSES_SRC_FILE)
+$(NCURSES_SRC_DIR)/autogen.sh: $(NCURSES_SRC_FILE)
 	tar xf $(NCURSES_SRC_FILE)
+	touch $(NCURSES_SRC_DIR)/autogen.sh
 
 $(NCURSES_SRC_FILE):
 	wget -c --no-check-certificate $(NCURSES_SRC_URL) -O $(NCURSES_SRC_FILE)

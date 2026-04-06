@@ -31,8 +31,12 @@ start:
 	 */
 	movl $__phy(pg0)+007, __phy(swapper_pg_dir)
 	movl $__phy(pg1)+007, __phy(swapper_pg_dir)+4
+	movl $__phy(pg2)+007, __phy(swapper_pg_dir)+8
+	movl $__phy(pg3)+007, __phy(swapper_pg_dir)+12
 	movl $__phy(pg0)+007, __phy(swapper_pg_dir)+2048
 	movl $__phy(pg1)+007, __phy(swapper_pg_dir)+2048+4
+	movl $__phy(pg2)+007, __phy(swapper_pg_dir)+2048+8
+	movl $__phy(pg3)+007, __phy(swapper_pg_dir)+2048+12
 
 	/*
 	 * initialize page tables
@@ -157,12 +161,18 @@ ENTRY(pg0)
 ENTRY(pg1)
 
 	.org 0x3000
-ENTRY(empty_zero_page)
+ENTRY(pg2)
 
 	.org 0x4000
-ENTRY(empty_bad_page)
+ENTRY(pg3)
 
 	.org 0x5000
-ENTRY(empty_bad_page_table)
+ENTRY(empty_zero_page)
 
 	.org 0x6000
+ENTRY(empty_bad_page)
+
+	.org 0x7000
+ENTRY(empty_bad_page_table)
+
+	.org 0x8000

@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 /*
- * A file or a directory in mariofs is organized as a block chain. The last 4 bytes
+ * A file or a directory in MarioFS is organized as a block chain. The last 4 bytes
  * in a block is the next block number in the same chain, and a value
  * of 0 indicates the end of chain. All free blocks are in a chain of which
  * the first block number is free@mario_super_block.
@@ -64,5 +64,8 @@ struct mario_super_block {
 	uint32_t free;		/* free block chain */
 	struct mario_dir_entry root;	/* root directory */
 } __attribute__((gcc_struct, packed));
+
+// directory entry offset of /
+#define MARIO_ROOT_INO	((size_t) &((struct mario_super_block *)0)->root)
 
 #endif

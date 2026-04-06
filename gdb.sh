@@ -7,9 +7,12 @@ cmdfile=tmp/gdb.cmd
 
 cat >$cmdfile <<EOF
 symbol-file src/kernel/kernel.exe
-add-symbol-file app/test/musl/time/time.exe
+add-symbol-file app/example/init/init.exe
 target remote :1234
+# b mario
 b main
+b do_fork
+b do_execve
 # b *0x00408e4f
 # b mario
 # b _start

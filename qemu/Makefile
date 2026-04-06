@@ -1,8 +1,11 @@
-.PHONY: all image run debug quick-run quick-debug clean tmux-run tmux-debug tmux-attach tmux-kill
+.PHONY: all clean image run debug quick-run quick-debug \
+	tmux-run tmux-debug tmux-attach tmux-kill
 
 all: image
 
-image: hd.img tmp/kernel.exe tmp/boot.bin tmp/rd0 tmp/rd1 tmp/rd2
+GRUB_FILES	:= $(wildcard grub4dos-0.4.6a/*)
+
+image: hd.img tmp/kernel.exe tmp/boot.bin tmp/rdx $(GRUB_FILES)
 	bash update_image.sh
 
 hd.img:
@@ -14,13 +17,7 @@ tmp/kernel.exe: ../src/kernel/kernel.exe
 tmp/boot.bin: ../src/boot/boot.bin
 	cp $^ $@
 
-tmp/rd0: ../rd/rd0
-	cp $^ $@
-
-tmp/rd1: ../rd/rd1
-	cp $^ $@
-
-tmp/rd2: ../rd/rd2
+tmp/rdx: ../rd/rdx
 	cp $^ $@
 
 clean:
@@ -64,20 +61,20 @@ debug:
 QUICK_QEMU_FLAGS := \
 	-m 256M \
 	-kernel tmp/kernel.exe \
-	-initrd tmp/rd0 \
+	-initrd tmp/rdx \
 	-display curses \
 	-no-reboot -no-shutdown
 
-quick-run: tmp/kernel.exe tmp/rd0
+quick-run: tmp/kernel.exe tmp/rdx
 	qemu-system-i386 $(QUICK_QEMU_FLAGS)
 
-quick-debug: tmp/kernel.exe tmp/rd0
+quick-debug: tmp/kernel.exe tmp/rdx
 	qemu-system-i386 -s -S $(QUICK_QEMU_FLAGS)
 
-tmux-run: tmp/kernel.exe tmp/rd0
+tmux-run: tmp/kernel.exe tmp/rdx
 	./tmux.sh start $(QUICK_QEMU_FLAGS)
 
-tmux-debug: tmp/kernel.exe tmp/rd0
+tmux-debug: tmp/kernel.exe tmp/rdx
 	./tmux.sh start -s -S $(QUICK_QEMU_FLAGS)
 
 tmux-attach:

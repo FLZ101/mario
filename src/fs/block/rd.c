@@ -6,10 +6,11 @@
 
 #include <fs/fs.h>
 #include <fs/blkdev.h>
+#include <fs/mariofs/mariofs.h>
 
 #define RD_SECTOR_SIZE 512
 
-#define MAX_RD 3
+#define MAX_RD 6
 
 struct {
 	unsigned long rd_start;
@@ -18,15 +19,13 @@ struct {
 	char *name;
 } rd_info[MAX_RD];
 
-static int nr_rd;	/* the number of ramdisks loaded */
+static int nr_rd = 0;	/* the number of ramdisks loaded */
 
-extern unsigned long end;
+unsigned long last_rd_end = 0;
 
 void ramdisk_setup(struct multiboot_info *m)
 {
 	int i;
-
-	end = 0;
 
 	if (!(MB_FLAG_MODULE & m->flags))
 		goto tail;
@@ -34,30 +33,48 @@ void ramdisk_setup(struct multiboot_info *m)
 	struct multiboot_module *mod =
 		(struct multiboot_module *)m->mods_addr;
 
-	for (nr_rd = 0, i = 0; nr_rd < MAX_RD && i < m->mods_count; i++) {
-		/* all boot modules loaded are page-aligned */
-		unsigned long __start = mod[i].mod_start;
-		unsigned long __end = PAGE_ALIGN(mod[i].mod_end);
+	for (nr_rd = 0, i = 0; i < m->mods_count; i++) {
+		unsigned long start = mod[i].mod_start + KERNEL_BASE;
+		unsigned long end = mod[i].mod_end + KERNEL_BASE;
 
-		rd_info[nr_rd].rd_start = __start;
-		rd_info[nr_rd].rd_end = __end;
-		rd_info[nr_rd].rd_nr = (__end - __start) / RD_SECTOR_SIZE;
-		rd_info[nr_rd].name = (char *)mod[i].string;
+		// Ramdisks are formatted with MarioFS. Multiple ramdisks may be concatenated
+		// (e.g., via cat) and loaded as a single module.
+		unsigned long j = 0;
+		while (start + j < end) {
+			if (nr_rd >= MAX_RD)
+				hang("Too many ramdisks!\n");
 
-		if (end < __end)
-			end = __end;
-		nr_rd++;
+			assert(PAGE_ALIGNED(start + j));
+			assert(start + j + RD_SECTOR_SIZE < end);
+
+			struct mario_super_block *sb = (struct mario_super_block *) (start + j);
+			assert(sb->magic == MARIO_MAGIC);
+			assert(sb->sector_size == RD_SECTOR_SIZE);
+			unsigned long rd_size = sb->nr_blocks * sb->sector_size;
+			assert(PAGE_ALIGNED(rd_size));
+
+			rd_info[nr_rd].rd_start = start + j;
+			rd_info[nr_rd].rd_end = start + j + rd_size;
+			rd_info[nr_rd].rd_nr = sb->nr_blocks;
+			rd_info[nr_rd].name = (char *)mod[i].string;
+
+			++nr_rd;
+
+			j += rd_size;
+		}
+		assert(start + j == end);
 	}
 tail:
-	if (!end)
+	if (!nr_rd)
 		hang("No ramdisk loaded!\n");
-	end += KERNEL_BASE;	/* !!! */
+
+	last_rd_end = rd_info[nr_rd - 1].rd_end;
 
 	printk("Ramdisk(s):\n");
 	for (i = 0; i < nr_rd; i++) {
 		printk("rd_start=%x, rd_end=%x, name=%s\n",
-			rd_info[i].rd_start += KERNEL_BASE,
-			rd_info[i].rd_end += KERNEL_BASE,
+			rd_info[i].rd_start,
+			rd_info[i].rd_end,
 			rd_info[i].name
 		);
 	}

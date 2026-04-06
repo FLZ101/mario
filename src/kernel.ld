@@ -41,6 +41,8 @@ SECTIONS
 	.bss :  AT(ADDR(.bss) - ADDR(.text) + PHY_BASE)
 	{
 		*(.bss)
+		. = ALIGN(0x1000);
+		*(.bss.boot)
 	}
 	_ebss = .;
 

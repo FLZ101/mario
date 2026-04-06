@@ -22,6 +22,10 @@
 /* supported block size */
 uint32_t blksz[] = {512, 0};
 
+#define PAGE_SIZE 4096
+
+#define BLOCK_PER_PAGE (PAGE_SIZE / block_size)
+
 void print_hlp_msg(void)
 {
 	int i;
@@ -213,7 +217,7 @@ int blocks;	/* the number of blocks written to rd */
 char *buffer;	/* a buffer of size @block_size */
 uint32_t used;	/* the number of bytes used in the buffer */
 
-/* the maximum value of @used */
+/* the maximum value of @used, also the maximum number of data bytes a block can contain */
 #define MAX_USED	(block_size - 4)
 
 /* new a block to write to rd, it could also start a new pour */
@@ -261,12 +265,15 @@ void pour_data(void *data, size_t size, int bank)
  */
 void end_pour(void)
 {
-	if (used)
+	if (used) {
+		used = 0;
 		write_block();
+	}
 }
 
 struct mario_super_block sb;
 
+// write super block
 void make_begin(void)
 {
 	buffer = (char *)malloc(block_size);
@@ -579,9 +586,12 @@ add_dev:
 	/* add . and .. into /dev/ */
 	new_block();
 	fseek(rd_file, 0, SEEK_END);
+
+	entry.data = dent;	// directory entry offset of /dev
 	strcpy(entry.name, ".");
 	pour_data(&entry, sizeof(entry), 1);
-	entry.data = MARIO_ROOT_BLOCK;
+
+	entry.data = MARIO_ROOT_INO;
 	strcpy(entry.name, "..");
 	pour_data(&entry, sizeof(entry), 1);
 
@@ -602,7 +612,7 @@ void decide_nr_block(void)
 
 	if (nr_block) {
 		if (nr_block >= blocks)
-			return;
+			goto tail;
 		printf("Warning:\tNR you gave is too small\n");
 	}
 
@@ -622,6 +632,8 @@ void decide_nr_block(void)
 		nr_block = blocks + max_nr_block/64;
 	else
 		nr_block = blocks + max_nr_block/128;
+tail:
+	nr_block = (nr_block + BLOCK_PER_PAGE - 1) / BLOCK_PER_PAGE * BLOCK_PER_PAGE;
 }
 
 void truncate_rd(void)
@@ -673,6 +685,13 @@ void make_end(void)
 
 	free(buffer);
 	fclose(rd_file);
+
+	struct stat st;
+	stat(rd, &st);
+	if (st.st_size % PAGE_SIZE) {
+		printf("Output file size is not a multiple of PAGE_SIZE\n");
+		exit(-1);
+	}
 }
 
 int main(int argc, char *argv[])
@@ -688,4 +707,3 @@ int main(int argc, char *argv[])
 	make_end();
 	return 0;
 }
-

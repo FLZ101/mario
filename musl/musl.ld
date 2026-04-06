@@ -57,15 +57,24 @@ SECTIONS
 		*(.bss.*)
 	}
 
-	.debug_abbrev : { *(.debug_abbrev) }
-	.debug_aranges : { *(.debug_aranges) }
-	.debug_frame : { *(.debug_frame) }
-	.debug_info : { *(.debug_info) }
-	.debug_line : { *(.debug_line) }
-	.debug_line_str : { *(.debug_line_str) }
-	.debug_rnglists : { *(.debug_rnglists) }
-	.debug_str : { *(.debug_str) }
-	.debug_loclists : { *(.debug_loclists) }
+	/*
+	 * @2026/04/06
+	 *
+	 * The following 0 are required to make gdb work properly, or we see messages like:
+	 *
+	 *   Warning: Debug info is corrupted, abbrev offset (0x40e7e0) is larger than abbrev
+	 *   section size (0x66e1)
+	 */
+	.debug_abbrev 0 : { *(.debug_abbrev) }
+	.debug_aranges 0 : { *(.debug_aranges) }
+	.debug_frame 0 : { *(.debug_frame) }
+	.debug_info 0 : { *(.debug_info) }
+	.debug_line 0 : { *(.debug_line) }
+	.debug_line_str 0 : { *(.debug_line_str) }
+	.debug_rnglists 0 : { *(.debug_rnglists) }
+	.debug_str 0 : { *(.debug_str) }
+	.debug_loclists 0 : { *(.debug_loclists) }
+
 	.eh_frame : { *(.eh_frame) }
 	.eh_frame_hdr : { *(.eh_frame_hdr) }
 

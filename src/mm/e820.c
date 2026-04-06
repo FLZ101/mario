@@ -18,7 +18,7 @@ struct e820map e820;
 /*
  * Minimum physical memory our kernel needs
  */
-#define MIN_MEMORY	0x800000	/* 8M */
+#define MIN_MEMORY	0x2000000	/* 32M */
 
 /*
  * Maximum physical memory supported
@@ -116,8 +116,6 @@ void make_e820_map(struct multiboot_info *m)
 	add_memory_region(0x100000, UPPER_MEM, E820_RAM);
 }
 
-extern void ramdisk_setup(struct multiboot_info *m);
-
 extern unsigned long max_pfn;
 
 void setup_memory_region(struct multiboot_info *m)
@@ -143,7 +141,5 @@ void setup_memory_region(struct multiboot_info *m)
 	}
 
 	if (max_pfn < PFN_DOWN(MIN_MEMORY))
-		hang("More physical memory required!\n");
-
-	ramdisk_setup(m);
+		hang("More physical memory is required!\n");
 }
