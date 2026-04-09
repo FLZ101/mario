@@ -6,27 +6,48 @@
 
 #include <time.h>
 
-struct stat {
-	dev_t st_dev;
-	int __st_dev_padding;
-	long __st_ino_truncated;
-	mode_t st_mode;
-	nlink_t st_nlink;
-	uid_t st_uid; // UNUSED
-	gid_t st_gid; // UNUSED
-	dev_t st_rdev;
-	int __st_rdev_padding;
-	off_t st_size;
-	blksize_t st_blksize;
-	blkcnt_t st_blocks;
-	struct {
-		long tv_sec;
-		long tv_nsec;
-	} __st_atim32, __st_mtim32, __st_ctim32; // UNUSED
-	ino_t st_ino;
-	struct timespec st_atim; // UNUSED
-	struct timespec st_mtim; // UNUSED
-	struct timespec st_ctim; // UNUSED
+#define STATX_TYPE 1U
+#define STATX_MODE 2U
+#define STATX_NLINK 4U
+#define STATX_UID 8U
+#define STATX_GID 0x10U
+#define STATX_ATIME 0x20U
+#define STATX_MTIME 0x40U
+#define STATX_CTIME 0x80U
+#define STATX_INO 0x100U
+#define STATX_SIZE 0x200U
+#define STATX_BLOCKS 0x400U
+#define STATX_BASIC_STATS 0x7ffU
+#define STATX_BTIME 0x800U
+#define STATX_ALL 0xfffU
+
+struct statx_timestamp {
+	int64_t tv_sec;
+	uint32_t tv_nsec, __pad;
+};
+
+struct statx {
+	uint32_t stx_mask;
+	uint32_t stx_blksize;
+	uint64_t stx_attributes;
+	uint32_t stx_nlink;
+	uint32_t stx_uid;
+	uint32_t stx_gid;
+	uint16_t stx_mode;
+	uint16_t __pad0[1];
+	uint64_t stx_ino;
+	uint64_t stx_size;
+	uint64_t stx_blocks;
+	uint64_t stx_attributes_mask;
+	struct statx_timestamp stx_atime;
+	struct statx_timestamp stx_btime;
+	struct statx_timestamp stx_ctime;
+	struct statx_timestamp stx_mtime;
+	uint32_t stx_rdev_major;
+	uint32_t stx_rdev_minor;
+	uint32_t stx_dev_major;
+	uint32_t stx_dev_minor;
+	uint64_t __pad1[14];
 };
 
 #define S_IFMT  0170000
@@ -55,7 +76,5 @@ struct stat {
 
 static inline _syscall2(int,mkdir,const char *,pathname,mode_t,mode)
 static inline _syscall3(int,mknod,const char *,pathname, mode_t, mode, dev_t, dev)
-static inline _syscall2(int,stat,const char *, pathname, struct stat *,statbuf)
-static inline _syscall2(int,fstat,int, fd, struct stat *,statbuf)
-
+static inline _syscall5(int,statx,int,dirfd,char *,pathname, int, flags, unsigned int,mask, struct statx *,statxbuf)
 #endif

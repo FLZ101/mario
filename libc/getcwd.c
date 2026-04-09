@@ -5,7 +5,7 @@
 #include <syscall.h>
 #include <sys/stat.h>
 
-#define __SYS_getcwd_ __SYS_getcwd
+#define SYS_getcwd_ SYS_getcwd
 
 static inline _syscall2(int,getcwd_,char *,buf, size_t, size)
 

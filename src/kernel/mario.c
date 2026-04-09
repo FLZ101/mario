@@ -25,7 +25,7 @@ void kernel_thread(void (*fun)(void *), void *arg)
 		"jmp .\n\t"
 		"1:"
 		:
-		:"b"(arg), "c"(fun), "i"(__SYS_fork)
+		:"b"(arg), "c"(fun), "i"(SYS_fork)
 		:"eax", "esi", "memory");
 }
 

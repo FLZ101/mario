@@ -26,6 +26,8 @@ static inline int get_max_filename(unsigned long address)
 
 /*
  * POSIX.1 2.4: an empty pathname is invalid (ENOENT).
+ *
+ * -ENOENT is returned only if `*filename == '\0'`
  */
 int getname(const char *filename, char **result)
 {
@@ -103,6 +105,8 @@ int lookup(struct inode *dir, char *name, int len, struct inode **res)
  *   `res_inode`: inode for the dirname
  *
  *   `namelen`, `name`: the basename
+ *
+ * Note: base is eaten
  */
 static int dir_namei(char *pathname, int *namelen, char **name,
 	struct inode *base, struct inode **res_inode)
@@ -144,6 +148,7 @@ static int dir_namei(char *pathname, int *namelen, char **name,
 	return 0;
 }
 
+// Note: `base` is eaten
 int _namei(char *pathname, struct inode *base, struct inode **res_inode)
 {
 	char *basename;
@@ -161,20 +166,50 @@ int _namei(char *pathname, struct inode *base, struct inode **res_inode)
 	return 0;
 }
 
-// This always go down a mount point
-int namei(const char *pathname, struct inode **res_inode)
+int namei_at(int dirfd, const char *pathname, struct inode **res_inode)
 {
 	int error;
 	char *tmp;
+	struct file *base_f;
+	struct inode* base_i = NULL;
+	int path_empty = 0;
 
 	error = getname(pathname, &tmp);
-	if (!error) {
-		error = _namei(tmp, NULL, res_inode);
-		putname(tmp);
+	if (error) {
+		if (error == -ENOENT) // pathname is ""
+			path_empty = 1;
+		else
+			return error;
 	}
+
+    if (dirfd != AT_FDCWD) {
+        if (dirfd >= NR_OPEN || !(base_f = current->files->fd[dirfd]) ||
+            !(base_i = base_f->f_inode) ||
+            (!path_empty && !S_ISDIR(base_i->i_mode))) {
+            error = -EBADF;
+            goto tail;
+        }
+        iref(base_i);
+    }
+    if (path_empty) {
+		*res_inode = base_i;
+		return 0;
+	}
+	error = _namei(tmp, base_i, res_inode);
+
+tail:
+	if (!path_empty)
+		putname(tmp);
 	return error;
 }
 
+// This always go down a mount point
+int namei(const char *pathname, struct inode **res_inode)
+{
+	return namei_at(AT_FDCWD, pathname, res_inode);
+}
+
+// Note: `base` is eaten
 int open_namei(char *pathname, int flags, struct inode **res_inode,
 	struct inode *base)
 {

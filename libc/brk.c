@@ -1,7 +1,7 @@
 #include <syscall.h>
 #include <stddef.h>
 
-#define __SYS_brk_ __SYS_brk
+#define SYS_brk_ SYS_brk
 
 _syscall1(int,brk_,void *,addr)
 

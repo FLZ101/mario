@@ -4,7 +4,7 @@ all: rdx
 
 # Size of ramdisks are multiple of PAGE_SIZE (i.e. 4096B)
 rdx: rd0 rd1 rd2
-	cat rd0 rd1 rd2 >>rdx
+	cat rd0 rd1 rd2 >rdx
 
 RD_TOOLS	:= rd-make/rd-make.exe rd-explorer/rd-explorer.exe
 

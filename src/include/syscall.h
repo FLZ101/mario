@@ -465,60 +465,6 @@
 #define SYS_file_setattr	469
 #define SYS_listns		470
 
-#define __SYS_brk	SYS_brk
-#define __SYS_mmap	SYS_mmap
-#define __SYS_munmap	SYS_munmap
-#define __SYS_alarm	SYS_alarm
-#define __SYS_execve	SYS_execve
-#define __SYS_exit	SYS_exit
-#define __SYS_fork	SYS_fork
-#define __SYS_getpid	SYS_getpid
-#define __SYS_getppid	SYS_getppid
-#define __SYS_nanosleep	SYS_nanosleep
-#define __SYS_pause	SYS_pause
-#define __SYS_waitpid	SYS_waitpid
-#define __SYS_chdir	SYS_chdir
-#define __SYS_fchdir	SYS_fchdir
-#define __SYS_chroot	SYS_chroot
-#define __SYS_close	SYS_close
-#define __SYS_creat	SYS_creat
-#define __SYS_dup	SYS_dup
-#define __SYS_dup2	SYS_dup2
-#define __SYS_getdents	SYS_getdents
-#define __SYS_ioctl	SYS_ioctl
-#define __SYS_link	SYS_link
-#define __SYS_lseek	SYS_lseek
-#define __SYS_mkdir	SYS_mkdir
-#define __SYS_mknod	SYS_mknod
-#define __SYS_mount	SYS_mount
-#define __SYS_open	SYS_open
-#define __SYS_pipe	SYS_pipe
-#define __SYS_read	SYS_read
-#define __SYS_rename	SYS_rename
-#define __SYS_rmdir	SYS_rmdir
-#define __SYS_stat	SYS_stat
-#define __SYS_fstat	SYS_fstat
-#define __SYS_truncate	SYS_truncate
-#define __SYS_ftruncate	SYS_ftruncate
-#define __SYS_umount	SYS_umount
-#define __SYS_unlink	SYS_unlink
-#define __SYS_write	SYS_write
-#define __SYS_time	SYS_time
-#define __SYS_getitimer	SYS_getitimer
-#define __SYS_setitimer	SYS_setitimer
-#define __SYS_getpgid	SYS_getpgid
-#define __SYS_getsid	SYS_getsid
-#define __SYS_setpgid	SYS_setpgid
-#define __SYS_setsid	SYS_setsid
-#define __SYS_kill	SYS_kill
-#define __SYS_signal	SYS_signal
-#define __SYS_sigaction	SYS_sigaction
-#define __SYS_sigsuspend	SYS_sigsuspend
-#define __SYS_sigpending	SYS_sigpending
-#define __SYS_sigprocmask	SYS_sigprocmask
-#define __SYS_sigreturn	SYS_sigreturn
-#define __SYS_fcntl	SYS_fcntl
-
 #define __syscall_return(type, __res) \
 do { \
 	if (__res >= 0) \
@@ -533,7 +479,7 @@ type name(void) \
 long __res; \
 __asm__ volatile ("int $0x80" \
 	: "=a" (__res) \
-	: "0" (__SYS_##name) \
+	: "0" (SYS_##name) \
 	: "memory"); \
 __syscall_return(type, __res); \
 }
@@ -544,7 +490,7 @@ type name(type1 arg1) \
 long __res; \
 __asm__ volatile ("int $0x80" \
 	: "=a" (__res) \
-	: "0" (__SYS_##name), "b" ((long)(arg1)) \
+	: "0" (SYS_##name), "b" ((long)(arg1)) \
 	: "memory"); \
 __syscall_return(type, __res); \
 }
@@ -555,7 +501,7 @@ type name(type1 arg1,type2 arg2) \
 long __res; \
 __asm__ volatile ("int $0x80" \
 	: "=a" (__res) \
-	: "0" (__SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)) \
+	: "0" (SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)) \
 	: "memory"); \
 __syscall_return(type, __res); \
 }
@@ -566,7 +512,7 @@ type name(type1 arg1,type2 arg2,...) \
 long __res; \
 __asm__ volatile ("int $0x80" \
 	: "=a" (__res) \
-	: "0" (__SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)) \
+	: "0" (SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)) \
 	: "memory"); \
 __syscall_return(type, __res); \
 }
@@ -577,7 +523,7 @@ type name(type1 arg1,type2 arg2,type3 arg3) \
 long __res; \
 __asm__ volatile ("int $0x80" \
 	: "=a" (__res) \
-	: "0" (__SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)),"d" ((long)(arg3)) \
+	: "0" (SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)),"d" ((long)(arg3)) \
 	: "memory"); \
 __syscall_return(type, __res); \
 }
@@ -588,7 +534,7 @@ type name (type1 arg1, type2 arg2, type3 arg3, type4 arg4) \
 long __res; \
 __asm__ volatile ("int $0x80" \
 	: "=a" (__res) \
-	: "0" (__SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)), \
+	: "0" (SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)), \
 	  "d" ((long)(arg3)),"S" ((long)(arg4)) \
 	: "memory"); \
 __syscall_return(type, __res); \
@@ -600,7 +546,7 @@ type name (type1 arg1,type2 arg2,type3 arg3,type4 arg4,type5 arg5) \
 long __res; \
 __asm__ volatile ("int $0x80" \
 	: "=a" (__res) \
-	: "0" (__SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)), \
+	: "0" (SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)), \
 	  "d" ((long)(arg3)),"S" ((long)(arg4)),"D" ((long)(arg5)) \
 	: "memory"); \
 __syscall_return(type, __res); \
@@ -613,7 +559,7 @@ long __res; \
 __asm__ volatile ( \
 	"pushl %7 ; push %%ebp ; mov 4(%%esp),%%ebp ; int $0x80 ; pop %%ebp ; add $4,%%esp" \
 	: "=a" (__res) \
-	: "0" (__SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)), \
+	: "0" (SYS_##name),"b" ((long)(arg1)),"c" ((long)(arg2)), \
 	  "d" ((long)(arg3)),"S" ((long)(arg4)),"D" ((long)(arg5)),"g" ((long)(arg5)) \
 	: "memory"); \
 __syscall_return(type, __res); \

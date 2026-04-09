@@ -29,10 +29,9 @@ check:
 ifeq ($(LIBC),musl)
 usr:
 	$(MAKE) COMPILE_COMMANDS_JSON= -C usr
+else
+usr:
+endif
 
 clean-usr:
 	$(MAKE) -C usr clean
-else
-usr:
-clean-usr:
-endif

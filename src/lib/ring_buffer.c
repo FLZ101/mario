@@ -111,10 +111,14 @@ int ring_buffer_full(const struct ring_buffer *rb) {
 }
 
 // pop last written byte
-void ring_buffer_pop(struct ring_buffer *rb) {
+int ring_buffer_pop(struct ring_buffer *rb) {
 	if (!ring_buffer_empty(rb)) {
 		size_t mask = rb->size - 1;
 		rb->head = (rb->head - 1) & mask;
 		--rb->len;
+
+		unsigned char ch = rb->data[rb->head];
+		return ch;
 	}
+	return -1;
 }

@@ -230,9 +230,9 @@ void setup_frame(struct sigaction *sa, unsigned long **fp, unsigned long eip,
 	put_fs_long(old_mask, frame+22);
 	put_fs_long(current->thread.cr2, frame+23);
 	/* set up the return code... */
-	put_fs_long(0x0000b858, CODE(0));	/* popl %eax ; movl $__SYS_sigreturn, %eax */
+	put_fs_long(0x0000b858, CODE(0));	/* popl %eax ; movl $SYS_sigreturn, %eax */
 	put_fs_long(0x80cd0000, CODE(4));	/* int $0x80 */
-	put_fs_long(__SYS_sigreturn, CODE(2));
+	put_fs_long(SYS_sigreturn, CODE(2));
 	*fp = frame;
 
 #undef __CODE

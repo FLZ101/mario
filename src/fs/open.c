@@ -14,11 +14,14 @@
  * for the internal routines (i.e. open_namei()/follow_link() etc). 00 is
  * used by symlinks.
  */
-int do_open(char *filename, int flags)
+int do_openat(unsigned int dirfd, char *filename, int flags)
 {
 	struct inode *i;
 	struct file *f;
 	int namei_flags, error, fd;
+
+	struct file *base_f = NULL;
+	struct inode *base_i = NULL;
 
 	for (fd = 0; ; fd++) {
 		if (fd == NR_OPEN)
@@ -38,7 +41,13 @@ int do_open(char *filename, int flags)
 	if (namei_flags & (O_TRUNC | O_CREAT))
 		namei_flags |= 2;
 
-	error = open_namei(filename, namei_flags, &i, NULL);
+	if (dirfd != AT_FDCWD) {
+		if (dirfd >= NR_OPEN || !(base_f = current->files->fd[dirfd]) ||
+			!(base_i = base_f->f_inode) || !S_ISDIR(base_i->i_mode))
+			return -EBADF;
+		iref(base_i);
+	}
+	error = open_namei(filename, namei_flags, &i, base_i);
 	if (error) {
 		put_file(f);
 		return error;
@@ -60,20 +69,25 @@ int do_open(char *filename, int flags)
 	return fd;
 }
 
-int sys_open(const char *filename, int flags)
+int sys_openat(int dirfd, char *pathname, int flags)
 {
 	char *tmp;
 	int error;
 
-	error = getname(filename, &tmp);
+	error = getname(pathname, &tmp);
 	if (error)
 		return error;
-	error = do_open(tmp, flags);
+	error = do_openat(dirfd, tmp, flags);
 	putname(tmp);
 	return error;
 }
 
-int sys_creat(const char *pathname)
+int sys_open(char *filename, int flags)
+{
+	return sys_openat(AT_FDCWD, filename, flags);
+}
+
+int sys_creat(char *pathname)
 {
 	return sys_open(pathname, O_CREAT | O_WRONLY | O_TRUNC);
 }

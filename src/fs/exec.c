@@ -31,15 +31,15 @@ struct exec {
 	unsigned long start_code, end_code, start_data, end_data, start_brk, brk;
 };
 
-extern int do_open(char *filename, int flags);
+extern int do_openat(int dirfd, char *filename, int flags);
 
-int open_exec(char *filename)
+int open_execat(int dirfd, char *filename)
 {
 	int fd;
 	struct file *file;
 	struct inode *inode;
 
-	fd = do_open(filename, O_RDONLY);
+	fd = do_openat(dirfd, filename, O_RDONLY);
 	if (fd < 0)
 		return fd;
 	file = current->files->fd[fd];
@@ -206,13 +206,14 @@ int copy_one_arg(struct exec *exe, char *p, int *n)
 
 	error = getname(p, &tmp);
 	if (error) {
+		if (error == -ENOENT) // p is "". Just ignore
+			return 0;
+
 		if (error != -ENOMEM)
 			error = -EFAULT;
 		return error;
 	}
 	len = strlen(tmp) + 1;
-	if (len == 1)	/* empty string? */
-		goto tail;
 	a = exe->arg_p & ~PAGE_MASK;
 	b = (a + PAGE_SIZE) & PAGE_MASK;
 	c = exe->arg_p / PAGE_SIZE;
@@ -524,13 +525,13 @@ int do_exec(struct exec *exe, int fd, struct trap_frame *tr)
 	return 0;
 }
 
-int do_execve(char *filename, char **argv, char **envp, struct trap_frame *tr)
+int do_execveat(int dirfd, char *filename, char **argv, char **envp, struct trap_frame *tr)
 {
 	int i, fd, error;
 	struct file *file;
 	struct exec exe = {0};
 
-	fd = open_exec(filename);
+	fd = open_execat(dirfd, filename);
 	if (fd < 0)
 		return fd;
 	file = current->files->fd[fd];
@@ -563,7 +564,20 @@ int sys_execve(struct trap_frame tr)
 	error = getname((char *)tr.ebx, &filename);
 	if (error)
 		return error;
-	error = do_execve(filename, (char **)tr.ecx, (char **)tr.edx, &tr);
+	error = do_execveat(AT_FDCWD, filename, (char **)tr.ecx, (char **)tr.edx, &tr);
+	putname(filename);
+	return error;
+}
+
+int sys_execveat(struct trap_frame tr)
+{
+	int error;
+	char *filename;
+
+	error = getname((char *)tr.ecx, &filename);
+	if (error)
+		return error;
+	error = do_execveat(tr.ebx, filename, (char **)tr.edx, (char **)tr.esi, &tr);
 	putname(filename);
 	return error;
 }

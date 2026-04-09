@@ -362,7 +362,7 @@ static unsigned long get_page_prot(unsigned long flags)
 }
 
 unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
-	unsigned long flags, int fd, unsigned long off)
+	unsigned long flags, unsigned int fd, unsigned long off)
 {
 	int error;
 	struct file *file = NULL;

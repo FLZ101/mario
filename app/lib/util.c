@@ -101,16 +101,8 @@ void RunL(char *filename, ...)
     va_end(ap);
 }
 
-void PrintFile(char *filename)
+void PrintFd(int fd)
 {
-    int err;
-
-    printf("[print] %s\n", filename);
-
-    int fd = open(filename, O_RDONLY);
-    if (-1 == fd)
-        Exit();
-
     char ch;
     while (1) {
         int ret = read(fd, &ch, 1);
@@ -121,8 +113,19 @@ void PrintFile(char *filename)
             break;
         putchar(ch);
     }
+}
 
-    err = close(fd);
+void PrintFile(char *filename)
+{
+    printf("[print] %s\n", filename);
+
+    int fd = open(filename, O_RDONLY);
+    if (-1 == fd)
+        Exit();
+
+    PrintFd(fd);
+
+    int err = close(fd);
     if (-1 == err)
         Exit();
 }
@@ -149,6 +152,11 @@ char *GetDirentTypeName(unsigned char d_type)
     default:
         return "?";
     }
+}
+
+char *GetModeName(mode_t mode)
+{
+    return GetDirentTypeName(IFTODT(mode));
 }
 
 void ListDir(char *pathname)

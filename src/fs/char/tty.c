@@ -47,12 +47,24 @@ void tty_put_s(struct tty_struct *tty, char *s)
 		tty_put_c(tty, c);
 }
 
+void tty_backspace(struct tty_struct *tty, int ch)
+{
+	switch (ch) {
+	case '\t':
+		// TODO
+		break;
+	default:
+		tty_put_s(tty, "\b \b");
+	}
+}
+
 void tty_receive_c(struct tty_struct *tty, unsigned char c)
 {
 	if (!tty->count)
 		return;
 
 	struct ring_buffer *rb = &tty->read_buf;
+	int popped = -1;
 
 	int wake = 0;
 
@@ -84,7 +96,7 @@ void tty_receive_c(struct tty_struct *tty, unsigned char c)
 		}
 
 		if (c == c_cc[VERASE]) {
-			ring_buffer_pop(rb);
+			popped = ring_buffer_pop(rb);
 			goto tail_1;
 		}
 
@@ -99,7 +111,8 @@ void tty_receive_c(struct tty_struct *tty, unsigned char c)
 tail_1:
 	if (c_lflag & ECHO) {
 		if (c == c_cc[VERASE] && c_lflag & ECHOE) {
-			tty_put_s(tty, "\b \b");
+			if (popped != -1)
+				tty_backspace(tty, popped);
 			goto tail_2;
 		}
 
@@ -199,13 +212,13 @@ int tty_open(struct inode *i, struct file *f)
 
 int get_n_canon_read(struct ring_buffer *rb, cc_t *c_cc) {
 	size_t mask = rb->size - 1;
-	size_t p = rb->head;
+	size_t p = rb->tail;
 	int n = 0;
 
 	if (ring_buffer_full(rb))
 		return ring_buffer_avail(rb);
 
-	while (p != rb->tail) {
+	while (p != rb->head) {
 		uint8_t ch = (uint8_t) rb->data[p];
 
 		p = (p + 1) & mask;
@@ -335,11 +348,19 @@ int session_of_pgrp(int pgrp)
 
 static int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long arg)
 {
+	int err = 0;
 	int opt = 0;
 	struct tty_struct *tty = (struct tty_struct *) f->private_data;
-	int err = tty_check(tty);
-	if (err)
-		return err;
+
+	if (!tty)
+		return -EIO;
+
+	if (current->tty == tty) {
+		if (cmd != TIOCSPGRP && current->pgrp != tty->pgrp) {
+			kill_pg(current->pgrp, SIGTTOU, 1);
+			return -ERESTARTSYS;
+		}
+	}
 
 	switch (cmd) {
 		case TCGETS:

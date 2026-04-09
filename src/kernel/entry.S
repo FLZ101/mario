@@ -419,9 +419,9 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_syslog */
 	.long sys_setitimer
 	.long sys_getitimer
-	.long sys_stat
+	.long sys_not_exist /* SYS_stat */
 	.long sys_not_exist /* SYS_lstat */
-	.long sys_fstat
+	.long sys_not_exist /* SYS_fstat */
 	.long sys_not_exist /* SYS_olduname */
 	.long sys_not_exist /* SYS_iopl */
 	.long sys_not_exist /* SYS_vhangup */
@@ -608,7 +608,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_inotify_add_watch */
 	.long sys_not_exist /* SYS_inotify_rm_watch */
 	.long sys_not_exist /* SYS_migrate_pages */
-	.long sys_not_exist /* SYS_openat */
+	.long sys_openat
 	.long sys_not_exist /* SYS_mkdirat */
 	.long sys_not_exist /* SYS_mknodat */
 	.long sys_not_exist /* SYS_fchownat */
@@ -671,7 +671,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_getrandom */
 	.long sys_not_exist /* SYS_memfd_create */
 	.long sys_not_exist /* SYS_bpf */
-	.long sys_not_exist /* SYS_execveat */
+	.long sys_execveat
 	.long sys_not_exist /* SYS_socket */
 	.long sys_not_exist /* SYS_socketpair */
 	.long sys_not_exist /* SYS_bind */
@@ -696,7 +696,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_pkey_mprotect */
 	.long sys_not_exist /* SYS_pkey_alloc */
 	.long sys_not_exist /* SYS_pkey_free */
-	.long sys_not_exist /* SYS_statx */
+	.long sys_statx
 	.long sys_not_exist /* SYS_arch_prctl */
 	.long sys_not_exist /* SYS_io_pgetevents */
 	.long sys_not_exist /* SYS_rseq */

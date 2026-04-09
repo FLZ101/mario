@@ -180,6 +180,7 @@ void fs_init(void);
 int getname(const char *, char **);
 void putname(char *);
 
+int namei_at(int dirfd, const char *pathname, struct inode **res_inode);
 int namei(const char *, struct inode **);
 int open_namei(char *, int, struct inode **,struct inode *);
 

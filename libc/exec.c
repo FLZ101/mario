@@ -9,6 +9,7 @@ static char *dummy_envp[] = { NULL };
 char **environ = dummy_envp;
 
 _syscall3(int,execve,const char *,pathname,char **,argv,char **,envp)
+_syscall4(int,execveat,int,dirfd,const char *,pathname,char **,argv,char **,envp)
 
 static int vexecl(int p, int e, const char *file, char *arg, va_list ap)
 {

@@ -55,6 +55,7 @@ int tcsetpgrp(int fd, pid_t pgrp);
 // 1. argv and envp can not contain "", or EFAULT happens
 // 2. argv and envp can be NULL
 int execve(const char *pathname, char *argv[], char *envp[]);
+int execveat(int dirfd, const char *pathname, char *argv[], char *envp[]);
 
 int execl(const char *pathname, char *arg, ... /*, (char *) NULL */);
 int execlp(const char *file, char *arg, ... /*, (char *) NULL */);

@@ -6,7 +6,7 @@ __attribute__((noreturn)) void _exit(int status)
     __asm__ volatile (
         "int $0x80"
         :
-        : "a" (__SYS_exit),"b" (status & 0xff)
+        : "a" (SYS_exit),"b" (status & 0xff)
         : "memory"
     );
     __builtin_unreachable();
