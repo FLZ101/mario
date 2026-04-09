@@ -47,16 +47,6 @@ void tty_put_s(struct tty_struct *tty, char *s)
 		tty_put_c(tty, c);
 }
 
-void tty_backspace(struct tty_struct *tty, int ch)
-{
-	switch (ch) {
-	case '\t':
-		// TODO
-		break;
-	default:
-		tty_put_s(tty, "\b \b");
-	}
-}
 
 void tty_receive_c(struct tty_struct *tty, unsigned char c)
 {
@@ -112,7 +102,7 @@ tail_1:
 	if (c_lflag & ECHO) {
 		if (c == c_cc[VERASE] && c_lflag & ECHOE) {
 			if (popped != -1)
-				tty_backspace(tty, popped);
+				tty_put_s(tty, "\b \b");
 			goto tail_2;
 		}
 

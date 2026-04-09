@@ -140,6 +140,7 @@ void run_tests()
     RunL("/bin/test/stat.exe", NULL);
 #ifdef _MUSL
     RunL("/bin/test/time.exe", NULL);
+    RunL("/bin/test/float.exe", NULL);
 #endif
 }
 
