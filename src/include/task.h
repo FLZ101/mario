@@ -46,7 +46,7 @@ struct task_struct {
 	long need_resched;
 	int exit_code, exit_signal;
 	pid_t pid, pgrp, session;
-	int leader, did_exec;
+	int leader, did_exec, did_vfork;
 
 	long it_real_value, it_prof_value, it_virt_value;
 	long it_real_incr, it_prof_incr, it_virt_incr;

@@ -5,8 +5,7 @@
 
 #include <mario/util.h>
 
-static char *dummy_envp[] = { NULL };
-char **environ = dummy_envp;
+char **environ = NULL;
 
 _syscall3(int,execve,const char *,pathname,char **,argv,char **,envp)
 _syscall4(int,execveat,int,dirfd,const char *,pathname,char **,argv,char **,envp)
@@ -50,6 +49,11 @@ fail:
         free((void *)file);
     return -1;
 }
+
+// l: command arguments are passed with **variadic arguments**
+// v: command arguments are passed with an array
+// e: use specified **envp** rather than **environ**
+// p: search the program in PATH if its name does not conatin '/'
 
 int execl(const char *pathname, char *arg, ...)
 {

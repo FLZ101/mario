@@ -520,6 +520,10 @@ int do_exec(struct exec *exe, int fd, struct trap_frame *tr)
 
 	current->did_exec = 1;
 
+	// Wake up the blocking parent
+	if (current->p_pptr->did_vfork)
+		wake_up_all(&current->p_pptr->wait_chldexit);
+
 	start_thread(tr, exe->entry,
 		current->mm->start_stack - 4 * get_n_word(exe));
 	return 0;

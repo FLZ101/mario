@@ -45,8 +45,6 @@ do { \
 
 void wake_up_process(struct task_struct *p);
 
-int do_fork(struct trap_frame *tr);
-
 void schedule(void);
 
 long schedule_timeout(long timeout);

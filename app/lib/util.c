@@ -30,9 +30,21 @@ char *Sprintf(const char *fmt, ...)
     return buf;
 }
 
+void Wait(pid_t pid)
+{
+    int status = 0;
+    int err = waitpid(pid, &status, 0);
+    if (-1 == err)
+        Exit();
+    if (WIFEXITED(status)) {
+        printf("[wait] %d, status = %d\n", pid, WEXITSTATUS(status));
+    } else if (WIFSIGNALED(status)) {
+        printf("[wait] %d, signal = %d\n", pid, WTERMSIG(status));
+    }
+}
+
 void Run(char *filename, char **argv, char **envp)
 {
-    int err;
     pid_t pid;
 
     printf("[run] %s\n", filename);
@@ -52,15 +64,7 @@ void Run(char *filename, char **argv, char **envp)
         execve(filename, argv, envp);
         Exit();
     } else {
-        int status = 0;
-        err = waitpid(pid, &status, 0);
-        if (-1 == err)
-            Exit();
-        if (WIFEXITED(status)) {
-            printf("[run] status = %d\n", WEXITSTATUS(status));
-        } else if (WIFSIGNALED(status)) {
-            printf("[run] signal = %d\n", WTERMSIG(status));
-        }
+        Wait(pid);
     }
 
     if (p)

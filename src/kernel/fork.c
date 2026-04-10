@@ -63,7 +63,7 @@ static int copy_mm(struct task_struct *p)
 extern void copy_files(struct task_struct *p);
 extern void copy_fs(struct task_struct *p);
 
-int do_fork(struct trap_frame *tr)
+int do_fork(struct trap_frame *tr, int vfork)
 {
 	struct task_struct *p;
 	if (!(p = alloc_task_struct()))
@@ -84,6 +84,7 @@ int do_fork(struct trap_frame *tr)
 	p->state = TASK_UNINTERRUPTIBLE;
 	p->pid = get_pid();
 	p->did_exec = 0;
+	p->did_vfork = 0;
 	p->leader = 0;
 
 	p->run_list.next = NULL;
@@ -107,7 +108,15 @@ int do_fork(struct trap_frame *tr)
 	copy_files(p);
 	copy_fs(p);
 	SET_LINKS(p);
-	wake_up_process(p);
+
+	if (vfork) {
+		current->did_vfork = 1;
+		wake_up_process(p);
+		sleep_on_uninterruptible(&current->wait_chldexit);
+	} else {
+		wake_up_process(p);
+	}
+	current->did_vfork = 0;
 	return p->pid;
 fail_4:
 	kfree(p->files);
@@ -122,5 +131,10 @@ fail_1:
 
 int sys_fork(struct trap_frame tr)
 {
-	return do_fork(&tr);
+	return do_fork(&tr, 0);
+}
+
+int sys_vfork(struct trap_frame tr)
+{
+	return do_fork(&tr, 1);
 }

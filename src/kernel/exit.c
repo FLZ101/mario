@@ -166,7 +166,7 @@ void notify_parent(struct task_struct *p)
 	if (p->p_pptr == init_task.next_task)
 		p->exit_signal = SIGCHLD;
 	send_sig(p->exit_signal, p->p_pptr, 1);
-	wake_up_interruptible(&p->p_pptr->wait_chldexit);
+	wake_up_all(&p->p_pptr->wait_chldexit); // The parent may be blocking due to vfork
 }
 
 void do_exit(long code)

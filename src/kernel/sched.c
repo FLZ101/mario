@@ -139,9 +139,9 @@ void schedule(void)
 	}
 
 tail:
+	current->need_resched = 0;
 	irq_restore();
 
-	current->need_resched = 0;
 	if (next != current)
 		switch_to(next);
 }

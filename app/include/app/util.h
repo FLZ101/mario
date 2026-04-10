@@ -25,6 +25,8 @@ do { \
 
 char *Sprintf(const char *fmt, ...);
 
+void Wait(pid_t pid);
+
 void Run(char *filename, char **argv, char **envp);
 void RunL(char *filename, ...);
 

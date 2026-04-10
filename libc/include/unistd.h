@@ -5,6 +5,7 @@
 #include <syscall.h>
 
 static inline __attribute__((always_inline)) _syscall0(pid_t,fork)
+static inline __attribute__((always_inline)) _syscall0(pid_t,vfork)
 static inline __attribute__((always_inline)) _syscall0(int,pause)
 
 int brk(void *addr);
