@@ -57,6 +57,12 @@ void wake_up_process(struct task_struct *p)
 
 void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 {
+	/*
+	 * `current` inside this function refers to the next task, since kernel
+	 * stack has been changed
+	 */
+	assert(current == n);
+
 	struct thread_struct *prev = &p->thread;
 	struct thread_struct *next = &n->thread;
 
@@ -66,7 +72,7 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 
 	// TLS
 	struct user_desc *ud = n->thread.user_descs;
-	for (int idx = 0; idx <= NR_USER_DESC; ++idx) {
+	for (int idx = 0; idx < NR_USER_DESC; ++idx) {
 		if (user_desc_zero(ud + idx)) {
 			zero_desc(gdt + GDT_ENTRY_TLS_MIN_IDX + idx);
 		} else {

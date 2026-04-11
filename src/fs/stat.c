@@ -18,7 +18,7 @@ int sys_statx(int dirfd, char *pathname, int flags, unsigned int mask, struct st
 	tmp.stx_rdev_major = MAJOR(inode->i_rdev);
 	tmp.stx_rdev_minor = MINOR(inode->i_rdev);
 	tmp.stx_ino = inode->i_ino;
-	tmp.stx_mode = inode->i_mode;
+	tmp.stx_mode = inode->i_mode | 0777U; // rwx-rwx-rwx
 	tmp.stx_nlink = inode->i_nlink;
 	tmp.stx_size = inode->i_size;
 	tmp.stx_blksize = inode->i_block_size;

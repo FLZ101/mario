@@ -3,6 +3,7 @@
 #include <task.h>
 #include <sched.h>
 #include <resource.h>
+#include <utsname.h>
 #include <mm/uaccess.h>
 
 int sys_getpgid(pid_t pid)
@@ -114,7 +115,35 @@ int sys_setrlimit(unsigned int resource, struct rlimit *rlim)
 	return 0;
 }
 
+int sys_getrusage(int who, struct rusage *usage)
+{
+	return -ENOSYS;
+}
+
+int sys_uname(struct utsname *buf)
+{
+	static struct utsname u = {
+		"Mario",
+		"PC",
+		"0.1.0",
+		"#1",
+		"i386",
+		""
+	};
+
+	int err = verify_area(VERIFY_WRITE, buf, sizeof(u));
+	if (err)
+		return err;
+	memcpy_tofs(buf, &u, sizeof(u));
+	return 0;
+}
+
 uid_t sys_getuid(void)
+{
+	return 0;
+}
+
+uid_t sys_getuid32(void)
 {
 	return 0;
 }
@@ -124,7 +153,27 @@ uid_t sys_geteuid32(void)
 	return 0;
 }
 
+uid_t sys_setreuid32(void)
+{
+	return 0;
+}
+
 gid_t sys_getgid(void)
+{
+	return 0;
+}
+
+gid_t sys_getgid32(void)
+{
+	return 0;
+}
+
+gid_t sys_getegid32(void)
+{
+	return 0;
+}
+
+gid_t sys_setregid32(void)
 {
 	return 0;
 }

@@ -121,7 +121,7 @@ int code_table[132] = {
 	0, 0, sym('\'', '"'), 0,
 	sym('[', '{'), sym('=', '+'), 0, 0,
 	CTL(CAPLOCK), CTL(RSHL), FUN(ENTER), sym(']', '}'),
-	0, '\\', 0, 0,
+	0, sym('\\', '|'), 0, 0,
 	0, 0, 0, 0,
 	0, 0, FUN(BACKSPACE), 0,
 	0, kpd(FUN(END), '1'), 0, kpd(FUN(LEFT), '4'),
@@ -204,11 +204,9 @@ void handle_key(struct tty_struct *tty, struct console *con)
 
 			} else {
 				int tmp = -1;
-				if ((k->v_key & (1 << s_hift)) && \
-						((k->v_flags & LSHL) || (k->v_flags & RSHL)))
+				if ((k->v_key & (1 << s_hift)) && ((k->v_flags & LSHL) || (k->v_flags & RSHL)))
 					tmp *= -1;
-				if ((k->v_key & (1 << c_ap)) && \
-						(k->v_flags & CAPLOCK))
+				if ((k->v_key & (1 << c_ap)) && (k->v_flags & CAPLOCK))
 					tmp *= -1;
 				if (tmp == 1)
 					__k = k->v_key >> 16;

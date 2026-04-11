@@ -14,9 +14,12 @@ int sys_set_thread_area(struct user_desc *u_info)
 	struct user_desc *ud = current->thread.user_descs;
 
 	int idx = info.entry_number;
+	int auto_idx = 0;
 	int empty = user_desc_empty(&info);
 
 	if (!empty && idx == -1) {
+		auto_idx = 1;
+
 		// Find a free slot
 		for (idx = 0; idx < NR_USER_DESC; ++idx)
 			if (user_desc_zero(ud + idx))
@@ -28,11 +31,15 @@ int sys_set_thread_area(struct user_desc *u_info)
 		err = verify_area(VERIFY_WRITE, (void *) u_info, sizeof (struct user_desc));
 		if (err)
 			return err;
-		put_fs_long(idx, &u_info->entry_number);
 	}
 
 	if (idx < GDT_ENTRY_TLS_MIN_IDX || idx > GDT_ENTRY_TLS_MAX_IDX)
 		return -EINVAL;
+
+	if (auto_idx) {
+		info.entry_number = idx;
+		put_fs_long(idx, &u_info->entry_number);
+	}
 	idx -= GDT_ENTRY_TLS_MIN_IDX;
 
 	irq_save();
@@ -53,4 +60,21 @@ int sys_set_thread_area(struct user_desc *u_info)
 int sys_set_tid_address(int *tidptr)
 {
 	return current->pid;
+}
+
+int sys_modify_ldt(int func, void *ptr, unsigned long bytecount)
+{
+	switch (func) {
+	case 0:
+		return -EINVAL;
+	case 1:
+	case 0x11:
+		if (bytecount != sizeof (struct user_desc))
+			return -EINVAL;
+		return sys_set_thread_area((struct user_desc *) ptr);
+	case 2:
+		return 0;
+	default:
+		return -EINVAL;
+	}
 }

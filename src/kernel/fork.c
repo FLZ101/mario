@@ -98,6 +98,7 @@ int do_fork(struct trap_frame *tr, int vfork)
 		current->need_resched = 1;
 
 	p->signal = 0;
+	p->exit_signal = SIGCHLD; // !!!
 	p->it_real_value = p->it_virt_value = p->it_prof_value = 0;
 	p->it_real_incr = p->it_virt_incr = p->it_prof_incr = 0;
 	p->real_timer.data = (unsigned long)p;

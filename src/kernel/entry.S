@@ -346,7 +346,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_utime */
 	.long sys_not_exist /* SYS_stty */
 	.long sys_not_exist /* SYS_gtty */
-	.long sys_not_exist /* SYS_access */
+	.long sys_access
 	.long sys_not_exist /* SYS_nice */
 	.long sys_not_exist /* SYS_ftime */
 	.long sys_not_exist /* SYS_sync */
@@ -435,8 +435,8 @@ ENTRY(sys_call_table)
 	.long sys_sigreturn
 	.long sys_not_exist /* SYS_clone */
 	.long sys_not_exist /* SYS_setdomainname */
-	.long sys_not_exist /* SYS_uname */
-	.long sys_not_exist /* SYS_modify_ldt */
+	.long sys_uname
+	.long sys_modify_ldt
 	.long sys_not_exist /* SYS_adjtimex */
 	.long sys_not_exist /* SYS_mprotect */
 	.long sys_sigprocmask
@@ -512,12 +512,12 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_lstat64 */
 	.long sys_not_exist /* SYS_fstat64 */
 	.long sys_not_exist /* SYS_lchown32 */
-	.long sys_not_exist /* SYS_getuid32 */
-	.long sys_not_exist /* SYS_getgid32 */
+	.long sys_getuid32
+	.long sys_getgid32
 	.long sys_geteuid32
-	.long sys_not_exist /* SYS_getegid32 */
-	.long sys_not_exist /* SYS_setreuid32 */
-	.long sys_not_exist /* SYS_setregid32 */
+	.long sys_getegid32
+	.long sys_setreuid32
+	.long sys_setregid32
 	.long sys_not_exist /* SYS_getgroups32 */
 	.long sys_not_exist /* SYS_setgroups32 */
 	.long sys_not_exist /* SYS_fchown32 */
@@ -620,7 +620,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_symlinkat */
 	.long sys_not_exist /* SYS_readlinkat */
 	.long sys_not_exist /* SYS_fchmodat */
-	.long sys_not_exist /* SYS_faccessat */
+	.long sys_faccessat
 	.long sys_not_exist /* SYS_pselect6 */
 	.long sys_not_exist /* SYS_ppoll */
 	.long sys_not_exist /* SYS_unshare */

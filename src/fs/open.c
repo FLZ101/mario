@@ -195,3 +195,18 @@ int sys_chroot(char *filename)
 	current->fs->root = inode;
 	return 0;
 }
+
+int sys_faccessat(int dirfd, const char *pathname, int mode, int flags)
+{
+	struct inode *inode;
+	int err = namei_at(dirfd, pathname, &inode);
+	if (err)
+		return err;
+	iput(inode);
+	return 0;
+}
+
+int sys_access(const char *pathname, int mode)
+{
+	return sys_faccessat(AT_FDCWD, pathname, mode, 0);
+}

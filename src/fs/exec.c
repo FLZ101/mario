@@ -291,7 +291,7 @@ extern void exit_mmap(struct task_struct *);
 extern int sys_close(unsigned int);
 extern void clear_page_tables(struct task_struct *);
 
-void flush_old_exec(struct exec *exe)
+static void flush_old_exec(struct exec *exe, struct trap_frame *tr)
 {
 	int i;
 	char ch, *name;
@@ -321,6 +321,16 @@ void flush_old_exec(struct exec *exe)
 			sys_close(i);
 	FD_ZERO(&current->files->close_on_exec);
 	clear_page_tables(current);
+
+	// Clear TLS !!!
+	irq_save();
+	tr->gs = 0;
+	current->thread.gs = 0;
+	struct user_desc *ud = current->thread.user_descs;
+	for (int i = 0; i < NR_USER_DESC; ++i) {
+		ud[i] = (struct user_desc){0};
+	}
+	irq_restore();
 }
 
 extern unsigned long do_mmap(unsigned long addr, unsigned long len,
@@ -452,7 +462,7 @@ int do_exec(struct exec *exe, int fd, struct trap_frame *tr)
 	}
 
 	/* no turning back */
-	flush_old_exec(exe);
+	flush_old_exec(exe, tr);
 
 	current->mm->start_code = exe->start_code;
 	current->mm->end_code = exe->end_code;

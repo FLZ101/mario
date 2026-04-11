@@ -26,4 +26,23 @@ struct rlimit {
 	{8192 * 1024, 8192 * 1024 * 16}	\
 }
 
+struct rusage {
+	struct timeval64 ru_utime; /* user CPU time used */
+	struct timeval64 ru_stime; /* system CPU time used */
+	long ru_maxrss;          /* maximum resident set size */
+	long ru_ixrss;           /* unused */
+	long ru_idrss;           /* unused */
+	long ru_isrss;           /* unused */
+	long ru_minflt;          /* page reclaims (soft page faults) */
+	long ru_majflt;          /* page faults (hard page faults) */
+	long ru_nswap;           /* unused */
+	long ru_inblock;         /* block input operations */
+	long ru_oublock;         /* block output operations */
+	long ru_msgsnd;          /* unused */
+	long ru_msgrcv;          /* unused */
+	long ru_nsignals;        /* unused */
+	long ru_nvcsw;           /* voluntary context switches */
+	long ru_nivcsw;          /* involuntary context switches */
+};
+
 #endif	/* _RESOURCE_H */
