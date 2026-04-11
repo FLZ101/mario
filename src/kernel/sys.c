@@ -115,9 +115,36 @@ int sys_setrlimit(unsigned int resource, struct rlimit *rlim)
 	return 0;
 }
 
+void jiffiestotv64(long jiffies, struct timeval64 *value);
+
 int sys_getrusage(int who, struct rusage *usage)
 {
-	return -ENOSYS;
+	long utime = 0;
+	long stime = 0;
+	struct rusage r = {0};
+
+	int err = verify_area(VERIFY_WRITE, usage, sizeof(*usage));
+	if (err)
+		return err;
+
+	switch (who) {
+	case RUSAGE_THREAD:
+	case RUSAGE_SELF:
+		utime = current->utime;
+		stime = current->stime;
+		break;
+	case RUSAGE_CHILDREN:
+		utime = current->utime_children;
+		stime = current->stime_children;
+		break;
+	default:
+		return -EINVAL;
+	}
+	jiffiestotv64(utime, &r.ru_utime);
+	jiffiestotv64(stime, &r.ru_stime);
+
+	memcpy_tofs(usage, &r, sizeof(r));
+	return 0;
 }
 
 int sys_uname(struct utsname *buf)

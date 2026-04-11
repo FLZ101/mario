@@ -390,7 +390,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_sethostname */
 	.long sys_setrlimit
 	.long sys_getrlimit
-	.long sys_not_exist /* SYS_getrusage */
+	.long sys_getrusage
 	.long sys_gettimeofday_time32 /* SYS_gettimeofday_time32 */
 	.long sys_not_exist /* SYS_settimeofday_time32 */
 	.long sys_not_exist /* SYS_getgroups */

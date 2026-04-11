@@ -79,7 +79,7 @@ void it_real_fun(unsigned long data)
 	}
 }
 
-static long tvtojiffies(struct timeval *value)
+long tvtojiffies(struct timeval *value)
 {
 	long sec = value->tv_sec;
 	long usec = value->tv_usec;
@@ -89,7 +89,13 @@ static long tvtojiffies(struct timeval *value)
 	return HZ*sec+usec;
 }
 
-static void jiffiestotv(long jiffies, struct timeval *value)
+void jiffiestotv(long jiffies, struct timeval *value)
+{
+	value->tv_sec = jiffies / HZ;
+	value->tv_usec = (jiffies % HZ) * (1000000 / HZ);
+}
+
+void jiffiestotv64(long jiffies, struct timeval64 *value)
 {
 	value->tv_sec = jiffies / HZ;
 	value->tv_usec = (jiffies % HZ) * (1000000 / HZ);

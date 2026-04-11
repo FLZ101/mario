@@ -103,6 +103,8 @@ int do_fork(struct trap_frame *tr, int vfork)
 	p->it_real_incr = p->it_virt_incr = p->it_prof_incr = 0;
 	p->real_timer.data = (unsigned long)p;
 
+	p->stime = p->utime = p->stime_children = p->utime_children = 0;
+
 	copy_thread(p, tr);
 	if (copy_mm(p))
 		goto fail_4;

@@ -182,6 +182,11 @@ void irq_PIT(struct trap_frame tr)
 {
 	jiffies++;
 
+	if userland(&tr)
+		++current->utime;
+	else
+		++current->stime;
+
 	if (&init_task == current) {
 		current->need_resched = 1;
 		goto tail;

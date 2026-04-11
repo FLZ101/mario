@@ -275,6 +275,9 @@ repeat:
  			res = p->pid;
  			goto tail;
  		} else if (p->state == TASK_ZOMBIE) {
+			current->stime_children += p->stime + p->stime_children;
+			current->utime_children += p->utime + p->utime_children;
+
  			if (stat_addr)
  				put_fs_long(p->exit_code, stat_addr);
  			res = p->pid;

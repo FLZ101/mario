@@ -52,6 +52,12 @@ struct task_struct {
 	long it_real_incr, it_prof_incr, it_virt_incr;
 	struct timer_list real_timer;
 
+	/*
+	 * For getrusage
+	 */
+	long stime, utime;
+	long stime_children, utime_children;
+
 	struct list_head run_list;
 	struct task_struct *next_task, *prev_task;
 	/*
