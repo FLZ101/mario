@@ -542,13 +542,14 @@ int do_exec(struct exec *exe, int fd, struct trap_frame *tr)
 int do_execveat(int dirfd, char *filename, char **argv, char **envp, struct trap_frame *tr)
 {
 	int i, fd, error;
-	struct file *file;
+	struct file *file = NULL;
 	struct exec exe = {0};
 
 	fd = open_execat(dirfd, filename);
 	if (fd < 0)
 		return fd;
 	file = current->files->fd[fd];
+	assert(!FD_ISSET(fd, &current->files->close_on_exec));
 
 	exe.comm = filename;
 	error = prep_exec(file, &exe);

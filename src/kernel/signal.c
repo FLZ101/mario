@@ -138,6 +138,9 @@ int sys_sigaction(int signum, const struct sigaction *act, struct sigaction *old
 			if (err)
 				return err;
 		}
+		// Not supported
+		if (new_sa.sa_flags & SA_SIGINFO)
+			return -EINVAL;
 	}
 	if (oldact) {
 		int err = verify_area(VERIFY_WRITE, oldact, sizeof(*oldact));
@@ -204,8 +207,8 @@ void setup_frame(struct sigaction *sa, unsigned long **fp, unsigned long eip,
 	if (verify_area(VERIFY_WRITE, frame, 30*4))
 		do_exit(SIGSEGV);
 	/* set up the "normal" stack seen by the signal handler (iBCS2) */
-	put_fs_long(__CODE, frame);
-	put_fs_long(signr, frame+1);
+	put_fs_long(__CODE, frame);		// Return address
+	put_fs_long(signr, frame+1);	// 1st argument
 	put_fs_long(tr->gs, frame+2);
 	put_fs_long(tr->fs, frame+3);
 	put_fs_long(tr->es, frame+4);
@@ -213,7 +216,7 @@ void setup_frame(struct sigaction *sa, unsigned long **fp, unsigned long eip,
 	put_fs_long(tr->edi, frame+6);
 	put_fs_long(tr->esi, frame+7);
 	put_fs_long(tr->ebp, frame+8);
-	put_fs_long((long)*fp, frame+9);
+	put_fs_long((long)*fp, frame+9); // esp
 	put_fs_long(tr->ebx, frame+10);
 	put_fs_long(tr->edx, frame+11);
 	put_fs_long(tr->ecx, frame+12);
@@ -230,9 +233,9 @@ void setup_frame(struct sigaction *sa, unsigned long **fp, unsigned long eip,
 	put_fs_long(old_mask, frame+22);
 	put_fs_long(current->thread.cr2, frame+23);
 	/* set up the return code... */
-	put_fs_long(0x0000b858, CODE(0));	/* popl %eax ; movl $SYS_sigreturn, %eax */
-	put_fs_long(0x80cd0000, CODE(4));	/* int $0x80 */
-	put_fs_long(SYS_sigreturn, CODE(2));
+	put_fs_long(0x0000b858, CODE(0));		// popl %eax. Discard arguments of signal handler (currently there is only one)
+	put_fs_long(SYS_sigreturn, CODE(2));	// movl $SYS_sigreturn, %eax
+	put_fs_long(0x80cd0000, CODE(4));		// int $0x80
 	*fp = frame;
 
 #undef __CODE

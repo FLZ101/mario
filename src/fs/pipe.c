@@ -26,16 +26,26 @@ static void pipe_read_release(struct inode *i, struct file *f)
 {
 	struct pipe_inode_info *info = &i->u.pipe_i;
 
+	ACQUIRE_LOCK(&info->lock);
+
+	assert(info->n_reader > 0);
 	info->n_reader--;
 	wake_up_interruptible(&info->wait_write);
+
+	RELEASE_LOCK(&info->lock);
 }
 
 static void pipe_write_release(struct inode *i, struct file *f)
 {
 	struct pipe_inode_info *info = &i->u.pipe_i;
 
+	ACQUIRE_LOCK(&info->lock);
+
+	assert(info->n_writer > 0);
 	info->n_writer--;
 	wake_up_interruptible(&info->wait_read);
+
+	RELEASE_LOCK(&info->lock);
 }
 
 int pipe_write(struct inode *i, struct file *f, char *buf, int count)
@@ -114,6 +124,14 @@ struct file_operations write_pipe_fops = {
 	.read = bad_pipe_rw,
 	.write = pipe_write,
 };
+
+int is_read_pipe(struct file *f) {
+	return f->f_op == &read_pipe_fops;
+}
+
+int is_write_pipe(struct file *f) {
+	return f->f_op == &write_pipe_fops;
+}
 
 int do_pipe(int pipefd[2]) {
 	int error;

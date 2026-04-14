@@ -19,19 +19,36 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	char message[] = "The quick brown fox jumps over the lazy dog";
-
 	if (pid) {
-		int n = strlen(message);
-		memset(message, 0, n);
+		close(pipefd[1]);
 
-		printf("[%d] waiting message from %d\n", getpid(), pid);
-		read(pipefd[0], message, n);
-		printf("[%d] got message from %d: %s\n", getpid(), pid, message);
+		char ch;
+		while (1) {
+			int ret = read(pipefd[0], &ch, 1);
+			if (-1 == ret) {
+				perror("read");
+				return 1;
+			}
+
+			// EOF
+			if (ret == 0)
+				break;
+			putchar(ch);
+		}
+		close(pipefd[0]);
 	} else {
-		sleep(3);
-		write(pipefd[1], message, strlen(message));
-		printf("[%d] sent message to %d\n", getpid(), getppid());
+		close(pipefd[0]);
+
+		char c = '\n';
+		char *s;
+		char *messages[] = {"See", "you", "tomorrow", NULL};
+		for (int i = 0; (s = messages[i]); ++i) {
+			sleep(1);
+			write(pipefd[1], s, strlen(s));
+			write(pipefd[1], &c, 1);
+		}
+		close(pipefd[1]);
 	}
+	printf("Exit. %d\n", getpid());
 	return 0;
 }

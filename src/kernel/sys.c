@@ -5,6 +5,7 @@
 #include <resource.h>
 #include <utsname.h>
 #include <mm/uaccess.h>
+#include <syscall.h>
 
 int sys_getpgid(pid_t pid)
 {
@@ -207,6 +208,13 @@ gid_t sys_setregid32(void)
 
 int sys_not_exist(struct trap_frame tr)
 {
-	printk("Not implemented: %d\n", tr.eax);
+	switch (tr.eax) {
+	case SYS_ugetrlimit:
+	case SYS_prlimit64:
+		break;
+	default:
+		printk("Not implemented: %d\n", tr.eax);
+		break;
+	}
 	return -ENOSYS;
 }

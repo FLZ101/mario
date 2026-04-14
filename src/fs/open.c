@@ -31,6 +31,8 @@ int do_openat(unsigned int dirfd, char *filename, int flags)
 	}
 	if (flags & O_CLOEXEC)
 		FD_SET(fd, &current->files->close_on_exec);
+	else
+		FD_CLR(fd, &current->files->close_on_exec);
 	if (!(f = get_empty_file()))
 		return -ENFILE;
 

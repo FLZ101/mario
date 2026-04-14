@@ -65,6 +65,9 @@ need_resched = 20
 	movw %dx, %es; \
 	movw %dx, %ds
 
+/*
+ * `addl $4, %esp;` is for error code, syscall number, etc
+ */
 #define RESTORE_ALL \
 	popl %ebx; \
 	popl %ecx; \

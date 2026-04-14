@@ -95,6 +95,9 @@ void fref(struct file *f)
 	RELEASE_LOCK(&file_lock);
 }
 
+extern int is_read_pipe(struct file *f);
+extern int is_write_pipe(struct file *f);
+
 static struct file *copy_fd(struct file *old_file)
 {
 	int error;
@@ -104,10 +107,19 @@ static struct file *copy_fd(struct file *old_file)
 		return NULL;
 	*new_file = *old_file;
 	new_file->f_count = 1;
-	if (new_file->f_inode)
-		iref(new_file->f_inode);
+
+	struct inode *inode = new_file->f_inode;
+	if (inode) {
+		iref(inode);
+
+		if (is_read_pipe(new_file))
+			inode->u.pipe_i.n_reader++;
+		else if (is_write_pipe(new_file))
+			inode->u.pipe_i.n_writer++;
+	}
+
 	if (new_file->f_op && new_file->f_op->open) {
-		error = new_file->f_op->open(new_file->f_inode, new_file);
+		error = new_file->f_op->open(inode, new_file);
 		if (error) {
 			put_file(new_file);
 			return NULL;
