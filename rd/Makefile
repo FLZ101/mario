@@ -23,13 +23,11 @@ ifeq ($(LIBC),musl)
 endif
 
 NCURSES_DIR	:= ../app/usr/ncurses-6.6-install
-DASH_DIR	:= ../app/usr/dash-0.5.13-install
 OKSH_DIR	:= ../app/usr/oksh-7.8-install
 
 rd0_files := $(shell find ramdisk0 -type f)
 rd0: $(RD_TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	$(NCURSES_DIR)/share/terminfo/a/ansi \
-	$(DASH_DIR)/bin/dash \
 	$(OKSH_DIR)/bin/oksh \
 	$(rd0_files) device_list
 
@@ -47,9 +45,6 @@ rd0: $(RD_TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	cp -u $(NCURSES_DIR)/share/terminfo/x/xterm ramdisk0/usr/share/terminfo/x
 
 	cp -u $(NCURSES_DIR)/bin/* ramdisk0/bin
-
-	# dash
-	cp -u $(DASH_DIR)/bin/dash ramdisk0/bin
 
 	# oksh
 	cp -u $(OKSH_DIR)/bin/oksh ramdisk0/bin

@@ -461,7 +461,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS__newselect */
 	.long sys_not_exist /* SYS_flock */
 	.long sys_not_exist /* SYS_msync */
-	.long sys_not_exist /* SYS_readv */
+	.long sys_readv
 	.long sys_writev
 	.long sys_getsid
 	.long sys_not_exist /* SYS_fdatasync */

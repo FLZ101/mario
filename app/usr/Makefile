@@ -8,6 +8,4 @@ ROOT := $(shell pwd)
 all:: build
 
 include ncurses.mk
-include libedit.mk
-include dash.mk
 include oksh.mk

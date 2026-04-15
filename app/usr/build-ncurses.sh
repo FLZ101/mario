@@ -16,6 +16,9 @@ pushd $NCURSES_SRC_DIR
 if [[ ! -e Makefile ]] ; then
     ./configure \
         --prefix="$NCURSES_INSTALL_DIR" \
+        --with-terminfo-dirs=/usr/share/terminfo:/etc/terminfo \
+        --without-normal \
+        --with-debug --enable-trace --disable-stripping \
         --without-ada \
         --without-cxx \
         --without-cxx-binding \
