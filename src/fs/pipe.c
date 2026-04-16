@@ -64,6 +64,12 @@ try:
 			error = -EPIPE;
 			goto tail;
 		}
+
+		if (f->f_flags & O_NONBLOCK) {
+			error = -EAGAIN;
+			goto tail;
+		}
+
 		sleep_on(&info->wait_write, TASK_INTERRUPTIBLE, &info->lock);
 		goto try;
 	} else {
@@ -90,6 +96,12 @@ try:
 			error = 0;
 			goto tail;
 		}
+
+		if (f->f_flags & O_NONBLOCK) {
+			error = -EAGAIN;
+			goto tail;
+		}
+
 		sleep_on(&info->wait_read, TASK_INTERRUPTIBLE, &info->lock);
 		goto try;
 	} else {

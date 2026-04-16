@@ -24,6 +24,7 @@ endif
 
 NCURSES_DIR	:= ../app/usr/ncurses-6.6-install
 OKSH_DIR	:= ../app/usr/oksh-7.8-install
+CMATRIX_DIR	:= ../app/usr/cmatrix-install
 
 rd0_files := $(shell find ramdisk0 -type f)
 rd0: $(RD_TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
@@ -48,6 +49,9 @@ rd0: $(RD_TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 
 	# oksh
 	cp -u $(OKSH_DIR)/bin/oksh ramdisk0/bin
+
+	# cmatrix
+	cp -u $(CMATRIX_DIR)/cmatrix ramdisk0/bin
 
 	rd-make/rd-make.exe --dir=ramdisk0 --rd=rd0 --device-list=device_list --nr-block=81920
 

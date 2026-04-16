@@ -9,3 +9,4 @@ all:: build
 
 include ncurses.mk
 include oksh.mk
+include cmatrix.mk

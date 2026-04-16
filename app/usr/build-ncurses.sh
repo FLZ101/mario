@@ -40,8 +40,8 @@ make install
 
 pushd $NCURSES_INSTALL_DIR/lib
 
-rm -f libncurses.a && ln -s libncursesw.a libncurses.a
-rm -f libcurses.a && ln -s libncursesw.a libcurses.a
+rm -f libncurses.a && ln -s libncursesw_g.a libncurses.a
+rm -f libcurses.a && ln -s libncursesw_g.a libcurses.a
 
 popd
 
