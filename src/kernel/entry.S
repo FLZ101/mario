@@ -325,7 +325,7 @@ ENTRY(sys_call_table)
 	.long sys_close
 	.long sys_waitpid
 	.long sys_creat
-	.long sys_link
+	.long sys_not_exist /* SYS_link */
 	.long sys_unlink
 	.long sys_execve
 	.long sys_chdir
@@ -359,7 +359,7 @@ ENTRY(sys_call_table)
 	.long sys_rmdir
 	.long sys_dup
 	.long sys_pipe
-	.long sys_not_exist /* SYS_times */
+	.long sys_times
 	.long sys_not_exist /* SYS_prof */
 	.long sys_brk
 	.long sys_not_exist /* SYS_setgid */
@@ -399,9 +399,9 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_getgroups */
 	.long sys_not_exist /* SYS_setgroups */
 	.long sys_not_exist /* SYS_select */
-	.long sys_not_exist /* SYS_symlink */
+	.long sys_symlink
 	.long sys_not_exist /* SYS_oldlstat */
-	.long sys_not_exist /* SYS_readlink */
+	.long sys_readlink
 	.long sys_not_exist /* SYS_uselib */
 	.long sys_not_exist /* SYS_swapon */
 	.long sys_not_exist /* SYS_reboot */
@@ -620,8 +620,8 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_unlinkat */
 	.long sys_not_exist /* SYS_renameat */
 	.long sys_not_exist /* SYS_linkat */
-	.long sys_not_exist /* SYS_symlinkat */
-	.long sys_not_exist /* SYS_readlinkat */
+	.long sys_symlinkat
+	.long sys_readlinkat
 	.long sys_not_exist /* SYS_fchmodat */
 	.long sys_faccessat
 	.long sys_not_exist /* SYS_pselect6 */

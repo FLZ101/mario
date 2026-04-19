@@ -19,6 +19,8 @@ static int mario_find_entry(struct inode *dir, char *name, int len)
 	if (len > MARIO_NAME_LEN - 1 || len < 1)
 		return 0;
 
+	assert(!(len == 1 && name[0] == '.'));
+
 	/* maximum mario_dir_entries a block could contain */
 	n = (dir->i_block_size - 4) / MARIO_ENTRY_SIZE;
 
@@ -40,7 +42,7 @@ try:
 
 			ino_t ino = block * dir->i_block_size + i * MARIO_ENTRY_SIZE;
 			// For "." and ".." directory entries, the data field is the inode number
-			if (name[0] == '.' && (len == 1 || (len == 2 && name[1] == '.'))) {
+			if (len == 2 && name[0] == '.' && name[1] == '.') {
 				ino = entry[i].data;
 			}
 			return ino;
@@ -68,6 +70,12 @@ static int mario_lookup(struct inode *dir, char *name, int len, struct inode **r
 		ret = -ENOENT;
 		goto tail;
 	}
+
+	if (len == 1 && name[0] == '.') {
+		*res = dir;
+		return 0;
+	}
+
 	if (!(ino = mario_find_entry(dir, name, len))) {
 		ret = -ENOENT;
 		goto tail;
@@ -250,6 +258,9 @@ int mario_rmdir(struct inode *dir, char *name, int len)
 	int ino, ret = 0;
 	struct inode *inode;
 
+	if (len == 1 && name[0] == '.')
+		return -EINVAL;
+
 	down(&dir->i_sem);
 	if (!(ino = mario_find_entry(dir, name, len))) {
 		ret = -ENOENT;
@@ -294,6 +305,10 @@ int mario_mkdir(struct inode *dir, char *name, int len)
 		ret = -ENAMETOOLONG;
 		goto tail_1;
 	}
+
+	if (len == 1 && name[0] == '.')
+		return -EINVAL;
+
 	if (mario_find_entry(dir, name, len)) {
 		ret = -EEXIST;
 		goto tail_1;
@@ -353,6 +368,9 @@ int mario_unlink(struct inode *dir, char *name, int len)
 {
 	int ino, ret = 0;
 	struct inode *inode;
+
+	if (len == 1 && name[0] == '.')
+		return -EINVAL;
 
 	down(&dir->i_sem);
 	if (!(ino = mario_find_entry(dir, name, len))) {
@@ -498,6 +516,9 @@ int mario_mknod(struct inode *dir, char *name, int len, int mode, int rdev)
 		goto tail_1;
 	}
 
+	if (len == 1 && name[0] == '.')
+		return -EINVAL;
+
 	down(&dir->i_sem);
 	if ((ino = mario_find_entry(dir, name, len))) {
 		error = -EEXIST;
@@ -520,16 +541,77 @@ tail_1:
 	return error;
 }
 
+int mario_symlink(struct inode *dir, char *basename, int namelen, char *oldname)
+{
+	int ino, error = 0;
+	struct mario_dir_entry entry;
+
+	int n = strlen(oldname);
+	if (n + 1 > dir->i_block_size - 4) {
+		error = -ENAMETOOLONG;
+		goto tail_1;
+	}
+
+	if (namelen > MARIO_NAME_LEN - 1) {
+		error = -ENAMETOOLONG;
+		goto tail_1;
+	}
+
+	down(&dir->i_sem);
+	if ((ino = mario_find_entry(dir, basename, namelen))) {
+		error = -EEXIST;
+		goto tail_2;
+	}
+	entry.mode = MODE_LNK;
+	entry.data = MARIO_ZERO_ENTRY;
+	entry.size = 0;
+	entry.blocks = 0;
+	strncpy(entry.name, basename, namelen);
+	entry.name[namelen] = '\0';
+
+	struct inode *inode = NULL; // inode for the new entry
+	error = mario_add_entry(dir, &entry, &inode);
+	if (error)
+		goto tail_2;
+
+	// Write oldname to the inode created
+	int block = 0;
+	error = mario_get_block(inode->i_sb, 1, &block, &block);
+	if (error)
+		goto tail_3;
+	inode->i_rdev = block;
+	inode->i_nr_block++;
+
+	struct buffer_head *bh = bread(inode->i_dev, block);
+	if (!bh)
+		goto tail_3;
+	memcpy(bh->b_data, oldname, n);
+	bh->b_data[n] = '\0';
+
+	set_dirty(bh);
+	brelse(bh);
+
+	goto tail_2;
+
+tail_3:
+	mario_del_entry(inode, 1);
+tail_2:
+	up(&dir->i_sem);
+tail_1:
+	iput(dir);
+	return error;
+}
+
 struct inode_operations mario_dir_iops = {
-	mario_lookup,
-	mario_create,
-	NULL,
-	mario_rmdir,
-	mario_mkdir,
-	NULL,	/* mariofs doesn't support hard-link */
-	mario_unlink,
-	mario_rename,
-	mario_mknod
+	.lookup = mario_lookup,
+	.create = mario_create,
+	.rmdir = mario_rmdir,
+	.mkdir = mario_mkdir,
+	.link = NULL,	/* mariofs doesn't support hard-link */
+	.unlink = mario_unlink,
+	.rename = mario_rename,
+	.mknod = mario_mknod,
+	.symlink = mario_symlink,
 };
 
 int mario_readdir(struct inode *dir, struct file *f, void *dirent, filldir_t fn)

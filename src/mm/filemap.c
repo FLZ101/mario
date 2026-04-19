@@ -111,21 +111,14 @@ static int filemap_nopage(struct vm_area_struct *vma,
 }
 
 static struct vm_operations_struct file_shared_mmap = {
-	NULL,			/* open */
-	filemap_close,		/* close */
-	filemap_sync,		/* sync */
-	filemap_unmap,		/* unmap */
-	filemap_nopage,		/* nopage */
-	NULL,			/* wppage */
+	.close = filemap_close,		/* close */
+	.sync = filemap_sync,		/* sync */
+	.unmap = filemap_unmap,		/* unmap */
+	.nopage = filemap_nopage,		/* nopage */
 };
 
 static struct vm_operations_struct file_private_mmap = {
-	NULL,			/* open */
-	NULL,			/* close */
-	NULL,			/* unmap */
-	NULL,			/* sync */
-	filemap_nopage,		/* nopage */
-	NULL,			/* wppage */
+	.nopage = filemap_nopage,		/* nopage */
 };
 
 /* This is used for a general mmap of a disk file */

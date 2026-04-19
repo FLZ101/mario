@@ -24,7 +24,6 @@ static inline _syscall1(unsigned int,alarm,unsigned int,seconds)
 static inline _syscall1(int,chdir,const char *,path)
 static inline _syscall1(int,fchdir,int,fd)
 static inline _syscall1(int,chroot,const char *,path)
-static inline _syscall2(int,link,const char *,oldpath, const char *,newpath)
 static inline _syscall2(int,truncate,const char *,path, off_t, length)
 static inline _syscall2(int,ftruncate,int, fd, off_t, length)
 static inline _syscall1(int,unlink,const char *,pathname)
@@ -32,6 +31,9 @@ static inline _syscall2(int,setpgid,pid_t,pid,pid_t,pgid)
 static inline _syscall1(pid_t,getpgid,pid_t,pid)
 static inline _syscall1(pid_t,getsid,pid_t,pid)
 static inline _syscall0(pid_t,setsid)
+static inline _syscall2(int,symlink,char *,target, char *,linkpath)
+static inline _syscall3(int,readlink,char *,pathname, char *,buf, size_t,count)
+static inline _syscall4(int,readlinkat,int,dirfd, char *,pathname, char *,buf, size_t, count);
 
 #define STDIN_FILENO  0
 #define STDOUT_FILENO 1

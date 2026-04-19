@@ -70,13 +70,81 @@ end:
 	return 0;
 }
 
+int mario_readlink(struct inode *inode, char *buf, int count)
+{
+	int error = 0;
+	if (!S_ISLNK(inode->i_mode)) {
+		error = -EINVAL;
+		goto tail_1;
+	}
+
+	int block = inode->i_rdev;
+	struct buffer_head *bh = bread(inode->i_dev, block);
+	if (!bh)
+		goto tail_1;
+
+	int n = 0;
+	while (bh->b_data[n] && n < inode->i_block_size - 4)
+		++n;
+	assert(!bh->b_data[n] && "Invalid MarioFS symlink");
+
+	count = MIN(count, n);
+	memcpy_tofs(buf, bh->b_data, count);
+	brelse(bh);
+	error = n;
+
+tail_1:
+	iput(inode);
+	return error;
+}
+
+int mario_follow_link(struct inode *dir, struct inode *inode, int flags,
+	struct inode **res_inode)
+{
+	int error;
+	struct buffer_head * bh;
+
+	*res_inode = NULL;
+	if (!dir) {
+		dir = current->fs->root;
+		iref(dir);
+	}
+	if (!inode) {
+		iput(dir);
+		return -ENOENT;
+	}
+	if (!S_ISLNK(inode->i_mode)) {
+		iput(dir);
+		*res_inode = inode;
+		return 0;
+	}
+	if (current->link_count > MAX_LINK_COUNT) {
+		iput(dir);
+		iput(inode);
+		return -ELOOP;
+	}
+
+	int block = inode->i_rdev;
+	if (!(bh = bread(inode->i_dev, block))) {
+		iput(inode);
+		iput(dir);
+		return -EIO;
+	}
+	iput(inode);
+	current->link_count++;
+	error = open_namei(bh->b_data, flags, res_inode, dir);
+	current->link_count--;
+	brelse(bh);
+	return error;
+}
+
 struct inode_operations mario_file_iops = {
-	NULL,
-	NULL,
-	mario_file_truncate,
-	NULL,
-	NULL,
-	NULL
+	.truncate = mario_file_truncate
+};
+
+struct inode_operations mario_link_iops = {
+	.readlink = mario_readlink,
+	.follow_link = mario_follow_link,
 };
 
 int mario_file_read(struct inode *i, struct file *f, char *buf, int count)

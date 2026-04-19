@@ -99,6 +99,23 @@ int lookup(struct inode *dir, char *name, int len, struct inode **res)
 	return dir->i_op->lookup(dir, name, len, res);
 }
 
+int follow_link(struct inode *dir, struct inode *inode,
+	int flag, struct inode **res_inode)
+{
+	if (!dir || !inode) {
+		iput(dir);
+		iput(inode);
+		*res_inode = NULL;
+		return -ENOENT;
+	}
+	if (!inode->i_op || !inode->i_op->follow_link) {
+		iput(dir);
+		*res_inode = inode;
+		return 0;
+	}
+	return inode->i_op->follow_link(dir, inode, flag, res_inode);
+}
+
 /*
  * Returns:
  *
@@ -107,14 +124,28 @@ int lookup(struct inode *dir, char *name, int len, struct inode **res)
  *   `namelen`, `name`: the basename
  *
  * Note: base is eaten
+ *
+ * Examples:
+ *
+ *   pathname: /a/b/c
+ *   base: NULL
+ *   =>
+ *   res_inode: /a/b
+ *   name, namelen: c, 1
+ *
+ *   pathname: a/b/c
+ *   base: /x/y
+ *   =>
+ *   res_inode: /x/y/a/b
+ *   name, namelen: c, 1
  */
-static int dir_namei(char *pathname, int *namelen, char **name,
+int dir_namei(char *pathname, int *namelen, char **name,
 	struct inode *base, struct inode **res_inode)
 {
 	char c;
 	char *thisname;
 	int len, error;
-	struct inode *inode;
+	struct inode *inode = NULL;
 
 	*res_inode = NULL;
 	if (!base) {
@@ -127,16 +158,25 @@ static int dir_namei(char *pathname, int *namelen, char **name,
 		pathname++;
 		iref(base);
 	}
+	assert(S_ISDIR(base->i_mode));
+
 	while (1) {
 		thisname = pathname;
 		for (len = 0; (c = *(pathname++)) && (c != '/'); len++)
 			;
 		if (!c)
 			break;
+
+		// POSIX.1-2017: "Symbolic links in any component of path other than the last shall be followed."
+		iref(base);
 		error = lookup(base, thisname, len, &inode);
+		if (error) {
+			iput(base);
+			return error;
+		}
+		error = follow_link(base, inode, 0, &base);
 		if (error)
 			return error;
-		base = inode;
 	}
 	if (!base->i_op || !base->i_op->lookup) {
 		iput(base);
@@ -149,7 +189,7 @@ static int dir_namei(char *pathname, int *namelen, char **name,
 }
 
 // Note: `base` is eaten
-int _namei(char *pathname, struct inode *base, struct inode **res_inode)
+int _namei(char *pathname, struct inode *base, struct inode **res_inode, int follow)
 {
 	char *basename;
 	int namelen, error;
@@ -159,19 +199,46 @@ int _namei(char *pathname, struct inode *base, struct inode **res_inode)
 	error = dir_namei(pathname, &namelen, &basename, base, &base);
 	if (error)
 		return error;
+
+	iref(base);
 	error = lookup(base, basename, namelen, &inode);
-	if (error)
+	if (error) {
+		iput(base);
 		return error;
+	}
+	if (follow) {
+		error = follow_link(base, inode, 0, &inode);
+		if (error)
+			return error;
+	} else {
+		iput(base);
+	}
 	*res_inode = inode;
 	return 0;
 }
 
-int namei_at(int dirfd, const char *pathname, struct inode **res_inode)
+int get_base_inode(int dirfd, int path_empty, struct inode **res_inode)
+{
+	struct file *base_f;
+	struct inode* base_i = NULL;
+
+	*res_inode = NULL;
+    if (dirfd != AT_FDCWD) {
+        if (dirfd >= NR_OPEN || !(base_f = current->files->fd[dirfd]) ||
+            !(base_i = base_f->f_inode) ||
+            (!path_empty && !S_ISDIR(base_i->i_mode))) {
+            return -EBADF;
+        }
+        iref(base_i);
+		*res_inode = base_i;
+    }
+	return 0;
+}
+
+int namei_at(int dirfd, const char *pathname, struct inode **res_inode, int follow)
 {
 	int error;
 	char *tmp;
-	struct file *base_f;
-	struct inode* base_i = NULL;
 	int path_empty = 0;
 
 	error = getname(pathname, &tmp);
@@ -182,31 +249,27 @@ int namei_at(int dirfd, const char *pathname, struct inode **res_inode)
 			return error;
 	}
 
-    if (dirfd != AT_FDCWD) {
-        if (dirfd >= NR_OPEN || !(base_f = current->files->fd[dirfd]) ||
-            !(base_i = base_f->f_inode) ||
-            (!path_empty && !S_ISDIR(base_i->i_mode))) {
-            error = -EBADF;
-            goto tail;
-        }
-        iref(base_i);
-    }
+	struct inode *base_i = NULL;
+	error = get_base_inode(dirfd, path_empty, &base_i);
+	if (error)
+		return error;
+
     if (path_empty) {
 		*res_inode = base_i;
 		return 0;
 	}
-	error = _namei(tmp, base_i, res_inode);
 
-tail:
+	error = _namei(tmp, base_i, res_inode, follow);
+
 	if (!path_empty)
 		putname(tmp);
 	return error;
 }
 
 // This always go down a mount point
-int namei(const char *pathname, struct inode **res_inode)
+int namei(const char *pathname, struct inode **res_inode, int follow)
 {
-	return namei_at(AT_FDCWD, pathname, res_inode);
+	return namei_at(AT_FDCWD, pathname, res_inode, follow);
 }
 
 // Note: `base` is eaten
@@ -253,9 +316,24 @@ int open_namei(char *pathname, int flags, struct inode **res_inode,
 	return error;
 SHE__:
 	up(&dir->i_sem);
-	iput(dir);
-	if (error)
+	if (error) {
+		iput(dir);
 		return error;
+	}
+
+	if (S_ISLNK(inode->i_mode)) {
+		if (flags & O_NOFOLLOW) {
+			iput(inode);
+			iput(dir);
+			return -ELOOP;
+		}
+		error = follow_link(dir, inode, flags, &inode);
+		if (error)
+			return error;
+	} else {
+		iput(dir);
+	}
+
 	// can not write a dir
 	if (S_ISDIR(inode->i_mode) && (flags & 2)) {
 		iput(inode);
@@ -348,65 +426,17 @@ int sys_mkdir(char *pathname)
 	return error;
 }
 
-static int do_link(struct inode *oldinode, char *newname)
-{
-	struct inode *dir;
-	char *basename;
-	int namelen, error;
-
-	error = dir_namei(newname, &namelen, &basename, NULL, &dir);
-	if (error) {
-		iput(oldinode);
-		return error;
-	}
-	if (!namelen) {
-		iput(oldinode);
-		iput(dir);
-		return -EPERM;
-	}
-	if (dir->i_dev != oldinode->i_dev) {
-		iput(dir);
-		iput(oldinode);
-		return -EXDEV;
-	}
-	if (!dir->i_op || !dir->i_op->link) {
-		iput(dir);
-		iput(oldinode);
-		return -EPERM;
-	}
-	return dir->i_op->link(oldinode, dir, basename, namelen);
-}
-
-int sys_link(char *oldname, char *newname)
-{
-	int error;
-	char *to;
-	struct inode *oldinode;
-
-	error = getname(oldname, &to);
-	if (error)
-		return error;
-	error = namei(to, &oldinode);
-	putname(to);
-	if (error)
-		return error;
-	error = getname(newname, &to);
-	if (error) {
-		iput(oldinode);
-		return error;
-	}
-	error = do_link(oldinode, to);
-	putname(to);
-	return error;
-}
-
-static int do_unlink(char *name)
+int do_unlinkat(int dirfd, char *name)
 {
 	char *basename;
 	int namelen, error;
-	struct inode *dir;
+	struct inode *dir, *base_i;
 
-	error = dir_namei(name, &namelen, &basename, NULL, &dir);
+	error = get_base_inode(dirfd, 0, &base_i);
+	if (error)
+		return error;
+
+	error = dir_namei(name, &namelen, &basename, base_i, &dir);
 	if (error)
 		return error;
 	if (!namelen) {
@@ -420,17 +450,22 @@ static int do_unlink(char *name)
 	return dir->i_op->unlink(dir, basename, namelen);
 }
 
-int sys_unlink(char *pathname)
+int sys_unlinkat(int dirfd, const char *pathname, int flags)
 {
 	int error;
 	char *tmp;
 
 	error = getname(pathname, &tmp);
 	if (!error) {
-		error = do_unlink(tmp);
+		error = do_unlinkat(dirfd, tmp);
 		putname(tmp);
 	}
 	return error;
+}
+
+int sys_unlink(char *pathname)
+{
+	return sys_unlinkat(AT_FDCWD, pathname, 0);
 }
 
 static int do_rename(char *oldname, char *newname)
@@ -526,4 +561,28 @@ int sys_mknod(char *filename, int mode, dev_t dev)
 		putname(tmp);
 	}
 	return error;
+}
+
+int sys_readlinkat(unsigned int fd, char *pathname, char *buf, size_t count)
+{
+	if (!count)
+		return 0;
+	int error = verify_area(VERIFY_WRITE, buf, count);
+	if (error)
+		return error;
+
+	struct inode *inode;
+	error = namei_at(fd, pathname, &inode, 0);
+	if (error)
+		return error;
+	if (!inode->i_op || !inode->i_op->readlink || !S_ISLNK(inode->i_mode)) {
+		iput(inode);
+		return -EINVAL;
+	}
+	return inode->i_op->readlink(inode, buf, count);
+}
+
+int sys_readlink(char *pathname, char *buf, size_t count)
+{
+	return sys_readlinkat(AT_FDCWD, pathname, buf, count);
 }

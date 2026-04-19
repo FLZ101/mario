@@ -136,9 +136,9 @@ int rd_get_info(dev_t dev, struct blkdev_info *info)
 }
 
 struct blkdev_operations rd_ops = {
-	rd_read,
-	rd_write,
-	rd_get_info
+	.blkdev_read = rd_read,
+	.blkdev_write = rd_write,
+	.blkdev_get_info = rd_get_info
 };
 
 void rd_init(void)

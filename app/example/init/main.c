@@ -138,6 +138,7 @@ void run_tests()
     RunL("/bin/test/getcwd.exe", NULL);
     RunL("/bin/test/openat.exe", NULL);
     RunL("/bin/test/stat.exe", NULL);
+    RunL("/bin/test/symlink.exe", NULL);
 #ifdef _MUSL
     RunL("/bin/test/time.exe", NULL);
     RunL("/bin/test/float.exe", NULL);

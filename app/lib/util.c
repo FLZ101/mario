@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <time.h>
+#include <assert.h>
 
 char *Sprintf(const char *fmt, ...)
 {
@@ -134,6 +135,18 @@ void PrintFile(char *filename)
         Exit();
 }
 
+void WriteFile(char *filename, char *content)
+{
+    printf("[write] %s\n", filename);
+
+    int fd = open(filename, O_WRONLY | O_CREAT);
+    HandleErr(fd);
+
+    HandleErr(write(fd, content, strlen(content)));
+
+    HandleErr(close(fd));
+}
+
 #define N 1024
 
 char *GetDirentTypeName(unsigned char d_type)
@@ -185,8 +198,18 @@ void ListDir(char *pathname)
         while (off < count) {
             struct dirent *ent = (struct dirent *) (buf + off);
             // Size of d_ino and d_off might be 8 bytes, we must cast them to type of 4 bytes to match %x
-            printf("%x %x %s %s\n", (long) ent->d_ino, (long) ent->d_off,
-                GetDirentTypeName(ent->d_type), ent->d_name);
+            printf("%x %s %s", (long) ent->d_ino, GetDirentTypeName(ent->d_type), ent->d_name);
+
+            if (ent->d_type == DT_LNK) {
+                char buf[512];
+                int n = readlinkat(fd, ent->d_name, buf, 512);
+                HandleErr(n);
+                assert(n < 512);
+                buf[n] = '\0';
+                printf(" -> %s", buf);
+            }
+
+            putchar('\n');
             off += ent->d_reclen;
         }
     }

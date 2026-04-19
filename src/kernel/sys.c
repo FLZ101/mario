@@ -148,6 +148,30 @@ int sys_getrusage(int who, struct rusage *usage)
 	return 0;
 }
 
+struct tms {
+	clock_t tms_utime;
+	clock_t tms_stime;
+	clock_t tms_cutime;
+	clock_t tms_cstime;
+};
+
+int sys_times(struct tms *buf)
+{
+	struct tms t = {0};
+
+	int err = verify_area(VERIFY_WRITE, buf, sizeof(*buf));
+	if (err)
+		return err;
+
+	t.tms_utime = current->utime;
+	t.tms_stime = current->stime;
+	t.tms_cutime = current->utime_children;
+	t.tms_cstime = current->stime_children;
+
+	memcpy_tofs(buf, &t, sizeof(t));
+	return 0;
+}
+
 int sys_uname(struct utsname *buf)
 {
 	static struct utsname u = {

@@ -3,6 +3,8 @@
 extern struct inode_operations mario_file_iops;
 extern struct inode_operations mario_dir_iops;
 
+extern struct inode_operations mario_link_iops;
+
 extern struct file_operations mario_file_fops;
 extern struct file_operations mario_dir_fops;
 
@@ -158,6 +160,9 @@ static int mario_read_inode(struct inode *i)
 	} else if (S_ISCHR(i->i_mode)) {
 		i->i_op = NULL;
 		i->i_fop = &chrdev_fops;
+	} else if (S_ISLNK(i->i_mode)) {
+		i->i_op = &mario_link_iops;
+		i->i_fop = NULL;
 	}
 
 	if (bh)
@@ -205,9 +210,9 @@ int mario_write_super(struct super_block *sb)
 }
 
 static struct super_operations mario_sops = {
-	mario_read_inode,
-	mario_write_inode,
-	mario_write_super
+	.read_inode = mario_read_inode,
+	.write_inode = mario_write_inode,
+	.write_super = mario_write_super
 };
 
 static struct super_block *mario_read_super(struct super_block *sb)

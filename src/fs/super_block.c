@@ -109,7 +109,7 @@ static int do_mount(dev_t dev, char *dir_name, char *type)
 	struct super_block *sb;
 	int error;
 
-	error = namei(dir_name, &dir_i);
+	error = namei(dir_name, &dir_i, 0);
 	if (error)
 		return error;
 	if (!S_ISDIR(dir_i->i_mode)) {
@@ -159,7 +159,7 @@ int sys_mount(char *dev_name, char *dir_name, char *type,
 	putname(tmp);
 	if (!fs_type)
 		return -ENODEV;
-	error = namei(dev_name, &inode);
+	error = namei(dev_name, &inode, 0);
 	if (error)
 		return error;
 	if (!S_ISBLK(inode->i_mode)) {
@@ -203,7 +203,7 @@ int sys_umount(char *name)
 	dev_t dev;
 	int error;
 
-	error = namei(name, &inode);
+	error = namei(name, &inode, 0);
 	if (error)
 		return error;
 	if (S_ISBLK(inode->i_mode)) {

@@ -32,6 +32,7 @@ void RunL(char *filename, ...);
 
 void PrintFd(int fd);
 void PrintFile(char *filename);
+void WriteFile(char *filename, char *content);
 void ListDir(char *pathname);
 char *GetDirentTypeName(unsigned char d_type);
 char *GetModeName(mode_t mode);

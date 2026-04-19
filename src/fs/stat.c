@@ -7,7 +7,7 @@ int sys_statx(int dirfd, char *pathname, int flags, unsigned int mask, struct st
 		return err;
 
 	struct inode *inode;
-	err = namei_at(dirfd, pathname, &inode);
+	err = namei_at(dirfd, pathname, &inode, !(flags & AT_SYMLINK_NOFOLLOW));
 	if (err)
 		return err;
 

@@ -75,6 +75,7 @@ struct task_struct {
 	struct thread_struct thread;
 	struct sigaction sigaction[32];
 	struct tty_struct *tty;
+	int link_count;
 	char comm[16];
 };
 

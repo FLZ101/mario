@@ -71,6 +71,7 @@ struct statx {
 #define MODE_BLK	S_IFBLK
 #define MODE_CHR	S_IFCHR
 #define MODE_FIFO	S_IFIFO
+#define MODE_LNK	S_IFLNK
 
 #ifndef S_IRUSR
 #define S_ISUID 04000

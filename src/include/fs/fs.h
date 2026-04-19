@@ -81,7 +81,12 @@ struct inode_operations {
 	int (*unlink)(struct inode *, char *, int);
 	int (*rename)(struct inode *, char *, int, struct inode *, char *, int);
 	int (*mknod)(struct inode *,char *,int,int,int);
+	int (*symlink) (struct inode *,char *,int,char *);
+	int (*readlink) (struct inode *,char *,int);
+	int (*follow_link) (struct inode *,struct inode *,int,struct inode **);
 };
+
+#define MAX_LINK_COUNT 5
 
 struct file_operations;
 
@@ -180,8 +185,10 @@ void fs_init(void);
 int getname(const char *, char **);
 void putname(char *);
 
-int namei_at(int dirfd, const char *pathname, struct inode **res_inode);
-int namei(const char *, struct inode **);
+int namei_at(int dirfd, const char *pathname, struct inode **res_inode, int follow);
+int namei(const char *, struct inode **, int follow);
+int dir_namei(char *pathname, int *namelen, char **name,
+	struct inode *base, struct inode **res_inode);
 int open_namei(char *, int, struct inode **,struct inode *);
 
 int generic_file_mmap(struct inode *, struct file *, struct vm_area_struct *);
