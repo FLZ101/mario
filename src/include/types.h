@@ -49,13 +49,13 @@ typedef unsigned gid_t;
 typedef long blksize_t;
 typedef __s64 blkcnt_t;
 
-typedef struct fd_set {
-	unsigned long fds_bits[8];
+#define FD_SETSIZE 1024
+
+typedef unsigned long fd_mask;
+
+typedef struct {
+	unsigned long fds_bits[FD_SETSIZE / 8 / sizeof(long)];
 } fd_set;
-
-#define NFDBITS	(8 * sizeof(unsigned long))
-
-#define FD_SETSIZE	(8 * NFDBITS)
 
 #define FD_SET(fd, fdsetp) \
 __asm__ __volatile__( \

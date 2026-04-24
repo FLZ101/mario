@@ -27,6 +27,7 @@
 #include <fs/stat.h>
 #include <fs/fcntl.h>
 #include <fs/pipe.h>
+#include <fs/poll.h>
 #include <fs/mariofs/mariofs.h>
 
 struct file_system_type {
@@ -146,6 +147,7 @@ struct file_operations {
 	int (*readdir)(struct inode *, struct file *, void *, filldir_t);
 	int (*mmap)(struct inode *, struct file *, struct vm_area_struct *);
 	int (*ioctl)(struct inode *, struct file *, unsigned int, unsigned long);
+	int (*poll)(struct file *, struct poll_context *);
 };
 
 #define SEEK_SET 0

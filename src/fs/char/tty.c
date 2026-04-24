@@ -174,7 +174,6 @@ int tty_open(struct inode *i, struct file *f)
 		dev = MKDEV(TTY_MAJOR, TTY_MINOR_1);
 		noctty = 1;
 	}
-	i->i_rdev = dev;
 	minor = MINOR(dev);
 
 	struct tty_struct *tty = NULL;
@@ -192,7 +191,7 @@ int tty_open(struct inode *i, struct file *f)
 	if (!noctty &&
 	    current->leader &&
 	    !current->tty &&
-	    tty->session == 0) {
+	    !tty->session) {
 		current->tty = tty;
 		tty->session = current->session;
 		tty->pgrp = current->pgrp;
@@ -443,13 +442,33 @@ static void tty_release(struct inode *i, struct file *f)
 	ring_buffer_clear(&tty->read_buf);
 }
 
+static int tty_poll(struct file *f, struct poll_context *ctx)
+{
+	struct tty_struct *tty = (struct tty_struct *)f->private_data;
+	if (!tty) {
+		poll_wait(f, NULL, ctx);
+		return POLLNVAL;
+	}
+
+	poll_wait(f, &tty->wait_read, ctx);
+
+	if (tty->count < 1)
+		return POLLHUP;
+
+	short mask = POLLOUT;
+	if (get_n_read(tty) > 0)
+		mask |= POLLIN;
+	return mask;
+}
+
 struct file_operations tty_fops = {
 	.lseek = tty_lseek,
 	.open = tty_open,
 	.read = tty_read,
 	.write = tty_write,
 	.release = tty_release,
-	.ioctl = tty_ioctl
+	.ioctl = tty_ioctl,
+	.poll = tty_poll
 };
 
 extern void ps2_init(void);

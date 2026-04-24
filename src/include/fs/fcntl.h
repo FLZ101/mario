@@ -22,6 +22,8 @@
 #define F_GETFL		3	/* more flags (cloexec) */
 #define F_SETFL		4
 
+#define F_DUPFD_CLOEXEC 1030
+
 #define AT_NO_AUTOMOUNT 0x800
 #define AT_EMPTY_PATH 0x1000
 #define AT_STATX_SYNC_TYPE 0x6000

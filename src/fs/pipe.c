@@ -58,13 +58,12 @@ try:
 		return -ERESTARTSYS;
 
 	ACQUIRE_LOCK(&info->lock);
+	if (!info->n_reader) {
+		send_sig(SIGPIPE, current, 0);
+		error = -EPIPE;
+		goto tail;
+	}
 	if (ring_buffer_full(&info->rb)) {
-		if (!info->n_reader) {
-			send_sig(SIGPIPE, current, 0);
-			error = -EPIPE;
-			goto tail;
-		}
-
 		if (f->f_flags & O_NONBLOCK) {
 			error = -EAGAIN;
 			goto tail;
@@ -123,11 +122,46 @@ static int bad_pipe_rw(struct inode *i, struct file *f, char *buf, int count)
 	return -EBADF;
 }
 
+static int pipe_read_poll(struct file *f, struct poll_context *ctx)
+{
+	struct inode *i = f->f_inode;
+	assert(i);
+	struct pipe_inode_info *info = &i->u.pipe_i;
+
+	poll_wait(f, &info->wait_read, ctx);
+
+	ACQUIRE_LOCK(&info->lock);
+	short mask = 0;
+	if (!ring_buffer_empty(&info->rb))
+		mask |= POLLIN;
+	RELEASE_LOCK(&info->lock);
+	return mask;
+}
+
+static int pipe_write_poll(struct file *f, struct poll_context *ctx)
+{
+	struct inode *i = f->f_inode;
+	assert(i);
+	struct pipe_inode_info *info = &i->u.pipe_i;
+
+	poll_wait(f, &info->wait_write, ctx);
+
+	ACQUIRE_LOCK(&info->lock);
+	short mask = 0;
+	if (!info->n_reader) {
+		mask |= POLLHUP;
+	} else if (!ring_buffer_full(&info->rb))
+		mask |= POLLOUT;
+	RELEASE_LOCK(&info->lock);
+	return mask;
+}
+
 struct file_operations read_pipe_fops = {
 	.release = pipe_read_release,
 	.lseek = pipe_lseek,
 	.read = pipe_read,
 	.write = bad_pipe_rw,
+	.poll = pipe_read_poll,
 };
 
 struct file_operations write_pipe_fops = {
@@ -135,6 +169,7 @@ struct file_operations write_pipe_fops = {
 	.lseek = pipe_lseek,
 	.read = bad_pipe_rw,
 	.write = pipe_write,
+	.poll = pipe_write_poll,
 };
 
 int is_read_pipe(struct file *f) {

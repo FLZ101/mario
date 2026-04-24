@@ -139,6 +139,8 @@ void run_tests()
     RunL("/bin/test/openat.exe", NULL);
     RunL("/bin/test/stat.exe", NULL);
     RunL("/bin/test/symlink.exe", NULL);
+    RunL("/bin/test/poll.exe", NULL);
+    RunL("/bin/test/select.exe", NULL);
 #ifdef _MUSL
     RunL("/bin/test/time.exe", NULL);
     RunL("/bin/test/float.exe", NULL);
@@ -171,5 +173,8 @@ int main(int argc, char *argv[], char *envp[])
 
     run_tests();
     do_getty();
+
+    while (1)
+        pause();
     return 0;
 }

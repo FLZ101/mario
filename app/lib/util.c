@@ -218,3 +218,52 @@ void ListDir(char *pathname)
 }
 
 #undef N
+
+void RestoreTty(int fd, struct termios *t)
+{
+    HandleErr(tcsetattr(fd, TCSAFLUSH, t));
+}
+
+void MakeTtyRaw(int fd, struct termios *t)
+{
+  HandleErr(tcgetattr(fd, t));
+
+  struct termios raw = *t;
+  raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+  raw.c_cflag |= (CS8);
+  raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+  raw.c_cc[VMIN] = 0;
+  raw.c_cc[VTIME] = 1;
+
+  HandleErr(tcsetattr(fd, TCSAFLUSH, &raw));
+
+  int flags = fcntl(fd, F_GETFL);
+  HandleErr(flags);
+
+  flags |= O_NONBLOCK;
+  HandleErr(fcntl(fd, F_SETFL, flags));
+}
+
+int Poll(struct pollfd *fds, unsigned int nfds, int timeout)
+{
+    int n = poll(fds, nfds, timeout);
+    HandleErr(n);
+
+    for (unsigned int i = 0; i < nfds; i++) {
+        if (!fds[i].revents)
+            continue;
+
+        if (fds[i].revents & POLLIN)
+            printf("FD %d: POLLIN (Data ready)\n", fds[i].fd);
+        if (fds[i].revents & POLLOUT)
+            printf("FD %d: POLLOUT (Space ready)\n", fds[i].fd);
+
+        if (fds[i].revents & POLLHUP)
+            printf("FD %d: POLLHUP (Hung up/Disconnected)\n", fds[i].fd);
+        if (fds[i].revents & POLLERR)
+            printf("FD %d: POLLERR (Device error)\n", fds[i].fd);
+        if (fds[i].revents & POLLNVAL)
+            printf("FD %d: POLLNVAL (Invalid FD)\n", fds[i].fd);
+    }
+    return n;
+}

@@ -458,7 +458,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_setfsgid */
 	.long sys_not_exist /* SYS__llseek */
 	.long sys_getdents
-	.long sys_not_exist /* SYS__newselect */
+	.long sys_select /* SYS__newselect */
 	.long sys_not_exist /* SYS_flock */
 	.long sys_not_exist /* SYS_msync */
 	.long sys_readv
@@ -484,7 +484,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_getresuid */
 	.long sys_not_exist /* SYS_vm86 */
 	.long sys_not_exist /* SYS_query_module */
-	.long sys_not_exist /* SYS_poll */
+	.long sys_poll
 	.long sys_not_exist /* SYS_nfsservctl */
 	.long sys_not_exist /* SYS_setresgid */
 	.long sys_not_exist /* SYS_getresgid */

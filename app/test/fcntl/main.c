@@ -10,27 +10,12 @@
 struct termios t;
 
 void restore_tty() {
-  HandleErr(tcsetattr(STDIN_FILENO, TCSAFLUSH, &t));
+  RestoreTty(STDIN_FILENO, &t);
 }
 
 void init() {
-  HandleErr(tcgetattr(STDIN_FILENO, &t));
+  MakeTtyRaw(STDIN_FILENO, &t);
   atexit(restore_tty);
-
-  struct termios raw = t;
-  raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-  raw.c_cflag |= (CS8);
-  raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-  raw.c_cc[VMIN] = 0;
-  raw.c_cc[VTIME] = 1;
-
-  HandleErr(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw));
-
-  int flags = fcntl(STDIN_FILENO, F_GETFL);
-  HandleErr(flags);
-
-  flags |= O_NONBLOCK;
-  HandleErr(fcntl(STDIN_FILENO, F_SETFL, flags));
 }
 
 int main()

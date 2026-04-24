@@ -158,7 +158,7 @@ static void process_timeout(unsigned long data)
 }
 
 /*
- * @timeout:	a proper value
+ * @timeout:	a proper value in jiffies
  */
 long schedule_timeout(long timeout)
 {
