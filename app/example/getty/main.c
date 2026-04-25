@@ -23,7 +23,7 @@ int main(int argc, char *argv[], char *envp[])
 	dup2(fd, 2);
 
 	// RunL("/bin/example/kilo.exe", "/root/work/rd-make.c", NULL);
-	RunL("/bin/oksh", NULL);
+	RunL("/bin/oksh", "-l", NULL);
 
 	while (1)
 		pause();

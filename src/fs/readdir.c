@@ -11,6 +11,9 @@ struct getdents_callback {
 	int error;
 };
 
+/*
+ * Return 0 if the entry is added successfully
+ */
 static int filldir(void *__buf, char *name, int namelen,
 	off_t offset, ino_t ino, unsigned char type)
 {
@@ -18,9 +21,12 @@ static int filldir(void *__buf, char *name, int namelen,
 	struct getdents_callback *buf = (struct getdents_callback *)__buf;
 	int reclen = ROUND_UP(NAME_OFFSET(dirent) + namelen + 1);
 
-	buf->error = -EINVAL;
-	if (reclen > buf->count)
-		return -EINVAL;
+	buf->error = 0;
+	if (reclen > buf->count) {
+		buf->error = -EINVAL;
+		return 1;
+	}
+
 	dirent = (struct mario_dirent *) buf->prev;
 	if (dirent)
 		put_fs_long(offset, &dirent->d_off);
@@ -36,6 +42,9 @@ static int filldir(void *__buf, char *name, int namelen,
 	return 0;
 }
 
+/*
+ * Return 0 if the entry is added successfully
+ */
 static int filldir64(void *__buf, char *name, int namelen,
 	off_t offset, ino_t ino, unsigned char type)
 {
@@ -43,9 +52,12 @@ static int filldir64(void *__buf, char *name, int namelen,
 	struct getdents_callback *buf = (struct getdents_callback *)__buf;
 	int reclen = ROUND_UP(NAME_OFFSET(dirent) + namelen + 1);
 
-	buf->error = -EINVAL;
-	if (reclen > buf->count)
-		return -EINVAL;
+	buf->error = 0;
+	if (reclen > buf->count) {
+		buf->error = -EINVAL;
+		return 1;
+	}
+
 	dirent = (struct mario_dirent64 *) buf->prev;
 	if (dirent)
 		put_fs_long_long(offset, &dirent->d_off);
@@ -61,6 +73,9 @@ static int filldir64(void *__buf, char *name, int namelen,
 	return 0;
 }
 
+/*
+ * Return 0 if the entry is added successfully
+ */
 static int kernel_filldir64(void *__buf, char *name, int namelen,
 	off_t offset, ino_t ino, unsigned char type)
 {
@@ -68,9 +83,12 @@ static int kernel_filldir64(void *__buf, char *name, int namelen,
 	struct getdents_callback *buf = (struct getdents_callback *)__buf;
 	int reclen = ROUND_UP(NAME_OFFSET(dirent) + namelen + 1);
 
-	buf->error = -EINVAL;
-	if (reclen > buf->count)
-		return -EINVAL;
+	buf->error = 0;
+	if (reclen > buf->count) {
+		buf->error = -EINVAL;
+		return 1;
+	}
+
 	dirent = (struct mario_dirent64 *) buf->prev;
 	if (dirent)
 		dirent->d_off = offset;

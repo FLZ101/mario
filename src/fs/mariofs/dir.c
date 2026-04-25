@@ -616,7 +616,6 @@ struct inode_operations mario_dir_iops = {
 
 int mario_readdir(struct inode *dir, struct file *f, void *dirent, filldir_t fn)
 {
-	int err = 0;
 	int i, n, size;
 	int block, start;
 	struct buffer_head *bh;
@@ -627,8 +626,9 @@ int mario_readdir(struct inode *dir, struct file *f, void *dirent, filldir_t fn)
 	if (f->f_pos % MARIO_ENTRY_SIZE)
 		return -EINVAL;
 	start = f->f_pos / MARIO_ENTRY_SIZE;
+	// No more to read
 	if (start/n + 1 != mario_nth_block(dir, start/n + 1, &block))
-		return -EIO;
+		return 0;
 read_a_block:
 	if (!(bh = bread(dir->i_dev, block)))
 		return 0;
@@ -640,13 +640,12 @@ read_a_block:
 		/* an unused entry? */
 		if (entry[i].data == MARIO_FREE_ENTRY)
 			continue;
-		err = fn(dirent, entry[i].name, strlen(entry[i].name), f->f_pos,
-			block * size + i * MARIO_ENTRY_SIZE, IFTODT(entry[i].mode));
-		if (err) {
-			brelse(bh);
-			return err;
-		}
-		f->f_pos += MARIO_ENTRY_SIZE;
+        if (fn(dirent, entry[i].name, strlen(entry[i].name), f->f_pos,
+               block * size + i * MARIO_ENTRY_SIZE, IFTODT(entry[i].mode))) {
+            brelse(bh);
+            return 0;
+        }
+        f->f_pos += MARIO_ENTRY_SIZE;
 		start++;
 	}
 	brelse(bh);

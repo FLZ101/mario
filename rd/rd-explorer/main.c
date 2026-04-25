@@ -160,7 +160,6 @@ print_a_new_block:
 	goto print_a_new_block;
 tail:
 	free(buffer);
-	printf(">>> END OF CAT >>>\n");
 }
 
 void cat(void)
@@ -180,6 +179,7 @@ void cat(void)
 		return;
 	}
 	print_file(&entry);
+	printf(">>> END OF CAT >>>\n");
 }
 
 void help(void)
@@ -210,6 +210,9 @@ void print_entry(struct mario_dir_entry *entry)
 	case MODE_CHR:
 		s = "CHR";
 		break;
+	case MODE_LNK:
+		s = "LNK";
+		break;
 	}
 	printf("%s   ", s);
 	printf("%-8u   ", entry->data);
@@ -218,7 +221,13 @@ void print_entry(struct mario_dir_entry *entry)
 	else
 		printf("%-8u   ", 0);
 	printf("%-8u   ", entry->blocks);
-	printf("%s\n", entry->name);
+	printf("%s", entry->name);
+
+	if (entry->mode == MODE_LNK) {
+		printf(" -> ");
+		print_file(entry);
+	}
+	putchar('\n');
 }
 
 void ls(void)

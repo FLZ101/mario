@@ -1,11 +1,6 @@
-PATH=/bin
-export PATH
+export PATH=/bin
+export TERM=ansi
+export TERMINFO=/usr/share/terminfo
 
-TERM=ansi
-export TERM
-
-TERMINFO=/usr/share/terminfo
-export TERMINFO
-
-PS1='$ '
-export PS1
+set -o vi
+export PS1='\W \$ '

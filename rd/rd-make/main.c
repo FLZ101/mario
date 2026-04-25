@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define _GNU_SOURCE
 
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
@@ -338,13 +339,19 @@ void pass1(void)
 			exit(-1);
 		}
 
-		stat(entry->d_name, &st);
+		lstat(entry->d_name, &st); // Do not follow symlinks
 		if (S_ISDIR(st.st_mode)) {
 			tmp.mode = MODE_DIR;
 			tmp.size = 0;
 			tmp.blocks = 0;
+
 		} else if (S_ISREG(st.st_mode)) {
 			tmp.mode = MODE_REG;
+			tmp.size = st.st_size;
+			tmp.blocks = (tmp.size + MAX_USED - 1) / MAX_USED;
+
+		} else if (S_ISLNK(st.st_mode)) {
+			tmp.mode = MODE_LNK;
 			tmp.size = st.st_size;
 			tmp.blocks = (tmp.size + MAX_USED - 1) / MAX_USED;
 		} else {
@@ -442,6 +449,34 @@ void copy_file(const char *name, uint32_t dent_offset)
 	end_pour();
 }
 
+/*
+ * Copy a symlink into rd and update directory entry of that symlink
+ * @dent_offset: offset into rd of that directory entry
+ */
+void copy_symlink(const char *name, uint32_t dent_offset)
+{
+	char box[256];
+
+	/* used to update the directory entry */
+	uint32_t __data;
+
+	ssize_t n = readlink(name, box, 256);
+	if (n == -1) {
+		perror("readlink");
+		exit(-1);
+	}
+	assert(0 < n && n < 256);
+
+	new_block();
+	fseek(rd_file, 0, SEEK_END);
+
+	__data = blocks;
+	update_mario_dir_entry(dent_offset, __data);
+
+	pour_data(box, n, 0);
+	end_pour();
+}
+
 void copy_dir(char *dirname, uint32_t dent_offset, uint32_t parent_dent_offset);
 
 /*
@@ -473,9 +508,11 @@ scan_a_new_block:
 				copy_file(entry.name, dent);
 			else
 				update_mario_dir_entry(dent, MARIO_ZERO_ENTRY);
-		}
 
-		if (entry.mode == MODE_DIR) {
+		} else if (entry.mode == MODE_LNK) {
+			copy_symlink(entry.name, dent);
+
+		} else if (entry.mode == MODE_DIR) {
 			if (!strcmp(".", entry.name)) {
 				update_mario_dir_entry(dent, dent_offset);
 			} else if (!strcmp("..", entry.name)) {

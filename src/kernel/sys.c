@@ -230,6 +230,11 @@ gid_t sys_setregid32(void)
 	return 0;
 }
 
+mode_t sys_umask(mode_t mask)
+{
+	return 0;
+}
+
 int sys_not_exist(struct trap_frame tr)
 {
 	switch (tr.eax) {

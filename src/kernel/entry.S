@@ -376,7 +376,7 @@ ENTRY(sys_call_table)
 	.long sys_setpgid
 	.long sys_not_exist /* SYS_ulimit */
 	.long sys_not_exist /* SYS_oldolduname */
-	.long sys_not_exist /* SYS_umask */
+	.long sys_umask
 	.long sys_chroot
 	.long sys_not_exist /* SYS_ustat */
 	.long sys_dup2
