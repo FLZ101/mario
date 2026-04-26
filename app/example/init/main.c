@@ -118,35 +118,6 @@ void do_getty()
     }
 }
 
-void run_tests()
-{
-    RunL("/bin/example/sl.exe", NULL);
-    RunL("/bin/example/cp.exe", "/etc/welcome.txt", "/etc/tmp.txt", NULL);
-    RunL("/bin/example/cat.exe", "/etc/tmp.txt", NULL);
-
-    RunL("/bin/test/chrdev.exe", NULL);
-    Run("/bin/test/exec.exe",
-        (char *[]){"hello", "world", NULL},
-        (char *[]){"quick", "brown", "fox", NULL});
-    RunL("/bin/test/fcntl.exe", NULL);
-    RunL("/bin/test/fork.exe", NULL);
-    RunL("/bin/test/mm.exe", NULL);
-    // Will fail if the number of ramdisks loaded is less than 3
-    RunL("/bin/test/mount.exe", NULL);
-    RunL("/bin/test/pipe.exe", NULL);
-    RunL("/bin/test/signal.exe", NULL);
-    RunL("/bin/test/getcwd.exe", NULL);
-    RunL("/bin/test/openat.exe", NULL);
-    RunL("/bin/test/stat.exe", NULL);
-    RunL("/bin/test/symlink.exe", NULL);
-    RunL("/bin/test/poll.exe", NULL);
-    RunL("/bin/test/select.exe", NULL);
-#ifdef _MUSL
-    RunL("/bin/test/time.exe", NULL);
-    RunL("/bin/test/float.exe", NULL);
-#endif
-}
-
 int main(int argc, char *argv[], char *envp[])
 {
     if (0 != open("/dev/console", O_RDWR))
@@ -171,7 +142,6 @@ int main(int argc, char *argv[], char *envp[])
     HandleErr(signal(SIGHUP, SIG_IGN));
     HandleErr(signal(SIGQUIT, SIG_IGN));
 
-    run_tests();
     do_getty();
 
     while (1)

@@ -1,4 +1,4 @@
-#include "../rd-make/mariofs.h"
+#include "mariofs.h"
 
 #include <stdio.h>
 #include <stdlib.h>

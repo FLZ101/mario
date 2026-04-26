@@ -1,6 +1,7 @@
-export PATH=/bin
+export PATH=/bin:/bin/toybox
 export TERM=ansi
+# export TERM=xterm
 export TERMINFO=/usr/share/terminfo
 
-set -o vi
+# set -o vi
 export PS1='\W \$ '

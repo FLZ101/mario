@@ -30,13 +30,10 @@ $(EXE): $(OBJS)
 -include $(DEPS)
 
 %.o: %.S
-	@$(CC) $(CFLAGS) -D__ASSEMBLY__ -o $@ $<
-	@echo $@
+	$(CC) $(CFLAGS) -D__ASSEMBLY__ -o $@ $<
 
 %.o: %.s
-	@$(CC) $(CFLAGS) -o $@ $<
-	@echo $@
+	$(CC) $(CFLAGS) -o $@ $<
 
 %.o: %.c
-	@$(CC) $(CFLAGS) -o $@ $<
-	@echo $@
+	$(CC) $(CFLAGS) -o $@ $<

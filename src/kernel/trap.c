@@ -12,8 +12,8 @@ void print_tr(struct trap_frame *tr)
 		tr->edi, tr->ebp, tr->eax, tr->ds);
 	printk(" es=%x, err=%x, eip=%x,  cs=%x\n",
 		tr->es, tr->error_code, tr->eip, tr->cs);
-	printk("efl=%x, esp=%x,  ss=%x\n",
-		tr->eflags, tr->esp, tr->ss);
+	printk("efl=%x, esp=%x,  ss=%x,  gs=%x\n",
+		tr->eflags, tr->esp, tr->ss, tr->gs);
 }
 
 typedef void trap_handler(void);
@@ -140,6 +140,8 @@ void do_general_protection(struct trap_frame *tr, long error_code)
 	current->thread.error_code = error_code;
 	current->thread.trap_no = 13;
 	send_sig(SIGSEGV, current, 1);
+	print_tr(tr);
+	hang("damn");
 }
 
 void do_nmi(struct trap_frame *tr, long error_code)

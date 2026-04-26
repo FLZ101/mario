@@ -191,6 +191,7 @@ static int do_umount(dev_t dev)
 	sb->s_covered = NULL;
 	iput(sb->s_mounted);
 	sb->s_mounted = NULL;
+	sb->s_dev = 0; // !!!
 	return write_super(sb);
 }
 

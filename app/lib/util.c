@@ -38,7 +38,10 @@ void Wait(pid_t pid)
     if (-1 == err)
         Exit();
     if (WIFEXITED(status)) {
-        printf("[wait] %d, status = %d\n", pid, WEXITSTATUS(status));
+        int exit_code = WEXITSTATUS(status);
+        printf("[wait] %d, status = %d\n", pid, exit_code);
+        if (exit_code)
+            Exit();
     } else if (WIFSIGNALED(status)) {
         printf("[wait] %d, signal = %d\n", pid, WTERMSIG(status));
     }

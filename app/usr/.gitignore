@@ -1,6 +1,5 @@
-/dash-*
-/oksh-*
-/libedit-*
 /ncurses-*
-/cmatrix-*
+/oksh-*
 /toybox-*
+/sbase-*
+/ubase-*

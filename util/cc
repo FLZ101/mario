@@ -63,6 +63,7 @@ def get_args():
     ]
     match prog_name:
         case "cc":
+            flags_before = []
             flags = []
 
         case "mario-cc":

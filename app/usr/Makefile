@@ -9,5 +9,25 @@ all:: build
 
 include ncurses.mk
 include oksh.mk
-include cmatrix.mk
 include toybox.mk
+include sbase.mk
+include ubase.mk
+
+# ncurses programs
+
+NCURSES_EXES	:= ncurses/cmatrix.exe
+
+.PHONY build:: build-ncurses-programs
+build-ncurses-programs: $(NCURSES_EXES)
+
+.PHONY clean:: clean-ncurses-programs
+clean-ncurses-programs:
+	$(RM) $(NCURSES_EXES)
+
+ncurses/%.exe: ncurses/%.c
+	# source files must be before libs
+	$(CC) -o $@ $< \
+		-I$(NCURSES_INSTALL_DIR)/include -I$(NCURSES_INSTALL_DIR)/include/ncursesw \
+		-ggdb -O0 -fno-omit-frame-pointer \
+		-L$(NCURSES_INSTALL_DIR)/lib -static \
+		-lncurses
