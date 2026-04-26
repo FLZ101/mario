@@ -173,6 +173,11 @@ int sys_truncate(const char *path, int length)
 	return error;
 }
 
+int sys_truncate64(const char *path, int length_lo, int length_hi)
+{
+	return sys_truncate(path, length_lo);
+}
+
 int sys_ftruncate(unsigned int fd, int length)
 {
 	struct inode *inode;
@@ -191,6 +196,11 @@ int sys_ftruncate(unsigned int fd, int length)
 	error = inode->i_op->truncate(inode, length);
 	up(&inode->i_sem);
 	return error;
+}
+
+int sys_ftruncate64(unsigned int fd, int length_lo, int length_hi)
+{
+	return sys_ftruncate(fd, length_lo);
 }
 
 int sys_chdir(const char *filename)

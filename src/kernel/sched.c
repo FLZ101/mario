@@ -89,7 +89,6 @@ void switch_to(struct task_struct *next)
 	__asm__ __volatile__(
 		/* make sure eflags unchanged when we back */
 		"pushfl\n\t"
-		"cli\n\t"		/* cli */
 		"pushl %%esi\n\t"
 		"pushl %%edi\n\t"
 		"pushl %%ebp\n\t"
@@ -146,10 +145,10 @@ void schedule(void)
 
 tail:
 	current->need_resched = 0;
-	irq_restore();
-
 	if (next != current)
 		switch_to(next);
+	else
+		irq_restore();
 }
 
 static void process_timeout(unsigned long data)

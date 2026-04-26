@@ -509,8 +509,8 @@ ENTRY(sys_call_table)
 	.long sys_vfork
 	.long sys_not_exist /* SYS_ugetrlimit */
 	.long sys_mmap2
-	.long sys_not_exist /* SYS_truncate64 */
-	.long sys_not_exist /* SYS_ftruncate64 */
+	.long sys_truncate64
+	.long sys_ftruncate64
 	.long sys_not_exist /* SYS_stat64 */
 	.long sys_not_exist /* SYS_lstat64 */
 	.long sys_not_exist /* SYS_fstat64 */
