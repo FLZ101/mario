@@ -15,7 +15,9 @@ include ubase.mk
 
 # ncurses programs
 
-NCURSES_EXES	:= ncurses/cmatrix.exe
+NCURSES_SOURCES	:= $(wildcard ncurses/*.c)
+NCURSES_SOURCES	+= $(wildcard ncurses/*/*.c)
+NCURSES_EXES	:= $(patsubst %.c,%.exe, $(NCURSES_SOURCES))
 
 .PHONY build:: build-ncurses-programs
 build-ncurses-programs: $(NCURSES_EXES)

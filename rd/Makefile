@@ -33,8 +33,12 @@ UBASE_DIR	:= ../app/usr/ubase-install
 
 rd0_files := $(shell find ramdisk0 -type f)
 rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
-	$(NCURSES_DIR)/share/terminfo/a/ansi \
+	$(wildcard $(NCURSES_DIR)/share/terminfo/**/*) \
+	$(wildcard $(NCURSES_PROGRAMS_DIR)/**/*.exe) \
 	$(OKSH_DIR)/bin/oksh \
+	$(wildcard $(TOYBOX_DIR)/**/*.exe) \
+	$(wildcard $(SBASE_DIR)/**/*.exe) \
+	$(wildcard $(UBASE_DIR)/**/*.exe) \
 	$(rd0_files) device_list
 
 	mkdir -p ramdisk0/{bin/example,bin/test,mnt,root/work,usr/share/terminfo}
@@ -59,6 +63,9 @@ rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	mkdir -p ramdisk0/bin/ncurses
 	cp -u $(NCURSES_PROGRAMS_DIR)/*.exe ramdisk0/bin/ncurses
 
+	mkdir -p ramdisk0/bin/ncurses/guide
+	cp -u $(NCURSES_PROGRAMS_DIR)/guide/*.exe ramdisk0/bin/ncurses/guide
+
 	# toybox
 	mkdir -p ramdisk0/bin/toybox
 	cp -u --no-dereference $(TOYBOX_DIR)/bin/* ramdisk0/bin/toybox
@@ -70,6 +77,13 @@ rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	# ubase
 	mkdir -p ramdisk0/bin/ubase
 	cp -u --no-dereference $(UBASE_DIR)/bin/* ramdisk0/bin/ubase
+
+	# strip executables
+	chmod +w ramdisk0/bin/toybox/toybox
+	chmod -x ramdisk0/bin/ncursesw_g6-config
+	for x in $$(find ramdisk0/bin/ -type f -executable) ; do \
+		strip --strip-all $$x ; \
+	done
 
 	./rd-make.exe --dir=ramdisk0 --rd=rd0 --device-list=device_list --nr-block=81920
 
