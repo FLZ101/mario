@@ -20,6 +20,7 @@ enum esc_state {
 	CSI,
 	CSI_Q,		// ?
 	CSI_X,		// >
+	CSI_I,		// !
 	CHARSET_G0,	// Designate G0 Character Set, VT100, ISO 2022.
 	CHARSET_G1,
 	BAD
@@ -45,6 +46,7 @@ struct console {
 	enum esc_state state;
 	unsigned char charset_G0;
 	unsigned char charset_G1;
+	unsigned char pgc; // preceding graphic character
 
 	uint16_t mem[N_ROW][N_COL];
 

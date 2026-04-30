@@ -74,48 +74,72 @@ enum Color {
  */
 static uint8_t translate_dec_to_cp437(char c) {
     switch (c) {
-        // Line Drawing
-        case 'q': return 0xC4; // ─ (Horizontal Bar)
-        case 'x': return 0xB3; // │ (Vertical Bar)
-        case 'l': return 0xDA; // ┌ (Top Left Corner)
-        case 'k': return 0xBF; // ┐ (Top Right Corner)
-        case 'm': return 0xC0; // └ (Bottom Left Corner)
-        case 'j': return 0xD9; // ┘ (Bottom Right Corner)
-        case 't': return 0xC3; // ├ (Left Tee)
-        case 'u': return 0xB4; // ┤ (Right Tee)
-        case 'v': return 0xC1; // ┴ (Bottom Tee)
-        case 'w': return 0xC2; // ┬ (Top Tee)
-        case 'n': return 0xC5; // ┼ (Cross/Plus)
+    // Line Drawing
+    case 'q':
+        return 0xC4; // ─ (Horizontal Bar)
+    case 'x':
+        return 0xB3; // │ (Vertical Bar)
+    case 'l':
+        return 0xDA; // ┌ (Top Left Corner)
+    case 'k':
+        return 0xBF; // ┐ (Top Right Corner)
+    case 'm':
+        return 0xC0; // └ (Bottom Left Corner)
+    case 'j':
+        return 0xD9; // ┘ (Bottom Right Corner)
+    case 't':
+        return 0xC3; // ├ (Left Tee)
+    case 'u':
+        return 0xB4; // ┤ (Right Tee)
+    case 'v':
+        return 0xC1; // ┴ (Bottom Tee)
+    case 'w':
+        return 0xC2; // ┬ (Top Tee)
+    case 'n':
+        return 0xC5; // ┼ (Cross/Plus)
 
-        // Miscellaneous Graphics
-        case 'a': return 0xB1; // ▒ (Checkerboard/Stipple)
-        case '`': return 0x04; // ♦ (Diamond)
-        case 'f': return 0xF8; // ° (Degree Symbol)
-        case 'g': return 0xF1; // ± (Plus/Minus)
-        case 'h': return 0x23; // # (Board - CP437 uses # or 0xDB)
-        case 'i': return 0x07; // ∙ (Lantern/Bullet)
-        case 'o': return 0x2D; // - (Scanline 1)
-        case 'p': return 0x2D; // - (Scanline 3)
-        case 'r': return 0x5F; // _ (Scanline 7)
-        case 's': return 0x5F; // _ (Scanline 9)
-        case 'y': return 0x3C; // < (Less than or equal - approx)
-        case 'z': return 0x3E; // > (Greater than or equal - approx)
-        case '{': return 0xE3; // π (Pi)
-        case '|': return 0xF0; // ≡ (Not equal)
-        case '}': return 0x9C; // £ (Pound sterling)
-        case '~': return 0xFA; // · (Centered dot)
+    // Miscellaneous Graphics
+    case 'a':
+        return 0xB1; // ▒ (Checkerboard/Stipple)
+    case '`':
+        return 0x04; // ♦ (Diamond)
+    case 'f':
+        return 0xF8; // ° (Degree Symbol)
+    case 'g':
+        return 0xF1; // ± (Plus/Minus)
+    case 'h':
+        return 0x23; // # (Board - CP437 uses # or 0xDB)
+    case 'i':
+        return 0x07; // ∙ (Lantern/Bullet)
+    case 'o':
+        return 0x2D; // - (Scanline 1)
+    case 'p':
+        return 0x2D; // - (Scanline 3)
+    case 'r':
+        return 0x5F; // _ (Scanline 7)
+    case 's':
+        return 0x5F; // _ (Scanline 9)
+    case 'y':
+        return 0x3C; // < (Less than or equal - approx)
+    case 'z':
+        return 0x3E; // > (Greater than or equal - approx)
+    case '{':
+        return 0xE3; // π (Pi)
+    case '|':
+        return 0xF0; // ≡ (Not equal)
+    case '}':
+        return 0x9C; // £ (Pound sterling)
+    case '~':
+        return 0xFA; // · (Centered dot)
 
-        // Default: If no mapping exists, return the original character
-        default:  return (uint8_t)c;
+    // If no mapping exists, return the original character
+    default:
+        return c;
     }
 }
 
 static uint16_t makec(struct console *con, unsigned char c)
 {
-	if (con->charset_G0 == '0') {
-		c = translate_dec_to_cp437(c);
-	}
-
 	uint8_t bg_color = con->color_inverted ? con->fg_color : con->bg_color;
 	uint8_t fg_color = con->color_inverted ? con->bg_color : con->fg_color;
 	if (con->bold && fg_color < 8)
@@ -229,17 +253,21 @@ static void erase_line_right(struct console *con)
 
 static void scroll_up_one_line(struct console *con, unsigned y)
 {
-	unsigned src = y * SCREEN_ROW_BYTE_SIZE;
-	if (y > 0) {
-		unsigned dst = src - SCREEN_ROW_BYTE_SIZE;
-		unsigned sz = SCREEN_ROW_BYTE_SIZE;
-		memmove((void *)con->mem + dst, (void *)con->mem + src, sz);
+	if (y >= N_ROW)
+		return;
+
+	unsigned start = y * SCREEN_ROW_BYTE_SIZE;
+	unsigned end = (N_ROW - 1) * SCREEN_ROW_BYTE_SIZE;
+
+	if (start < end) {
+		unsigned sz = (end - start);
+		memmove((void *)con->mem + start, (void *)con->mem + start + SCREEN_ROW_BYTE_SIZE, sz);
 		if (is_fg(con))
-			memmove((void *)VIDEO_MEM + dst, (void *)VIDEO_MEM + src, sz);
+			memmove((void *)VIDEO_MEM + start, (void *)VIDEO_MEM + start + SCREEN_ROW_BYTE_SIZE, sz);
 	}
-	memsetw((void *)con->mem + src, SPACE, N_COL);
+	memsetw((void *)con->mem + end, SPACE, N_COL);
 	if (is_fg(con))
-		memsetw((void *)VIDEO_MEM + src, SPACE, N_COL);
+		memsetw((void *)VIDEO_MEM + end, SPACE, N_COL);
 }
 
 static void scroll_down_one_line(struct console *con, unsigned y)
@@ -250,7 +278,7 @@ static void scroll_down_one_line(struct console *con, unsigned y)
 	unsigned src = y * SCREEN_ROW_BYTE_SIZE;
 	if (y < N_ROW - 1) {
 		unsigned dst = src + SCREEN_ROW_BYTE_SIZE;
-		unsigned sz = SCREEN_ROW_BYTE_SIZE;
+		unsigned sz = SCREEN_ROW_BYTE_SIZE * (N_ROW - 1 - y);
 		memmove((void *)con->mem + dst, (void *)con->mem + src, sz);
 		if (is_fg(con))
 			memmove((void *)VIDEO_MEM + dst, (void *)VIDEO_MEM + src, sz);
@@ -271,7 +299,41 @@ static void scroll_one_line(struct console *con)
 	}
 }
 
-void write_char(struct console *con, unsigned char c)
+static void delete_one_char(struct console *con, unsigned y, unsigned x)
+{
+	if (x >= N_COL)
+		return;
+	unsigned start = y * SCREEN_ROW_BYTE_SIZE + x * sizeof(uint16_t);
+	unsigned end = y * SCREEN_ROW_BYTE_SIZE + (N_COL - 1) * sizeof(uint16_t);
+	if (start < end) {
+		unsigned sz = end - start;
+		memmove((void *)con->mem + start, (void *)con->mem + start + sizeof(uint16_t), sz);
+		if (is_fg(con))
+			memmove((void *)VIDEO_MEM + start, (void *)VIDEO_MEM + start + sizeof(uint16_t), sz);
+	}
+	memsetw((void *)con->mem + end, SPACE, 1);
+	if (is_fg(con))
+		memsetw((void *)VIDEO_MEM + end, SPACE, 1);
+}
+
+static void insert_one_char(struct console *con, unsigned y, unsigned x)
+{
+	if (x >= N_COL)
+		return;
+	unsigned start = y * SCREEN_ROW_BYTE_SIZE + x * sizeof(uint16_t);
+	unsigned end = y * SCREEN_ROW_BYTE_SIZE + (N_COL - 1) * sizeof(uint16_t);
+	if (start < end) {
+		unsigned sz = end - start;
+		memmove((void *)con->mem + start + sizeof(uint16_t), (void *)con->mem + start, sz);
+		if (is_fg(con))
+			memmove((void *)VIDEO_MEM + start + sizeof(uint16_t), (void *)VIDEO_MEM + start, sz);
+	}
+	memsetw((void *)con->mem + start, SPACE, 1);
+	if (is_fg(con))
+		memsetw((void *)VIDEO_MEM + start, SPACE, 1);
+}
+
+void write_char(struct console *con, unsigned char c, int translate)
 {
 	if (con->pending_wrap) {
 		if (c != '\n' && c != '\r') {
@@ -296,9 +358,19 @@ void write_char(struct console *con, unsigned char c)
 			return;
 		con->pos_x--;
 	} else if (c >= ' ') {
-		con->mem[con->pos_y][con->pos_x] = makec(con, c);
+		uint16_t _x = c;
+		if (translate) {
+			if (con->charset_G0 == '0') {
+				_x = translate_dec_to_cp437(c);
+			}
+		}
+		if (isgraph(_x))
+			con->pgc = _x;
+
+		_x = makec(con, c);
+		con->mem[con->pos_y][con->pos_x] = _x;
 		if (is_fg(con))
-			VIDEO_MEM[con->pos_y][con->pos_x] = makec(con, c);
+			VIDEO_MEM[con->pos_y][con->pos_x] = _x;
 		con->pos_x++;
 	}
 
@@ -595,6 +667,7 @@ static void csi_J(struct console *con)
 	case 2:
 		// Erase All
 		clear_screen(con);
+		con->pgc = '\0';
 		break;
 	}
 }
@@ -641,6 +714,28 @@ static void csi_M(struct console *con)
 	for (unsigned i = 0; i < m; ++i)
 		scroll_up_one_line(con, con->pos_y);
 	set_pos(con, con->pos_y, 0);
+}
+
+// Delete Ps Character(s) (default = 1) (DCH).
+static void csi_P(struct console *con)
+{
+	char *esc_buf = con->esc_buf;
+	unsigned m;
+	if (get_esc_uint_1(&esc_buf, &m))
+		m = 1;
+	for (unsigned i = 0; i < m; ++i)
+		delete_one_char(con, con->pos_y, con->pos_x);
+}
+
+// Insert Ps (Blank) Character(s) (default = 1) (ICH).
+static void csi_at(struct console *con)
+{
+	char *esc_buf = con->esc_buf;
+	unsigned m;
+	if (get_esc_uint_1(&esc_buf, &m))
+		m = 1;
+	for (unsigned i = 0; i < m; ++i)
+		insert_one_char(con, con->pos_y, con->pos_x);
 }
 
 static void csi_n(struct console *con)
@@ -714,6 +809,7 @@ static void csi_q(struct console *con, unsigned char c)
 				hide_cursor(con);
 				break;
 			case 1049:
+				con->pgc = '\0';
 				use_normal_screen_buffer(con);
 				break;
 			}
@@ -724,6 +820,9 @@ static void csi_q(struct console *con, unsigned char c)
 		while ((arg = get_esc_arg(&esc_buf))) {
 			int action = simple_atou(arg);
 			switch (action) {
+			case 7:
+				// Auto-Wrap Mode (DECAWM), VT100.
+				break;
 			case 25:
 				show_cursor(con);
 				break;
@@ -786,12 +885,32 @@ static void csi_h(struct console *con)
 	}
 }
 
+// Repeat the preceding graphic character Ps times (REP).
+static void csi_b(struct console *con)
+{
+	char *esc_buf = con->esc_buf;
+	unsigned m;
+	if (get_esc_uint_1(&esc_buf, &m))
+		m = 1;
+	for (unsigned i = 1; i < m; ++i)
+		write_char(con, con->pgc, 0);
+}
+
+void console_soft_reset(struct console *con);
+
 static void csi(struct console *con, unsigned char c)
 {
 	if (con->state == CSI_X)
 		return;
 	if (con->state == CSI_Q) {
 		csi_q(con, c);
+		return;
+	}
+	if (con->state == CSI_I) {
+		if (c == 'p') {
+			// Soft terminal reset (DECSTR), VT220 and up.
+			console_soft_reset(con);
+		}
 		return;
 	}
 
@@ -830,6 +949,12 @@ static void csi(struct console *con, unsigned char c)
 	case 'M':
 		csi_M(con);
 		break;
+	case 'P':
+		csi_P(con);
+		break;
+	case '@':
+		csi_at(con);
+		break;
 	case 'n':
 		csi_n(con);
 		break;
@@ -841,6 +966,9 @@ static void csi(struct console *con, unsigned char c)
 		break;
 	case 'h':
 		csi_h(con);
+		break;
+	case 'b':
+		csi_b(con);
 		break;
 	case 't':
 		break;
@@ -879,7 +1007,7 @@ void console_write_char(struct console *con, unsigned char c)
 		if (c == '\033')
 			con->state = ESC;
 		else
-			return write_char(con, c);
+			return write_char(con, c, 1);
 		break;
 	case ESC:
 		switch (c) {
@@ -893,6 +1021,7 @@ void console_write_char(struct console *con, unsigned char c)
 		case ')':
 			con->state = CHARSET_G1;
 		case 'c':
+			// Full Reset (RIS), VT100.
 			reset_screen(con);
 			break;
 		case '=':
@@ -934,9 +1063,14 @@ void console_write_char(struct console *con, unsigned char c)
 			con->state = CSI_X;
 			break;
 		}
+		if ('!' == c) {
+			con->state = CSI_I;
+			break;
+		}
+	case CSI_I:
 	case CSI_Q:
 	case CSI_X:
-		if (isalpha(c)) {
+		if (isalpha(c) || c == '@') {
 			csi(con, c);
 			con->state = NORMAL;
 			break;
@@ -947,6 +1081,8 @@ void console_write_char(struct console *con, unsigned char c)
 	case BAD:
 		if (isalpha(c))
 			con->state = NORMAL;
+		else if (c == '\033')
+			con->state = ESC;
 		break;
 	default:
 		if (!is_system_console(con))
@@ -1006,6 +1142,25 @@ void console_sync(struct console *con)
 	get_cursor(&con->pos_y, &con->pos_x);
 }
 
+void console_soft_reset(struct console *con)
+{
+	con->bg_color = Black;
+	con->fg_color = Light_Gray;
+	con->save_x = 0;
+	con->save_y = 0;
+	con->cursor_hidden = 0;
+	con->color_inverted = 0;
+	con->bold = 0;
+	con->pending_wrap = 0;
+	con->pgc = '\0';
+
+	con->k.v_flags = 0;
+	con->k.v_key = 0;
+	memset(con->esc_buf, 0, ESC_BUF_SIZE);
+	con->esc_buf_p = 0;
+	con->state = NORMAL;
+}
+
 void console_reset(struct console *con)
 {
 	con->bg_color = Black;
@@ -1020,6 +1175,8 @@ void console_reset(struct console *con)
 	con->pending_wrap = 0;
 	con->charset_G0 = 'B';
 	con->charset_G1 = 'B';
+	con->pgc = '\0';
+
 	memsetw(con->mem, SPACE, SCREEN_BUF_SIZE);
 
 	con->k.v_flags = 0;
