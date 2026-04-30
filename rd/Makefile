@@ -51,8 +51,8 @@ rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	mkdir -p ramdisk0/usr/share/terminfo/{a,l,v,x}
 	cp -u $(NCURSES_DIR)/share/terminfo/a/ansi ramdisk0/usr/share/terminfo/a
 	cp -u $(NCURSES_DIR)/share/terminfo/l/linux ramdisk0/usr/share/terminfo/l
-	cp -u $(NCURSES_DIR)/share/terminfo/v/vt100 ramdisk0/usr/share/terminfo/v
-	cp -u $(NCURSES_DIR)/share/terminfo/x/xterm ramdisk0/usr/share/terminfo/x
+	cp -u $(NCURSES_DIR)/share/terminfo/v/{vt100,vt102} ramdisk0/usr/share/terminfo/v
+ 	cp -u $(NCURSES_DIR)/share/terminfo/x/xterm ramdisk0/usr/share/terminfo/x
 
 	cp -u $(NCURSES_DIR)/bin/* ramdisk0/bin
 

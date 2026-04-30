@@ -18,7 +18,10 @@ enum esc_state {
 	NORMAL,
 	ESC,
 	CSI,
-	CSI_Q, // ?
+	CSI_Q,		// ?
+	CSI_X,		// >
+	CHARSET_G0,	// Designate G0 Character Set, VT100, ISO 2022.
+	CHARSET_G1,
 	BAD
 };
 
@@ -40,6 +43,8 @@ struct console {
 	char esc_buf[ESC_BUF_SIZE];
 	int esc_buf_p;
 	enum esc_state state;
+	unsigned char charset_G0;
+	unsigned char charset_G1;
 
 	uint16_t mem[N_ROW][N_COL];
 
@@ -57,5 +62,6 @@ void switch_fg_console(int i);
 
 #define SCREEN_BUF_SIZE (N_ROW * N_COL)
 #define SCREEN_BUF_BYTE_SIZE (N_ROW * N_COL * sizeof(uint16_t))
+#define SCREEN_ROW_BYTE_SIZE (N_COL * sizeof(uint16_t))
 
 #endif /* _CONSOLE_H */

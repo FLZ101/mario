@@ -32,17 +32,22 @@ static inline int timer_in_list(struct timer_list *timer)
 	return (timer->list.next != NULL);
 }
 
+static void __del_timer(struct timer_list *timer)
+{
+	list_del(&timer->list);
+	timer->list.next = NULL;
+	timer->expires -= jiffies;
+	if (timer->expires < 0)
+		timer->expires = 0;
+}
+
 int del_timer(struct timer_list *timer)
 {
 	if (!timer_in_list(timer))
 		return 0;
 
 	irq_save();
-	list_del(&timer->list);
-	timer->list.next = NULL;
-	timer->expires -= jiffies;
-	if (timer->expires < 0)
-		timer->expires = 0;
+	__del_timer(timer);
 	irq_restore();
 	return 1;
 }
@@ -57,8 +62,9 @@ void run_timer_list(void)
 			list_entry(tmp, struct timer_list, list);
 		if (t->expires > jiffies)
 			break;
-		list_del(tmp);
-		t->list.next = NULL;
+
+		__del_timer(t);
+
 		tmp = t->list.prev;
 		sti();
 		t->fun(t->data);
@@ -255,6 +261,11 @@ int sys_nanosleep(struct timespec *req, struct timespec *rem)
 	error = verify_area(VERIFY_READ, req, sizeof(*req));
 	if (error)
 		return error;
+	if (rem) {
+		error = verify_area(VERIFY_WRITE, rem, sizeof(*rem));
+		if (error)
+			return error;
+	}
 	memcpy_fromfs(&t, req, sizeof(t));
 
 	if (t.tv_nsec >= 1000000000L || t.tv_nsec < 0 || t.tv_sec < 0)
@@ -265,9 +276,6 @@ int sys_nanosleep(struct timespec *req, struct timespec *rem)
 		return 0;
 	if (rem) {
 		jiffies_to_timespec(expire, &t);
-		error = verify_area(VERIFY_READ, rem, sizeof(*rem));
-		if (error)
-			return error;
 		memcpy_tofs(rem, &t, sizeof(*rem));
 	}
 	return -EINTR;

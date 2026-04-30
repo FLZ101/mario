@@ -1,6 +1,9 @@
 export PATH=/bin:/bin/toybox
-export TERM=ansi
-# export TERM=xterm
+export TERM=xterm
+# export TERM=ansi
+# export TERM=vt100
+# export TERM=vt102
+# export TERM=linux
 export TERMINFO=/usr/share/terminfo
 
 # set -o vi
