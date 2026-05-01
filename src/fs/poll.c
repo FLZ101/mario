@@ -20,26 +20,6 @@ int poll_fds(struct poll_context *ctx, struct pollfd *fds, unsigned int nfds)
         if (FD_IGNORE == fd)
             continue;
 
-        struct file *f = current->files->fd[fd];
-        short mask = f->f_op->poll(f, ctx);
-        *revents = (events | POLLERR | POLLHUP) & mask;
-        if (*revents)
-            ++n_done;
-    }
-    return n_done;
-}
-
-int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
-{
-    int n_done = 0;
-    for (unsigned int i = 0; i < nfds; ++i) {
-        unsigned int fd = fds[i].fd;
-        short events = fds[i].events;
-        short *revents = &fds[i].revents;
-
-        if (FD_IGNORE == fd)
-            continue;
-
         struct file *f;
         if (fd >= NR_OPEN || !(f = current->files->fd[fd])) {
             *revents = POLLNVAL;
@@ -52,14 +32,21 @@ int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
             continue;
         }
         *revents = 0;
-    }
-    if (n_done > 0 || !timeout)
-        return n_done;
 
+        short mask = f->f_op->poll(f, ctx);
+        *revents = (events | POLLERR | POLLHUP) & mask;
+        if (*revents)
+            ++n_done;
+    }
+    return n_done;
+}
+
+int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
+{
     struct poll_context ctx = { .qproc = qproc };
 
-    n_done = poll_fds(&ctx, fds, nfds);
-    if (n_done > 0)
+    int n_done = poll_fds(&ctx, fds, nfds);
+    if (n_done > 0 || !timeout)
         return n_done;
 
     wait_queue_node_t node;

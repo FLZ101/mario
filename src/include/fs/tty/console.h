@@ -7,6 +7,8 @@
 struct kbd {
 	unsigned int v_flags;
 	unsigned int v_key;
+	int cursor_app;	// cursor application mode
+	int keypad_app;	// keypad application mode
 };
 
 #define N_COL 80
@@ -20,6 +22,7 @@ enum esc_state {
 	CSI,
 	CSI_Q,		// ?
 	CSI_X,		// >
+	CSI_I,		// !
 	CHARSET_G0,	// Designate G0 Character Set, VT100, ISO 2022.
 	CHARSET_G1,
 	BAD
@@ -27,6 +30,18 @@ enum esc_state {
 
 struct console {
 	struct kbd k;
+
+	char esc_buf[ESC_BUF_SIZE];
+	int esc_buf_p;
+
+	long esc_time;
+
+	enum esc_state state;
+
+	unsigned char charset_G0;
+	unsigned char charset_G1;
+
+	unsigned char pgc; // preceding graphic character
 
 	// +-----> x
 	// |
@@ -39,12 +54,7 @@ struct console {
 	int pending_wrap;
 	int color_inverted;
 	int bold;
-
-	char esc_buf[ESC_BUF_SIZE];
-	int esc_buf_p;
-	enum esc_state state;
-	unsigned char charset_G0;
-	unsigned char charset_G1;
+	int scr_start, scr_end; // scrolling region
 
 	uint16_t mem[N_ROW][N_COL];
 
@@ -52,6 +62,7 @@ struct console {
 		uint16_t mem[N_ROW][N_COL];
 		unsigned int pos_x, pos_y;
 		unsigned int save_x, save_y;
+		int scr_start, scr_end; // scrolling region
 	} orig;
 };
 

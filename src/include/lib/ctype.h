@@ -31,7 +31,10 @@ static inline int isspace(int ch) {
 
 static inline int iscntrl(int ch) { return 0x00 <= ch && ch <= 0x7f; }
 
-static inline int ispunct(int ch) { return '!' <= ch && ch <= '~'; }
+static inline int ispunct(int ch) {
+    return ('!' <= ch && ch <= '/') || (':' <= ch && ch <= '@') ||
+           ('[' <= ch && ch <= '`') || ('{' <= ch && ch <= '~');
+}
 
 static inline int isgraph(int ch) { return isalnum(ch) || ispunct(ch); }
 

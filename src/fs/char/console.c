@@ -39,6 +39,13 @@ int is_system_console(struct console *con)
 	return con == console_table;
 }
 
+volatile int debug_console = 0;
+
+#define DEBUG_PRINTK(...) do { \
+	if (debug_console && !is_system_console(con)) \
+		printk(__VA_ARGS__); \
+} while (0)
+
 static struct tty_struct *get_console_tty(struct console *con)
 {
 	for (int i = 0; i < NUM_CONSOLE; ++i)
@@ -73,49 +80,73 @@ enum Color {
  * @return The CP437 byte to be written to VGA memory (0xB8000)
  */
 static uint8_t translate_dec_to_cp437(char c) {
-    switch (c) {
-        // Line Drawing
-        case 'q': return 0xC4; // ─ (Horizontal Bar)
-        case 'x': return 0xB3; // │ (Vertical Bar)
-        case 'l': return 0xDA; // ┌ (Top Left Corner)
-        case 'k': return 0xBF; // ┐ (Top Right Corner)
-        case 'm': return 0xC0; // └ (Bottom Left Corner)
-        case 'j': return 0xD9; // ┘ (Bottom Right Corner)
-        case 't': return 0xC3; // ├ (Left Tee)
-        case 'u': return 0xB4; // ┤ (Right Tee)
-        case 'v': return 0xC1; // ┴ (Bottom Tee)
-        case 'w': return 0xC2; // ┬ (Top Tee)
-        case 'n': return 0xC5; // ┼ (Cross/Plus)
+	switch (c) {
+	// Line Drawing
+	case 'q':
+		return 0xC4; // ─ (Horizontal Bar)
+	case 'x':
+		return 0xB3; // │ (Vertical Bar)
+	case 'l':
+		return 0xDA; // ┌ (Top Left Corner)
+	case 'k':
+		return 0xBF; // ┐ (Top Right Corner)
+	case 'm':
+		return 0xC0; // └ (Bottom Left Corner)
+	case 'j':
+		return 0xD9; // ┘ (Bottom Right Corner)
+	case 't':
+		return 0xC3; // ├ (Left Tee)
+	case 'u':
+		return 0xB4; // ┤ (Right Tee)
+	case 'v':
+		return 0xC1; // ┴ (Bottom Tee)
+	case 'w':
+		return 0xC2; // ┬ (Top Tee)
+	case 'n':
+		return 0xC5; // ┼ (Cross/Plus)
 
-        // Miscellaneous Graphics
-        case 'a': return 0xB1; // ▒ (Checkerboard/Stipple)
-        case '`': return 0x04; // ♦ (Diamond)
-        case 'f': return 0xF8; // ° (Degree Symbol)
-        case 'g': return 0xF1; // ± (Plus/Minus)
-        case 'h': return 0x23; // # (Board - CP437 uses # or 0xDB)
-        case 'i': return 0x07; // ∙ (Lantern/Bullet)
-        case 'o': return 0x2D; // - (Scanline 1)
-        case 'p': return 0x2D; // - (Scanline 3)
-        case 'r': return 0x5F; // _ (Scanline 7)
-        case 's': return 0x5F; // _ (Scanline 9)
-        case 'y': return 0x3C; // < (Less than or equal - approx)
-        case 'z': return 0x3E; // > (Greater than or equal - approx)
-        case '{': return 0xE3; // π (Pi)
-        case '|': return 0xF0; // ≡ (Not equal)
-        case '}': return 0x9C; // £ (Pound sterling)
-        case '~': return 0xFA; // · (Centered dot)
+	// Miscellaneous Graphics
+	case 'a':
+		return 0xB1; // ▒ (Checkerboard/Stipple)
+	case '`':
+		return 0x04; // ♦ (Diamond)
+	case 'f':
+		return 0xF8; // ° (Degree Symbol)
+	case 'g':
+		return 0xF1; // ± (Plus/Minus)
+	case 'h':
+		return 0x23; // # (Board - CP437 uses # or 0xDB)
+	case 'i':
+		return 0x07; // ∙ (Lantern/Bullet)
+	case 'o':
+		return 0x2D; // - (Scanline 1)
+	case 'p':
+		return 0x2D; // - (Scanline 3)
+	case 'r':
+		return 0x5F; // _ (Scanline 7)
+	case 's':
+		return 0x5F; // _ (Scanline 9)
+	case 'y':
+		return 0x3C; // < (Less than or equal - approx)
+	case 'z':
+		return 0x3E; // > (Greater than or equal - approx)
+	case '{':
+		return 0xE3; // π (Pi)
+	case '|':
+		return 0xF0; // ≡ (Not equal)
+	case '}':
+		return 0x9C; // £ (Pound sterling)
+	case '~':
+		return 0xFA; // · (Centered dot)
 
-        // Default: If no mapping exists, return the original character
-        default:  return (uint8_t)c;
-    }
+	// If no mapping exists, return the original character
+	default:
+		return c;
+	}
 }
 
 static uint16_t makec(struct console *con, unsigned char c)
 {
-	if (con->charset_G0 == '0') {
-		c = translate_dec_to_cp437(c);
-	}
-
 	uint8_t bg_color = con->color_inverted ? con->fg_color : con->bg_color;
 	uint8_t fg_color = con->color_inverted ? con->bg_color : con->fg_color;
 	if (con->bold && fg_color < 8)
@@ -200,86 +231,133 @@ void clear_screen(struct console *con)
 	erase_screen(con, 0, N_ROW - 1);
 }
 
-static void erase_line(struct console *con)
+static void __erase_line(struct console *con, int start, int end)
 {
-	for (int i = 0; i < N_COL; ++i) {
+	if (start > end || start > N_COL - 1 || end < 0)
+		return;
+	if (start < 0)
+		start = 0;
+	if (end > N_COL - 1)
+		end = N_COL - 1;
+
+	for (int i = start; i < end + 1; ++i) {
 		con->mem[con->pos_y][i] = SPACE;
 		if (is_fg(con))
 			VIDEO_MEM[con->pos_y][i] = SPACE;
 	}
+}
+
+static void erase_line(struct console *con)
+{
+	__erase_line(con, 0, N_COL - 1);
 }
 
 static void erase_line_left(struct console *con)
 {
-	for (int i = 0; i < con->pos_x; ++i) {
-		con->mem[con->pos_y][i] = SPACE;
-		if (is_fg(con))
-			VIDEO_MEM[con->pos_y][i] = SPACE;
-	}
+	__erase_line(con, 0, con->pos_x);
 }
 
 static void erase_line_right(struct console *con)
 {
-	for (int i = con->pos_x; i < N_COL; ++i) {
-		con->mem[con->pos_y][i] = SPACE;
-		if (is_fg(con))
-			VIDEO_MEM[con->pos_y][i] = SPACE;
-	}
+	__erase_line(con, con->pos_x, N_COL - 1);
 }
 
-static void scroll_up_one_line(struct console *con, unsigned y)
+static int in_scrolling_region(struct console *con, unsigned x)
 {
-	unsigned src = y * SCREEN_ROW_BYTE_SIZE;
-	if (y > 0) {
-		unsigned dst = src - SCREEN_ROW_BYTE_SIZE;
-		unsigned sz = SCREEN_ROW_BYTE_SIZE;
-		memmove((void *)con->mem + dst, (void *)con->mem + src, sz);
-		if (is_fg(con))
-			memmove((void *)VIDEO_MEM + dst, (void *)VIDEO_MEM + src, sz);
-	}
-	memsetw((void *)con->mem + src, SPACE, N_COL);
-	if (is_fg(con))
-		memsetw((void *)VIDEO_MEM + src, SPACE, N_COL);
+	return con->scr_start <= x && x <= con->scr_end;
 }
 
-static void scroll_down_one_line(struct console *con, unsigned y)
+static void __scroll(struct console *con, unsigned start, unsigned end, int up)
 {
-	if (y >= N_ROW)
+	if (start > end || !in_scrolling_region(con, start) || !in_scrolling_region(con, end))
 		return;
 
-	unsigned src = y * SCREEN_ROW_BYTE_SIZE;
-	if (y < N_ROW - 1) {
-		unsigned dst = src + SCREEN_ROW_BYTE_SIZE;
-		unsigned sz = SCREEN_ROW_BYTE_SIZE;
-		memmove((void *)con->mem + dst, (void *)con->mem + src, sz);
+	unsigned dst, src, size;
+	if (start < end) {
+		size = end - start;
+		if (up) {
+			dst = start;
+			src = start + 1;
+		} else {
+			src = start;
+			dst = start + 1;
+		}
+		size *= SCREEN_ROW_BYTE_SIZE;
+		src *= SCREEN_ROW_BYTE_SIZE;
+		dst *= SCREEN_ROW_BYTE_SIZE;
+		memmove((void *)con->mem + dst, (void *)con->mem + src, size);
 		if (is_fg(con))
-			memmove((void *)VIDEO_MEM + dst, (void *)VIDEO_MEM + src, sz);
+			memmove((void *)VIDEO_MEM + dst, (void *)VIDEO_MEM + src, size);
 	}
-	memsetw((void *)con->mem + src, SPACE, N_COL);
+
+	dst = up ? end : start;
+	dst *= SCREEN_ROW_BYTE_SIZE;
+	memsetw((void *)con->mem + dst, SPACE, N_COL);
 	if (is_fg(con))
-		memsetw((void *)VIDEO_MEM + src, SPACE, N_COL);
+		memsetw((void *)VIDEO_MEM + dst, SPACE, N_COL);
 }
 
-static void scroll_one_line(struct console *con)
+static void delete_one_char(struct console *con, unsigned y, unsigned x)
 {
-	memmove(&con->mem[0][0], &con->mem[1][0], N_COL * (N_ROW - 1) * sizeof (uint16_t));
-	memsetw(&con->mem[N_ROW - 1][0], SPACE, N_COL);
-
-	if (is_fg(con)) {
-		memmove(&VIDEO_MEM[0][0], &VIDEO_MEM[1][0], N_COL * (N_ROW - 1) * sizeof (uint16_t));
-		memsetw(&VIDEO_MEM[N_ROW - 1][0], SPACE, N_COL);
+	if (x >= N_COL)
+		return;
+	unsigned start = y * SCREEN_ROW_BYTE_SIZE + x * sizeof(uint16_t);
+	unsigned end = y * SCREEN_ROW_BYTE_SIZE + (N_COL - 1) * sizeof(uint16_t);
+	if (start < end) {
+		unsigned sz = end - start;
+		memmove((void *)con->mem + start, (void *)con->mem + start + sizeof(uint16_t), sz);
+		if (is_fg(con))
+			memmove((void *)VIDEO_MEM + start, (void *)VIDEO_MEM + start + sizeof(uint16_t), sz);
 	}
+	memsetw((void *)con->mem + end, SPACE, 1);
+	if (is_fg(con))
+		memsetw((void *)VIDEO_MEM + end, SPACE, 1);
 }
 
-void write_char(struct console *con, unsigned char c)
+static void insert_one_char(struct console *con, unsigned y, unsigned x)
+{
+	if (x >= N_COL)
+		return;
+	unsigned start = y * SCREEN_ROW_BYTE_SIZE + x * sizeof(uint16_t);
+	unsigned end = y * SCREEN_ROW_BYTE_SIZE + (N_COL - 1) * sizeof(uint16_t);
+	if (start < end) {
+		unsigned sz = end - start;
+		memmove((void *)con->mem + start + sizeof(uint16_t), (void *)con->mem + start, sz);
+		if (is_fg(con))
+			memmove((void *)VIDEO_MEM + start + sizeof(uint16_t), (void *)VIDEO_MEM + start, sz);
+	}
+	memsetw((void *)con->mem + start, SPACE, 1);
+	if (is_fg(con))
+		memsetw((void *)VIDEO_MEM + start, SPACE, 1);
+}
+
+// Return 1 if CSI b can be applied to c
+int can_rep(unsigned char c) {
+	// 1. Standard ASCII printables (Space through Tilde)
+	if (c >= 0x20 && c <= 0x7E) {
+		return 1;
+	}
+
+	// 2. CP437 Extended characters (Line drawing, math, etc.)
+	// In many terminal emulators, these are valid targets for REP.
+	if (c >= 0x80 && c <= 0xFE) {
+		return 1;
+	}
+
+	// 3. Control characters (0-31, 127) are NEVER repeatable.
+	// They perform actions, they don't leave glyphs.
+	return 0;
+}
+
+void write_char(struct console *con, unsigned char c, int translate)
 {
 	if (con->pending_wrap) {
 		if (c != '\n' && c != '\r') {
 			con->pos_x = 0;
 			con->pos_y++;
-			if (con->pos_y >= N_ROW) {
-				con->pos_y = N_ROW - 1;
-				scroll_one_line(con);
+			if (con->pos_y == con->scr_end + 1) {
+				con->pos_y = con->scr_end;
+				__scroll(con, con->scr_start, con->scr_end, 1);
 			}
 		}
 		con->pending_wrap = 0;
@@ -291,24 +369,34 @@ void write_char(struct console *con, unsigned char c)
 		con->pos_x = 0;
 	} else if (c == '\n') {
 		con->pos_y++;
+		if (con->pos_y == con->scr_end + 1) {
+			con->pos_y = con->scr_end;
+			__scroll(con, con->scr_start, con->scr_end, 1);
+		}
 	} else if (c == '\b') {
 		if (con->pos_x == 0)
 			return;
 		con->pos_x--;
 	} else if (c >= ' ') {
-		con->mem[con->pos_y][con->pos_x] = makec(con, c);
+		uint16_t _x = c;
+		if (translate) {
+			if (con->charset_G0 == '0') {
+				_x = translate_dec_to_cp437(c);
+			}
+		}
+		if (can_rep(_x))
+			con->pgc = _x;
+
+		_x = makec(con, _x);
+		con->mem[con->pos_y][con->pos_x] = _x;
 		if (is_fg(con))
-			VIDEO_MEM[con->pos_y][con->pos_x] = makec(con, c);
+			VIDEO_MEM[con->pos_y][con->pos_x] = _x;
 		con->pos_x++;
 	}
 
 	if (con->pos_x >= N_COL) {
 		con->pending_wrap = 1;
 		con->pos_x = N_COL;
-	}
-	if (con->pos_y >= N_ROW) {
-		con->pos_y = N_ROW - 1;
-		scroll_one_line(con);
 	}
 	move_cursor(con);
 }
@@ -595,6 +683,7 @@ static void csi_J(struct console *con)
 	case 2:
 		// Erase All
 		clear_screen(con);
+		con->pgc = '\0';
 		break;
 	}
 }
@@ -622,25 +711,63 @@ static void csi_K(struct console *con)
 // Insert lines
 static void csi_L(struct console *con)
 {
+	if (!in_scrolling_region(con, con->pos_y))
+		return;
+
 	char *esc_buf = con->esc_buf;
 	unsigned m;
 	if (get_esc_uint_1(&esc_buf, &m))
 		m = 1;
 	for (unsigned i = 0; i < m; ++i)
-		scroll_down_one_line(con, con->pos_y);
+		__scroll(con, con->pos_y, con->scr_end, 0);
 	set_pos(con, con->pos_y, 0);
 }
 
 // Delete lines
 static void csi_M(struct console *con)
 {
+	if (!in_scrolling_region(con, con->pos_y))
+		return;
+
 	char *esc_buf = con->esc_buf;
 	unsigned m;
 	if (get_esc_uint_1(&esc_buf, &m))
 		m = 1;
 	for (unsigned i = 0; i < m; ++i)
-		scroll_up_one_line(con, con->pos_y);
+		__scroll(con, con->pos_y, con->scr_end, 1);
 	set_pos(con, con->pos_y, 0);
+}
+
+// Delete Ps Character(s) (default = 1) (DCH).
+static void csi_P(struct console *con)
+{
+	char *esc_buf = con->esc_buf;
+	unsigned m;
+	if (get_esc_uint_1(&esc_buf, &m))
+		m = 1;
+	for (unsigned i = 0; i < m; ++i)
+		delete_one_char(con, con->pos_y, con->pos_x);
+}
+
+// Erase Ps Character(s) (default = 1) (ECH).
+static void csi_X(struct console *con)
+{
+	char *esc_buf = con->esc_buf;
+	unsigned m;
+	if (get_esc_uint_1(&esc_buf, &m))
+		m = 1;
+	__erase_line(con, con->pos_x, con->pos_x + m - 1);
+}
+
+// Insert Ps (Blank) Character(s) (default = 1) (ICH).
+static void csi_at(struct console *con)
+{
+	char *esc_buf = con->esc_buf;
+	unsigned m;
+	if (get_esc_uint_1(&esc_buf, &m))
+		m = 1;
+	for (unsigned i = 0; i < m; ++i)
+		insert_one_char(con, con->pos_y, con->pos_x);
 }
 
 static void csi_n(struct console *con)
@@ -671,6 +798,8 @@ static void use_alt_screen_buffer(struct console *con)
 	con->orig.pos_y = con->pos_y;
 	con->orig.save_x = con->save_x;
 	con->orig.save_y = con->save_y;
+	con->orig.scr_start = con->scr_start;
+	con->orig.scr_end = con->scr_end;
 
 	// clear the alternate screen buffer
 
@@ -679,6 +808,8 @@ static void use_alt_screen_buffer(struct console *con)
 	con->pos_y = 0;
 	con->save_x = 0;
 	con->save_y = 0;
+	con->scr_start = 0;
+	con->scr_end = N_ROW - 1;
 
 	if (is_fg(con)) {
 		memcpy(VIDEO_MEM, con->mem, SCREEN_BUF_BYTE_SIZE);
@@ -694,6 +825,8 @@ static void use_normal_screen_buffer(struct console *con)
 	con->pos_y = con->orig.pos_y;
 	con->save_x = con->orig.save_x;
 	con->save_y = con->orig.save_y;
+	con->scr_start = con->orig.scr_start;
+	con->scr_end = con->orig.scr_end;
 
 	if (is_fg(con)) {
 		memcpy(VIDEO_MEM, con->mem, SCREEN_BUF_BYTE_SIZE);
@@ -710,10 +843,18 @@ static void csi_q(struct console *con, unsigned char c)
 		while ((arg = get_esc_arg(&esc_buf))) {
 			int action = simple_atou(arg);
 			switch (action) {
+			case 1:
+				// Normal Cursor Keys (DECCKM), VT100.
+				con->k.cursor_app = 0;
+				break;
+			case 7:
+				// No Auto-Wrap Mode (DECAWM), VT100.
+				break;
 			case 25:
 				hide_cursor(con);
 				break;
 			case 1049:
+				con->pgc = '\0';
 				use_normal_screen_buffer(con);
 				break;
 			}
@@ -724,6 +865,13 @@ static void csi_q(struct console *con, unsigned char c)
 		while ((arg = get_esc_arg(&esc_buf))) {
 			int action = simple_atou(arg);
 			switch (action) {
+			case 1:
+				// Application Cursor Keys (DECCKM), VT100.
+				con->k.cursor_app = 1;
+				break;
+			case 7:
+				// Auto-Wrap Mode (DECAWM), VT100.
+				break;
 			case 25:
 				show_cursor(con);
 				break;
@@ -739,6 +887,7 @@ static void csi_q(struct console *con, unsigned char c)
 	}
 }
 
+// Set Scrolling Region [top;bottom] (default = full size of window) (DECSTBM), VT100.
 static void csi_r(struct console *con)
 {
 	char *esc_buf = con->esc_buf;
@@ -748,11 +897,9 @@ static void csi_r(struct console *con)
 		end = N_ROW;
 	}
 
-	if (1 == start && N_ROW == end) {
-		set_pos(con, 0, 0);
-	} else {
-		if (!is_system_console(con))
-			printk("Not implemented: CSI %d;%d r\n", start, end);
+	if (1 <= start && start <= end && end <= N_ROW) {
+		con->scr_start = start - 1;
+		con->scr_end = end - 1;
 	}
 }
 
@@ -780,11 +927,41 @@ static void csi_h(struct console *con)
 	switch (n) {
 	case 4:
 		// Insert mode
-		if (!is_system_console(con))
-			printk("Not implemented: CSI %d h\n", n);
+		DEBUG_PRINTK("Not implemented: CSI %d h\n", n);
 		break;
 	}
 }
+
+// Repeat the preceding graphic character Ps times (REP).
+static void csi_b(struct console *con)
+{
+	if (!con->pgc)
+		return;
+
+	char *esc_buf = con->esc_buf;
+	unsigned m;
+	if (get_esc_uint_1(&esc_buf, &m))
+		m = 1;
+	for (unsigned i = 0; i < m; ++i)
+		write_char(con, con->pgc, 0);
+}
+
+// Scroll up Ps lines (default = 1) (SU), VT420, ECMA-48.
+static void csi_S(struct console *con)
+{
+	if (!in_scrolling_region(con, con->pos_y))
+		return;
+
+	char *esc_buf = con->esc_buf;
+	unsigned m;
+	if (get_esc_uint_1(&esc_buf, &m))
+		m = 1;
+
+	for (unsigned i = 0; i < m; ++i)
+		__scroll(con, con->scr_start, con->scr_end, 1);
+}
+
+void console_soft_reset(struct console *con);
 
 static void csi(struct console *con, unsigned char c)
 {
@@ -792,6 +969,13 @@ static void csi(struct console *con, unsigned char c)
 		return;
 	if (con->state == CSI_Q) {
 		csi_q(con, c);
+		return;
+	}
+	if (con->state == CSI_I) {
+		if (c == 'p') {
+			// Soft terminal reset (DECSTR), VT220 and up.
+			console_soft_reset(con);
+		}
 		return;
 	}
 
@@ -830,6 +1014,15 @@ static void csi(struct console *con, unsigned char c)
 	case 'M':
 		csi_M(con);
 		break;
+	case 'P':
+		csi_P(con);
+		break;
+	case 'X':
+		csi_X(con);
+		break;
+	case '@':
+		csi_at(con);
+		break;
 	case 'n':
 		csi_n(con);
 		break;
@@ -842,11 +1035,16 @@ static void csi(struct console *con, unsigned char c)
 	case 'h':
 		csi_h(con);
 		break;
+	case 'b':
+		csi_b(con);
+		break;
+	case 'S':
+		csi_S(con);
+		break;
 	case 't':
 		break;
 	default:
-		if (!is_system_console(con))
-			printk("Unknown csi: %s %c\n", con->esc_buf, c);
+		DEBUG_PRINTK("Unknown csi: %s %c\n", con->esc_buf, c);
 	}
 }
 
@@ -867,22 +1065,32 @@ void console_write_char(struct console *con, unsigned char c)
 	if (!c)
 		return;
 
-	if (!is_system_console(con)) {
-		if (isprint(c))
-			printk("%c", c);
-		else
-			printk("\\d%d", c);
-	}
+	if (isprint(c))
+		DEBUG_PRINTK("%c", c);
+	else
+		DEBUG_PRINTK("\\d%d", c);
 
 	switch (con->state) {
 	case NORMAL:
-		if (c == '\033')
+		if (c == '\033') {
 			con->state = ESC;
-		else
-			return write_char(con, c);
+			con->esc_time = jiffies;
+		} else {
+			return write_char(con, c, 1);
+		}
 		break;
+
 	case ESC:
+		if (jiffies - con->esc_time > 25) {
+			// Timeout. ESC is not considered the start of an escape sequence
+			con->state = NORMAL;
+			console_write_char(con, c);
+			break;
+		}
+
 		switch (c) {
+		case '\033':
+			break;
 		case '[':
 			reset_esc_buf(con);
 			con->state = CSI;
@@ -893,15 +1101,32 @@ void console_write_char(struct console *con, unsigned char c)
 		case ')':
 			con->state = CHARSET_G1;
 		case 'c':
+			// Full Reset (RIS), VT100.
 			reset_screen(con);
+			con->state = NORMAL;
 			break;
 		case '=':
+			// Application Keypad (DECKPAM)
+			con->k.keypad_app = 1;
+			con->state = NORMAL;
+			break;
 		case '>':
+			// Normal Keypad (DECKPNM), VT100.
+			con->k.keypad_app = 0;
+			con->state = NORMAL;
+			break;
+		case '7':
+			// Save Cursor (DECSC), VT100.
+			csi_s(con);
+			con->state = NORMAL;
+			break;
+		case '8':
+			// Restore Cursor (DECRC), VT100.
+			csi_u(con);
 			con->state = NORMAL;
 			break;
 		default:
-			if (!is_system_console(con))
-				printk("Unknown escape sequence: %c(%d)\n", c, c);
+			DEBUG_PRINTK("Unknown escape sequence: %c(\\d%d)\n", c, c);
 			con->state = NORMAL;
 		}
 		break;
@@ -934,9 +1159,14 @@ void console_write_char(struct console *con, unsigned char c)
 			con->state = CSI_X;
 			break;
 		}
+		if ('!' == c) {
+			con->state = CSI_I;
+			break;
+		}
+	case CSI_I:
 	case CSI_Q:
 	case CSI_X:
-		if (isalpha(c)) {
+		if (isalpha(c) || c == '@') {
 			csi(con, c);
 			con->state = NORMAL;
 			break;
@@ -945,12 +1175,15 @@ void console_write_char(struct console *con, unsigned char c)
 			con->state = BAD;
 		break;
 	case BAD:
-		if (isalpha(c))
+		if (isalpha(c)) {
 			con->state = NORMAL;
+		} else if (c == '\033') {
+			con->state = ESC;
+			con->esc_time = jiffies;
+		}
 		break;
 	default:
-		if (!is_system_console(con))
-			printk("Unexpected char: %x\n", c);
+		DEBUG_PRINTK("Unexpected char: \\d%d\n", c);
 	}
 	con->pending_wrap = 0;
 }
@@ -1006,27 +1239,31 @@ void console_sync(struct console *con)
 	get_cursor(&con->pos_y, &con->pos_x);
 }
 
-void console_reset(struct console *con)
+void console_soft_reset(struct console *con)
 {
 	con->bg_color = Black;
 	con->fg_color = Light_Gray;
-	con->pos_x = 0;
-	con->pos_y = 0;
 	con->save_x = 0;
 	con->save_y = 0;
+	con->scr_start = 0;
+	con->scr_end = N_ROW - 1;
 	con->cursor_hidden = 0;
 	con->color_inverted = 0;
 	con->bold = 0;
 	con->pending_wrap = 0;
-	con->charset_G0 = 'B';
-	con->charset_G1 = 'B';
-	memsetw(con->mem, SPACE, SCREEN_BUF_SIZE);
+	con->pgc = '\0';
+	con->esc_time = 0;
 
-	con->k.v_flags = 0;
-	con->k.v_key = 0;
+	con->k = (struct kbd) { 0 };
 	memset(con->esc_buf, 0, ESC_BUF_SIZE);
 	con->esc_buf_p = 0;
 	con->state = NORMAL;
+}
+
+void console_reset(struct console *con)
+{
+	console_soft_reset(con);
+	memsetw(con->mem, SPACE, SCREEN_BUF_SIZE);
 }
 
 void console_init()

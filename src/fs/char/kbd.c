@@ -155,7 +155,7 @@ unsigned int get_e0_key(unsigned int code)
 	return 0;
 }
 
-void csi(struct tty_struct *tty, unsigned int __k)
+static void handle_cursor_key(struct tty_struct *tty, struct console *con, unsigned int __k)
 {
 	char c;
 
@@ -172,11 +172,17 @@ void csi(struct tty_struct *tty, unsigned int __k)
 	case LEFT:
 		c = 'D';
 		break;
+	case HOME:
+		c = 'H';
+		break;
+	case END:
+		c = 'F';
+		break;
 	default:
 		return;
 	}
 	tty_receive_c(tty, '\033');
-	tty_receive_c(tty, '[');
+	tty_receive_c(tty, con->k.cursor_app ? 'O' : '[');
 	tty_receive_c(tty, c);
 }
 
@@ -244,14 +250,16 @@ void handle_key(struct tty_struct *tty, struct console *con)
 				case BACKSPACE:
 					tty_receive_c(tty, 0x7f);
 					break;
+				case ESC:
+					tty_receive_c(tty, 033);
+					break;
 				case LEFT:
 				case RIGHT:
 				case UP:
 				case DOWN:
-					csi(tty, ch);;
-					break;
-				case ESC:
-					tty_receive_c(tty, 033);
+				case HOME:
+				case END:
+					handle_cursor_key(tty, con, ch);
 					break;
 				case DELETE:
 					tty_receive_s(tty, "\033[3~");
@@ -264,12 +272,6 @@ void handle_key(struct tty_struct *tty, struct console *con)
 					break;
 				case PGUP:
 					tty_receive_s(tty, "\033[5~");
-					break;
-				case HOME:
-					tty_receive_s(tty, "\033[1~");
-					break;
-				case END:
-					tty_receive_s(tty, "\033[4~");
 					break;
 				case F1:
 					switch_fg_console(0);

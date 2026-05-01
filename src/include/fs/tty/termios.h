@@ -112,4 +112,8 @@ struct winsize {
     unsigned short ws_xpixel, ws_ypixel; // UNUSED
 };
 
+#define TCIFLUSH  0
+#define TCOFLUSH  1
+#define TCIOFLUSH 2
+
 #endif /* _TERMIOS_H */

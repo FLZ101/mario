@@ -425,6 +425,15 @@ static int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned
 				return err;
 			put_fs_long(tty->session, (pid_t *) arg);
 			return 0;
+		case TCFLSH:
+			switch (arg) {
+			case TCOFLUSH:
+				return 0;
+			case TCIFLUSH:
+			case TCIOFLUSH:
+				ring_buffer_clear(&tty->read_buf);
+				return 0;
+			}
 	}
 	return -EINVAL;
 }

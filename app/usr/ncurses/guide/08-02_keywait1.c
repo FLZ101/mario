@@ -1,4 +1,5 @@
 #include <ncurses.h>
+#include <unistd.h>
 
 int main()
 {
@@ -17,9 +18,9 @@ int main()
 	{
 		printw("%d\r",value++);
 		refresh();
+		sleep(1);
 	}
-	
+
 	endwin();
 	return 0;
 }
-

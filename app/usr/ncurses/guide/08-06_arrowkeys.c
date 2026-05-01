@@ -3,7 +3,7 @@
 int main()
 {
 	int ch;
-	
+
 	initscr();
 
 	keypad(stdscr,TRUE);
@@ -23,13 +23,34 @@ int main()
 				break;
 			case KEY_RIGHT:
 				addstr("Right\n");
-			default:
 				break;
-		}
+            case KEY_HOME:
+                addstr("Home\n");
+                break;
+            case KEY_END:
+                addstr("End\n");
+                break;
+            case KEY_NPAGE:
+                addstr("Page Down\n");
+                break;
+            case KEY_PPAGE:
+                addstr("Page Up\n");
+                break;
+			case KEY_BACKSPACE:
+				addstr("Backspace\n");
+				break;
+			case KEY_IC:
+				addstr("Insert\n");
+				break;
+			case KEY_DC:
+				addstr("Delete\n");
+				break;
+            default:
+                break;
+            }
 		refresh();
 	} while(ch != '\n');
-	
+
 	endwin();
 	return 0;
 }
-
