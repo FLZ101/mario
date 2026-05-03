@@ -113,6 +113,7 @@ struct inode {
 	unsigned long i_count;
 	umode_t i_mode;
 	nlink_t i_nlink;	/* Currently I don't care about this field */
+	int64_t i_atime, i_mtime, i_ctime;
 	union {
 		struct mario_inode_info mario_i;
 		struct pipe_inode_info pipe_i;

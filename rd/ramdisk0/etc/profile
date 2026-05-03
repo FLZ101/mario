@@ -8,3 +8,6 @@ export TERMINFO=/usr/share/terminfo
 
 # set -o vi
 export PS1='\W \$ '
+
+export LC_ALL=C
+export LANG=C

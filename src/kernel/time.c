@@ -10,7 +10,7 @@
 
 #include <mm/uaccess.h>
 
-time_t boot_time_sec = 0;
+volatile time_t boot_time_sec = 0;
 
 #define LATCH (1193180/HZ)
 
@@ -122,6 +122,14 @@ static int do_clock_gettime64(clockid_t clockid, struct timespec64 *tp)
 	}
 	return 0;
 }
+
+uint64_t current_time()
+{
+	struct timespec64 t;
+	(void) do_clock_gettime64(CLOCK_REALTIME, &t);
+	return t.tv_sec;
+}
+
 
 int sys_clock_gettime64(clockid_t clockid, struct timespec64 *tp)
 {

@@ -30,6 +30,7 @@ OKSH_DIR	:= ../app/usr/oksh-7.8-install
 TOYBOX_DIR	:= ../app/usr/toybox-0.8.9-install
 SBASE_DIR	:= ../app/usr/sbase-install
 UBASE_DIR	:= ../app/usr/ubase-install
+VIM_DIR		:= ../app/usr/vim-9.2.0428-install
 
 rd0_files := $(shell find ramdisk0 -type f)
 rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
@@ -39,6 +40,7 @@ rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	$(wildcard $(TOYBOX_DIR)/**/*.exe) \
 	$(wildcard $(SBASE_DIR)/**/*.exe) \
 	$(wildcard $(UBASE_DIR)/**/*.exe) \
+	$(wildcard $(VIM_DIR)/**/*.exe) \
 	$(rd0_files) device_list
 
 	mkdir -p ramdisk0/{bin/example,bin/test,mnt,root/work,usr/share/terminfo}
@@ -63,8 +65,8 @@ rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	mkdir -p ramdisk0/bin/ncurses
 	cp -u $(NCURSES_PROGRAMS_DIR)/*.exe ramdisk0/bin/ncurses
 
-	mkdir -p ramdisk0/bin/ncurses/guide
-	cp -u $(NCURSES_PROGRAMS_DIR)/guide/*.exe ramdisk0/bin/ncurses/guide
+# 	mkdir -p ramdisk0/bin/ncurses/guide
+# 	cp -u $(NCURSES_PROGRAMS_DIR)/guide/*.exe ramdisk0/bin/ncurses/guide
 
 	# toybox
 	mkdir -p ramdisk0/bin/toybox
@@ -77,6 +79,11 @@ rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	# ubase
 	mkdir -p ramdisk0/bin/ubase
 	cp -u --no-dereference $(UBASE_DIR)/bin/* ramdisk0/bin/ubase
+
+	# vim
+	mkdir -p ramdisk0/usr/share
+	cp -u --no-dereference $(VIM_DIR)/bin/* ramdisk0/bin/
+	cp -u -r $(VIM_DIR)/share/vim ramdisk0/usr/share
 
 	# strip executables
 	chmod +w ramdisk0/bin/toybox/toybox

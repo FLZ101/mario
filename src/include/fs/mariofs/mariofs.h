@@ -35,6 +35,10 @@ struct mario_dir_entry {
 	 * special file this field is 0
 	 */
 	__u32 blocks;
+
+	/* access time and modification time. ctime (change time) is always the same as mtime */
+	__s32 atime, mtime;
+
 	char name[MARIO_NAME_LEN];
 } __attribute__((gcc_struct, packed));
 
@@ -51,6 +55,7 @@ struct mario_super_block {
 	__u32 nr_free;		/* the number of free blocks */
 	__u32 magic;		/* mariofs magic number */
 	__u32 free;		/* free block chain */
+	__s64 time_base;
 	/*
 	 * root directory entry
 	 */
@@ -60,9 +65,12 @@ struct mario_super_block {
 #define MARIO_ROOT_INO	((size_t) &((struct mario_super_block *)0)->root)
 
 struct mario_inode_info {
+	__s32 atime, mtime;
 	char name[MARIO_NAME_LEN];
 };
 
+#define MARIO_INODE_ATIME(i)	((i)->u.mario_i.atime)
+#define MARIO_INODE_MTIME(i)	((i)->u.mario_i.mtime)
 #define MARIO_INODE_NAME(i)	((i)->u.mario_i.name)
 
 struct mario_sb_info {
@@ -70,6 +78,7 @@ struct mario_sb_info {
 	unsigned long nr_blocks;
 	unsigned long nr_free;
 	unsigned long free;
+	__s64 time_base;
 	struct mario_dir_entry root;
 };
 
@@ -78,6 +87,7 @@ struct mario_sb_info {
 #define MARIO_NR_FREE(sb)	((sb)->u.mario_sb.nr_free)
 #define MARIO_FREE(sb)		((sb)->u.mario_sb.free)
 #define MARIO_ROOT(sb)		((sb)->u.mario_sb.root)
+#define MARIO_TIME_BASE(sb)		((sb)->u.mario_sb.time_base)
 
 extern struct file_system_type mariofs;
 

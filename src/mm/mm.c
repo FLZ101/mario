@@ -509,3 +509,8 @@ unsigned long sys_brk(unsigned long brk)
 	current->mm->brk = brk;
 	return brk;
 }
+
+int sys_mprotect(void *addr, size_t len, int prot)
+{
+	return 0;
+}

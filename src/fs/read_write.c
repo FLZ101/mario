@@ -38,6 +38,15 @@ int sys_lseek(unsigned int fd, off_t offset, unsigned int origin)
 	return f->f_pos = tmp;
 }
 
+int sys__llseek(unsigned int fd, unsigned long offset_high,
+	unsigned long offset_low, loff_t *result, unsigned int whence)
+{
+	int err = sys_lseek(fd, offset_low, whence);
+	if (err >= 0)
+		*result = err;
+	return err;
+}
+
 int sys_read(unsigned int fd, char *buf, unsigned int count)
 {
 	int error;

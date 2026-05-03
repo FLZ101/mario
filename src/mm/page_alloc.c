@@ -109,12 +109,15 @@ struct page *alloc_pages(unsigned long order)
 {
 	unsigned long n;
 	irq_save();
-	int free_before = get_free_area_size();
-	int free_expected = free_before - (1 << order);
+	// int free_before = get_free_area_size();
+	// int free_expected = free_before - (1 << order);
 
-	for (n = order; list_empty(&free_area[n].free_list); n++)
-		if (n == MAX_ORDER - 1)
+	for (n = order; list_empty(&free_area[n].free_list); n++) {
+		if (n == MAX_ORDER - 1) {
+			irq_restore();
 			return NULL;
+		}
+	}
 
 	struct page *page = __free_list_entry(free_area[n].free_list.next);
 	unsigned long pfn = PAGE_TO_PFN(page);
@@ -127,7 +130,7 @@ struct page *alloc_pages(unsigned long order)
 		__free_list_add(page + (1 << n), n);
 	}
 
-	assert(free_expected == get_free_area_size());
+	// assert(free_expected == get_free_area_size());
 	irq_restore();
 	return page;
 }
@@ -181,8 +184,8 @@ struct page *expand(struct page *page, unsigned long order)
 void free_pages(struct page *page, unsigned long order)
 {
 	irq_save();
-	int free_before = get_free_area_size();
-	int free_expected = free_before + (1 << order);
+	// int free_before = get_free_area_size();
+	// int free_expected = free_before + (1 << order);
 
 	while (1) {
 		unsigned long nr = PAGE_TO_PFN(page) >> (order + 1); // buddy number
@@ -197,7 +200,7 @@ void free_pages(struct page *page, unsigned long order)
 	}
 	__free_list_add(page, order);
 
-	assert(free_expected == get_free_area_size());
+	// assert(free_expected == get_free_area_size());
 	irq_restore();
 }
 

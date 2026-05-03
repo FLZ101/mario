@@ -33,3 +33,5 @@ ncurses/%.exe: ncurses/%.c
 		-ggdb -O0 -fno-omit-frame-pointer \
 		-L$(NCURSES_INSTALL_DIR)/lib -static \
 		-lncurses
+
+include vim.mk

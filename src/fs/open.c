@@ -268,3 +268,51 @@ int sys_access(const char *pathname, int mode)
 {
 	return sys_faccessat(AT_FDCWD, pathname, mode, 0);
 }
+
+extern uint64_t current_time();
+
+static int do_utimensat(struct inode *inode, struct timespec64 *times, int flags)
+{
+	int err;
+
+	uint64_t cur = current_time();
+
+	if (!times) {
+		inode->i_atime = inode->i_mtime = cur;
+	} else {
+		err = verify_area(VERIFY_READ, times, 2 * sizeof(struct timespec64));
+		if (err)
+			return err;
+
+		struct timespec64 ktimes[2];
+		memcpy_fromfs(ktimes, times, 2 * sizeof(struct timespec64));
+
+		if (ktimes[0].tv_nsec == UTIME_NOW) {
+			inode->i_atime = cur;
+		} else if (ktimes[0].tv_nsec != UTIME_OMIT) {
+			inode->i_atime = ktimes[0].tv_sec;
+		}
+
+		if (ktimes[1].tv_nsec == UTIME_NOW) {
+			inode->i_mtime = cur;
+		} else if (ktimes[1].tv_nsec != UTIME_OMIT) {
+			inode->i_mtime = ktimes[1].tv_sec;
+		}
+	}
+	inode->i_ctime = cur;
+	set_bit(I_Dirty, &inode->i_state);
+	return 0;
+}
+
+int sys_utimensat(int dirfd, char *pathname, struct timespec64 *times, int flags)
+{
+	struct inode *inode;
+	int err = namei_at(dirfd, pathname, &inode, !(flags & AT_SYMLINK_NOFOLLOW));
+	if (err)
+		return err;
+
+	err = do_utimensat(inode, times, flags);
+
+	iput(inode);
+	return err;
+}

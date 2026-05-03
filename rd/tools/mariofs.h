@@ -35,6 +35,10 @@ struct mario_dir_entry {
 	 * special file this field is 0
 	 */
 	uint32_t blocks;
+
+	/* access time and modification time. ctime (change time) is always the same as mtime */
+	int32_t atime, mtime;
+
 	char name[MARIO_NAME_LEN];
 } __attribute__((gcc_struct, packed));
 
@@ -62,6 +66,7 @@ struct mario_super_block {
 	uint32_t nr_free;	/* the number of free blocks */
 	uint32_t magic;		/* mariofs magic number */
 	uint32_t free;		/* free block chain */
+	int64_t time_base;
 	struct mario_dir_entry root;	/* root directory */
 } __attribute__((gcc_struct, packed));
 

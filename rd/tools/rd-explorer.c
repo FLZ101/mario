@@ -16,6 +16,7 @@ char cwd[1024];
 
 struct mario_dir_entry cur_dir_entry;
 uint32_t block_size;
+uint64_t time_base;
 
 #define MAX_USED	(block_size - 4)
 
@@ -31,6 +32,7 @@ void init_explorer(void)
 	}
 	memcpy(&cur_dir_entry, &sb.root, sizeof(cur_dir_entry));
 	block_size = sb.block_size;
+	time_base = sb.time_base;
 	strcpy(cwd, "/");
 
 	printf("The following build-in commands is supported:\n"
@@ -190,7 +192,7 @@ void help(void)
 	printf("help        Display this help text\n");
 	printf("ls          List entries in CWD\n");
 	printf("NOTE:\n");
-	printf("    DIR and FILE must be a SIMPLE name, ie they "
+	printf("    DIR and FILE must be a SIMPLE name, i.e. they "
 		"couldn't contain '/'\n");
 }
 
@@ -221,6 +223,9 @@ void print_entry(struct mario_dir_entry *entry)
 	else
 		printf("%-8u   ", 0);
 	printf("%-8u   ", entry->blocks);
+
+	printf("%-12ld ", entry->mtime + time_base);
+
 	printf("%s", entry->name);
 
 	if (entry->mode == MODE_LNK) {
@@ -239,8 +244,8 @@ void ls(void)
 	n = MAX_USED / sizeof(entry);
 	offset = cur_dir_entry.data * block_size;
 
-	printf("TYPE  DATA       SIZE       BLOCKS     NAME\n");
-	printf("-------------------------------------------\n");
+	printf("TYPE  DATA       SIZE       BLOCKS     TIME         NAME\n");
+	printf("--------------------------------------------------------\n");
 
 scan_a_new_block:
 	for (i = 0; i < n; i++) {

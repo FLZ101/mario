@@ -235,6 +235,38 @@ mode_t sys_umask(mode_t mask)
 	return 0;
 }
 
+struct sysinfo {
+	unsigned long uptime;
+	unsigned long loads[3];
+	unsigned long totalram;
+	unsigned long freeram;
+	unsigned long sharedram;
+	unsigned long bufferram;
+	unsigned long totalswap;
+	unsigned long freeswap;
+	unsigned short procs, pad;
+	unsigned long totalhigh;
+	unsigned long freehigh;
+	unsigned mem_unit;
+	char __reserved[256];
+};
+
+extern volatile time_t boot_time_sec;
+
+int sys_sysinfo(struct sysinfo *info)
+{
+	int err = verify_area(VERIFY_WRITE, info, sizeof(*info));
+	if (err)
+		return err;
+
+	struct sysinfo k = {
+		.uptime = boot_time_sec,
+		.mem_unit = 1
+	};
+	memcpy_tofs(info, &k, sizeof(k));
+	return 0;
+}
+
 int sys_not_exist(struct trap_frame tr)
 {
 	switch (tr.eax) {

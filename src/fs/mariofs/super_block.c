@@ -165,6 +165,10 @@ static int mario_read_inode(struct inode *i)
 		i->i_fop = NULL;
 	}
 
+	i->i_atime = MARIO_TIME_BASE(i->i_sb) + entry->atime;
+	i->i_mtime = MARIO_TIME_BASE(i->i_sb) + entry->mtime;
+	i->i_ctime = MARIO_TIME_BASE(i->i_sb) + entry->mtime;
+
 	if (bh)
 		brelse(bh);
 	return 0;
@@ -187,6 +191,10 @@ static int mario_write_inode(struct inode *i)
 	entry->mode = i->i_mode;
 	entry->size = i->i_size;
 	entry->blocks = i->i_nr_block;
+
+	entry->atime = i->i_atime - MARIO_TIME_BASE(i->i_sb);
+	entry->mtime = i->i_mtime - MARIO_TIME_BASE(i->i_sb);
+
 	strcpy(entry->name, MARIO_INODE_NAME(i));
 	set_dirty(bh);
 	brelse(bh);
@@ -238,6 +246,7 @@ static struct super_block *mario_read_super(struct super_block *sb)
 	MARIO_NR_BLOCKS(sb) = mario_sb->nr_blocks;
 	MARIO_NR_FREE(sb) = mario_sb->nr_free;
 	MARIO_FREE(sb) = mario_sb->free;
+	MARIO_TIME_BASE(sb) = mario_sb->time_base;
 	MARIO_ROOT(sb) = mario_sb->root;
 
 	sb->s_block_size = mario_sb->block_size;

@@ -432,7 +432,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_vm86old */
 	.long sys_wait4
 	.long sys_not_exist /* SYS_swapoff */
-	.long sys_not_exist /* SYS_sysinfo */
+	.long sys_sysinfo
 	.long sys_not_exist /* SYS_ipc */
 	.long sys_not_exist /* SYS_fsync */
 	.long sys_sigreturn
@@ -441,7 +441,7 @@ ENTRY(sys_call_table)
 	.long sys_uname
 	.long sys_modify_ldt
 	.long sys_not_exist /* SYS_adjtimex */
-	.long sys_not_exist /* SYS_mprotect */
+	.long sys_mprotect
 	.long sys_sigprocmask
 	.long sys_not_exist /* SYS_create_module */
 	.long sys_not_exist /* SYS_init_module */
@@ -456,7 +456,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_afs_syscall */
 	.long sys_not_exist /* SYS_setfsuid */
 	.long sys_not_exist /* SYS_setfsgid */
-	.long sys_not_exist /* SYS__llseek */
+	.long sys__llseek
 	.long sys_getdents
 	.long sys_select /* SYS__newselect */
 	.long sys_not_exist /* SYS_flock */
@@ -636,7 +636,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_move_pages */
 	.long sys_not_exist /* SYS_getcpu */
 	.long sys_not_exist /* SYS_epoll_pwait */
-	.long sys_not_exist /* SYS_utimensat */
+	.long sys_utimensat
 	.long sys_not_exist /* SYS_signalfd */
 	.long sys_not_exist /* SYS_timerfd_create */
 	.long sys_not_exist /* SYS_eventfd */

@@ -25,6 +25,12 @@ int sys_statx(int dirfd, char *pathname, int flags, unsigned int mask, struct st
 	tmp.stx_blocks = inode->i_nr_block;
 	tmp.stx_uid = 0;
 	tmp.stx_gid = 0;
+
+	tmp.stx_atime.tv_sec = inode->i_atime;
+	tmp.stx_mtime.tv_sec = inode->i_mtime;
+	tmp.stx_ctime.tv_sec = inode->i_ctime;
+	tmp.stx_btime.tv_sec = inode->i_mtime;
+
 	tmp.stx_mask = STATX_BASIC_STATS;
 	memcpy_tofs((char *)statxbuf, (char *)&tmp, sizeof(tmp));
 

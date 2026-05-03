@@ -26,6 +26,8 @@ typedef int pid_t;
 typedef long off_t;
 typedef long long off64_t;
 
+typedef long long loff_t;
+
 typedef int ssize_t;
 typedef unsigned int size_t;
 

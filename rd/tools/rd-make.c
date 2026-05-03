@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "mariofs.h"
 
@@ -298,6 +299,7 @@ void make_begin(void)
 	sb.sector_size = 512;
 	sb.block_size = block_size;
 	sb.magic = MARIO_MAGIC;
+	sb.time_base = time(NULL);
 
 	sb.root.mode = MODE_DIR;
 	sb.root.flags = 7;
@@ -359,6 +361,8 @@ void pass1(void)
 		}
 
 		tmp.flags = 7;
+		tmp.atime = 0;
+		tmp.mtime = 0;
 		memset(tmp.name, 0, MARIO_NAME_LEN);
 		strcpy(tmp.name, entry->d_name);
 		pour_data(&tmp, sizeof(tmp), 1);

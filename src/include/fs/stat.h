@@ -37,10 +37,10 @@ struct statx {
 	uint64_t stx_size;
 	uint64_t stx_blocks;
 	uint64_t stx_attributes_mask;
-	struct statx_timestamp stx_atime;
-	struct statx_timestamp stx_btime;
-	struct statx_timestamp stx_ctime;
-	struct statx_timestamp stx_mtime;
+	struct statx_timestamp stx_atime; /* Last access */
+	struct statx_timestamp stx_btime; /* Creation */
+	struct statx_timestamp stx_ctime; /* Last status change */
+	struct statx_timestamp stx_mtime; /* Last modification */
 	uint32_t stx_rdev_major;
 	uint32_t stx_rdev_minor;
 	uint32_t stx_dev_major;
@@ -90,5 +90,8 @@ struct statx {
 #define S_IXOTH 0001
 #define S_IRWXO 0007
 #endif
+
+#define UTIME_NOW  0x3fffffff
+#define UTIME_OMIT 0x3ffffffe
 
 #endif /* _STAT_H */
