@@ -2,6 +2,8 @@
 
 extern int get_base_inode(int dirfd, int path_empty, struct inode **res_inode);
 
+extern uint64_t current_time();
+
 /*
  * Note that while the flag value (low two bits) for sys_open means:
  *	00 - read-only
@@ -68,6 +70,7 @@ int do_openat(unsigned int dirfd, char *filename, int flags)
 	}
 	current->files->fd[fd] = f;
 	f->f_flags &= ~(O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC);
+	i->i_atime = i->i_mtime = i->i_ctime = current_time();
 	return fd;
 }
 
@@ -269,34 +272,23 @@ int sys_access(const char *pathname, int mode)
 	return sys_faccessat(AT_FDCWD, pathname, mode, 0);
 }
 
-extern uint64_t current_time();
-
 static int do_utimensat(struct inode *inode, struct timespec64 *times, int flags)
 {
-	int err;
-
 	uint64_t cur = current_time();
 
 	if (!times) {
 		inode->i_atime = inode->i_mtime = cur;
 	} else {
-		err = verify_area(VERIFY_READ, times, 2 * sizeof(struct timespec64));
-		if (err)
-			return err;
-
-		struct timespec64 ktimes[2];
-		memcpy_fromfs(ktimes, times, 2 * sizeof(struct timespec64));
-
-		if (ktimes[0].tv_nsec == UTIME_NOW) {
+		if (times[0].tv_nsec == UTIME_NOW) {
 			inode->i_atime = cur;
-		} else if (ktimes[0].tv_nsec != UTIME_OMIT) {
-			inode->i_atime = ktimes[0].tv_sec;
+		} else if (times[0].tv_nsec != UTIME_OMIT) {
+			inode->i_atime = times[0].tv_sec;
 		}
 
-		if (ktimes[1].tv_nsec == UTIME_NOW) {
+		if (times[1].tv_nsec == UTIME_NOW) {
 			inode->i_mtime = cur;
-		} else if (ktimes[1].tv_nsec != UTIME_OMIT) {
-			inode->i_mtime = ktimes[1].tv_sec;
+		} else if (times[1].tv_nsec != UTIME_OMIT) {
+			inode->i_mtime = times[1].tv_sec;
 		}
 	}
 	inode->i_ctime = cur;
@@ -304,15 +296,59 @@ static int do_utimensat(struct inode *inode, struct timespec64 *times, int flags
 	return 0;
 }
 
-int sys_utimensat(int dirfd, char *pathname, struct timespec64 *times, int flags)
+int sys_utimensat_time64(int dirfd, char *pathname, struct timespec64 *times, int flags)
 {
 	struct inode *inode;
 	int err = namei_at(dirfd, pathname, &inode, !(flags & AT_SYMLINK_NOFOLLOW));
 	if (err)
 		return err;
 
-	err = do_utimensat(inode, times, flags);
+	struct timespec64 k[2];
 
+	if (times) {
+		err = verify_area(VERIFY_READ, times, sizeof(k));
+		if (err)
+			goto tail;
+		memcpy_fromfs(k, times, sizeof(k));
+	}
+
+	err = do_utimensat(inode, times ? k : NULL, flags);
+
+tail:
 	iput(inode);
 	return err;
+}
+
+int sys_utimensat(int dirfd, char *pathname, struct timespec *times, int flags)
+{
+	struct inode *inode;
+	int err = namei_at(dirfd, pathname, &inode, !(flags & AT_SYMLINK_NOFOLLOW));
+	if (err)
+		return err;
+
+	struct timespec k[2];
+	struct timespec64 k64[2];
+
+	if (times) {
+		err = verify_area(VERIFY_READ, times, sizeof(k));
+		if (err)
+			goto tail;
+		memcpy_fromfs(k, times, sizeof(k));
+
+		k64[0].tv_sec = k[0].tv_sec;
+		k64[0].tv_nsec = k[0].tv_nsec;
+		k64[1].tv_sec = k[1].tv_sec;
+		k64[1].tv_nsec = k[1].tv_nsec;
+	}
+
+	err = do_utimensat(inode, times ? k64 : NULL, flags);
+
+tail:
+	iput(inode);
+	return err;
+}
+
+int sys_fsync(int fd)
+{
+	return 0;
 }

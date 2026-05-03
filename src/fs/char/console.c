@@ -39,7 +39,7 @@ int is_system_console(struct console *con)
 	return con == console_table;
 }
 
-volatile int debug_console = 0;
+volatile int debug_console = 1;
 
 #define DEBUG_PRINTK(...) do { \
 	if (debug_console && !is_system_console(con)) \
@@ -1065,35 +1065,40 @@ void console_write_char(struct console *con, unsigned char c)
 	if (!c)
 		return;
 
-	if (isprint(c))
-		DEBUG_PRINTK("%c", c);
-	else
-		DEBUG_PRINTK("\\d%d", c);
+#if 0
+	if (c != ' ' && c != '\t') {
+		if (isprint(c))
+			DEBUG_PRINTK("%c", c);
+		else
+			DEBUG_PRINTK("\\d%d", c);
+	}
+#endif
 
+	// Only accept 7-bit control characters
 	switch (con->state) {
 	case NORMAL:
 		if (c == '\033') {
 			con->state = ESC;
-			con->esc_time = jiffies;
 		} else {
 			return write_char(con, c, 1);
 		}
 		break;
 
 	case ESC:
-		if (jiffies - con->esc_time > 25) {
-			// Timeout. ESC is not considered the start of an escape sequence
-			con->state = NORMAL;
-			console_write_char(con, c);
-			break;
-		}
-
 		switch (c) {
 		case '\033':
 			break;
 		case '[':
 			reset_esc_buf(con);
 			con->state = CSI;
+			break;
+		case ']':
+			reset_esc_buf(con);
+			con->state = OSC;
+			break;
+		case 'P':
+			reset_esc_buf(con);
+			con->state = DCS;
 			break;
 		case '(':
 			con->state = CHARSET_G0;
@@ -1172,15 +1177,39 @@ void console_write_char(struct console *con, unsigned char c)
 			break;
 		}
 		if (into_esc_buf(con, c))
-			con->state = BAD;
+			con->state = CSI_BAD;
 		break;
-	case BAD:
+	case CSI_BAD:
 		if (isalpha(c)) {
 			con->state = NORMAL;
 		} else if (c == '\033') {
 			con->state = ESC;
-			con->esc_time = jiffies;
 		}
+		break;
+	case OSC:
+		if (c == 0x07) {
+			// BEL
+			con->state = NORMAL;
+		} else if (c == '\033') {
+			con->state = OSC_ST;
+		}
+		break;
+	case OSC_ST:
+		if (c != '\\') {
+			DEBUG_PRINTK("'\\' is expected in OSC_ST state: \\d%d\n", c);
+		}
+		con->state = NORMAL;
+		break;
+	case DCS:
+		if (c == '\033') {
+			con->state = DCS_ST;
+		}
+		break;
+	case DCS_ST:
+		if (c != '\\') {
+			DEBUG_PRINTK("'\\' is expected in DCS_ST state: \\d%d\n", c);
+		}
+		con->state = NORMAL;
 		break;
 	default:
 		DEBUG_PRINTK("Unexpected char: \\d%d\n", c);
@@ -1252,7 +1281,6 @@ void console_soft_reset(struct console *con)
 	con->bold = 0;
 	con->pending_wrap = 0;
 	con->pgc = '\0';
-	con->esc_time = 0;
 
 	con->k = (struct kbd) { 0 };
 	memset(con->esc_buf, 0, ESC_BUF_SIZE);

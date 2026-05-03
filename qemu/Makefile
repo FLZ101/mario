@@ -42,11 +42,15 @@ clean:
 #
 #		Ctrl+a x
 
+ifneq ($(QEMU_DISPLAY),gtk)
+QEMU_DISPLAY	:=curses
+endif
+
 QEMU_FLAGS := \
 	-boot order=c \
 	-m 256M \
 	-drive file=hd.img,format=raw,index=0,media=disk \
-	-display curses \
+	-display $(QEMU_DISPLAY) \
 	-no-reboot -no-shutdown
 
 run:
@@ -62,7 +66,7 @@ QUICK_QEMU_FLAGS := \
 	-m 256M \
 	-kernel tmp/kernel.exe \
 	-initrd tmp/rdx \
-	-display curses \
+	-display $(QEMU_DISPLAY) \
 	-no-reboot -no-shutdown
 
 quick-run: tmp/kernel.exe tmp/rdx

@@ -2,7 +2,8 @@ RM	:= rm -f
 
 ROOT := $(shell pwd)
 
-.PHONY: all kernel rd app libc image run debug quick-run quick-debug musl
+.PHONY: all kernel rd app libc image run debug \
+	quick-run quick-debug quick-run-gtk quick-debug-gtk musl
 
 .PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image clean-musl
 
@@ -58,6 +59,12 @@ quick-run:
 quick-debug:
 	$(MAKE) quick-debug -C qemu
 
+quick-run-gtk:
+	$(MAKE) QEMU_DISPLAY=gtk quick-run -C qemu
+
+quick-debug-gtk:
+	$(MAKE) QEMU_DISPLAY=gtk quick-debug -C qemu
+
 clean: clean-kernel clean-rd clean-app clean-libc clean-image
 	$(RM) $(COMPILE_COMMANDS_JSON)
 
@@ -81,4 +88,4 @@ clean-image:
 
 .PHONY: tmux-run tmux-debug tmux-attach tmux-kill
 tmux-run tmux-debug tmux-attach tmux-kill:
-	$(MAKE) $@ -C qemu
+	$(MAKE) $@ QEMU_DISPLAY=curses -C qemu

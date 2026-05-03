@@ -434,7 +434,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_swapoff */
 	.long sys_sysinfo
 	.long sys_not_exist /* SYS_ipc */
-	.long sys_not_exist /* SYS_fsync */
+	.long sys_fsync
 	.long sys_sigreturn
 	.long sys_not_exist /* SYS_clone */
 	.long sys_not_exist /* SYS_setdomainname */
@@ -728,7 +728,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_timer_settime64 */
 	.long sys_not_exist /* SYS_timerfd_gettime64 */
 	.long sys_not_exist /* SYS_timerfd_settime64 */
-	.long sys_not_exist /* SYS_utimensat_time64 */
+	.long sys_utimensat_time64
 	.long sys_not_exist /* SYS_pselect6_time64 */
 	.long sys_not_exist /* SYS_ppoll_time64 */
 	.long sys_not_exist

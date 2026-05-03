@@ -25,7 +25,11 @@ enum esc_state {
 	CSI_I,		// !
 	CHARSET_G0,	// Designate G0 Character Set, VT100, ISO 2022.
 	CHARSET_G1,
-	BAD
+	CSI_BAD,
+	OSC,		// Operating System Command
+	OSC_ST,
+	DCS,		// Device Control String
+	DCS_ST,
 };
 
 struct console {
@@ -33,8 +37,6 @@ struct console {
 
 	char esc_buf[ESC_BUF_SIZE];
 	int esc_buf_p;
-
-	long esc_time;
 
 	enum esc_state state;
 

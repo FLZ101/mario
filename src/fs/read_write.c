@@ -30,9 +30,9 @@ int sys_lseek(unsigned int fd, off_t offset, unsigned int origin)
 	}
 
 	/*
-	 * file position can not be bigger than file size !!!
+	 * File hole is not supported yet
 	 */
-	if (tmp < 0 || tmp >= f->f_inode->i_size)
+	if (tmp < 0 || tmp > f->f_inode->i_size)
 		return -EINVAL;
 
 	return f->f_pos = tmp;
@@ -41,9 +41,20 @@ int sys_lseek(unsigned int fd, off_t offset, unsigned int origin)
 int sys__llseek(unsigned int fd, unsigned long offset_high,
 	unsigned long offset_low, loff_t *result, unsigned int whence)
 {
-	int err = sys_lseek(fd, offset_low, whence);
-	if (err >= 0)
-		*result = err;
+	int err = verify_area(VERIFY_WRITE, result, sizeof(loff_t));
+	if (err)
+		return err;
+
+	loff_t offset = ((loff_t) offset_high << 32) | offset_low;
+	if (offset != (loff_t) (off_t) offset)
+		return -EINVAL;
+
+	err = sys_lseek(fd, offset, whence);
+	if (err >= 0) {
+		loff_t tmp = err;
+		memcpy_tofs(result, &tmp, sizeof(loff_t));
+		return 0; // !!!
+	}
 	return err;
 }
 
