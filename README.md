@@ -1,6 +1,14 @@
-A simple UNIX-like OS for x86.
+A simple Linux clone for x86.
 
-![](screenshot/20220122.png)
+## Screenshots
+
+![](screenshot/20260504-startup.png)
+
+![](screenshot/20260504-oksh.png)
+
+![](screenshot/20260504-vim-1.png)
+
+![](screenshot/20260504-vim-2.png)
 
 ## Prerequisites
 
@@ -9,9 +17,9 @@ $ sudo dnf install make gcc binutils nasm qemu-system-x86 gdb
 
 $ sudo dnf install wget
 
-$ sudo dnf install socat tmux
-
 $ sudo dnf install autoconf automake libtool
+
+$ sudo dnf install socat tmux
 ```
 
 ## Build
@@ -26,10 +34,18 @@ $ make
 $ make quick-run
 ```
 
+```
+$ make quick-run-gtk
+```
+
 ## Debug
 
 ```
 $ make quick-debug
+```
+
+```
+$ make quick-debug-gtk
 ```
 
 ```
