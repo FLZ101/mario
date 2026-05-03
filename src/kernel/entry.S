@@ -331,8 +331,8 @@ ENTRY(sys_call_table)
 	.long sys_chdir
 	.long sys_not_exist /* SYS_time. Obsolete */
 	.long sys_mknod
-	.long sys_not_exist /* SYS_chmod */
-	.long sys_not_exist /* SYS_lchown */
+	.long sys_chmod
+	.long sys_lchown
 	.long sys_not_exist /* SYS_break */
 	.long sys_not_exist /* SYS_oldstat */
 	.long sys_lseek
@@ -410,8 +410,8 @@ ENTRY(sys_call_table)
 	.long sys_munmap
 	.long sys_truncate
 	.long sys_ftruncate
-	.long sys_not_exist /* SYS_fchmod */
-	.long sys_not_exist /* SYS_fchown */
+	.long sys_fchmod
+	.long sys_fchown
 	.long sys_not_exist /* SYS_getpriority */
 	.long sys_not_exist /* SYS_setpriority */
 	.long sys_not_exist /* SYS_profil */
@@ -498,7 +498,7 @@ ENTRY(sys_call_table)
 	.long sys_sigsuspend /* SYS_rt_sigsuspend */
 	.long sys_not_exist /* SYS_pread64 */
 	.long sys_not_exist /* SYS_pwrite64 */
-	.long sys_not_exist /* SYS_chown */
+	.long sys_chown
 	.long sys_getcwd
 	.long sys_not_exist /* SYS_capget */
 	.long sys_not_exist /* SYS_capset */
@@ -614,7 +614,7 @@ ENTRY(sys_call_table)
 	.long sys_openat
 	.long sys_not_exist /* SYS_mkdirat */
 	.long sys_not_exist /* SYS_mknodat */
-	.long sys_not_exist /* SYS_fchownat */
+	.long sys_fchownat
 	.long sys_not_exist /* SYS_futimesat */
 	.long sys_not_exist /* SYS_fstatat64 */
 	.long sys_not_exist /* SYS_unlinkat */
@@ -622,7 +622,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_linkat */
 	.long sys_symlinkat
 	.long sys_readlinkat
-	.long sys_not_exist /* SYS_fchmodat */
+	.long sys_fchmodat
 	.long sys_faccessat
 	.long sys_not_exist /* SYS_pselect6 */
 	.long sys_not_exist /* SYS_ppoll */
@@ -768,7 +768,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_futex_waitv */
 	.long sys_not_exist /* SYS_set_mempolicy_home_node */
 	.long sys_not_exist /* SYS_cachestat */
-	.long sys_not_exist /* SYS_fchmodat2 */
+	.long sys_fchmodat2
 	.long sys_not_exist /* SYS_map_shadow_stack */
 	.long sys_not_exist /* SYS_futex_wake */
 	.long sys_not_exist /* SYS_futex_wait */

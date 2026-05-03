@@ -37,3 +37,58 @@ int sys_statx(int dirfd, char *pathname, int flags, unsigned int mask, struct st
 	iput(inode);
 	return 0;
 }
+
+
+int sys_fchmodat2(int dirfd, const char *pathname, mode_t mode, int flags)
+{
+	struct inode *inode;
+	int err = namei_at(dirfd, pathname, &inode, !(flags & AT_SYMLINK_NOFOLLOW));
+	if (err)
+		return err;
+
+	iput(inode);
+	return 0;
+}
+
+int sys_fchmodat(int dirfd, const char *pathname, mode_t mode)
+{
+	return sys_fchmodat2(dirfd, pathname, mode, 0);
+}
+
+int sys_chmod(const char *pathname, mode_t mode)
+{
+	return sys_fchmodat(AT_FDCWD, pathname, mode);
+}
+
+int sys_fchmod(unsigned int fd, mode_t mode)
+{
+	struct file *f;
+	if (fd >= NR_OPEN || !(f = current->files->fd[fd]) || !(f->f_inode))
+		return -EBADF;
+	return 0;
+}
+
+int sys_fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, int flags) {
+	struct inode *inode;
+	int err = namei_at(dirfd, pathname, &inode, !(flags & AT_SYMLINK_NOFOLLOW));
+	if (err)
+		return err;
+
+	iput(inode);
+	return 0;
+}
+
+int sys_lchown(const char *pathname, uid_t owner, gid_t group) {
+	return sys_fchownat(AT_FDCWD, pathname, owner, group, AT_SYMLINK_NOFOLLOW);
+}
+
+int sys_chown(const char *pathname, uid_t owner, gid_t group) {
+	return sys_fchownat(AT_FDCWD, pathname, owner, group, 0);
+}
+
+int sys_fchown(unsigned int fd, uid_t owner, gid_t group) {
+	struct file *f;
+	if (fd >= NR_OPEN || !(f = current->files->fd[fd]) || !(f->f_inode))
+		return -EBADF;
+	return 0;
+}
