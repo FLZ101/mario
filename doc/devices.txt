@@ -6,6 +6,10 @@ Devices currently supported by mario:
 
         0       /dev/zero
         1       /dev/null
+        2       /dev/full
+
+        3       /dev/urandom
+        4       /dev/random
 
         block   Ramdisks
 

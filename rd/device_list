@@ -1,5 +1,8 @@
 zero C 1 0
 null C 1 1
+full C 1 2
+urandom C 1 3
+random C 1 4
 
 rd0 B 1 0
 rd1 B 1 1

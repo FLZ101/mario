@@ -671,7 +671,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_sched_getattr */
 	.long sys_not_exist /* SYS_renameat2 */
 	.long sys_not_exist /* SYS_seccomp */
-	.long sys_not_exist /* SYS_getrandom */
+	.long sys_getrandom
 	.long sys_not_exist /* SYS_memfd_create */
 	.long sys_not_exist /* SYS_bpf */
 	.long sys_execveat
