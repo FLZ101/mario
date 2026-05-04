@@ -36,3 +36,4 @@ ncurses/%.exe: ncurses/%.c
 
 include vim.mk
 include nano.mk
+include less.mk

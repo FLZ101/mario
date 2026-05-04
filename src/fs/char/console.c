@@ -585,6 +585,10 @@ static void do_csi_m(struct console *con, int action)
 		con->color_inverted = 1;
 		break;
 
+	case 27:
+		con->color_inverted = 0;
+		break;
+
 	case 30:
 		con->fg_color = Black;
 		break;
@@ -792,26 +796,37 @@ static void csi_n(struct console *con)
 	}
 }
 
+void console_soft_reset(struct console *con);
+
 static void use_alt_screen_buffer(struct console *con)
 {
 	// save
 	memcpy(con->orig.mem, con->mem, SCREEN_BUF_BYTE_SIZE);
-	con->orig.pos_x = con->pos_x;
-	con->orig.pos_y = con->pos_y;
-	con->orig.save_x = con->save_x;
-	con->orig.save_y = con->save_y;
-	con->orig.scr_start = con->scr_start;
-	con->orig.scr_end = con->scr_end;
+
+#define __do(NAME) con->orig.NAME = con->NAME
+	__do(pos_x);
+	__do(pos_y);
+	__do(save_x);
+	__do(save_y);
+	__do(scr_start);
+	__do(scr_end);
+	__do(charset_G0);
+	__do(charset_G1);
+	__do(pgc);
+	__do(fg_color);
+	__do(bg_color);
+	__do(cursor_hidden);
+	__do(color_inverted);
+	__do(bold);
+#undef __do
 
 	// clear the alternate screen buffer
+
+	console_soft_reset(con);
 
 	memsetw(con->mem, SPACE, SCREEN_BUF_SIZE);
 	con->pos_x = 0;
 	con->pos_y = 0;
-	con->save_x = 0;
-	con->save_y = 0;
-	con->scr_start = 0;
-	con->scr_end = N_ROW - 1;
 
 	if (is_fg(con)) {
 		memcpy(VIDEO_MEM, con->mem, SCREEN_BUF_BYTE_SIZE);
@@ -823,12 +838,22 @@ static void use_normal_screen_buffer(struct console *con)
 {
 	// restore
 	memcpy(con->mem, con->orig.mem, SCREEN_BUF_BYTE_SIZE);
-	con->pos_x = con->orig.pos_x;
-	con->pos_y = con->orig.pos_y;
-	con->save_x = con->orig.save_x;
-	con->save_y = con->orig.save_y;
-	con->scr_start = con->orig.scr_start;
-	con->scr_end = con->orig.scr_end;
+#define __do(NAME) con->NAME = con->orig.NAME
+	__do(pos_x);
+	__do(pos_y);
+	__do(save_x);
+	__do(save_y);
+	__do(scr_start);
+	__do(scr_end);
+	__do(charset_G0);
+	__do(charset_G1);
+	__do(pgc);
+	__do(fg_color);
+	__do(bg_color);
+	__do(cursor_hidden);
+	__do(color_inverted);
+	__do(bold);
+#undef __do
 
 	if (is_fg(con)) {
 		memcpy(VIDEO_MEM, con->mem, SCREEN_BUF_BYTE_SIZE);
@@ -962,8 +987,6 @@ static void csi_S(struct console *con)
 	for (unsigned i = 0; i < m; ++i)
 		__scroll(con, con->scr_start, con->scr_end, 1);
 }
-
-void console_soft_reset(struct console *con);
 
 static void csi(struct console *con, unsigned char c)
 {
@@ -1317,17 +1340,22 @@ void console_soft_reset(struct console *con)
 	con->bold = 0;
 	con->pending_wrap = 0;
 	con->pgc = '\0';
-
-	con->k = (struct kbd) { 0 };
-	memset(con->esc_buf, 0, ESC_BUF_SIZE);
-	con->esc_buf_p = 0;
-	con->state = NORMAL;
+	con->charset_G0 = 'B';
+	con->charset_G1 = 'B';
 }
 
 void console_reset(struct console *con)
 {
 	console_soft_reset(con);
+
+	con->pos_x = 0;
+	con->pos_y = 0;
 	memsetw(con->mem, SPACE, SCREEN_BUF_SIZE);
+
+	con->k = (struct kbd) { 0 };
+	memset(con->esc_buf, 0, ESC_BUF_SIZE);
+	con->esc_buf_p = 0;
+	con->state = NORMAL;
 }
 
 void console_init()

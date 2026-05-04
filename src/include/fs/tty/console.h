@@ -65,6 +65,16 @@ struct console {
 		unsigned int pos_x, pos_y;
 		unsigned int save_x, save_y;
 		int scr_start, scr_end; // scrolling region
+
+		unsigned char charset_G0;
+		unsigned char charset_G1;
+
+		unsigned char pgc;
+
+		uint8_t fg_color, bg_color;
+		int cursor_hidden;
+		int color_inverted;
+		int bold;
 	} orig;
 };
 

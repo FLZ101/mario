@@ -32,6 +32,7 @@ SBASE_DIR	:= ../app/usr/sbase-install
 UBASE_DIR	:= ../app/usr/ubase-install
 VIM_DIR		:= ../app/usr/vim-9.2.0428-install
 NANO_DIR		:= ../app/usr/nano-9.0-install
+LESS_DIR	:= ../app/usr/less-692-install
 
 rd0_files := $(shell find ramdisk0 -type f)
 rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
@@ -43,6 +44,7 @@ rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	$(wildcard $(UBASE_DIR)/bin/ubase-box) \
 	$(wildcard $(VIM_DIR)/bin/vim) \
 	$(wildcard $(NANO_DIR)/bin/nano) \
+	$(wildcard $(LESS_DIR)/bin/less) \
 	$(rd0_files) device_list
 
 	mkdir -p ramdisk0/{bin/example,bin/test,mnt,root/work,usr/share/terminfo}
@@ -91,6 +93,9 @@ rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	mkdir -p ramdisk0/usr/share
 	cp -u --no-dereference $(NANO_DIR)/bin/* ramdisk0/bin/
 	cp -u -r $(NANO_DIR)/share/nano ramdisk0/usr/share
+
+	# less
+	cp -u --no-dereference $(LESS_DIR)/bin/* ramdisk0/bin/
 
 	# strip executables
 	chmod +w ramdisk0/bin/toybox/toybox
