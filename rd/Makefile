@@ -31,16 +31,18 @@ TOYBOX_DIR	:= ../app/usr/toybox-0.8.9-install
 SBASE_DIR	:= ../app/usr/sbase-install
 UBASE_DIR	:= ../app/usr/ubase-install
 VIM_DIR		:= ../app/usr/vim-9.2.0428-install
+NANO_DIR		:= ../app/usr/nano-9.0-install
 
 rd0_files := $(shell find ramdisk0 -type f)
 rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
-	$(wildcard $(NCURSES_DIR)/share/terminfo/**/*) \
-	$(wildcard $(NCURSES_PROGRAMS_DIR)/**/*.exe) \
+	$(shell find $(NCURSES_DIR)/share/terminfo/) \
+	$(shell find $(NCURSES_PROGRAMS_DIR) -name '*.exe') \
 	$(OKSH_DIR)/bin/oksh \
-	$(wildcard $(TOYBOX_DIR)/**/*.exe) \
-	$(wildcard $(SBASE_DIR)/**/*.exe) \
-	$(wildcard $(UBASE_DIR)/**/*.exe) \
-	$(wildcard $(VIM_DIR)/**/*.exe) \
+	$(wildcard $(TOYBOX_DIR)/bin/toybox) \
+	$(wildcard $(SBASE_DIR)/bin/sbase-box) \
+	$(wildcard $(UBASE_DIR)/bin/ubase-box) \
+	$(wildcard $(VIM_DIR)/bin/vim) \
+	$(wildcard $(NANO_DIR)/bin/nano) \
 	$(rd0_files) device_list
 
 	mkdir -p ramdisk0/{bin/example,bin/test,mnt,root/work,usr/share/terminfo}
@@ -84,6 +86,11 @@ rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	mkdir -p ramdisk0/usr/share
 	cp -u --no-dereference $(VIM_DIR)/bin/* ramdisk0/bin/
 	cp -u -r $(VIM_DIR)/share/vim ramdisk0/usr/share
+
+	# nano
+	mkdir -p ramdisk0/usr/share
+	cp -u --no-dereference $(NANO_DIR)/bin/* ramdisk0/bin/
+	cp -u -r $(NANO_DIR)/share/nano ramdisk0/usr/share
 
 	# strip executables
 	chmod +w ramdisk0/bin/toybox/toybox

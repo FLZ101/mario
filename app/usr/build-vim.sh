@@ -60,6 +60,7 @@ export LDFLAGS="-L${NCURSES_INSTALL_DIR}/lib"
 
 ./configure \
     --prefix="$VIM_INSTALL_DIR" \
+    --sysconfdir=/etc \
     --with-features=normal \
     --with-tlib=ncurses \
     --with-compiledby="mario" \

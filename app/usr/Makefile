@@ -35,3 +35,4 @@ ncurses/%.exe: ncurses/%.c
 		-lncurses
 
 include vim.mk
+include nano.mk

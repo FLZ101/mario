@@ -10,6 +10,8 @@ A simple Linux clone for x86.
 
 ![](screenshot/20260504-vim-2.png)
 
+![](screenshot/20260504-nano.png)
+
 ## Prerequisites
 
 ```

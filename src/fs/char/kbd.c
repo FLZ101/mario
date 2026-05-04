@@ -224,12 +224,23 @@ void handle_key(struct tty_struct *tty, struct console *con)
 			uint8_t ch = __k & 0xff;
 
 			if (ctl) {
-				if ('@' <= ch && ch <= '_') {
-					tty_receive_c(tty, ch - '@');
-				} else if ('a' <= ch && ch <= 'z') {
+				if ('a' <= ch && ch <= 'z') {
 					tty_receive_c(tty, ch - 'a' + 1);
-				} else if (ch == '?') {
-					tty_receive_c(tty, 0x7f); // DEL
+				} else {
+					switch (ch) {
+					case '\\':
+						tty_receive_c(tty, 034);
+						break;
+					case ']':
+						tty_receive_c(tty, 035);
+						break;
+					case '`':
+						tty_receive_c(tty, 036);
+						break;
+					case '/':
+						tty_receive_c(tty, 037);
+						break;
+					}
 				}
 			}
 

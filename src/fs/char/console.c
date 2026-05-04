@@ -372,6 +372,8 @@ void write_char(struct console *con, unsigned char c, int translate)
 		if (con->pos_y == con->scr_end + 1) {
 			con->pos_y = con->scr_end;
 			__scroll(con, con->scr_start, con->scr_end, 1);
+		} else if (con->pos_y > N_ROW - 1) {
+			con->pos_y = N_ROW - 1;
 		}
 	} else if (c == '\b') {
 		if (con->pos_x == 0)
@@ -1048,6 +1050,32 @@ static void csi(struct console *con, unsigned char c)
 	}
 }
 
+// Index
+static void esc_D(struct console *con)
+{
+	con->pos_y++;
+	if (con->pos_y == con->scr_end + 1) {
+		con->pos_y = con->scr_end;
+		__scroll(con, con->scr_start, con->scr_end, 1);
+	} else if (con->pos_y == N_ROW) {
+		con->pos_y = N_ROW - 1;
+	}
+	move_cursor(con);
+}
+
+// Reverse Index
+static void esc_M(struct console *con)
+{
+	con->pos_y--;
+	if (con->pos_y == con->scr_start - 1) {
+		con->pos_y = con->scr_start;
+		__scroll(con, con->scr_start, con->scr_end, 0);
+	} else if (con->pos_y == -1) {
+		con->pos_y = 0;
+	}
+	move_cursor(con);
+}
+
 void console_reset(struct console *con);
 
 void reset_screen(struct console *con)
@@ -1128,6 +1156,14 @@ void console_write_char(struct console *con, unsigned char c)
 		case '8':
 			// Restore Cursor (DECRC), VT100.
 			csi_u(con);
+			con->state = NORMAL;
+			break;
+		case 'D':
+			esc_D(con);
+			con->state = NORMAL;
+			break;
+		case 'M':
+			esc_M(con);
 			con->state = NORMAL;
 			break;
 		default:
