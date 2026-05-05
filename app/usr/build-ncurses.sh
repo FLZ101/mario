@@ -42,6 +42,7 @@ pushd $NCURSES_INSTALL_DIR/lib
 
 rm -f libncurses.a && ln -s libncursesw_g.a libncurses.a
 rm -f libcurses.a && ln -s libncursesw_g.a libcurses.a
+rm -f libpanel.a && ln -s libpanelw_g.a libpanel.a
 
 popd
 

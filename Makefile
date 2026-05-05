@@ -17,11 +17,11 @@ export CC
 LD	:= $(ROOT)/util/ld
 export LD
 
-LIBC	:= musl
-# LIBC	:= libc
-export LIBC
+_LIBC	:= musl
+# _LIBC	:= libc
+export _LIBC
 
-ifeq ($(LIBC), libc)
+ifeq ($(_LIBC), libc)
   APP_CC	:= $(ROOT)/util/mario-libc-cc
   APP_LD	:= $(ROOT)/util/mario-libc-ld
 else
@@ -35,7 +35,7 @@ kernel:
 rd: app
 	$(MAKE) -C rd
 
-app: $(LIBC)
+app: $(_LIBC)
 	$(MAKE) CC=$(APP_CC) LD=$(APP_LD) -C app
 
 libc:

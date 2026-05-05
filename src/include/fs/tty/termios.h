@@ -1,6 +1,10 @@
 #ifndef _TERMIOS_H
 #define _TERMIOS_H
 
+/*
+ * man 3 termios
+ */
+
 #include <fs/ioctl.h>
 
 typedef unsigned char cc_t;

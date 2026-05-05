@@ -20,7 +20,7 @@ rd-explorer.exe: tools/rd-explorer.c tools/mariofs.h
 
 EXES_EXAMPLE := $(wildcard ../app/example/*/*.exe)
 EXES_TEST := $(wildcard ../app/test/*/*.exe)
-ifeq ($(LIBC),musl)
+ifeq ($(_LIBC),musl)
   EXES_TEST	+= $(wildcard ../app/test/musl/*/*.exe)
 endif
 
@@ -33,18 +33,20 @@ UBASE_DIR	:= ../app/usr/ubase-install
 VIM_DIR		:= ../app/usr/vim-9.2.0428-install
 NANO_DIR		:= ../app/usr/nano-9.0-install
 LESS_DIR	:= ../app/usr/less-692-install
+PYTHON_DIR	:= ../app/usr/Python-3.13.13-install-mario
 
 rd0_files := $(shell find ramdisk0 -type f)
 rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	$(shell find $(NCURSES_DIR)/share/terminfo/) \
 	$(shell find $(NCURSES_PROGRAMS_DIR) -name '*.exe') \
 	$(OKSH_DIR)/bin/oksh \
-	$(wildcard $(TOYBOX_DIR)/bin/toybox) \
-	$(wildcard $(SBASE_DIR)/bin/sbase-box) \
-	$(wildcard $(UBASE_DIR)/bin/ubase-box) \
-	$(wildcard $(VIM_DIR)/bin/vim) \
-	$(wildcard $(NANO_DIR)/bin/nano) \
-	$(wildcard $(LESS_DIR)/bin/less) \
+	$(TOYBOX_DIR)/bin/toybox \
+	$(SBASE_DIR)/bin/sbase-box \
+	$(UBASE_DIR)/bin/ubase-box \
+	$(VIM_DIR)/bin/vim \
+	$(NANO_DIR)/bin/nano \
+	$(LESS_DIR)/bin/less \
+	$(PYTHON_DIR)/bin/python3.13 \
 	$(rd0_files) device_list
 
 	mkdir -p ramdisk0/{bin/example,bin/test,mnt,root/work,usr/share/terminfo}
@@ -89,6 +91,9 @@ rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 	cp -u --no-dereference $(VIM_DIR)/bin/* ramdisk0/bin/
 	cp -u -r $(VIM_DIR)/share/vim ramdisk0/usr/share
 
+	rm -f ramdisk0/bin/vimtutor
+	rm -f vim ramdisk0/bin/vi && ln -s vim ramdisk0/bin/vi
+
 	# nano
 	mkdir -p ramdisk0/usr/share
 	cp -u --no-dereference $(NANO_DIR)/bin/* ramdisk0/bin/
@@ -96,6 +101,19 @@ rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
 
 	# less
 	cp -u --no-dereference $(LESS_DIR)/bin/* ramdisk0/bin/
+
+	# python
+	mkdir -p ramdisk0/usr/python/{bin,lib}
+	cp -u --no-dereference $(PYTHON_DIR)/bin/{python3,python3.13} ramdisk0/usr/python/bin/
+	cp -r -u --no-dereference $(PYTHON_DIR)/lib/python3.13 ramdisk0/usr/python/lib/
+
+	strip --strip-all ramdisk0/usr/python/bin/python3.13
+
+	rm -f ramdisk0/bin/python && ln -s /usr/python/bin/python3 ramdisk0/bin/python
+
+	for x in $$(find ramdisk0/usr/python/ -name __pycache__) ; do \
+		rm -r "$$x" ; \
+	done
 
 	# strip executables
 	chmod +w ramdisk0/bin/toybox/toybox
@@ -116,5 +134,5 @@ rd2: $(TOOLS) $(rd2_files)
 
 clean:
 	rm -f $(TOOLS)
-	rm -rf ramdisk0/{bin,mnt,usr,root}
+	rm -rf ramdisk0/{bin,mnt,usr,root/work}
 	rm -f rd0 rd1 rd2 rdx

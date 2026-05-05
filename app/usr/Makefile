@@ -37,3 +37,9 @@ ncurses/%.exe: ncurses/%.c
 include vim.mk
 include nano.mk
 include less.mk
+
+include readline.mk
+include zlib.mk
+include sqlite.mk
+
+include python.mk

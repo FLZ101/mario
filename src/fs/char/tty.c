@@ -75,16 +75,16 @@ void tty_receive_c(struct tty_struct *tty, unsigned char c)
 		}
 	}
 
-	if (c_lflag & ICANON) {
-		if (c == '\r') {
-			if (c_iflag & IGNCR)
-				goto tail_2;
-			if (c_iflag & ICRNL)
-				c = '\n';
-		} else if (c == '\n' && (c_iflag & INLCR)) {
-			c = '\r';
-		}
+	if (c == '\r') {
+		if (c_iflag & IGNCR)
+			goto tail_2;
+		if (c_iflag & ICRNL)
+			c = '\n';
+	} else if (c == '\n' && (c_iflag & INLCR)) {
+		c = '\r';
+	}
 
+	if (c_lflag & ICANON) {
 		if (c == c_cc[VERASE]) {
 			popped = ring_buffer_pop(rb);
 			goto tail_1;

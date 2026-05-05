@@ -80,6 +80,8 @@ int tty_check(const char *device)
 
 void do_getty()
 {
+    printf("[init] Press F1-6 to switch to /dev/tty1-6\n");
+
     for (int i = 0; i < N_GETTY; i++) {
         struct getty *gty = getties + i;
         gty->pid = 0;

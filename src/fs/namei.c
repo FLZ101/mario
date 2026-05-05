@@ -248,6 +248,8 @@ int namei_at(int dirfd, const char *pathname, struct inode **res_inode, int foll
 		else
 			return error;
 	}
+	if (path_empty && dirfd == AT_FDCWD)
+		return -ENOENT;
 
 	struct inode *base_i = NULL;
 	error = get_base_inode(dirfd, path_empty, &base_i);
@@ -575,6 +577,8 @@ int sys_readlinkat(unsigned int fd, char *pathname, char *buf, size_t count)
 	error = namei_at(fd, pathname, &inode, 0);
 	if (error)
 		return error;
+	if (!inode)
+		hang("Why 0? %s\n", pathname);
 	if (!inode->i_op || !inode->i_op->readlink || !S_ISLNK(inode->i_mode)) {
 		iput(inode);
 		return -EINVAL;

@@ -204,7 +204,7 @@ bad_area:
 		printk("pte = %x", pte);
 	}
 	printk("\n");
-	print_mmap(current->mm);
+	// print_mmap(current->mm);
 
 	if (userland(tr)) {
 		print_tr(tr);

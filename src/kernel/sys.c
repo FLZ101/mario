@@ -85,6 +85,11 @@ int sys_getppid(void)
 	return current->p_pptr->pid;
 }
 
+int sys_gettid(void)
+{
+	return current->pid;
+}
+
 int sys_getrlimit(unsigned int resource, struct rlimit *rlim)
 {
 	int error;

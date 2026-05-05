@@ -540,7 +540,7 @@ ENTRY(sys_call_table)
 	.long sys_fcntl64
 	.long sys_not_exist
 	.long sys_not_exist
-	.long sys_not_exist /* SYS_gettid */
+	.long sys_gettid
 	.long sys_not_exist /* SYS_readahead */
 	.long sys_not_exist /* SYS_setxattr */
 	.long sys_not_exist /* SYS_lsetxattr */
