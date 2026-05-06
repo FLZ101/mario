@@ -32,6 +32,14 @@ A simple Linux clone for x86.
 
 ![](screenshot/20260506-python-3.png)
 
+**cmatrix**
+
+![](screenshot/20260507-cmatrix.png)
+
+**2048**
+
+![](screenshot/20260507-2048.png)
+
 ## Prerequisites
 
 ```
