@@ -90,34 +90,32 @@ int sys_gettid(void)
 	return current->pid;
 }
 
-int sys_getrlimit(unsigned int resource, struct rlimit *rlim)
+int sys_prlimit64(pid_t pid, int resource, const struct rlimit *new, struct rlimit *old)
 {
 	int error;
 
 	if (resource >= RLIM_NLIMITS)
 		return -EINVAL;
-	error = verify_area(VERIFY_WRITE,rlim,sizeof *rlim);
-	if (error)
-		return error;
-	memcpy_tofs(rlim, current->rlim + resource, sizeof(*rlim));
-	return 0;
-}
 
-int sys_setrlimit(unsigned int resource, struct rlimit *rlim)
-{
-	struct rlimit new_rlim, *old_rlim;
-	int err;
+	if (old) {
+		error = verify_area(VERIFY_WRITE, old, sizeof(*old));
+		if (error)
+			return error;
+		memcpy_tofs(old, current->rlim + resource, sizeof(*old));
+	}
+	if (new) {
+		struct rlimit knew, *kold;
 
-	if (resource >= RLIM_NLIMITS)
-		return -EINVAL;
-	err = verify_area(VERIFY_READ, rlim, sizeof(*rlim));
-	if (err)
-		return err;
-	memcpy_fromfs(&new_rlim, rlim, sizeof(*rlim));
-	old_rlim = current->rlim + resource;
-	if (new_rlim.rlim_cur > old_rlim->rlim_max || new_rlim.rlim_max > old_rlim->rlim_max)
-		return -EPERM;
-	*old_rlim = new_rlim;
+		error = verify_area(VERIFY_READ, new, sizeof(*new));
+		if (error)
+			return error;
+		memcpy_fromfs(&knew, new, sizeof(*new));
+
+		kold = current->rlim + resource;
+		if (knew.rlim_cur > kold->rlim_max || knew.rlim_max > kold->rlim_max)
+			return -EPERM;
+		*kold = knew;
+	}
 	return 0;
 }
 
@@ -275,9 +273,6 @@ int sys_sysinfo(struct sysinfo *info)
 int sys_not_exist(struct trap_frame tr)
 {
 	switch (tr.eax) {
-	case SYS_ugetrlimit:
-	case SYS_prlimit64:
-		break;
 	default:
 		printk("Not implemented: %d\n", tr.eax);
 		break;

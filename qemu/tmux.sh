@@ -69,7 +69,7 @@ elif [ "$1" == "attach" ]; then
 elif [ "$1" == "kill" ]; then
     if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
         tmux kill-session -t "$SESSION_NAME"
-        echo "Killed $SESSION_NAME"
+        echo ":-)"
     fi
 else
     usage

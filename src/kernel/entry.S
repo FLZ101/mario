@@ -391,8 +391,8 @@ ENTRY(sys_call_table)
 	.long sys_sigsuspend
 	.long sys_sigpending
 	.long sys_not_exist /* SYS_sethostname */
-	.long sys_setrlimit
-	.long sys_getrlimit
+	.long sys_not_exist /* SYS_setrlimit */
+	.long sys_not_exist /* SYS_getrlimit */
 	.long sys_getrusage
 	.long sys_gettimeofday_time32 /* SYS_gettimeofday_time32 */
 	.long sys_not_exist /* SYS_settimeofday_time32 */
@@ -656,7 +656,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_recvmmsg */
 	.long sys_not_exist /* SYS_fanotify_init */
 	.long sys_not_exist /* SYS_fanotify_mark */
-	.long sys_not_exist /* SYS_prlimit64 */
+	.long sys_prlimit64
 	.long sys_not_exist /* SYS_name_to_handle_at */
 	.long sys_not_exist /* SYS_open_by_handle_at */
 	.long sys_not_exist /* SYS_clock_adjtime */

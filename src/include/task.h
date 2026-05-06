@@ -31,8 +31,6 @@ struct thread_struct {
 	struct user_desc user_descs[NR_USER_DESC];
 };
 
-#define NR_RLIMIT	2
-
 struct fs_struct;
 struct files_struct;
 struct wait_queue;
@@ -68,7 +66,7 @@ struct task_struct {
 
 	spinlock_t lock;
 	wait_queue_t wait_chldexit;
-	struct rlimit rlim[NR_RLIMIT];
+	struct rlimit rlim[RLIM_NLIMITS];
 	struct mm_struct *mm;
 	struct fs_struct *fs;
 	struct files_struct *files;

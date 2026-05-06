@@ -107,8 +107,10 @@ void die(char *str, struct trap_frame *tr, long err)
 
 void die_if_kernel(char *str, struct trap_frame *tr, long err)
 {
+	printk("[%u] %s\n", err, str);
+	print_tr(tr);
 	if (!userland(tr))
-		die(str, tr, err);
+		do_exit(SIGSEGV);
 }
 
 #define DO_ERROR(trapnr, signr, str, name, tsk) \
@@ -140,8 +142,6 @@ void do_general_protection(struct trap_frame *tr, long error_code)
 	current->thread.error_code = error_code;
 	current->thread.trap_no = 13;
 	send_sig(SIGSEGV, current, 1);
-	print_tr(tr);
-	hang("damn");
 }
 
 void do_nmi(struct trap_frame *tr, long error_code)

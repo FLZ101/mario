@@ -8,9 +8,17 @@ struct rlimit {
 	rlim_t	rlim_max;
 };
 
-#define RLIMIT_DATA		0	/* maximum data size */
-#define RLIMIT_STACK	1	/* maximum stack size */
-#define RLIMIT_NLIMITS	2
+#define RLIMIT_CPU     0
+#define RLIMIT_FSIZE   1
+#define RLIMIT_DATA    2
+#define RLIMIT_STACK   3
+#define RLIMIT_CORE    4
+#define RLIMIT_RSS     5
+#define RLIMIT_NPROC   6
+#define RLIMIT_NOFILE  7
+#define RLIMIT_MEMLOCK 8
+#define RLIMIT_AS      9
+#define RLIMIT_NLIMITS	10
 
 #define RLIM_NLIMITS RLIMIT_NLIMITS
 
@@ -22,8 +30,9 @@ struct rlimit {
 
 #define INIT_RLIMITS \
 { \
-	{RLIM_INFINITY, RLIM_INFINITY},	\
-	{8192 * 1024, 8192 * 1024 * 16}	\
+	[RLIMIT_DATA] = {RLIM_INFINITY, RLIM_INFINITY},	\
+	[RLIMIT_STACK] = {8192 * 1024, 8192 * 1024 * 16},	\
+	[RLIMIT_NOFILE] = {NR_OPEN, NR_OPEN}	\
 }
 
 struct rusage {
