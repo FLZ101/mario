@@ -18,7 +18,8 @@ export CC
 export CFLAGS="-ggdb -O0 -fno-omit-frame-pointer"
 
 ./configure \
-    --prefix="$ZLIB_INSTALL_DIR"
+    --prefix="$ZLIB_INSTALL_DIR" \
+    --static
 
 make -j 1
 
