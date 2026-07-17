@@ -37,8 +37,8 @@ PYTHON_DIR	:= ../app/usr/Python-3.13.13-install-mario
 
 rd0_files := $(shell find ramdisk0 -type f)
 rd0: $(TOOLS) $(EXES_EXAMPLE) $(EXES_TEST) \
-	$(shell find $(NCURSES_DIR)/share/terminfo/) \
-	$(shell find $(NCURSES_PROGRAMS_DIR) -name '*.exe') \
+	$(shell find $(NCURSES_DIR)/share/terminfo/ 2>/dev/null) \
+	$(shell find $(NCURSES_PROGRAMS_DIR) -name '*.exe' 2>/dev/null) \
 	$(OKSH_DIR)/bin/oksh \
 	$(TOYBOX_DIR)/bin/toybox \
 	$(SBASE_DIR)/bin/sbase-box \

@@ -18,7 +18,7 @@ $(PYTHON_SRC_FILE):
 
 .PHONY clean:: clean-python
 clean-python:
-	$(RM) -r $(PYTHON_INSTALL_DIR) $(PYTHON_SRC_DIR)
+	$(RM) -r $(PYTHON_INSTALL_DIR) $(PYTHON_INSTALL_DIR)-* $(PYTHON_SRC_DIR)
 
 .PHONY clean-src:: clean-src-python
 clean-src-python:

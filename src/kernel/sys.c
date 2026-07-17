@@ -273,6 +273,9 @@ int sys_sysinfo(struct sysinfo *info)
 int sys_not_exist(struct trap_frame tr)
 {
 	switch (tr.eax) {
+	case SYS_setfsuid32:
+	case SYS_setfsgid32:
+		return 0;
 	default:
 		printk("Not implemented: %d\n", tr.eax);
 		break;
