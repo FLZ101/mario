@@ -1,6 +1,8 @@
 #ifndef _MARIOFS_H
 #define _MARIOFS_H
 
+#include "types.h"
+
 /*
  * A file or a directory in MarioFS is organized as a block chain. The last 4 bytes
  * in a block is the next block number in the same chain, and a value
@@ -67,11 +69,28 @@ struct mario_super_block {
 struct mario_inode_info {
 	__s32 atime, mtime;
 	char name[MARIO_NAME_LEN];
+	/*
+	 * Cache for mario_nth_block().  block_index is the 1-based
+	 * position of block_nr in this inode's block chain.
+	 */
+	unsigned long block_index;
+	unsigned long block_nr;
+	/* Number of leading blocks known to be physically contiguous. */
+	unsigned long contiguous_count;
 };
 
 #define MARIO_INODE_ATIME(i)	((i)->u.mario_i.atime)
 #define MARIO_INODE_MTIME(i)	((i)->u.mario_i.mtime)
 #define MARIO_INODE_NAME(i)	((i)->u.mario_i.name)
+#define MARIO_INODE_BLOCK_INDEX(i) ((i)->u.mario_i.block_index)
+#define MARIO_INODE_BLOCK_NR(i) ((i)->u.mario_i.block_nr)
+#define MARIO_INODE_CONTIGUOUS_COUNT(i) ((i)->u.mario_i.contiguous_count)
+#define MARIO_INODE_INVALIDATE_BLOCK_CACHE(i) \
+	do { \
+		MARIO_INODE_BLOCK_INDEX(i) = 0; \
+		MARIO_INODE_BLOCK_NR(i) = 0; \
+		MARIO_INODE_CONTIGUOUS_COUNT(i) = 0; \
+	} while (0)
 
 struct mario_sb_info {
 	unsigned long sec_per_block;

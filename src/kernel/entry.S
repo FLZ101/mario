@@ -106,10 +106,10 @@ ret_common:
 	movl bh_mask, %eax
 	andl bh_active, %eax
 	je 1f
-	/* wake up the bh_thread */
-	pushl bh_task
-	call wake_up_process
-	addl $4, %esp
+	pushfl
+	cli
+	call do_bottom_half
+	popfl
 1:
 	GET_CURRENT(%ebx)
 	movl need_resched(%ebx), %ecx

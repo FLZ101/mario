@@ -26,19 +26,77 @@ int mario_nth_block(struct inode *inode, int n, int *block_nr)
 {
 	int i, j, next_block;
 	struct buffer_head *bh;
+	unsigned long contig;
 
 	*block_nr = 0;
+	contig = MARIO_INODE_CONTIGUOUS_COUNT(inode);
 
-	for (i = 1, j = inode->i_rdev; n != i; i++) {
+	if (n > 0 && contig >= n) {
+		i = n;
+		j = inode->i_rdev + n - 1;
+		goto done;
+	}
+
+	if (n > 0 && contig > 0) {
+		/*
+		 * The first @contig blocks are contiguous.  Start from the
+		 * last known-good block and try to extend that prefix while
+		 * walking forward.
+		 */
+		i = contig;
+		j = inode->i_rdev + contig - 1;
+	} else if (n > 0 && MARIO_INODE_BLOCK_NR(inode) &&
+	    MARIO_INODE_BLOCK_INDEX(inode) &&
+	    MARIO_INODE_BLOCK_INDEX(inode) <= n) {
+		/* Fallback for non-contiguous chains: use the last position. */
+		i = MARIO_INODE_BLOCK_INDEX(inode);
+		j = MARIO_INODE_BLOCK_NR(inode);
+		contig = 0;
+	} else if (n > 0) {
+		i = 1;
+		j = inode->i_rdev;
+		/* A single first block is trivially a contiguous prefix. */
+		contig = 1;
+	} else {
+		/* n == 0 asks for the last block.  Keep it simple and walk
+		 * the whole chain. */
+		i = 1;
+		j = inode->i_rdev;
+		contig = 0;
+	}
+
+	for (; n != i; i++) {
 		if (!(bh = bread(inode->i_dev, j)))
 			return -EIO;
 		next_block = *(int *)(bh->b_data + inode->i_block_size - 4);
 		brelse(bh);
 		if (!next_block)
 			break;
+
+		/*
+		 * Keep track of a contiguous prefix.  Files created by
+		 * rd-make are contiguous, and this makes the common demand
+		 * paging pattern O(1) after the prefix has been discovered.
+		 */
+		if (contig && contig >= i) {
+			if (next_block == j + 1)
+				contig = i + 1;
+			else
+				contig = i;
+		}
+
 		j = next_block;
 	}
+
+done:
 	*block_nr = j;
+
+	if (i > 0) {
+		MARIO_INODE_BLOCK_INDEX(inode) = i;
+		MARIO_INODE_BLOCK_NR(inode) = j;
+		MARIO_INODE_CONTIGUOUS_COUNT(inode) = contig;
+	}
+
 	return i;
 }
 
@@ -147,6 +205,7 @@ static int mario_read_inode(struct inode *i)
 	i->i_nr_block = entry->blocks;
 	i->i_block_size = sb->s_block_size;
 	strcpy(MARIO_INODE_NAME(i), entry->name);
+	MARIO_INODE_INVALIDATE_BLOCK_CACHE(i);
 
 	if (S_ISREG(i->i_mode)) {
 		i->i_op = &mario_file_iops;

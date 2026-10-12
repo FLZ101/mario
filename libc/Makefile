@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 RM :=rm -f
 
 INCLUDE :=-I include

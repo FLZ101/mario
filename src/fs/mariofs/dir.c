@@ -97,6 +97,8 @@ static int mario_add_entry(struct inode *dir, struct mario_dir_entry *__entry,
 	if (res)
 		*res = NULL;
 
+	MARIO_INODE_INVALIDATE_BLOCK_CACHE(dir);
+
 	block_size = dir->i_block_size;
 	n = (block_size - 4) / MARIO_ENTRY_SIZE;	/* entries a block contains */
 	block = dir->i_rdev;
@@ -644,12 +646,12 @@ read_a_block:
                block * size + i * MARIO_ENTRY_SIZE, IFTODT(entry[i].mode))) {
             brelse(bh);
             return 0;
-        }
-        f->f_pos += MARIO_ENTRY_SIZE;
+		}
+		f->f_pos += MARIO_ENTRY_SIZE;
 		start++;
 	}
-	brelse(bh);
 	block = *(int *)(bh->b_data + size - 4);
+	brelse(bh);
 	if (block)
 		goto read_a_block;
 	return 0;

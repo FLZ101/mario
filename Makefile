@@ -1,5 +1,8 @@
 RM	:= rm -f
 
+SHELL := /bin/bash
+export SHELL
+
 ROOT := $(shell pwd)
 
 .PHONY: all kernel rd app libc image run debug \

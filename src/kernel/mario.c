@@ -29,8 +29,6 @@ void kernel_thread(void (*fun)(void *), void *arg)
 		:"eax", "esi", "memory");
 }
 
-extern void bh_thread(void *arg);
-
 #define MAX_INIT_ARGS 8
 #define MAX_INIT_ENVS 8
 
@@ -39,8 +37,6 @@ static char *envp_init[MAX_INIT_ENVS+2] = { "HOME=/root", NULL, };
 
 void init(void *arg)
 {
-	kernel_thread(bh_thread, NULL); // child of init
-
 	// pid of init.exe is 1
 	execve("/bin/example/init.exe", argv_init, envp_init);
 	hang("Fail to start init.exe: %d", errno);

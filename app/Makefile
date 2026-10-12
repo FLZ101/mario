@@ -4,7 +4,7 @@ ifeq ($(_LIBC),musl)
   SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/musl/*/main.c))
 endif
 
-SHELL=/bin/bash
+SHELL := /bin/bash
 
 .PHONY: all example usr check
 .PHONY: clean clean-example clean-usr

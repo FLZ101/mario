@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 .PHONY: all clean image run debug quick-run quick-debug \
 	tmux-run tmux-debug tmux-attach tmux-kill
 

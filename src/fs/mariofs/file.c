@@ -18,6 +18,9 @@ static int mario_file_truncate(struct inode *i, int size)
 		return -EINVAL;
 	if (size < 0)
 		return -EINVAL;
+
+	MARIO_INODE_INVALIDATE_BLOCK_CACHE(i);
+
 	max_used = i->i_block_size - 4;
 	n = (size + max_used - 1) / max_used;
 	blocks = i->i_nr_block;
@@ -207,6 +210,8 @@ int mario_file_write(struct inode *i, struct file *f, char *buf, int count)
 		return -EINVAL;
 
 	down(&i->i_sem);
+	MARIO_INODE_INVALIDATE_BLOCK_CACHE(i);
+
 	if (f->f_flags & O_APPEND)
 		start = i->i_size;
 	else

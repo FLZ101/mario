@@ -55,7 +55,9 @@ int del_timer(struct timer_list *timer)
 void run_timer_list(void)
 {
 	struct list_head *tmp;
+	unsigned long flags;
 
+	save_flags(flags);
 	cli();
 	list_for_each(tmp, &timer_head) {
 		struct timer_list *t =
@@ -66,11 +68,9 @@ void run_timer_list(void)
 		__del_timer(t);
 
 		tmp = t->list.prev;
-		sti();
 		t->fun(t->data);
-		cli();
 	}
-	sti();
+	restore_flags(flags);
 }
 
 void it_real_fun(unsigned long data)
