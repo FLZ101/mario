@@ -1,0 +1,7 @@
+# RUN: cd /root
+# RUN: pwd
+# CHECK: /root
+
+# RUN: touch a.txt b.txt
+# RUN: ls
+# CHECK-REGEX: a.txt\s+b.txt

@@ -208,7 +208,8 @@ bad_area:
 
 	if (userland(tr)) {
 		print_tr(tr);
-		do_exit(SIGKILL);
+		/* Let do_signal deliver SIGSEGV instead of force-killing the task. */
+		return;
 	} else {
 		die("Oops", tr, error_code);
 	}

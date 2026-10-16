@@ -4,9 +4,12 @@ SHELL := /bin/bash
 export SHELL
 
 ROOT := $(shell pwd)
+PYTHON := $(ROOT)/.venv/bin/python
+VENV_STAMP := $(ROOT)/.venv/.stamp
+CASES ?= tests/shell
 
 .PHONY: all kernel rd app libc image run debug \
-	quick-run quick-debug quick-run-gtk quick-debug-gtk musl
+	quick-run quick-debug quick-run-gtk quick-debug-gtk musl venv test precommit setup
 
 .PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image clean-musl
 
@@ -46,6 +49,21 @@ libc:
 
 musl:
 	$(MAKE) CC=$(ROOT)/util/mario-cc COMPILE_COMMANDS_JSON= -C musl
+
+$(VENV_STAMP): requirements.txt
+	python3 -m venv --system-site-packages .venv
+	$(PYTHON) -m pip install -r requirements.txt
+	@touch $@
+
+venv: $(VENV_STAMP)
+
+test: venv
+	$(PYTHON) tests/lit_shell_test.py $(CASES)
+
+precommit: venv
+	$(PYTHON) -m pre_commit install
+
+setup: precommit
 
 image: kernel rd
 	$(MAKE) -C qemu
