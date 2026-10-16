@@ -1,36 +1,36 @@
-# SEND: python
-# PUSH-PROMPT: >>>
-# EXPECT:
+SEND: python
+PUSH-PROMPT: >>>
+EXPECT:
 
-# RUN: print('hello')
-# CHECK: hello
+RUN: print('hello')
+CHECK: hello
 
-# RUN: 1 + 2
-# CHECK: 3
+RUN: 1 + 2
+CHECK: 3
 
-# PUSH-PROMPT: ...
-# RUN: def f(n):
-# RUN:     return list(range(n))
-# POP-PROMPT:
-# SEND-RAW: \r
-# EXPECT:
-# RUN: f(10)
-# CHECK: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+PUSH-PROMPT: ...
+RUN: def f(n):
+RUN:     return list(range(n))
+POP-PROMPT:
+SEND-RAW: \r
+EXPECT:
+RUN: f(10)
+CHECK: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
-# RUN: import json
-# RUN: json.dumps(f(10))
-# CHECK: '[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]'
+RUN: import json
+RUN: json.dumps(f(10))
+CHECK: '[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]'
 
-# PUSH-PROMPT: ...
-# RUN: for i in range(3):
-# RUN:     print(i)
-# POP-PROMPT:
-# SEND-RAW: \r
-# CHECK: 0
-# CHECK: 1
-# CHECK: 2
+PUSH-PROMPT: ...
+RUN: for i in range(3):
+RUN:     print(i)
+POP-PROMPT:
+SEND-RAW: \r
+CHECK: 0
+CHECK: 1
+CHECK: 2
 
-# SEND: quit()
-# POP-PROMPT:
-# RUN: echo $?
-# CHECK: 0
+SEND: quit()
+POP-PROMPT:
+RUN: echo $?
+CHECK: 0

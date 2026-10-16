@@ -1,18 +1,18 @@
-# SEND: python
-# PUSH-PROMPT: >>>
-# EXPECT:
+SEND: python
+PUSH-PROMPT: >>>
+EXPECT:
 
-# RUN: import subprocess
-# RUN: subprocess.run(['pwd'])
-# CHECK: returncode=0
-# EXIT:
+RUN: import subprocess
+RUN: subprocess.run(['pwd'])
+CHECK: returncode=0
+EXIT:
 
-# RUN: subprocess.run(['pwd'])
-# CHECK: returncode=0
+RUN: subprocess.run(['pwd'])
+CHECK: returncode=0
 
-# EXIT:
+EXIT:
 
-# SEND: quit()
-# POP-PROMPT:
-# RUN: echo $?
-# CHECK: 0
+SEND: quit()
+POP-PROMPT:
+RUN: echo $?
+CHECK: 0

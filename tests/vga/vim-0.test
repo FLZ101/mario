@@ -1,0 +1,6 @@
+SERIAL: /bin/example/getty.exe /dev/tty1 &
+VGA-CHECK: / #
+VGA-SEND: vim
+VGA-CHECK: VIM - Vi IMproved
+VGA-CHECK: version 9.2.428
+VGA-CHECK: [No Name]

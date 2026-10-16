@@ -3,12 +3,12 @@ r"""A very small lit-style runner for Mario shell behavior tests.
 
 Test files use a tiny subset of lit syntax:
 
-    # RUN: echo hello > /root/lit.txt
-    # RUN: cat /root/lit.txt
-    # CHECK: hello
-    # CHECK-NOT: goodbye
-    # CHECK-REGEX: hello\s+world
-    # EXIT:
+    RUN: echo hello > /root/lit.txt
+    RUN: cat /root/lit.txt
+    CHECK: hello
+    CHECK-NOT: goodbye
+    CHECK-REGEX: hello\s+world
+    EXIT:
 
 Run:
 
@@ -59,49 +59,50 @@ class LitTest:
         with open(self.path, encoding="utf-8") as f:
             for line in f:
                 line = line.rstrip("\n")
-                if line.startswith("# RUN:"):
-                    command = line[len("# RUN:") :]
+                body = line[1:] if line.startswith("#") else line
+                if body.startswith("RUN:"):
+                    command = body[len("RUN:") :]
                     if command.startswith(" "):
                         command = command[1:]
                     self.runs.append(command)
                     self.actions.append(("run", command))
-                elif line.startswith("# SEND-RAW:"):
+                elif body.startswith("SEND-RAW:"):
                     data = (
-                        line[len("# SEND-RAW:") :]
+                        body[len("SEND-RAW:") :]
                         .strip()
                         .encode()
                         .decode("unicode_escape")
                     )
                     self.actions.append(("send-raw", data))
-                elif line.startswith("# SEND:"):
-                    data = line[len("# SEND:") :].strip()
+                elif body.startswith("SEND:"):
+                    data = body[len("SEND:") :].strip()
                     self.actions.append(("send", data))
-                elif line.startswith("# EXPECT:"):
-                    needle = line[len("# EXPECT:") :].strip()
+                elif body.startswith("EXPECT:"):
+                    needle = body[len("EXPECT:") :].strip()
                     self.actions.append(("expect", needle))
-                elif line.startswith("# SLEEP:"):
-                    seconds = float(line[len("# SLEEP:") :].strip())
+                elif body.startswith("SLEEP:"):
+                    seconds = float(body[len("SLEEP:") :].strip())
                     self.actions.append(("sleep", seconds))
-                elif line.startswith("# TIMEOUT:"):
-                    seconds = float(line[len("# TIMEOUT:") :].strip())
+                elif body.startswith("TIMEOUT:"):
+                    seconds = float(body[len("TIMEOUT:") :].strip())
                     if seconds <= 0:
-                        raise ValueError(f"{self.path}: # TIMEOUT must be positive")
+                        raise ValueError(f"{self.path}: TIMEOUT must be positive")
                     self.actions.append(("set-timeout", seconds))
-                elif line.startswith("# PUSH-PROMPT:"):
-                    prompt = line[len("# PUSH-PROMPT:") :].strip()
+                elif body.startswith("PUSH-PROMPT:"):
+                    prompt = body[len("PUSH-PROMPT:") :].strip()
                     if not prompt:
-                        raise ValueError(f"{self.path}: empty # PUSH-PROMPT value")
+                        raise ValueError(f"{self.path}: empty PUSH-PROMPT value")
                     self.actions.append(("push-prompt", prompt))
-                elif line.startswith("# POP-PROMPT:"):
+                elif body.startswith("POP-PROMPT:"):
                     self.actions.append(("pop-prompt", None))
-                elif line.startswith("# EXIT:"):
+                elif body.startswith("EXIT:"):
                     break
-                elif line.startswith("# CHECK-REGEX:"):
-                    self.check_regexes.append(line[len("# CHECK-REGEX:") :].strip())
-                elif line.startswith("# CHECK-NOT:"):
-                    self.check_nots.append(line[len("# CHECK-NOT:") :].strip())
-                elif line.startswith("# CHECK:"):
-                    self.checks.append(line[len("# CHECK:") :].strip())
+                elif body.startswith("CHECK-REGEX:"):
+                    self.check_regexes.append(body[len("CHECK-REGEX:") :].strip())
+                elif body.startswith("CHECK-NOT:"):
+                    self.check_nots.append(body[len("CHECK-NOT:") :].strip())
+                elif body.startswith("CHECK:"):
+                    self.checks.append(body[len("CHECK:") :].strip())
         return self
 
 
