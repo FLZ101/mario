@@ -11,6 +11,7 @@ static wait_queue_t inode_wait;
 #define NR_INODE	2048
 
 static struct inode all[NR_INODE];
+static struct inode *find_inode(struct super_block *sb, int ino);
 
 void inode_init(void)
 {
@@ -25,6 +26,30 @@ void inode_init(void)
 		init_MUTEX(&all[i].i_sem);
 		list_add_tail(&all[i].i_list, &lru);
 	}
+}
+
+void inode_invalidate(struct super_block *sb, ino_t ino)
+{
+	struct inode *i;
+
+	ACQUIRE_LOCK(&inode_lock);
+	if ((i = find_inode(sb, ino))) {
+		clear_bit(I_Up2date, &i->i_state);
+		clear_bit(I_Dirty, &i->i_state);
+	}
+	RELEASE_LOCK(&inode_lock);
+}
+
+int inode_is_busy(struct super_block *sb, ino_t ino)
+{
+	struct inode *i;
+	int busy = 0;
+
+	ACQUIRE_LOCK(&inode_lock);
+	if ((i = find_inode(sb, ino)) && i->i_count > 0)
+		busy = 1;
+	RELEASE_LOCK(&inode_lock);
+	return busy;
 }
 
 static void read_inode(struct inode *i)

@@ -502,7 +502,7 @@ ENTRY(sys_call_table)
 	.long sys_getcwd
 	.long sys_not_exist /* SYS_capget */
 	.long sys_not_exist /* SYS_capset */
-	.long sys_not_exist /* SYS_sigaltstack */
+	.long sys_sigaltstack
 	.long sys_not_exist /* SYS_sendfile */
 	.long sys_not_exist /* SYS_getpmsg */
 	.long sys_not_exist /* SYS_putpmsg */
@@ -617,8 +617,8 @@ ENTRY(sys_call_table)
 	.long sys_fchownat
 	.long sys_not_exist /* SYS_futimesat */
 	.long sys_not_exist /* SYS_fstatat64 */
-	.long sys_not_exist /* SYS_unlinkat */
-	.long sys_not_exist /* SYS_renameat */
+	.long sys_unlinkat
+	.long sys_renameat
 	.long sys_not_exist /* SYS_linkat */
 	.long sys_symlinkat
 	.long sys_readlinkat

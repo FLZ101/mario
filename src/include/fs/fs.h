@@ -130,6 +130,8 @@ struct inode {
 #define inode_pipe(i)		test_bit(I_Pipe, &(i)->i_state)
 
 void inode_init(void);
+void inode_invalidate(struct super_block *sb, ino_t ino);
+int inode_is_busy(struct super_block *sb, ino_t ino);
 struct inode *get_empty_inode(void);
 struct inode *get_pipe_inode(void);
 struct inode *iget(struct super_block *, int);

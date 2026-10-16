@@ -246,6 +246,15 @@ static int mario_write_inode(struct inode *i)
 	if (!(bh = bread(i->i_dev, block)))
 		return -EIO;
 	entry = (struct mario_dir_entry *)(bh->b_data + off);
+	if (strcmp(entry->name, MARIO_INODE_NAME(i))) {
+		/*
+		 * The directory slot has been reused for another name while
+		 * an old inode object was still being released.  Do not let
+		 * the stale inode overwrite the new directory entry.
+		 */
+		brelse(bh);
+		return 0;
+	}
 	entry->data = i->i_rdev;
 	entry->mode = i->i_mode;
 	entry->size = i->i_size;

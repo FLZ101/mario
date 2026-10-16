@@ -14,6 +14,26 @@ extern void notify_parent(struct task_struct *p);
 
 #define _BLOCKABLE (~(_S(SIGKILL) | _S(SIGSTOP)))
 
+typedef struct {
+	void *ss_sp;
+	int ss_flags;
+	size_t ss_size;
+} stack_t;
+
+int sys_sigaltstack(const stack_t *ss, stack_t *old)
+{
+	stack_t zero = {0};
+	(void)ss;
+
+	if (old) {
+		if (verify_area(VERIFY_WRITE, old, sizeof(zero)))
+			return -EFAULT;
+		memcpy_tofs(old, &zero, sizeof(zero));
+	}
+
+	return 0;
+}
+
 int sys_sigprocmask(int how, sigset_t *set, sigset_t *oset)
 {
 	sigset_t new_set, old_set = current->blocked;

@@ -470,28 +470,37 @@ int sys_unlink(char *pathname)
 	return sys_unlinkat(AT_FDCWD, pathname, 0);
 }
 
-static int do_rename(char *oldname, char *newname)
+static int do_renameat(int olddirfd, char *oldname, int newdirfd,
+	char *newname)
 {
-	struct inode *old_dir, *new_dir;
-	char *old_base, *new_base;
+	struct inode *old_dir, *new_dir, *old_base, *new_base;
+	char *old_basename, *new_basename;
 	int old_len, new_len, error;
 
-	error = dir_namei(oldname, &old_len, &old_base, NULL, &old_dir);
+	error = get_base_inode(olddirfd, 0, &old_base);
 	if (error)
 		return error;
-	if (!old_len || (old_base[0] == '.' &&
-		(old_len == 1 || (old_base[1] == '.' &&
+	error = dir_namei(oldname, &old_len, &old_basename, old_base, &old_dir);
+	if (error)
+		return error;
+	if (!old_len || (old_basename[0] == '.' &&
+		(old_len == 1 || (old_basename[1] == '.' &&
 			old_len == 2)))) {
 		iput(old_dir);
 		return -EPERM;
 	}
-	error = dir_namei(newname, &new_len, &new_base, NULL, &new_dir);
+	error = get_base_inode(newdirfd, 0, &new_base);
 	if (error) {
 		iput(old_dir);
 		return error;
 	}
-	if (!new_len || (new_base[0] == '.' &&
-		(new_len == 1 || (new_base[1] == '.' &&
+	error = dir_namei(newname, &new_len, &new_basename, new_base, &new_dir);
+	if (error) {
+		iput(old_dir);
+		return error;
+	}
+	if (!new_len || (new_basename[0] == '.' &&
+		(new_len == 1 || (new_basename[1] == '.' &&
 			new_len == 2)))) {
 		iput(old_dir);
 		iput(new_dir);
@@ -507,11 +516,11 @@ static int do_rename(char *oldname, char *newname)
 		iput(new_dir);
 		return -EPERM;
 	}
-	return old_dir->i_op->rename(old_dir, old_base, old_len,
-		new_dir, new_base, new_len);
+	return old_dir->i_op->rename(old_dir, old_basename, old_len,
+		new_dir, new_basename, new_len);
 }
 
-int sys_rename(char *oldname, char *newname)
+int sys_renameat(int olddirfd, char *oldname, int newdirfd, char *newname)
 {
 	int error;
 	char *from, *to;
@@ -520,12 +529,17 @@ int sys_rename(char *oldname, char *newname)
 	if (!error) {
 		error = getname(newname, &to);
 		if (!error) {
-			error = do_rename(from, to);
+			error = do_renameat(olddirfd, from, newdirfd, to);
 			putname(to);
 		}
 		putname(from);
 	}
 	return error;
+}
+
+int sys_rename(char *oldname, char *newname)
+{
+	return sys_renameat(AT_FDCWD, oldname, AT_FDCWD, newname);
 }
 
 static int do_mknod(char *filename, int mode, dev_t dev)

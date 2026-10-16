@@ -93,6 +93,7 @@ static int mario_add_entry(struct inode *dir, struct mario_dir_entry *__entry,
 	int block, block_size, *next_block;
 	struct buffer_head *bh;
 	struct mario_dir_entry *entry;
+	unsigned long new_ino;
 
 	if (res)
 		*res = NULL;
@@ -113,6 +114,10 @@ try:
 
 	for (i = 0; i < n; i++)
 		if (!entry[i].data || entry[i].data == MARIO_FREE_ENTRY) {
+			unsigned long cand_ino =
+				block * block_size + i * MARIO_ENTRY_SIZE;
+			if (inode_is_busy(dir->i_sb, cand_ino))
+				continue;
 			entry += i;
 			goto get_entry_done;
 		}
@@ -141,10 +146,13 @@ try:
 get_entry_done:
 	memcpy(entry, __entry, MARIO_ENTRY_SIZE);
 	set_dirty(bh);
+
+	new_ino = block * block_size + (char *)entry - bh->b_data;
+	inode_invalidate(dir->i_sb, new_ino);
+
 	brelse(bh);
 	if (res)
-		*res = iget(dir->i_sb, block * block_size +
-			(char *)entry - bh->b_data);
+		*res = iget(dir->i_sb, new_ino);
 	return 0;
 }
 
@@ -640,8 +648,11 @@ read_a_block:
 		if (!entry[i].data)
 			break;
 		/* an unused entry? */
-		if (entry[i].data == MARIO_FREE_ENTRY)
+		if (entry[i].data == MARIO_FREE_ENTRY) {
+			f->f_pos += MARIO_ENTRY_SIZE;
+			start++;
 			continue;
+		}
         if (fn(dirent, entry[i].name, strlen(entry[i].name), f->f_pos,
                block * size + i * MARIO_ENTRY_SIZE, IFTODT(entry[i].mode))) {
             brelse(bh);

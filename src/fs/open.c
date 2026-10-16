@@ -70,7 +70,7 @@ int do_openat(unsigned int dirfd, char *filename, int flags)
 	}
 	current->files->fd[fd] = f;
 	f->f_flags &= ~(O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC);
-	i->i_atime = i->i_mtime = i->i_ctime = current_time();
+	i->i_atime = current_time();
 	return fd;
 }
 
@@ -296,10 +296,34 @@ static int do_utimensat(struct inode *inode, struct timespec64 *times, int flags
 	return 0;
 }
 
+static int utimensat_get_inode(int dirfd, char *pathname, int flags,
+	struct inode **res)
+{
+	struct file *file;
+
+	/*
+	 * POSIX allows pathname to be NULL when dirfd identifies the file
+	 * itself.  musl's futimens() is implemented as:
+	 *
+	 *   utimensat(fd, NULL, times, 0);
+	 */
+	if (!pathname) {
+		if (dirfd < 0 || dirfd >= NR_OPEN ||
+		    !(file = current->files->fd[dirfd]) ||
+		    !file->f_inode)
+			return -EBADF;
+		*res = file->f_inode;
+		iref(*res);
+		return 0;
+	}
+
+	return namei_at(dirfd, pathname, res, !(flags & AT_SYMLINK_NOFOLLOW));
+}
+
 int sys_utimensat_time64(int dirfd, char *pathname, struct timespec64 *times, int flags)
 {
 	struct inode *inode;
-	int err = namei_at(dirfd, pathname, &inode, !(flags & AT_SYMLINK_NOFOLLOW));
+	int err = utimensat_get_inode(dirfd, pathname, flags, &inode);
 	if (err)
 		return err;
 
@@ -322,7 +346,7 @@ tail:
 int sys_utimensat(int dirfd, char *pathname, struct timespec *times, int flags)
 {
 	struct inode *inode;
-	int err = namei_at(dirfd, pathname, &inode, !(flags & AT_SYMLINK_NOFOLLOW));
+	int err = utimensat_get_inode(dirfd, pathname, flags, &inode);
 	if (err)
 		return err;
 
