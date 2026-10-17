@@ -317,6 +317,16 @@ gid_t sys_getegid32(void)
 	return 0;
 }
 
+int sys_getgroups32(int size, gid_t *list)
+{
+	/* No supplementary group support yet; the primary group is already
+	 * available through getgid()/getegid(). */
+	(void)list;
+	if (size < 0)
+		return -EINVAL;
+	return 0;
+}
+
 gid_t sys_setregid32(void)
 {
 	return 0;

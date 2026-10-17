@@ -521,7 +521,7 @@ ENTRY(sys_call_table)
 	.long sys_getegid32
 	.long sys_setreuid32
 	.long sys_setregid32
-	.long sys_not_exist /* SYS_getgroups32 */
+	.long sys_getgroups32
 	.long sys_not_exist /* SYS_setgroups32 */
 	.long sys_not_exist /* SYS_fchown32 */
 	.long sys_not_exist /* SYS_setresuid32 */

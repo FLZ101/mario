@@ -1,0 +1,28 @@
+# Mario has no supplementary groups, so getgroups() returns zero and id/groups
+# report the primary root group.
+
+RUN: export PATH=/bin/toybox:/bin
+
+RUN: id -u; echo id-u-status:$?
+CHECK: 0
+CHECK: id-u-status:0
+
+RUN: id -g; echo id-g-status:$?
+CHECK: 0
+CHECK: id-g-status:0
+
+RUN: id -un; echo id-un-status:$?
+CHECK: root
+CHECK: id-un-status:0
+
+RUN: id -gn; echo id-gn-status:$?
+CHECK: root
+CHECK: id-gn-status:0
+
+RUN: id; echo id-status:$?
+CHECK: uid=0(root) gid=0(root) groups=0(root)
+CHECK: id-status:0
+
+RUN: groups; echo groups-status:$?
+CHECK: root
+CHECK: groups-status:0
