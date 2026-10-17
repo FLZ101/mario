@@ -6,13 +6,17 @@ export SHELL
 ROOT := $(shell pwd)
 PYTHON := $(ROOT)/.venv/bin/python
 VENV_STAMP := $(ROOT)/.venv/.stamp
-CASES ?= tests/shell
+SHELL_TEST_CASES ?= tests/shell
+VGA_TEST_CASES ?= tests/vga
 
 .PHONY: all kernel rd app libc image run debug \
-	quick-run quick-debug quick-run-gtk quick-debug-gtk musl venv test precommit setup \
+	quick-run quick-debug quick-run-gtk quick-debug-gtk \
+	test shell-test vga-test \
+	musl venv precommit setup \
 	compiler-rt
 
-.PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image clean-musl clean-compiler-rt
+.PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image \
+	clean-musl clean-compiler-rt
 
 all: kernel rd
 
@@ -63,8 +67,13 @@ $(VENV_STAMP): requirements.txt
 
 venv: $(VENV_STAMP)
 
-test: venv
-	$(PYTHON) tests/lit_shell_test.py $(CASES)
+shell-test: venv
+	$(PYTHON) tests/lit_shell_test.py $(SHELL_TEST_CASES)
+
+vga-test: venv
+	$(PYTHON) tests/lit_vga_test.py $(VGA_TEST_CASES)
+
+test: shell-test vga-test
 
 precommit: venv
 	$(PYTHON) -m pre_commit install

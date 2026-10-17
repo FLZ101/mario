@@ -1,0 +1,9 @@
+EXIT:
+
+RUN: export PATH=/bin/toybox:/bin
+
+# TODO: tty currently reports "not a tty" for the serial console.
+# Fix stdin/ttyname handling, then keep this test passing.
+RUN: tty; echo tty-status:$?
+CHECK-REGEX: /dev/
+CHECK: tty-status:0

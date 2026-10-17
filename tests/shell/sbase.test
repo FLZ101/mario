@@ -1,0 +1,233 @@
+RUN: export PATH=/bin/sbase:/bin
+
+# Prepare a clean workspace.
+RUN: cd /root
+RUN: rm -rf sbase-test
+RUN: mkdir -p sbase-test/sub
+RUN: cd sbase-test
+RUN: pwd
+CHECK: /root/sbase-test
+
+# Confirm the sbase tools are being selected.
+RUN: which cat
+CHECK: /bin/sbase/cat
+
+# Create some files to work with.
+RUN: echo hello > a.txt
+RUN: printf 'world\n' > b.txt
+RUN: touch empty.txt
+RUN: seq 1 3 > nums.txt
+RUN: ls -1
+CHECK-REGEX: a\.txt\s+b\.txt\s+empty\.txt\s+nums\.txt\s+sub
+
+# Inspect paths and links.
+RUN: basename /root/sbase-test/a.txt
+CHECK: a.txt
+RUN: dirname /root/sbase-test/a.txt
+CHECK: /root/sbase-test
+RUN: ln -s a.txt sym.txt
+RUN: readlink sym.txt
+CHECK: a.txt
+RUN: find . -name 'a.txt'
+CHECK: ./a.txt
+
+# Copy, move, and remove files.
+RUN: cp a.txt copy.txt
+RUN: mv copy.txt moved.txt
+RUN: cp a.txt installed.txt
+RUN: touch dead.txt
+RUN: unlink dead.txt
+RUN: ls dead.txt
+CHECK: No such file or directory
+RUN: ls -1
+CHECK-REGEX: a\.txt\s+b\.txt\s+empty\.txt\s+installed\.txt\s+moved\.txt\s+nums\.txt\s+sub\s+sym\.txt
+
+# Read and transform file contents.
+RUN: cat a.txt
+CHECK: hello
+RUN: head -n 2 nums.txt
+CHECK: 1
+CHECK: 2
+RUN: tail -n 2 nums.txt
+CHECK: 2
+CHECK: 3
+RUN: nl nums.txt
+CHECK-REGEX: 1\s+1
+CHECK-REGEX: 2\s+2
+CHECK-REGEX: 3\s+3
+RUN: od -An -tx1 a.txt
+CHECK-REGEX: 68\s+65\s+6c\s+6c\s+6f\s+a
+RUN: strings a.txt
+CHECK: hello
+RUN: rev a.txt
+CHECK: olleh
+RUN: wc -l nums.txt
+CHECK-REGEX: 3\s+nums\.txt
+RUN: grep 2 nums.txt
+CHECK: 2
+RUN: sed 's/hello/hi/' a.txt
+CHECK: hi
+RUN: cut -c1-3 a.txt
+CHECK: hel
+RUN: sort -r nums.txt
+CHECK: 3
+CHECK: 2
+CHECK: 1
+RUN: printf '2\n2\n' > dup.txt
+RUN: uniq dup.txt
+CHECK: 2
+RUN: cmp a.txt a.txt
+RUN: echo $?
+CHECK: 0
+RUN: printf 'one\nthree\n' > left.txt
+RUN: printf 'two\nfour\n' > right.txt
+RUN: paste left.txt right.txt
+CHECK: one	two
+CHECK: three	four
+RUN: printf 'a\tb\n' > tabs.txt
+RUN: expand tabs.txt
+CHECK-REGEX: a\s+b
+RUN: fold -w 3 a.txt
+CHECK-REGEX: hel
+CHECK-REGEX: lo
+RUN: printf 'abc\n' | tr a-z A-Z
+CHECK: ABC
+RUN: echo tee | tee tee.txt
+CHECK: tee
+RUN: dd if=a.txt of=dd.txt >/dev/null 2>&1
+RUN: cmp a.txt dd.txt
+RUN: echo $?
+CHECK: 0
+
+# Checksums and digests.
+RUN: cksum a.txt
+CHECK-REGEX: 3015617425\s+6\s+a\.txt
+RUN: md5sum a.txt
+CHECK-REGEX: b1946ac92492d2347c6235b4d2611184\s+a\.txt
+RUN: sha1sum a.txt
+CHECK-REGEX: f572d396fae9206628714fb2ce00f72e94f2258f\s+a\.txt
+RUN: sha256sum a.txt
+CHECK-REGEX: 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03\s+a\.txt
+
+# Encode and archive files.
+RUN: uuencode a.txt decoded.txt > a.uu
+RUN: uudecode a.uu
+RUN: cmp a.txt decoded.txt
+RUN: echo $?
+CHECK: 0
+RUN: tar -cf archive.tar a.txt b.txt
+RUN: tar -tf archive.tar
+CHECK: a.txt
+CHECK: b.txt
+
+# Additional supported sbase utilities.
+RUN: [ 1 -eq 1 ]; echo bracket-ok
+CHECK: bracket-ok
+RUN: cal 1 2020
+CHECK: January 2020
+RUN: chmod 600 a.txt; echo chmod-ok
+CHECK: chmod-ok
+RUN: chgrp root a.txt; echo chgrp-ok
+CHECK: chgrp-ok
+RUN: chown root a.txt; echo chown-ok
+CHECK: chown-ok
+RUN: chroot / /bin/sbase/pwd
+CHECK: /
+RUN: cols </dev/null; echo cols-ok
+CHECK: cols-ok
+RUN: printf '1\n2\n' > comm-a
+RUN: cp comm-a comm-b
+RUN: comm comm-a comm-b
+CHECK-REGEX: \t\t1
+CHECK-REGEX: \t\t2
+RUN: date +%Y
+CHECK-REGEX: 20[0-9]{2}
+RUN: du a.txt
+CHECK-REGEX: [0-9]+\s+a\.txt
+RUN: env PATH=/bin/sbase:/bin true; echo env-ok
+CHECK: env-ok
+RUN: expr 1 + 1
+CHECK: 2
+RUN: false; echo false-status:$?
+CHECK: false-status:1
+RUN: getconf PATH_MAX /
+CHECK: 4096
+RUN: hostname
+CHECK: PC
+RUN: printf '1 a\n2 b\n' > join-a
+RUN: cp join-a join-b
+RUN: join join-a join-b
+CHECK: 1 a a
+CHECK: 2 b b
+RUN: kill -l 1
+CHECK: HUP
+RUN: logger sbase-test; echo logger-ok
+CHECK: logger-ok
+RUN: mktemp mktemp.XXXXXX >/dev/null; echo mktemp-ok
+CHECK: mktemp-ok
+RUN: nohup true >/dev/null 2>&1; echo nohup-ok
+CHECK: nohup-ok
+RUN: pathchk /root/sbase-test/a.txt; echo pathchk-ok
+CHECK: pathchk-ok
+RUN: printenv PATH
+CHECK: /bin/sbase:/bin
+RUN: setsid true; echo setsid-ok
+CHECK: setsid-ok
+RUN: sha224sum a.txt
+CHECK-REGEX: [0-9a-f]{56}\s+a\.txt
+RUN: sha384sum a.txt
+CHECK-REGEX: [0-9a-f]{96}\s+a\.txt
+RUN: sha512-224sum a.txt
+CHECK-REGEX: [0-9a-f]{56}\s+a\.txt
+RUN: sha512-256sum a.txt
+CHECK-REGEX: [0-9a-f]{64}\s+a\.txt
+RUN: sha512sum a.txt
+CHECK-REGEX: [0-9a-f]{128}\s+a\.txt
+RUN: sleep 0; echo sleep-ok
+CHECK: sleep-ok
+RUN: split -l 1 nums.txt split-
+RUN: ls split-aa split-ab split-ac
+CHECK-REGEX: split-aa\s+split-ab\s+split-ac
+RUN: sync; echo sync-ok
+CHECK: sync-ok
+RUN: time true
+CHECK: real
+RUN: true; echo true-ok
+CHECK: true-ok
+RUN: printf 'a b\nb c\n' | tsort
+CHECK: a
+CHECK: b
+CHECK: c
+RUN: uname -s
+CHECK: Mario
+RUN: printf 'a       b\n' | unexpand -a
+CHECK-REGEX: a\tb
+RUN: whoami
+CHECK: root
+RUN: printf 'a\nb\n' | xargs echo
+CHECK: a b
+
+# Unsupported sbase applets intentionally not tested:
+#   cron: daemon, not suitable for a non-interactive shell test
+#   ed: interactive line editor, not suitable
+#   flock: flock syscall is not implemented
+#   install, xinstall: fchown syscall is not implemented
+#   link: link syscall is not implemented
+#   logname: no login name is available
+#   mkfifo: FIFO creation returns Invalid argument
+#   mknod: device node creation returns Invalid argument
+#   nice, renice: get/setpriority syscalls are not implemented
+#   sponge: mkstemp fails
+#   tftp: network client, not suitable
+#   tty: reports "not a tty" on the serial console
+#   yes: hangs when piped to head
+
+# Directory cleanup and final file tests.
+RUN: rmdir sub
+RUN: ls -ld sub
+CHECK: No such file or directory
+RUN: test -f a.txt && test -d /root/sbase-test && echo test-ok
+CHECK: test-ok
+RUN: cd /root
+RUN: test -d sbase-test && echo sbase-workspace-ok
+CHECK: sbase-workspace-ok

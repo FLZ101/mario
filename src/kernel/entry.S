@@ -612,7 +612,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_inotify_rm_watch */
 	.long sys_not_exist /* SYS_migrate_pages */
 	.long sys_openat
-	.long sys_not_exist /* SYS_mkdirat */
+	.long sys_mkdirat
 	.long sys_not_exist /* SYS_mknodat */
 	.long sys_fchownat
 	.long sys_not_exist /* SYS_futimesat */

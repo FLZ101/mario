@@ -1,0 +1,9 @@
+EXIT:
+
+RUN: export PATH=/bin/toybox:/bin
+
+# TODO: count currently hangs instead of seeing EOF from piped input.
+# Fix the underlying pipe/poll issue, then keep this test passing.
+RUN: printf 'abc\n' | count
+CHECK: abc
+CHECK-REGEX: 4 bytes
