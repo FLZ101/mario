@@ -134,6 +134,8 @@ static int pipe_read_poll(struct file *f, struct poll_context *ctx)
 	short mask = 0;
 	if (!ring_buffer_empty(&info->rb))
 		mask |= POLLIN;
+	else if (!info->n_writer)
+		mask |= POLLHUP;
 	RELEASE_LOCK(&info->lock);
 	return mask;
 }
