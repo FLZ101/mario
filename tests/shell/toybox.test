@@ -266,12 +266,10 @@ CHECK: /
 #   iotop, top: interactive and time out
 #   link: link syscall is not implemented
 #   mkfifo: FIFO creation returns Invalid argument
-#   mount: fails because /proc/mounts is missing
 #   nice, renice: setpriority syscall is not implemented
 #   pgrep, pkill, ps: process listing is unavailable
 #   readelf: hangs on ELF files
 #   timeout: fails to run its child command
-#   umount: relies on missing /proc/mounts support
 #   unicode: interactive and time out
 
 # Directory cleanup and final file tests.

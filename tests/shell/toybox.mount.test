@@ -1,0 +1,32 @@
+RUN: export PATH=/bin/toybox:/bin
+
+# Mount rd2, whose root contains quick/brown/fox.txt.
+RUN: mount -t mariofs /dev/rd2 /mnt; echo mount-status:$?
+CHECK: mount-status:0
+
+RUN: cat /mnt/quick/brown/fox.txt
+CHECK: lazy dog
+RUN: test -f /mnt/quick/brown/fox.txt; echo mounted-file:$?
+CHECK: mounted-file:0
+
+# `mount` without arguments reads the current mount list from /proc/mounts.
+RUN: mount
+CHECK: mariofs on / type mariofs (rw)
+
+# Unmount by device path and verify rd2 is no longer visible.
+RUN: umount /dev/rd2; echo umount-device-status:$?
+CHECK: umount-device-status:0
+RUN: test ! -e /mnt/quick; echo unmounted-by-device:$?
+CHECK: unmounted-by-device:0
+
+# Remount, then unmount by mountpoint.
+RUN: mount -t mariofs /dev/rd2 /mnt; echo remount-status:$?
+CHECK: remount-status:0
+RUN: cat /mnt/quick/brown/fox.txt
+CHECK: lazy dog
+RUN: umount /mnt; echo umount-status:$?
+CHECK: umount-status:0
+RUN: test ! -e /mnt/quick; echo unmounted-file:$?
+CHECK: unmounted-file:0
+RUN: ls /mnt; echo empty-mnt-status:$?
+CHECK: empty-mnt-status:0
