@@ -1,0 +1,6 @@
+# clangd parses the GCC compile_commands with clang. On the i386 ELF target,
+# `gcc_struct` is GCC/MinGW layout syntax, so clang reports it as unknown even
+# though the GCC wrapper used by the real build accepts it.
+CompileFlags:
+  Add:
+    - -Wno-unknown-attributes
