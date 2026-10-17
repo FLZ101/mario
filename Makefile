@@ -9,9 +9,10 @@ VENV_STAMP := $(ROOT)/.venv/.stamp
 CASES ?= tests/shell
 
 .PHONY: all kernel rd app libc image run debug \
-	quick-run quick-debug quick-run-gtk quick-debug-gtk musl venv test precommit setup
+	quick-run quick-debug quick-run-gtk quick-debug-gtk musl venv test precommit setup \
+	compiler-rt
 
-.PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image clean-musl
+.PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image clean-musl clean-compiler-rt
 
 all: kernel rd
 
@@ -26,6 +27,8 @@ export LD
 _LIBC	:= musl
 # _LIBC	:= libc
 export _LIBC
+
+COMPILER_RT_MK := $(ROOT)/util/compiler-rt.mk
 
 ifeq ($(_LIBC), libc)
   APP_CC	:= $(ROOT)/util/mario-libc-cc
@@ -44,10 +47,13 @@ rd: app
 app: $(_LIBC)
 	$(MAKE) CC=$(APP_CC) LD=$(APP_LD) -C app
 
-libc:
+compiler-rt:
+	$(MAKE) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld -f $(COMPILER_RT_MK)
+
+libc: compiler-rt
 	$(MAKE) CC=$(ROOT)/util/mario-cc -C libc
 
-musl:
+musl: compiler-rt
 	$(MAKE) CC=$(ROOT)/util/mario-cc COMPILE_COMMANDS_JSON= -C musl
 
 $(VENV_STAMP): requirements.txt
@@ -86,7 +92,7 @@ quick-run-gtk:
 quick-debug-gtk:
 	$(MAKE) QEMU_DISPLAY=gtk quick-debug -C qemu
 
-clean: clean-kernel clean-rd clean-app clean-libc clean-image
+clean: clean-kernel clean-rd clean-app clean-libc clean-image clean-compiler-rt
 	$(RM) $(COMPILE_COMMANDS_JSON)
 
 clean-kernel:
@@ -106,6 +112,9 @@ clean-musl:
 
 clean-image:
 	$(MAKE) clean -C qemu
+
+clean-compiler-rt:
+	$(MAKE) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld -f $(COMPILER_RT_MK) clean
 
 .PHONY: tmux-run tmux-debug tmux-attach tmux-kill
 tmux-run tmux-debug tmux-attach tmux-kill:

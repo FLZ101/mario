@@ -52,6 +52,21 @@ $ sudo dnf install autoconf automake libtool
 $ sudo dnf install socat tmux
 ```
 
+The build uses a 32-bit GCC toolchain (`-m32`). If your host GCC
+does not have i386 support installed:
+
+Ubuntu/Debian:
+
+```
+$ sudo apt install gcc-multilib
+```
+
+Fedora:
+
+```
+$ sudo dnf install glibc-devel.i686 libgcc.i686
+```
+
 ## Build
 
 ```

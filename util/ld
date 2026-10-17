@@ -12,38 +12,12 @@ class Unreachable(Exception):
     pass
 
 
-def get_libgcc_path():
-    cp = subprocess.run(
-        ["gcc", "-m32", "-print-libgcc-file-name"],
-        check=True,
-        capture_output=True,
-        encoding="utf-8",
-    )
-    s = cp.stdout.strip()
-    assert s
-    return s
-
-
-def get_gcc_file(name: str):
-    name = name.strip()
-    assert name and "/" not in name
-
-    cp = subprocess.run(
-        ["gcc", "-m32", f"--print-file-name={name}"],
-        check=True,
-        capture_output=True,
-        encoding="utf-8",
-    )
-    s = cp.stdout.strip()
-    assert s.startswith("/")
-    return s
-
-
 def get_args():
     cwd = Path(__file__).resolve().parent
 
     prog_name = os.path.basename(sys.argv[0])
     args = sys.argv[1:]
+    compiler_rt = (cwd / ".." / "libcompiler_rt.a").resolve()
 
     for x in args:
         if x in ["-v", "--version", "-h", "--help"]:
@@ -70,7 +44,7 @@ def get_args():
                     "-lc",
                     "-T",
                     f"{linker_script}",
-                    f"{get_libgcc_path()}",
+                    f"{compiler_rt}",
                 ]
             )
 
@@ -83,7 +57,6 @@ def get_args():
                 [
                     f'{lib_dir / "crt1.o"}',
                     f'{lib_dir / "crti.o"}',
-                    f'{get_gcc_file("crtbegin.o")}',
                 ]
             )
 
@@ -93,8 +66,7 @@ def get_args():
                     "-lc",
                     "-T",
                     f"{linker_script}",
-                    f"{get_libgcc_path()}",
-                    f'{get_gcc_file("crtend.o")}',
+                    f"{compiler_rt}",
                     f'{lib_dir / "crtn.o"}',
                     "--gc-sections",
                 ]
