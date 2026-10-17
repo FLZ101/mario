@@ -7,7 +7,7 @@
 #define alloc_pt()	(pte_t *)get_zero_page()
 
 #define free_pd(pd)	page_free((unsigned long)(pd))
-#define free_pt(pt)	__put_page(PHY_TO_PAGE(pt))
+#define free_pt(pt)	__put_page(VIR_TO_PAGE(pt))
 
 #define PGDIR_SHIFT	22
 #define PGDIR_SIZE	(1UL << PGDIR_SHIFT)
