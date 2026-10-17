@@ -228,10 +228,22 @@ RUN: logger toybox-test; echo logger-ok
 CHECK: logger-ok
 RUN: logname
 CHECK: root
+RUN: mkfifo fifo; echo mkfifo-status:$?
+RUN: test -p fifo; echo fifo-mode:$?
+CHECK: mkfifo-status:0
+CHECK: fifo-mode:0
+RUN: printf 'toybox fifo\n' > fifo & cat fifo
+CHECK: toybox fifo
+RUN: nice -n 7 true; echo nice-status:$?
+CHECK: nice-status:0
 RUN: nohup true >/dev/null 2>&1; echo nohup-ok
 CHECK: nohup-ok
 RUN: prlimit -n
 CHECK: 256
+RUN: renice -n 5 $$; echo renice-status:$?
+CHECK: renice-status:0
+RUN: renice -n -5 $$; echo renice-reset:$?
+CHECK: renice-reset:0
 RUN: sleep 0.01; echo sleep-ok
 CHECK: sleep-ok
 RUN: time true
@@ -260,13 +272,10 @@ RUN: chroot / /bin/toybox/pwd
 CHECK: /
 
 # Unsupported toybox applets intentionally not tested:
-#   df: fails because /proc/mounts is missing
 #   groups, id: getgroups syscall is not implemented
 #   hexedit: interactive editor, not suitable for this test
 #   iotop, top: interactive and time out
 #   link: link syscall is not implemented
-#   mkfifo: FIFO creation returns Invalid argument
-#   nice, renice: setpriority syscall is not implemented
 #   pgrep, pkill, ps: process listing is unavailable
 #   readelf: hangs on ELF files
 #   timeout: fails to run its child command

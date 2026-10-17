@@ -261,8 +261,6 @@ CHECK: a b
 #   ed: interactive line editor, not suitable
 #   flock: flock syscall is not implemented
 #   link: link syscall is not implemented
-#   mkfifo: covered in sbase.mkfifo.test
-#   mknod: covered in sbase.mknod.test
 #   tftp: network client, not suitable
 
 # Directory cleanup and final file tests.
