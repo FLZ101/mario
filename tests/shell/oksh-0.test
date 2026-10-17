@@ -1,0 +1,95 @@
+RUN: export PATH=/bin:/bin/toybox:/bin/sbase
+
+# Basic execution and quoting.
+RUN: echo the quick brown fox
+CHECK: the quick brown fox
+
+RUN: echo "the lazy dog" | cat
+CHECK: the lazy dog
+
+RUN: echo 'single $HOME'
+CHECK: single $HOME
+
+RUN: echo "home=$HOME"
+CHECK: home=/root
+
+RUN: echo escaped\ space
+CHECK: escaped space
+
+# Variables and expansions.
+RUN: shell_name=oksh; echo "shell=$shell_name"
+CHECK: shell=oksh
+
+RUN: echo "default=${MISSING_VAR:-fallback}"
+CHECK: default=fallback
+
+RUN: echo "subst=$(printf 'abc' | tr a-z A-Z)"
+CHECK: subst=ABC
+
+RUN: echo $((2 + 3 * 4))
+CHECK: 14
+
+# Pipelines.
+RUN: printf 'b\na\nc\n' | sort | tr '\n' ':'; echo
+CHECK: a:b:c:
+
+RUN: printf '1\n2\n3\n' | wc -l
+CHECK: 3
+
+# Redirection.
+RUN: echo first > redirect.txt
+RUN: cat redirect.txt; echo redirect-end
+CHECK: first
+CHECK: redirect-end
+
+RUN: cat < redirect.txt; echo input-end
+CHECK: first
+CHECK: input-end
+
+RUN: ls missing-file 2> err.txt; echo err-status:$?
+RUN: cat err.txt; echo err-end
+CHECK: No such file or directory
+CHECK: err-end
+
+RUN: ls missing-file > both.txt 2>&1; echo dup-status:$?
+RUN: cat both.txt; echo both-end
+CHECK: No such file or directory
+CHECK: both-end
+
+# Control flow.
+RUN: if true; then echo if-ok; else echo if-bad; fi
+CHECK: if-ok
+
+RUN: if false; then echo bad; elif true; then echo elif-ok; else echo bad; fi
+CHECK: elif-ok
+
+RUN: for x in a b c; do printf '%s,' "$x"; done; echo
+CHECK: a,b,c,
+
+RUN: i=0; while [ "$i" -lt 3 ]; do echo "w$i"; i=$((i + 1)); done
+CHECK: w0
+CHECK: w1
+CHECK: w2
+
+RUN: for x in 1 2 3; do if [ "$x" = 2 ]; then continue; fi; echo "$x"; done
+CHECK: 1
+CHECK: 3
+
+RUN: case blue in red) echo bad;; green|blue) echo case-ok;; *) echo bad;; esac
+CHECK: case-ok
+
+RUN: until false; do echo until-ok; break; done
+CHECK: until-ok
+
+# Logical operators and grouping.
+RUN: true && echo and-ok
+CHECK: and-ok
+
+RUN: false || echo or-ok
+CHECK: or-ok
+
+RUN: { echo grouped; echo lines; } | tr '\n' ':'; echo
+CHECK: grouped:lines:
+
+# Unsupported oksh redirection feature intentionally not tested:
+#   >> append redirection: O_APPEND/file-position handling is incomplete

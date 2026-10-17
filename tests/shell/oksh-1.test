@@ -1,0 +1,60 @@
+RUN: export PATH=/bin:/bin/toybox:/bin/sbase
+
+# Functions and positional parameters.
+RUN: greet() { echo "hi $1"; }; greet oksh
+CHECK: hi oksh
+
+RUN: set -- one two three; echo "$#:$1:$2:$3"
+CHECK: 3:one:two:three
+
+RUN: set -- a b c; shift; echo "$#:$1:$2"
+CHECK: 2:b:c
+
+RUN: sum() { echo $(($1 + $2)); }; sum 3 4
+CHECK: 7
+
+# Parameter expansion.
+RUN: value=hello; echo "${value#he}:${value%llo}"
+CHECK: llo:he
+
+RUN: value=hello; echo "${value:-default}:${UNSET_VAR:-fallback}"
+CHECK: hello:fallback
+
+# read and pipelines.
+RUN: printf 'red green blue\n' | { read a b c; echo "$a:$b:$c"; }
+CHECK: red:green:blue
+
+# test and arithmetic.
+RUN: test -n ok && echo test-ok
+CHECK: test-ok
+
+RUN: [[ ok = ok ]] && echo bracket-ok
+CHECK: bracket-ok
+
+RUN: n=0; n=$((n + 1)); echo $n
+CHECK: 1
+
+RUN: echo `printf hi`
+CHECK: hi
+
+RUN: eval 'echo eval-ok'
+CHECK: eval-ok
+
+# oksh uses /tmp for temporary files while reading here-documents.
+RUN: mkdir -p /tmp
+
+# Here-documents: quoted delimiter disables expansion.
+SEND-RAW: cat <<'EOF'\nline one\nline two\nEOF\n
+EXPECT:
+CHECK: line one
+CHECK: line two
+
+# Here-documents: unquoted delimiter expands variables.
+SEND-RAW: cat <<EOF\nvalue=$HOME\nEOF\n
+EXPECT:
+CHECK: value=/root
+
+# Unsupported or interactive oksh features intentionally not tested:
+#   select: interactive menu loop
+#   job control (bg/fg/jobs): kernel job-control support is incomplete
+#   coprocesses (|&): depend on pipe/job-control semantics not available

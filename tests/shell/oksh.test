@@ -1,5 +1,0 @@
-RUN: echo the quick brown fox
-CHECK: the quick brown fox
-
-RUN: echo "the lazy dog" | cat
-CHECK: the lazy dog

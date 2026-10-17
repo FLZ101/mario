@@ -30,8 +30,8 @@ except ImportError:
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QEMU = os.environ.get("QEMU", "qemu-system-i386")
-KERNEL = os.path.join(ROOT, "qemu", "tmp", "kernel.exe")
-INITRD = os.path.join(ROOT, "qemu", "tmp", "rdx")
+KERNEL = os.path.join(ROOT, "src", "kernel", "kernel.exe")
+INITRD = os.path.join(ROOT, "rd", "rdx")
 
 
 def prompt_pattern(literal):
@@ -110,9 +110,6 @@ def require_files():
     missing = [p for p in (KERNEL, INITRD) if not os.path.exists(p)]
     if missing:
         print("Missing build outputs:", ", ".join(missing), file=sys.stderr)
-        print(
-            "Run: make kernel && make -C qemu tmp/kernel.exe tmp/rdx", file=sys.stderr
-        )
         sys.exit(2)
 
 

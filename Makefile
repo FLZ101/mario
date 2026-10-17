@@ -67,10 +67,10 @@ $(VENV_STAMP): requirements.txt
 
 venv: $(VENV_STAMP)
 
-shell-test: venv
+shell-test: venv kernel rd
 	$(PYTHON) tests/lit_shell_test.py $(SHELL_TEST_CASES)
 
-vga-test: venv
+vga-test: venv kernel rd
 	$(PYTHON) tests/lit_vga_test.py $(VGA_TEST_CASES)
 
 test: shell-test vga-test
