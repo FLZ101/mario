@@ -1,0 +1,20 @@
+RUN: export PATH=/bin/sbase:/bin
+RUN: cd /root
+RUN: rm -rf mknod-test
+RUN: mkdir mknod-test
+RUN: cd mknod-test
+
+RUN: mknod fifo p; echo mknod-fifo:$?
+RUN: test -p fifo; echo fifo-mode:$?
+CHECK: mknod-fifo:0
+CHECK: fifo-mode:0
+
+RUN: mknod null c 1 3; echo mknod-null:$?
+RUN: test -c null; echo null-mode:$?
+CHECK: mknod-null:0
+CHECK: null-mode:0
+
+RUN: mknod rd0 b 1 0; echo mknod-rd0:$?
+RUN: test -b rd0; echo block-mode:$?
+CHECK: mknod-rd0:0
+CHECK: block-mode:0

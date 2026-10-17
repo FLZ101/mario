@@ -589,7 +589,8 @@ int sys_mknod(char *filename, int mode, dev_t dev)
 
 	if (S_ISDIR(mode))
 		return -EPERM;
-	if (mode < MODE_REG || mode > MODE_CHR)
+	if (!S_ISREG(mode) && !S_ISCHR(mode) &&
+	    !S_ISBLK(mode) && !S_ISFIFO(mode))
 		return -EINVAL;
 	error = getname(filename, &tmp);
 	if (!error) {

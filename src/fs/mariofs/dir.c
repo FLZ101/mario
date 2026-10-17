@@ -535,7 +535,7 @@ int mario_mknod(struct inode *dir, char *name, int len, int mode, int rdev)
 		goto tail_2;
 	}
 	entry.mode = mode;
-	if (entry.mode == MODE_REG)
+	if (S_ISREG(mode) || S_ISFIFO(mode))
 		entry.data = MARIO_ZERO_ENTRY;
 	else
 		entry.data = rdev;

@@ -261,8 +261,8 @@ CHECK: a b
 #   ed: interactive line editor, not suitable
 #   flock: flock syscall is not implemented
 #   link: link syscall is not implemented
-#   mkfifo: FIFO creation returns Invalid argument
-#   mknod: device node creation returns Invalid argument
+#   mkfifo: FIFO node creation works, but FIFO I/O is not implemented
+#   mknod: covered in sbase.mknod.test
 #   tftp: network client, not suitable
 
 # Directory cleanup and final file tests.
