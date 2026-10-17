@@ -1,4 +1,5 @@
 #include <fs/fs.h>
+#include <fs/proc.h>
 
 /*
  * How long a filename can we get from user space?
@@ -87,6 +88,16 @@ int lookup(struct inode *dir, char *name, int len, struct inode **res)
 			iref(dir);
 		}
 	}
+
+	if (dir->i_op == &proc_dir_iops)
+		return dir->i_op->lookup(dir, name, len, res);
+	if ((sb = dir->i_sb) && dir == sb->s_mounted &&
+	    len == 4 && !memcmp(name, "proc", 4)) {
+		*res = proc_get_root();
+		iput(dir);
+		return *res ? 0 : -ENOMEM;
+	}
+
 	if (!dir->i_op || !dir->i_op->lookup) {
 		iput(dir);
 		return -ENOTDIR;
