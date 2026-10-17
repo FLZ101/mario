@@ -412,8 +412,8 @@ ENTRY(sys_call_table)
 	.long sys_ftruncate
 	.long sys_fchmod
 	.long sys_fchown
-	.long sys_not_exist /* SYS_getpriority */
-	.long sys_not_exist /* SYS_setpriority */
+	.long sys_getpriority
+	.long sys_setpriority
 	.long sys_not_exist /* SYS_profil */
 	.long sys_not_exist /* SYS_statfs */
 	.long sys_not_exist /* SYS_fstatfs */

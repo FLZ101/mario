@@ -98,6 +98,12 @@ RUN: dd if=a.txt of=dd.txt >/dev/null 2>&1
 RUN: cmp a.txt dd.txt
 RUN: echo $?
 CHECK: 0
+RUN: printf 'hello sponge\n' | sponge sponge.txt
+RUN: cat sponge.txt
+CHECK: hello sponge
+RUN: printf 'replaced by sponge\n' | sponge sponge.txt
+RUN: cat sponge.txt
+CHECK: replaced by sponge
 
 # Checksums and digests.
 RUN: cksum a.txt
@@ -119,6 +125,38 @@ RUN: tar -cf archive.tar a.txt b.txt
 RUN: tar -tf archive.tar
 CHECK: a.txt
 CHECK: b.txt
+
+# Install files with install and xinstall.
+RUN: install a.txt install-a.txt
+RUN: cat install-a.txt
+CHECK: hello
+RUN: cmp a.txt install-a.txt
+RUN: echo $?
+CHECK: 0
+
+RUN: xinstall b.txt xinstall-b.txt
+RUN: cat xinstall-b.txt
+CHECK: world
+RUN: cmp b.txt xinstall-b.txt
+RUN: echo $?
+CHECK: 0
+
+RUN: mkdir install-target
+RUN: install -t install-target a.txt b.txt
+RUN: ls -1 install-target
+CHECK-REGEX: a\.txt\s+b\.txt
+RUN: cat install-target/b.txt
+CHECK: world
+
+RUN: install -d dirs/one dirs/two
+RUN: test -d dirs/one && test -d dirs/two; echo install-dirs-ok
+CHECK: install-dirs-ok
+
+RUN: xinstall -D a.txt deep/install/copy.txt
+RUN: cat deep/install/copy.txt
+CHECK: hello
+
+RUN: rm -rf install-a.txt xinstall-b.txt install-target dirs deep
 
 # Additional supported sbase utilities.
 RUN: [ 1 -eq 1 ]; echo bracket-ok
@@ -163,14 +201,22 @@ RUN: kill -l 1
 CHECK: HUP
 RUN: logger sbase-test; echo logger-ok
 CHECK: logger-ok
+RUN: LOGNAME=root logname
+CHECK: root
 RUN: mktemp mktemp.XXXXXX >/dev/null; echo mktemp-ok
 CHECK: mktemp-ok
+RUN: nice -n 7 true; echo nice-status:$?
+CHECK: nice-status:0
 RUN: nohup true >/dev/null 2>&1; echo nohup-ok
 CHECK: nohup-ok
 RUN: pathchk /root/sbase-test/a.txt; echo pathchk-ok
 CHECK: pathchk-ok
 RUN: printenv PATH
 CHECK: /bin/sbase:/bin
+RUN: renice -n 5 -p $$; echo renice-status:$?
+CHECK: renice-status:0
+RUN: renice -n -5 -p $$; echo renice-reset:$?
+CHECK: renice-reset:0
 RUN: setsid true; echo setsid-ok
 CHECK: setsid-ok
 RUN: sha224sum a.txt
@@ -194,6 +240,9 @@ RUN: time true
 CHECK: real
 RUN: true; echo true-ok
 CHECK: true-ok
+RUN: tty; echo tty-status:$?
+CHECK-REGEX: /dev/
+CHECK: tty-status:0
 RUN: printf 'a b\nb c\n' | tsort
 CHECK: a
 CHECK: b
@@ -211,16 +260,10 @@ CHECK: a b
 #   cron: daemon, not suitable for a non-interactive shell test
 #   ed: interactive line editor, not suitable
 #   flock: flock syscall is not implemented
-#   install, xinstall: fchown syscall is not implemented
 #   link: link syscall is not implemented
-#   logname: no login name is available
 #   mkfifo: FIFO creation returns Invalid argument
 #   mknod: device node creation returns Invalid argument
-#   nice, renice: get/setpriority syscalls are not implemented
-#   sponge: mkstemp fails
 #   tftp: network client, not suitable
-#   tty: reports "not a tty" on the serial console
-#   yes: hangs when piped to head
 
 # Directory cleanup and final file tests.
 RUN: rmdir sub

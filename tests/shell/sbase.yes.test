@@ -1,0 +1,4 @@
+RUN: export PATH=/bin/sbase:/bin
+
+RUN: yes | head -n 1
+CHECK: y

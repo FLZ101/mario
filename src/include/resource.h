@@ -58,4 +58,12 @@ struct rusage {
 #define RUSAGE_CHILDREN (-1)
 #define RUSAGE_THREAD   1
 
+#define PRIO_PROCESS	0
+#define PRIO_PGRP	1
+#define PRIO_USER	2
+
+#define NZERO		20
+#define PRIO_MIN	(-NZERO)
+#define PRIO_MAX	(NZERO - 1)
+
 #endif	/* _RESOURCE_H */

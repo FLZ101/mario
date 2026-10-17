@@ -85,6 +85,95 @@ int sys_getppid(void)
 	return current->p_pptr->pid;
 }
 
+int sys_getpriority(int which, int who)
+{
+	struct task_struct *p;
+	int found = 0;
+	int best = 0;
+
+	if (which != PRIO_PROCESS && which != PRIO_PGRP &&
+	    which != PRIO_USER)
+		return -EINVAL;
+
+	if (which == PRIO_PROCESS) {
+		if (!who)
+			who = current->pid;
+		for_each_task(p) {
+			if (p->pid == who) {
+				int prio = NZERO - p->priority;
+				if (prio > best)
+					best = prio;
+				found = 1;
+			}
+		}
+	} else if (which == PRIO_PGRP) {
+		if (!who)
+			who = current->pgrp;
+		for_each_task(p) {
+			if (p->pgrp == who) {
+				int prio = NZERO - p->priority;
+				if (prio > best)
+					best = prio;
+				found = 1;
+			}
+		}
+	} else {
+		if (who)
+			return -ESRCH;
+		for_each_task(p) {
+			int prio = NZERO - p->priority;
+			if (prio > best)
+				best = prio;
+			found = 1;
+		}
+	}
+
+	return found ? best : -ESRCH;
+}
+
+int sys_setpriority(int which, int who, int prio)
+{
+	struct task_struct *p;
+	int found = 0;
+
+	if (which != PRIO_PROCESS && which != PRIO_PGRP &&
+	    which != PRIO_USER)
+		return -EINVAL;
+	if (prio < PRIO_MIN || prio > PRIO_MAX)
+		prio = prio < PRIO_MIN ? PRIO_MIN : PRIO_MAX;
+
+	if (which == PRIO_PROCESS) {
+		if (!who)
+			who = current->pid;
+		for_each_task(p) {
+			if (p->pid == who) {
+				p->priority = prio;
+				found = 1;
+			}
+		}
+	} else if (which == PRIO_PGRP) {
+		if (!who)
+			who = current->pgrp;
+		for_each_task(p) {
+			if (p->pgrp == who) {
+				p->priority = prio;
+				found = 1;
+			}
+		}
+	} else {
+		if (who)
+			return -ESRCH;
+		for_each_task(p) {
+			p->priority = prio;
+			found = 1;
+		}
+	}
+
+	if (!found)
+		return -ESRCH;
+	return 0;
+}
+
 int sys_gettid(void)
 {
 	return current->pid;

@@ -22,6 +22,13 @@ int main(int argc, char *argv[], char *envp[])
 	dup2(fd, 1);
 	dup2(fd, 2);
 
+	/*
+	 * init ignores SIGPIPE, but login shells and their pipeline children
+	 * should inherit the default action so a producer like `yes` dies when
+	 * a consumer such as `head` closes the pipe.
+	 */
+	HandleErr(signal(SIGPIPE, SIG_DFL));
+
 	// RunL("/bin/example/kilo.exe", "/root/work/rd-make.c", NULL);
 	RunL("/bin/oksh", "-l", NULL);
 
