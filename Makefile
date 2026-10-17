@@ -28,7 +28,7 @@ _LIBC	:= musl
 # _LIBC	:= libc
 export _LIBC
 
-COMPILER_RT_MK := $(ROOT)/util/compiler-rt.mk
+COMPILER_RT_MK := $(ROOT)/compiler-rt/compiler-rt.mk
 
 ifeq ($(_LIBC), libc)
   APP_CC	:= $(ROOT)/util/mario-libc-cc
@@ -38,7 +38,7 @@ else
   APP_LD	:= $(ROOT)/util/mario-musl-ld
 endif
 
-kernel:
+kernel: compiler-rt
 	$(MAKE) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld -C src
 
 rd: app

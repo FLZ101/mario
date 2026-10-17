@@ -11,7 +11,7 @@ build-less: src-less
 src-less: $(LESS_SRC_DIR)/configure
 
 $(LESS_SRC_DIR)/configure: | $(LESS_SRC_FILE)
-	tar --no-same-owner xf $(LESS_SRC_FILE)
+	tar --no-same-owner -xf $(LESS_SRC_FILE)
 
 $(LESS_SRC_FILE):
 	wget -c --no-check-certificate $(LESS_SRC_URL) -O $(LESS_SRC_FILE)

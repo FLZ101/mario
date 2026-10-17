@@ -176,3 +176,5 @@ ENTRY(empty_bad_page)
 ENTRY(empty_bad_page_table)
 
 	.org 0x8000
+
+	.section .note.GNU-stack,"",@progbits

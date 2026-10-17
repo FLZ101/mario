@@ -787,3 +787,5 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_file_getattr */
 	.long sys_not_exist /* SYS_file_setattr */
 	.long sys_not_exist /* SYS_listns */
+
+	.section .note.GNU-stack,"",@progbits

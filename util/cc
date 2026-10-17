@@ -18,7 +18,7 @@ def get_args():
 
     prog_name = os.path.basename(sys.argv[0])
     args = sys.argv[1:]
-    compiler_rt = (cwd / ".." / "libcompiler_rt.a").resolve()
+    compiler_rt = (cwd / ".." / "compiler-rt" / "libcompiler_rt.a").resolve()
 
     for x in args:
         if x in ["-v", "--version", "-h", "--help"]:
@@ -26,6 +26,14 @@ def get_args():
 
         if x == "--mario-verify":
             sys.exit(0)
+
+        # CPython's cross configure compares $CC's multiarch with its
+        # musl-derived platform triplet. Letting host gcc answer here
+        # returns i386-linux-gnu and aborts with an internal configure error.
+        if x in ["-print-multiarch", "--print-multiarch"]:
+            if prog_name == "mario-musl-cc":
+                sys.stdout.write("i386-linux-musl\n")
+                sys.exit(0)
 
     preprocess_only = False
     compile_only = False
@@ -54,6 +62,8 @@ def get_args():
             flags = []
 
         case "mario-cc":
+            if not compile_only and not preprocess_only:
+                flags.extend(["-nostdlib", f"{compiler_rt}"])
             pass
 
         case "mario-libc-cc":
