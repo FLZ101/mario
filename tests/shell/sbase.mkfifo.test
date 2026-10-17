@@ -19,6 +19,14 @@ CHECK: two
 RUN: printf 'reopened fifo\n' > fifo & cat fifo
 CHECK: reopened fifo
 
+RUN: rm fifo; mkfifo fifo; echo recreate-status:$?
+RUN: test -p fifo; echo recreate-mode:$?
+CHECK: recreate-status:0
+CHECK: recreate-mode:0
+
+RUN: printf 'recreated fifo\n' > fifo & cat fifo
+CHECK: recreated fifo
+
 # The reader exits after one line, so the writer must handle the closed pipe.
 RUN: printf 'first\nsecond\n' > pair-a & head -n 1 pair-a
 CHECK: first
