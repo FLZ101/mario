@@ -1,0 +1,24 @@
+RUN: export PATH=/bin/sbase:/bin
+RUN: cd /root
+RUN: rm -rf mkfifo-test
+RUN: mkdir mkfifo-test
+RUN: cd mkfifo-test
+
+RUN: mkfifo fifo pair-a pair-b; echo mkfifo-status:$?
+RUN: test -p fifo && test -p pair-a && test -p pair-b; echo fifo-mode:$?
+CHECK: mkfifo-status:0
+CHECK: fifo-mode:0
+
+RUN: printf 'fifo payload\n' > fifo & cat fifo
+CHECK: fifo payload
+
+RUN: printf 'one\ntwo\n' > fifo & cat fifo
+CHECK: one
+CHECK: two
+
+RUN: printf 'reopened fifo\n' > fifo & cat fifo
+CHECK: reopened fifo
+
+# The reader exits after one line, so the writer must handle the closed pipe.
+RUN: printf 'first\nsecond\n' > pair-a & head -n 1 pair-a
+CHECK: first

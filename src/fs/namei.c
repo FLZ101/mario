@@ -358,7 +358,9 @@ SHE__:
 		return -ENOTDIR;
 	}
 
-	if (S_ISBLK(inode->i_mode) || S_ISCHR(inode->i_mode))
+	/* Device and FIFO opens ignore O_TRUNC; they have no regular file data. */
+	if (S_ISBLK(inode->i_mode) || S_ISCHR(inode->i_mode) ||
+	    S_ISFIFO(inode->i_mode))
 		flags &= ~O_TRUNC;
 
 	if (flags & O_TRUNC) {

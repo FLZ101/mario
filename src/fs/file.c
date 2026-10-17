@@ -95,9 +95,6 @@ void fref(struct file *f)
 	RELEASE_LOCK(&file_lock);
 }
 
-extern int is_read_pipe(struct file *f);
-extern int is_write_pipe(struct file *f);
-
 static struct file *copy_fd(struct file *old_file)
 {
 	int error;
@@ -112,10 +109,13 @@ static struct file *copy_fd(struct file *old_file)
 	if (inode) {
 		iref(inode);
 
-		if (is_read_pipe(new_file))
-			inode->u.pipe_i.n_reader++;
-		else if (is_write_pipe(new_file))
-			inode->u.pipe_i.n_writer++;
+		/* Duplicated FIFO descriptors must keep the inode's endpoint counts accurate. */
+		if (S_ISFIFO(inode->i_mode)) {
+			if (new_file->f_mode & 1)
+				inode->u.pipe_i.n_reader++;
+			if (new_file->f_mode & 2)
+				inode->u.pipe_i.n_writer++;
+		}
 	}
 
 	if (new_file->f_op && new_file->f_op->open) {

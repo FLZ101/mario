@@ -174,13 +174,104 @@ struct file_operations write_pipe_fops = {
 	.poll = pipe_write_poll,
 };
 
-int is_read_pipe(struct file *f) {
-	return f->f_op == &read_pipe_fops;
+/* A read-write FIFO descriptor owns both the reader and writer endpoints. */
+static void fifo_rdwr_release(struct inode *i, struct file *f)
+{
+	struct pipe_inode_info *info = &i->u.pipe_i;
+
+	ACQUIRE_LOCK(&info->lock);
+	if (info->n_reader)
+		info->n_reader--;
+	if (info->n_writer)
+		info->n_writer--;
+	wake_up_interruptible(&info->wait_read);
+	wake_up_interruptible(&info->wait_write);
+	RELEASE_LOCK(&info->lock);
 }
 
-int is_write_pipe(struct file *f) {
-	return f->f_op == &write_pipe_fops;
+static struct file_operations rdwr_pipe_fops = {
+	.release = fifo_rdwr_release,
+	.lseek = pipe_lseek,
+	.read = pipe_read,
+	.write = pipe_write,
+};
+
+/*
+ * Attach an opened MarioFS FIFO to its shared per-inode pipe.  Read-only and
+ * write-only opens wait for the opposite side unless O_NONBLOCK is set, while
+ * an O_RDWR open provides both sides and can proceed immediately.
+ */
+int fifo_open(struct inode *i, struct file *f)
+{
+	int error = 0;
+	struct pipe_inode_info *info = &i->u.pipe_i;
+
+	/* The first opener allocates the backing ring buffer. */
+	if (!inode_pipe(i)) {
+		error = init_pipe_inode_info(info);
+		if (error)
+			return error;
+		info->n_reader = 0;
+		info->n_writer = 0;
+		set_bit(I_Pipe, &i->i_state);
+	}
+
+	ACQUIRE_LOCK(&info->lock);
+
+	if ((f->f_mode & 1) && (f->f_mode & 2)) {
+		info->n_reader++;
+		info->n_writer++;
+		f->f_op = &rdwr_pipe_fops;
+		wake_up_interruptible(&info->wait_read);
+		wake_up_interruptible(&info->wait_write);
+		RELEASE_LOCK(&info->lock);
+		return 0;
+	}
+
+	if (f->f_mode & 1) {
+		info->n_reader++;
+		f->f_op = &read_pipe_fops;
+		/* Let any writer waiting for a reader continue. */
+		wake_up_interruptible(&info->wait_write);
+		while (!info->n_writer && !(f->f_flags & O_NONBLOCK)) {
+			sleep_on(&info->wait_read, TASK_INTERRUPTIBLE, &info->lock);
+			ACQUIRE_LOCK(&info->lock);
+			if (current->signal & ~current->blocked) {
+				info->n_reader--;
+				wake_up_interruptible(&info->wait_write);
+				error = -ERESTARTSYS;
+				break;
+			}
+		}
+		RELEASE_LOCK(&info->lock);
+		return error;
+	}
+
+	info->n_writer++;
+	f->f_op = &write_pipe_fops;
+	/* Let any reader waiting for a writer continue. */
+	wake_up_interruptible(&info->wait_read);
+	while (!info->n_reader && !(f->f_flags & O_NONBLOCK)) {
+		sleep_on(&info->wait_write, TASK_INTERRUPTIBLE, &info->lock);
+		ACQUIRE_LOCK(&info->lock);
+		if (current->signal & ~current->blocked) {
+			info->n_writer--;
+			wake_up_interruptible(&info->wait_read);
+			error = -ERESTARTSYS;
+			break;
+		}
+	}
+	if (!info->n_reader && !error)
+		error = -ENXIO;
+	if (error == -ENXIO)
+		info->n_writer--;
+	RELEASE_LOCK(&info->lock);
+	return error;
 }
+
+struct file_operations fifo_fops = {
+	.open = fifo_open,
+};
 
 int do_pipe(int pipefd[2]) {
 	int error;

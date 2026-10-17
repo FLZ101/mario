@@ -167,6 +167,8 @@ struct file {
 	void *private_data;
 };
 
+extern struct file_operations fifo_fops;
+
 void file_init(void);
 struct file *get_empty_file(void);
 int get_two_empty_files(struct file *res[2]);

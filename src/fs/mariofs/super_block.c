@@ -219,6 +219,10 @@ static int mario_read_inode(struct inode *i)
 	} else if (S_ISCHR(i->i_mode)) {
 		i->i_op = NULL;
 		i->i_fop = &chrdev_fops;
+	} else if (S_ISFIFO(i->i_mode)) {
+		/* Named FIFOs reuse the anonymous pipe read/write machinery. */
+		i->i_op = NULL;
+		i->i_fop = &fifo_fops;
 	} else if (S_ISLNK(i->i_mode)) {
 		i->i_op = &mario_link_iops;
 		i->i_fop = NULL;

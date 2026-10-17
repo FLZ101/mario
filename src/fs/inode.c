@@ -197,6 +197,8 @@ void iput(struct inode *i)
 		if (inode_pipe(i)) {
 			destroy_pipe_inode_info(&i->u.pipe_i);
 			clear_bit(I_Pipe, &i->i_state);
+			/* Force the next iget to reload the FIFO inode and reinitialize pipe state. */
+			clear_bit(I_Up2date, &i->i_state);
 		}
 
 		wake_up_all(&inode_wait);
