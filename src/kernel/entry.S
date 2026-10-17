@@ -584,8 +584,8 @@ ENTRY(sys_call_table)
 	.long sys_clock_gettime32
 	.long sys_not_exist /* SYS_clock_getres_time32 */
 	.long sys_clock_nanosleep_time32
-	.long sys_not_exist /* SYS_statfs64 */
-	.long sys_not_exist /* SYS_fstatfs64 */
+	.long sys_statfs64
+	.long sys_fstatfs64
 	.long sys_not_exist /* SYS_tgkill */
 	.long sys_not_exist /* SYS_utimes */
 	.long sys_not_exist /* SYS_fadvise64_64 */

@@ -48,6 +48,25 @@ struct statx {
 	uint64_t __pad1[14];
 };
 
+struct statfs_fsid {
+	int __val[2];
+};
+
+struct statfs64 {
+	uint32_t f_type;
+	uint32_t f_bsize;
+	uint64_t f_blocks;
+	uint64_t f_bfree;
+	uint64_t f_bavail;
+	uint64_t f_files;
+	uint64_t f_ffree;
+	struct statfs_fsid f_fsid;
+	uint32_t f_namelen;
+	uint32_t f_frsize;
+	uint32_t f_flags;
+	uint32_t f_spare[4];
+};
+
 #define S_IFMT  0170000
 
 #define S_IFDIR 0040000

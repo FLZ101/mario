@@ -1,0 +1,8 @@
+# df now relies on statvfs(), which musl maps to SYS_statfs64.  The kernel
+# fills mariofs block/free counts from the ramdisk superblock.
+
+RUN: export PATH=/bin/toybox:/bin
+RUN: df; echo df-status:$?
+CHECK: df-status:0
+CHECK: Filesystem
+CHECK-REGEX: mariofs\s+[0-9]+\s+[0-9]+\s+[0-9]+\s+[0-9]+%\s+/

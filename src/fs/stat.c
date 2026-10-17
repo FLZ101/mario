@@ -38,6 +38,80 @@ int sys_statx(int dirfd, char *pathname, int flags, unsigned int mask, struct st
 	return 0;
 }
 
+static int statfs64_from_inode(struct inode *inode, struct statfs64 *buf)
+{
+	struct super_block *sb;
+
+	if (!inode || !inode->i_sb)
+		return -ENODEV;
+
+	sb = inode->i_sb;
+	if (sb->s_magic != MARIO_MAGIC)
+		return -ENOSYS;
+
+	memset(buf, 0, sizeof(*buf));
+	buf->f_type = sb->s_magic;
+	buf->f_bsize = sb->s_block_size;
+	buf->f_blocks = MARIO_NR_BLOCKS(sb);
+	buf->f_bfree = MARIO_NR_FREE(sb);
+	buf->f_bavail = MARIO_NR_FREE(sb);
+	buf->f_fsid.__val[0] = sb->s_dev;
+	buf->f_fsid.__val[1] = 0;
+	buf->f_namelen = MARIO_NAME_LEN - 1;
+	buf->f_frsize = sb->s_block_size;
+	buf->f_flags = 0;
+	return 0;
+}
+
+int sys_statfs64(const char *pathname, size_t bufsize, struct statfs64 *buf)
+{
+	struct statfs64 tmp;
+	struct inode *inode;
+	int err;
+
+	if (bufsize < sizeof(tmp))
+		return -EINVAL;
+	err = verify_area(VERIFY_WRITE, buf, sizeof(tmp));
+	if (err)
+		return err;
+
+	err = namei(pathname, &inode, 1);
+	if (err)
+		return err;
+
+	err = statfs64_from_inode(inode, &tmp);
+	iput(inode);
+	if (err)
+		return err;
+
+	memcpy_tofs(buf, &tmp, sizeof(tmp));
+	return 0;
+}
+
+int sys_fstatfs64(unsigned int fd, size_t bufsize, struct statfs64 *buf)
+{
+	struct statfs64 tmp;
+	struct file *file;
+	int err;
+
+	if (bufsize < sizeof(tmp))
+		return -EINVAL;
+	err = verify_area(VERIFY_WRITE, buf, sizeof(tmp));
+	if (err)
+		return err;
+
+	if (fd >= NR_OPEN || !(file = current->files->fd[fd]) ||
+	    !file->f_inode)
+		return -EBADF;
+
+	err = statfs64_from_inode(file->f_inode, &tmp);
+	if (err)
+		return err;
+
+	memcpy_tofs(buf, &tmp, sizeof(tmp));
+	return 0;
+}
+
 
 int sys_fchmodat2(int dirfd, const char *pathname, mode_t mode, int flags)
 {
