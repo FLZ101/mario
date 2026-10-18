@@ -1,0 +1,63 @@
+RUN: export PATH=/bin/toybox:/bin
+
+# Work in a clean directory while inspecting the toybox multicall binary.
+RUN: cd /root
+RUN: rm -rf readelf-test
+RUN: mkdir readelf-test
+RUN: cd readelf-test
+RUN: which readelf
+CHECK: /bin/toybox/readelf
+
+# ELF header.
+RUN: readelf -h /bin/toybox/readelf; echo header-status:$?
+CHECK: ELF Header:
+CHECK-REGEX: Class:\s+ELF32
+CHECK-REGEX: Data:\s+2's complement, little endian
+CHECK-REGEX: Type:\s+EXEC \(Executable file\)
+CHECK-REGEX: Machine:\s+386
+CHECK: header-status:0
+
+# Program headers.
+RUN: readelf -l /bin/toybox/readelf; echo phdr-status:$?
+CHECK: Elf file type is EXEC (Executable file)
+CHECK-REGEX: There are \d+ program headers
+CHECK-REGEX: LOAD\s+0x000000\s+0x00400000\s+0x00400000\s+\S+\s+\S+\s+R E\s+0x1000
+CHECK: phdr-status:0
+
+# Section headers.
+RUN: readelf -S /bin/toybox/readelf; echo shdr-status:$?
+CHECK: Section Headers:
+CHECK-REGEX: \.init\s+PROGBITS
+CHECK-REGEX: \.text\s+PROGBITS
+CHECK-REGEX: \.data\s+PROGBITS
+CHECK-REGEX: \.bss\s+NOBITS
+CHECK: shdr-status:0
+
+# Static binaries have no dynamic section.
+RUN: readelf -d /bin/toybox/readelf; echo dynamic-status:$?
+CHECK: There is no dynamic section in this file.
+CHECK: dynamic-status:0
+
+# Combined headers.
+RUN: readelf -e /bin/toybox/readelf; echo headers-status:$?
+CHECK: ELF Header:
+CHECK: Section Headers:
+CHECK: Program Headers:
+CHECK: headers-status:0
+
+# Named-section string dump.
+RUN: readelf -p .shstrtab /bin/toybox/readelf; echo strings-status:$?
+CHECK: String dump of section '.shstrtab':
+CHECK-REGEX: \[.+\]\s+\.text
+CHECK: strings-status:0
+
+# Named-section hex dump.
+RUN: readelf -x .shstrtab /bin/toybox/readelf; echo hex-status:$?
+CHECK: Hex dump of section '.shstrtab':
+CHECK-REGEX: 0x[0-9a-f]{8}\s+[0-9a-f ]+\s+\S+
+CHECK: hex-status:0
+
+# Error handling.
+RUN: readelf -h /no/such; echo missing-status:$?
+CHECK: /no/such: No such file or directory
+CHECK: missing-status:1

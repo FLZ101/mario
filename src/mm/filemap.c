@@ -57,6 +57,10 @@ static void filemap_sync(struct vm_area_struct *vma,
 	unsigned long addr, unsigned long len, int flags)
 {
 	pde_t *pd;
+
+	/* Read-only shared mappings have no dirty pages to write back. */
+	if (!(vma->vm_flags & VM_WRITE))
+		return;
 	struct file f;
 	struct inode *i;
 	unsigned long end = addr + len;
