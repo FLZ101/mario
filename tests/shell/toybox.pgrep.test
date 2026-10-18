@@ -1,0 +1,22 @@
+# pgrep uses /proc/<pid>/stat and /proc/<pid>/cmdline to match the
+# synthetic process names reported by procfs.
+
+RUN: export PATH=/bin/toybox:/bin
+
+RUN: pgrep -x oksh; echo pgrep-exact-status:$?
+CHECK: pgrep-exact-status:0
+CHECK-REGEX: [0-9]+
+
+RUN: pgrep -x oksh > /root/pgrep.pids; grep -w $$ /root/pgrep.pids; echo pgrep-shell-status:$?
+CHECK: pgrep-shell-status:0
+
+RUN: pgrep -l -x oksh; echo pgrep-long-status:$?
+CHECK: pgrep-long-status:0
+CHECK-REGEX: [0-9]+ oksh
+
+RUN: pgrep -f '^oksh$'; echo pgrep-full-status:$?
+CHECK: pgrep-full-status:0
+CHECK-REGEX: [0-9]+
+
+RUN: pgrep -x nosuchcomm; echo pgrep-missing-status:$?
+CHECK: pgrep-missing-status:1

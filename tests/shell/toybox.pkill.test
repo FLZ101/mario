@@ -1,0 +1,19 @@
+# pkill uses procfs process enumeration and kill(2) to signal matching
+# processes by their synthetic comm name.
+
+RUN: export PATH=/bin/toybox:/bin
+
+RUN: yes > /dev/null & echo yes-pid:$!
+CHECK-REGEX: yes-pid:[0-9]+
+
+RUN: pgrep -x yes > /root/pkill.pids; echo pgrep-before-status:$?
+CHECK: pgrep-before-status:0
+
+RUN: pkill -x yes; echo pkill-status:$?
+CHECK: pkill-status:0
+
+RUN: pgrep -x yes > /root/pkill.after; echo pgrep-after-status:$?
+CHECK: pgrep-after-status:1
+
+RUN: pkill -x nosuchcomm; echo pkill-missing-status:$?
+CHECK: pkill-missing-status:1
