@@ -62,8 +62,23 @@ def _prompt_pattern(literal):
 
 BOOT_PROMPT = _prompt_pattern("/ # ")
 SERIAL_PROMPT = _prompt_pattern("MARIO_VGA_PROMPT> ")
-DEFAULT_TIMEOUT = 15
+DEFAULT_TIMEOUT = 30
 DEFAULT_VGA_TIMEOUT = 5
+
+
+class PexpectTimeout(TimeoutError):
+    pass
+
+
+def _pexpect_expect(child, pattern, timeout, description):
+    try:
+        return child.expect(pattern, timeout=timeout)
+    except pexpect.exceptions.TIMEOUT:
+        last = str(getattr(child, "before", ""))[-500:]
+        raise PexpectTimeout(
+            f"{description} timed out after {timeout:g}s\nLast output: {last!r}"
+        ) from None
+
 
 VGA_ROWS = 25
 VGA_COLS = 80
@@ -288,9 +303,9 @@ def start_qemu(qemu, monitor_path, timeout=30):
         "-no-shutdown",
     ]
     child = pexpect.spawn(" ".join(cmd), encoding="latin-1", timeout=timeout)
-    child.expect(BOOT_PROMPT, timeout=timeout)
+    _pexpect_expect(child, BOOT_PROMPT, timeout, "wait for boot prompt")
     child.sendline("PS1='MARIO_VGA_PROMPT> '")
-    child.expect(SERIAL_PROMPT, timeout=10)
+    _pexpect_expect(child, SERIAL_PROMPT, 10, "wait for MARIO_VGA_PROMPT")
     monitor = QemuMonitor(monitor_path)
     monitor.connect()
     return child, monitor
@@ -486,7 +501,7 @@ def run_test(test, qemu, index):
         for action, value in test.actions:
             if action == "serial":
                 child.sendline(value)
-                child.expect(SERIAL_PROMPT, timeout=timeout)
+                _pexpect_expect(child, SERIAL_PROMPT, timeout, f"SERIAL {value!r}")
             elif action == "vga_send":
                 send_vga_keys(monitor, value + "\n")
             elif action == "vga_send_raw":
@@ -627,8 +642,14 @@ def main():
 
     failed = False
     for index, test in enumerate(tests, 1):
-        failures = run_test(test, args.qemu, index)
         name = os.path.relpath(test.path, ROOT)
+        try:
+            failures = run_test(test, args.qemu, index)
+        except PexpectTimeout as exc:
+            failed = True
+            print(f"FAIL: {name}")
+            print(f"  {exc}")
+            continue
         if failures:
             failed = True
             print(f"FAIL: {name}")

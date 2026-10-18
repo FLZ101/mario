@@ -1,0 +1,22 @@
+RUN: export PATH=/bin:/bin/toybox:/bin/sbase
+RUN: mkdir -p /tmp
+
+RUN: wc -l <<'EOF'
+one
+two
+three
+EOF
+CHECK: 3
+
+RUN: grep two <<'EOF'
+one
+two
+three
+EOF
+CHECK: two
+
+RUN: sort <<'EOF' | tr '\n' ':'; echo
+b
+a
+EOF
+CHECK: a:b:

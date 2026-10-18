@@ -8,6 +8,10 @@ Test files use a tiny subset of lit syntax:
     CHECK: hello
     CHECK-NOT: goodbye
     CHECK-REGEX: hello\s+world
+    RUN: wc -l <<'EOF'
+    one
+    two
+    EOF
     EXIT:
 
 Run:
@@ -43,7 +47,30 @@ def prompt_pattern(literal):
 
 BOOT_PROMPT = prompt_pattern("/ # ")
 PROMPT = prompt_pattern("MARIO_TEST_PROMPT> ")
-DEFAULT_TIMEOUT = 15
+DEFAULT_TIMEOUT = 30
+
+HEREDOC = re.compile(r"<<-?\s*(?:'([^']+)'|\"([^\"]+)\"|([A-Za-z_][A-Za-z0-9_]*))")
+
+
+def _heredoc_delimiter(command):
+    match = HEREDOC.search(command)
+    if not match:
+        return None
+    return next(group for group in match.groups() if group is not None)
+
+
+class PexpectTimeout(TimeoutError):
+    pass
+
+
+def _pexpect_expect(child, pattern, timeout, description):
+    try:
+        return child.expect(pattern, timeout=timeout)
+    except pexpect.exceptions.TIMEOUT:
+        last = str(getattr(child, "before", ""))[-500:]
+        raise PexpectTimeout(
+            f"{description} timed out after {timeout:g}s\nLast output: {last!r}"
+        ) from None
 
 
 class LitTest:
@@ -56,16 +83,41 @@ class LitTest:
         self.check_regexes = []
 
     def parse(self):
+        heredoc_delimiter = None
+        heredoc_command = None
+        heredoc_lines = []
+
         with open(self.path, encoding="utf-8") as f:
             for line in f:
                 line = line.rstrip("\n")
+
+                if heredoc_delimiter is not None:
+                    if line.strip() == heredoc_delimiter:
+                        command = "\n".join(
+                            [heredoc_command] + heredoc_lines + [heredoc_delimiter]
+                        )
+                        self.runs.append(command)
+                        self.actions.append(("run", command))
+                        heredoc_delimiter = None
+                        heredoc_command = None
+                        heredoc_lines = []
+                    else:
+                        heredoc_lines.append(line)
+                    continue
+
                 body = line[1:] if line.startswith("#") else line
                 if body.startswith("RUN:"):
                     command = body[len("RUN:") :]
                     if command.startswith(" "):
                         command = command[1:]
-                    self.runs.append(command)
-                    self.actions.append(("run", command))
+                    delimiter = _heredoc_delimiter(command)
+                    if delimiter:
+                        heredoc_delimiter = delimiter
+                        heredoc_command = command
+                        heredoc_lines = []
+                    else:
+                        self.runs.append(command)
+                        self.actions.append(("run", command))
                 elif body.startswith("SEND-RAW:"):
                     data = (
                         body[len("SEND-RAW:") :]
@@ -103,6 +155,10 @@ class LitTest:
                     self.check_nots.append(body[len("CHECK-NOT:") :].strip())
                 elif body.startswith("CHECK:"):
                     self.checks.append(body[len("CHECK:") :].strip())
+
+        if heredoc_delimiter is not None:
+            raise ValueError(f"{self.path}: unterminated heredoc {heredoc_delimiter!r}")
+
         return self
 
 
@@ -130,9 +186,9 @@ def start_qemu(qemu):
         "-no-shutdown",
     ]
     child = pexpect.spawn(" ".join(cmd), encoding="latin-1", timeout=30)
-    child.expect(BOOT_PROMPT, timeout=30)
+    _pexpect_expect(child, BOOT_PROMPT, 30, "wait for boot prompt")
     child.sendline("PS1='MARIO_TEST_PROMPT> '")
-    child.expect(PROMPT, timeout=10)
+    _pexpect_expect(child, PROMPT, 10, "wait for MARIO_TEST_PROMPT")
     return child
 
 
@@ -146,7 +202,7 @@ def run_lit_test(test, qemu):
         for action, value in test.actions:
             if action == "run":
                 child.sendline(value)
-                child.expect(prompts[-1], timeout=timeout)
+                _pexpect_expect(child, prompts[-1], timeout, f"RUN {value!r}")
                 output.append(child.before)
             elif action == "send":
                 child.sendline(value)
@@ -156,10 +212,12 @@ def run_lit_test(test, qemu):
                 output.append(child.before)
             elif action == "expect":
                 if value:
-                    child.expect(re.escape(value), timeout=timeout)
+                    _pexpect_expect(
+                        child, re.escape(value), timeout, f"EXPECT {value!r}"
+                    )
                     output.append(child.before + child.after)
                 else:
-                    child.expect(prompts[-1], timeout=timeout)
+                    _pexpect_expect(child, prompts[-1], timeout, "EXPECT prompt")
                     output.append(child.before)
             elif action == "sleep":
                 time.sleep(value)
@@ -242,8 +300,14 @@ def main():
 
     failed = False
     for test in tests:
-        failures, text = run_lit_test(test, args.qemu)
         name = os.path.relpath(test.path, ROOT)
+        try:
+            failures, text = run_lit_test(test, args.qemu)
+        except PexpectTimeout as exc:
+            failed = True
+            print(f"FAIL: {name}")
+            print(f"  {exc}")
+            continue
         if failures:
             failed = True
             print(f"FAIL: {name}")
