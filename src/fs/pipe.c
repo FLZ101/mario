@@ -233,14 +233,19 @@ int fifo_open(struct inode *i, struct file *f)
 		f->f_op = &read_pipe_fops;
 		/* Let any writer waiting for a reader continue. */
 		wake_up_interruptible(&info->wait_write);
-		while (!info->n_writer && !(f->f_flags & O_NONBLOCK)) {
+		if (!info->n_writer && !(f->f_flags & O_NONBLOCK)) {
+			/*
+			 * Sleep exactly once.  The wake-up means a writer existed,
+			 * even if it already closed before this reader runs again.
+			 * Rechecking n_writer here would turn that valid rendezvous
+			 * into a lost wake-up and deadlock the open.
+			 */
 			sleep_on(&info->wait_read, TASK_INTERRUPTIBLE, &info->lock);
 			ACQUIRE_LOCK(&info->lock);
 			if (current->signal & ~current->blocked) {
 				info->n_reader--;
 				wake_up_interruptible(&info->wait_write);
 				error = -ERESTARTSYS;
-				break;
 			}
 		}
 		RELEASE_LOCK(&info->lock);
@@ -251,20 +256,25 @@ int fifo_open(struct inode *i, struct file *f)
 	f->f_op = &write_pipe_fops;
 	/* Let any reader waiting for a writer continue. */
 	wake_up_interruptible(&info->wait_read);
-	while (!info->n_reader && !(f->f_flags & O_NONBLOCK)) {
-		sleep_on(&info->wait_write, TASK_INTERRUPTIBLE, &info->lock);
-		ACQUIRE_LOCK(&info->lock);
-		if (current->signal & ~current->blocked) {
+	if (!info->n_reader) {
+		if (f->f_flags & O_NONBLOCK) {
 			info->n_writer--;
-			wake_up_interruptible(&info->wait_read);
-			error = -ERESTARTSYS;
-			break;
+			error = -ENXIO;
+		} else {
+			/*
+			 * As with read opens, a single wake-up is enough to complete
+			 * a blocking write open: the partner may have opened and then
+			 * closed before this task was scheduled again.
+			 */
+			sleep_on(&info->wait_write, TASK_INTERRUPTIBLE, &info->lock);
+			ACQUIRE_LOCK(&info->lock);
+			if (current->signal & ~current->blocked) {
+				info->n_writer--;
+				wake_up_interruptible(&info->wait_read);
+				error = -ERESTARTSYS;
+			}
 		}
 	}
-	if (!info->n_reader && !error)
-		error = -ENXIO;
-	if (error == -ENXIO)
-		info->n_writer--;
 	RELEASE_LOCK(&info->lock);
 	return error;
 }

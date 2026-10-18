@@ -330,6 +330,15 @@ static void flush_old_exec(struct exec *exe, struct trap_frame *tr)
 	for (int i = 0; i < NR_USER_DESC; ++i) {
 		ud[i] = (struct user_desc){0};
 	}
+	/*
+	 * Keep the live %gs register in sync with thread.gs.  If this task is
+	 * scheduled before the syscall return restores %gs from the trap frame,
+	 * _switch_to() would otherwise save the old TLS selector while the GDT
+	 * TLS entries have already been cleared, and reloading that selector
+	 * later faults with a general-protection exception.
+	 */
+	unsigned short zero = 0;
+	load_segment(gs, zero);
 	irq_restore();
 }
 
