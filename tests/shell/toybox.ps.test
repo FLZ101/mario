@@ -1,0 +1,16 @@
+# procfs now provides /proc/<pid>/stat and /proc/<pid>/cmdline, so ps can
+# enumerate the synthetic process directories.
+
+RUN: export PATH=/bin/toybox:/bin
+
+RUN: ps -A; echo ps-all-status:$?
+CHECK: ps-all-status:0
+CHECK: PID
+
+RUN: ps -p $$; echo ps-pid-status:$?
+CHECK: ps-pid-status:0
+CHECK-REGEX: [0-9]+
+
+RUN: ps -o pid,comm; echo ps-o-status:$?
+CHECK: ps-o-status:0
+CHECK: COMM

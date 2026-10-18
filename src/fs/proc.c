@@ -1,6 +1,7 @@
 #include <fs/fs.h>
 #include <fs/proc.h>
 #include <fs/dirent.h>
+#include <fs/tty/tty.h>
 
 #include <sched.h>
 #include <time.h>
@@ -25,6 +26,9 @@ static struct file_operations proc_dir_fops = {
 #define PROC_INO_PID	0x01000000UL
 #define PROC_INO_FD_DIR	0x02000000UL
 #define PROC_INO_FD	0x03000000UL
+#define PROC_INO_PID_STAT	0x04000000UL
+#define PROC_INO_PID_CMDLINE	0x05000000UL
+#define PROC_INO_PID_EXE	0x06000000UL
 
 #define PROC_INO_TYPE_MASK 0xff000000UL
 #define PROC_INO_PID_MASK	0x0000ffffUL
@@ -49,6 +53,11 @@ static unsigned long proc_fd_ino(pid_t pid, int fd)
 	return PROC_INO_FD |
 	       (((unsigned long)pid & PROC_INO_PID_MASK) << 8) |
 	       ((unsigned long)fd & 0xff);
+}
+
+static unsigned long proc_pid_file_ino(unsigned long type, pid_t pid)
+{
+	return type | ((unsigned long)pid & PROC_INO_PID_MASK);
 }
 
 static pid_t proc_fd_ino_pid(unsigned long ino)
@@ -126,7 +135,11 @@ static mode_t proc_inode_mode(unsigned long ino)
 
 	switch (ino & PROC_INO_TYPE_MASK) {
 	case PROC_INO_FD:
+	case PROC_INO_PID_EXE:
 		return S_IFLNK | 0777;
+	case PROC_INO_PID_STAT:
+	case PROC_INO_PID_CMDLINE:
+		return S_IFREG | 0444;
 	case PROC_INO_PID:
 	case PROC_INO_FD_DIR:
 		return S_IFDIR | 0555;
@@ -161,6 +174,59 @@ static struct inode *proc_alloc_inode(unsigned long ino, int size,
 	return inode;
 }
 
+static char proc_task_state(struct task_struct *task)
+{
+	switch (task->state) {
+	case TASK_RUNNING:
+		return 'R';
+	case TASK_INTERRUPTIBLE:
+		return 'S';
+	case TASK_UNINTERRUPTIBLE:
+		return 'D';
+	case TASK_ZOMBIE:
+		return 'Z';
+	case TASK_STOPPED:
+		return 'T';
+	default:
+		return '?';
+	}
+}
+
+static int proc_pid_stat_content(pid_t pid, char *buf)
+{
+	struct task_struct *task = proc_find_task(pid);
+	int n;
+
+	if (!task)
+		return -ENOENT;
+
+	n = sprintk(buf, "%d (%s) %c", task->pid, task->comm,
+		    proc_task_state(task));
+	n += sprintk(buf + n, " %d %d %d %d %d 0 0 0 0 0",
+		     task->p_pptr ? task->p_pptr->pid : 0,
+		     task->pgrp, task->session,
+		     task->tty ? task->tty->dev : 0,
+		     task->tty ? task->tty->pgrp : 0);
+	n += sprintk(buf + n, " %d %d %d %d %d %d 1",
+		     (int)task->utime, (int)task->stime,
+		     (int)task->utime_children, (int)task->stime_children,
+		     task->priority, NZERO - task->priority);
+	n += sprintk(buf + n, " 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0");
+	n += sprintk(buf + n, " %d", task->exit_signal);
+	n += sprintk(buf + n, " 0 0 0 0 0 0 0 0\n");
+	return n;
+}
+
+static int proc_pid_cmdline_content(pid_t pid, char *buf)
+{
+	struct task_struct *task = proc_find_task(pid);
+
+	if (!task)
+		return -ENOENT;
+
+	return sprintk(buf, "%s", task->comm);
+}
+
 static int proc_file_content(unsigned long ino, char *buf, size_t size)
 {
 	(void)size;
@@ -177,14 +243,21 @@ static int proc_file_content(unsigned long ino, char *buf, size_t size)
 	case PROC_INO_MOUNTS:
 		return sprintk(buf, "mariofs / mariofs rw 0 0\n");
 	default:
-		return -EINVAL;
+		break;
 	}
+
+	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_STAT)
+		return proc_pid_stat_content(proc_ino_pid(ino), buf);
+	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_CMDLINE)
+		return proc_pid_cmdline_content(proc_ino_pid(ino), buf);
+
+	return -EINVAL;
 }
 
 static int proc_file_read(struct inode *inode, struct file *file,
 			  char *buf, int count)
 {
-	char content[128];
+	char content[512];
 	int size = proc_file_content(inode->i_ino, content, sizeof(content));
 
 	if (size < 0)
@@ -208,6 +281,14 @@ static int proc_link_target(unsigned long ino, char *buf, size_t size)
 
 	if (ino == PROC_INO_SELF)
 		return sprintk(buf, "/proc/%d", current->pid);
+
+	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_EXE) {
+		struct task_struct *task = proc_find_task(proc_ino_pid(ino));
+
+		if (!task)
+			return -ENOENT;
+		return sprintk(buf, "/bin/%s", task->comm);
+	}
 
 	if ((ino & PROC_INO_TYPE_MASK) != PROC_INO_FD)
 		return -EINVAL;
@@ -314,7 +395,7 @@ static struct inode_operations proc_link_iops = {
 
 static struct inode *proc_make_file(unsigned long ino)
 {
-	char content[128];
+	char content[512];
 	int size = proc_file_content(ino, content, sizeof(content));
 
 	if (size < 0)
@@ -364,6 +445,12 @@ static int proc_lookup_child(unsigned long dir_ino, char *name, int len,
 		pid_t pid = proc_ino_pid(dir_ino);
 		if (proc_name_is(name, len, "fd"))
 			*res = proc_make_dir(proc_fd_dir_ino(pid));
+		else if (proc_name_is(name, len, "stat"))
+			*res = proc_make_file(proc_pid_file_ino(PROC_INO_PID_STAT, pid));
+		else if (proc_name_is(name, len, "cmdline"))
+			*res = proc_make_file(proc_pid_file_ino(PROC_INO_PID_CMDLINE, pid));
+		else if (proc_name_is(name, len, "exe"))
+			*res = proc_make_link(proc_pid_file_ino(PROC_INO_PID_EXE, pid));
 		return *res ? 0 : -ENOENT;
 	}
 
@@ -398,6 +485,14 @@ static int proc_parent(unsigned long dir_ino, struct inode **res)
 	}
 
 	if ((dir_ino & PROC_INO_TYPE_MASK) == PROC_INO_FD_DIR) {
+		pid_t pid = proc_ino_pid(dir_ino);
+		*res = proc_make_dir(proc_pid_ino(pid));
+		return *res ? 0 : -ENOMEM;
+	}
+
+	if ((dir_ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_STAT ||
+	    (dir_ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_CMDLINE ||
+	    (dir_ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_EXE) {
 		pid_t pid = proc_ino_pid(dir_ino);
 		*res = proc_make_dir(proc_pid_ino(pid));
 		return *res ? 0 : -ENOMEM;
@@ -486,13 +581,30 @@ static int proc_pid_entry(pid_t pid, int index, char *name, size_t size,
 {
 	(void)size;
 
-	if (index != 0)
+	switch (index) {
+	case 0:
+		sprintk(name, "%s", "cmdline");
+		*ino = proc_pid_file_ino(PROC_INO_PID_CMDLINE, pid);
+		*type = DT_REG;
+		return 0;
+	case 1:
+		sprintk(name, "%s", "exe");
+		*ino = proc_pid_file_ino(PROC_INO_PID_EXE, pid);
+		*type = DT_LNK;
+		return 0;
+	case 2:
+		sprintk(name, "%s", "fd");
+		*ino = proc_fd_dir_ino(pid);
+		*type = DT_DIR;
+		return 0;
+	case 3:
+		sprintk(name, "%s", "stat");
+		*ino = proc_pid_file_ino(PROC_INO_PID_STAT, pid);
+		*type = DT_REG;
+		return 0;
+	default:
 		return -ENOENT;
-
-	sprintk(name, "%s", "fd");
-	*ino = proc_fd_dir_ino(pid);
-	*type = DT_DIR;
-	return 0;
+	}
 }
 
 static int proc_fd_dir_entry(pid_t pid, int index, char *name, size_t size,

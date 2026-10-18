@@ -275,7 +275,7 @@ CHECK: /
 #   hexedit: interactive editor, not suitable for this test
 #   iotop, top: interactive and time out
 #   link: link syscall is not implemented
-#   pgrep, pkill, ps: process listing is unavailable
+#   pgrep, pkill: process listing is unavailable
 #   readelf: hangs on ELF files
 #   timeout: fails to run its child command
 #   unicode: interactive and time out
