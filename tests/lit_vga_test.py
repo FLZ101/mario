@@ -73,6 +73,7 @@ SCREEN_TMPDIR = (
     "/dev/shm" if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK) else None
 )
 VGA_SEND_DELAY = 0.02
+VGA_SEND_ESC_DELAY = 1.2
 
 VGA_KEYMAP = {
     " ": "spc",
@@ -107,6 +108,7 @@ VGA_KEYMAP = {
     '"': "shift-apostrophe",
     "<": "shift-comma",
     ">": "shift-dot",
+    "\x1b": "esc",
 }
 
 
@@ -125,8 +127,9 @@ class VgaLitTest:
                 if body.startswith("SERIAL:"):
                     self.actions.append(("serial", _directive_value(body, "SERIAL:")))
                 elif body.startswith("VGA-SEND-RAW:"):
+                    value = body[len("VGA-SEND-RAW:") :].strip()
                     self.actions.append(
-                        ("vga_send_raw", body[len("VGA-SEND-RAW:") :].strip())
+                        ("vga_send_raw", value.encode().decode("unicode_escape"))
                     )
                 elif body.startswith("VGA-SEND:"):
                     self.actions.append(("vga_send", body[len("VGA-SEND:") :].strip()))
@@ -354,6 +357,12 @@ def send_vga_keys(monitor, text):
             raise ValueError(f"unsupported VGA key: {char!r}")
         monitor.command("sendkey " + key)
         time.sleep(VGA_SEND_DELAY)
+        if char == "\x1b":
+            # Vim waits for 'ttimeoutlen' after ESC to see whether this is
+            # the start of a special key sequence.  Without this pause the
+            # next VGA-SEND-RAW key is consumed as part of the escape
+            # sequence instead of being seen as a separate key.
+            time.sleep(VGA_SEND_ESC_DELAY)
 
 
 def wait_vga_text(monitor, needle, timeout=DEFAULT_VGA_TIMEOUT):

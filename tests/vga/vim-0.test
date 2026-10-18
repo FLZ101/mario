@@ -4,3 +4,4 @@ VGA-SEND: vim
 VGA-CHECK: VIM - Vi IMproved
 VGA-CHECK: version 9.2.428
 VGA-CHECK: [No Name]
+VGA-CHECK-SCREEN: vim-0.ppm,1,12

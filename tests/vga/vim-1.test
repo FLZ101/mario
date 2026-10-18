@@ -1,6 +1,16 @@
 SERIAL: /bin/example/getty.exe /dev/tty1 &
 VGA-CHECK: / #
-VGA-SEND: vim
-VGA-CHECK: VIM - Vi IMproved
-VGA-CHECK: [No Name]
-VGA-CHECK-SCREEN: vim-1.ppm,1,12
+VGA-SEND: vim /etc/welcome.txt
+VGA-CHECK: _______
+VGA-SEND: :vsplit
+VGA-SEND: :split
+VGA-SEND-RAW: gg0
+VGA-SEND-RAW: i
+VGA-SEND: the quick brown fox
+VGA-SEND-RAW: \x1b
+VGA-SEND-RAW: G
+VGA-SEND-RAW: o
+VGA-SEND: the lazy dog
+VGA-SEND-RAW: \x1b
+SLEEP: 1
+VGA-DUMP-SCREEN: vim-1.ppm,1,23
