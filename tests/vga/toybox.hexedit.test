@@ -1,0 +1,10 @@
+SERIAL: /bin/example/getty.exe /dev/tty1 &
+VGA-CHECK: / #
+VGA-SEND: hexedit -r /etc/welcome.txt
+VGA-CHECK: readonly
+SLEEP: 1
+VGA-CHECK-SCREEN: toybox.hexedit.ppm,1,24
+VGA-SEND-RAW: q
+SLEEP: 1
+VGA-SEND: echo HEXEDIT-EXIT-OK
+VGA-CHECK: HEXEDIT-EXIT-OK

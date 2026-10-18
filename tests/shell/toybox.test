@@ -272,7 +272,7 @@ RUN: chroot / /bin/toybox/pwd
 CHECK: /
 
 # Unsupported toybox applets intentionally not tested:
-#   hexedit: interactive editor, not suitable for this test
+#   hexedit: interactive; covered in tests/vga/toybox.hexedit.test
 #   iotop: interactive and time out
 #   link: link syscall is not implemented
 #   top: interactive; covered in tests/vga/toybox.top.test
