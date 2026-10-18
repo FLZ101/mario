@@ -5,6 +5,7 @@
 #include <resource.h>
 #include <utsname.h>
 #include <mm/uaccess.h>
+#include <mm/page_alloc.h>
 #include <syscall.h>
 
 int sys_getpgid(pid_t pid)
@@ -363,6 +364,8 @@ int sys_sysinfo(struct sysinfo *info)
 
 	struct sysinfo k = {
 		.uptime = boot_time_sec,
+		.totalram = max_pfn * PAGE_SIZE,
+		.freeram = (unsigned long)get_free_area_size() * PAGE_SIZE,
 		.mem_unit = 1
 	};
 	memcpy_tofs(info, &k, sizeof(k));

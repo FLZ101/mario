@@ -12,6 +12,9 @@ struct page {
 };
 
 extern struct page *mem_map;
+extern unsigned long max_pfn;
+
+int get_free_area_size(void);
 
 #define PAGE_TO_PFN(x)	((unsigned long)((x)-mem_map))
 #define PAGE_TO_PHY(x)	(PAGE_TO_PFN(x) << PAGE_SHIFT)

@@ -273,8 +273,9 @@ CHECK: /
 
 # Unsupported toybox applets intentionally not tested:
 #   hexedit: interactive editor, not suitable for this test
-#   iotop, top: interactive and time out
+#   iotop: interactive and time out
 #   link: link syscall is not implemented
+#   top: interactive; covered in tests/vga/toybox.top.test
 #   unicode: interactive and time out
 
 # Directory cleanup and final file tests.

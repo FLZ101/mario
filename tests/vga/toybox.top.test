@@ -1,0 +1,15 @@
+SERIAL: /bin/example/getty.exe /dev/tty1 &
+VGA-CHECK: / #
+VGA-SEND: top
+VGA-CHECK: 100%cpu
+VGA-CHECK: PID USER
+VGA-CHECK: [%CPU]
+VGA-CHECK: %MEM
+VGA-CHECK: top
+VGA-CHECK: init.exe
+VGA-CHECK: getty.exe
+VGA-CHECK: oksh
+VGA-SEND-RAW: q
+SLEEP: 1
+VGA-SEND: echo TOP-QUIT-OK
+VGA-CHECK: TOP-QUIT-OK
