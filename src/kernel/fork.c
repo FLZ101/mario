@@ -85,6 +85,8 @@ int do_fork(struct trap_frame *tr, int vfork)
 	p->pid = get_pid();
 	p->did_exec = 0;
 	p->did_vfork = 0;
+	/* A vfork child must not inherit the parent's one-shot signal delay. */
+	p->defer_sig = 0;
 	p->leader = 0;
 
 	p->run_list.next = NULL;
@@ -114,6 +116,12 @@ int do_fork(struct trap_frame *tr, int vfork)
 
 	if (vfork) {
 		current->did_vfork = 1;
+		/*
+		 * Delay signal delivery for the first return to userspace after
+		 * vfork.  Otherwise a child that execs and exits immediately can
+		 * deliver SIGCHLD before the fork wrapper has stored the child pid.
+		 */
+		current->defer_sig = 1;
 		wake_up_process(p);
 		sleep_on_uninterruptible(&current->wait_chldexit);
 	} else {

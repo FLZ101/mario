@@ -45,6 +45,8 @@ struct task_struct {
 	int exit_code, exit_signal;
 	pid_t pid, pgrp, session;
 	int leader, did_exec, did_vfork;
+	/* Skip signal delivery on the first userspace return after vfork. */
+	int defer_sig;
 
 	long it_real_value, it_prof_value, it_virt_value;
 	long it_real_incr, it_prof_incr, it_virt_incr;

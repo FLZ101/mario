@@ -9,7 +9,8 @@
 struct termios default_termios = {
 	.c_cflag = 0,
 	.c_iflag = ICRNL,
-	.c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHOCTL | TOSTOP,
+	/* Match the usual default: background writes are allowed unless TOSTOP is enabled. */
+	.c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHOCTL,
 	.c_oflag = OPOST | ONLCR,
 	.c_cc = {
 		003, 	// Ctrl-C
@@ -276,11 +277,12 @@ static int tty_check(struct tty_struct *tty)
 	if (!tty)
 		return -EIO;
 
-	if (current->tty == tty) {
-		if (current->pgrp != tty->pgrp) {
-			kill_pg(current->pgrp, SIGTTOU, 1);
-			return -ERESTARTSYS;
-		}
+	/* Stop a background writer only when the tty has TOSTOP enabled. */
+	if (current->tty == tty &&
+	    (tty->termios.c_lflag & TOSTOP) &&
+	    current->pgrp != tty->pgrp) {
+		kill_pg(current->pgrp, SIGTTOU, 1);
+		return -ERESTARTSYS;
 	}
 	return 0;
 }

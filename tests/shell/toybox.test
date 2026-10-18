@@ -276,7 +276,6 @@ CHECK: /
 #   iotop, top: interactive and time out
 #   link: link syscall is not implemented
 #   readelf: hangs on ELF files
-#   timeout: fails to run its child command
 #   unicode: interactive and time out
 
 # Directory cleanup and final file tests.

@@ -1,0 +1,16 @@
+# timeout runs its child in a new process group with setpgid(0, 0).
+
+RUN: export PATH=/bin/toybox:/bin
+
+RUN: timeout .1 echo hello; echo timeout-echo-status:$?
+CHECK: hello
+CHECK: timeout-echo-status:0
+
+RUN: timeout .1 sleep 5; echo timeout-sleep-status:$?
+CHECK: timeout-sleep-status:124
+
+RUN: timeout .1 false; echo timeout-false-status:$?
+CHECK: timeout-false-status:1
+
+RUN: timeout .1 /does/not/exist; echo timeout-missing-status:$?
+CHECK: timeout-missing-status:127
