@@ -118,8 +118,8 @@ def test_stdin_stdout(command, stdin_text, expected):
 For `vim`:
 
 1. Start QEMU with serial + monitor.
-2. Use serial to start a getty on `/dev/tty1` if needed.
-3. Wait until VGA text shows a shell prompt.
+2. Switch the VGA console to `/dev/tty2` with `VGA-SEND-KEY: f2`.
+3. Wait until VGA text shows the `/ #` shell prompt.
 4. Use monitor `sendkey` to type:
 
    ```text

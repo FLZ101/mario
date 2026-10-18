@@ -1,4 +1,4 @@
-SERIAL: /bin/example/getty.exe /dev/tty1 &
+VGA-SEND-KEY: f2
 VGA-CHECK: / #
 VGA-SEND: hexedit -r /etc/welcome.txt
 VGA-CHECK: readonly

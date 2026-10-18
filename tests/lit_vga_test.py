@@ -10,6 +10,7 @@ Test files use a small subset of lit syntax:
     VGA-CHECK-REGEX: \+\s*-+
     VGA-SEND: vim /root/test.txt
     VGA-SEND-RAW: ihello
+    VGA-SEND-KEY: f2
     VGA-DUMP-SCREEN: /tmp/vga-rect.ppm
     VGA-DUMP-SCREEN: /tmp/vga-rect.ppm,1,12
     VGA-CHECK-SCREEN: /tmp/vga-rect.ppm
@@ -145,6 +146,10 @@ class VgaLitTest:
                     value = body[len("VGA-SEND-RAW:") :].strip()
                     self.actions.append(
                         ("vga_send_raw", value.encode().decode("unicode_escape"))
+                    )
+                elif body.startswith("VGA-SEND-KEY:"):
+                    self.actions.append(
+                        ("vga_send_key", body[len("VGA-SEND-KEY:") :].strip())
                     )
                 elif body.startswith("VGA-SEND:"):
                     self.actions.append(("vga_send", body[len("VGA-SEND:") :].strip()))
@@ -380,6 +385,10 @@ def send_vga_keys(monitor, text):
             time.sleep(VGA_SEND_ESC_DELAY)
 
 
+def send_vga_key(monitor, key):
+    monitor.command("sendkey " + key)
+
+
 def wait_vga_text(monitor, needle, timeout=DEFAULT_VGA_TIMEOUT):
     text = ""
     end = time.time() + timeout
@@ -506,6 +515,8 @@ def run_test(test, qemu, index):
                 send_vga_keys(monitor, value + "\n")
             elif action == "vga_send_raw":
                 send_vga_keys(monitor, value)
+            elif action == "vga_send_key":
+                send_vga_key(monitor, value)
             elif action == "sleep":
                 time.sleep(value)
             elif action == "set-timeout":
