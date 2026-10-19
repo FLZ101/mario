@@ -63,6 +63,18 @@ class PexpectTimeout(TimeoutError):
     pass
 
 
+class RealtimeOutput:
+    def __init__(self, stream):
+        self.stream = stream
+
+    def write(self, data):
+        self.stream.write(data)
+        self.stream.flush()
+
+    def flush(self):
+        self.stream.flush()
+
+
 def _pexpect_expect(child, pattern, timeout, description):
     try:
         return child.expect(pattern, timeout=timeout)
@@ -169,7 +181,7 @@ def require_files():
         sys.exit(2)
 
 
-def start_qemu(qemu):
+def start_qemu(qemu, realtime=False):
     cmd = [
         qemu,
         "-m",
@@ -186,14 +198,16 @@ def start_qemu(qemu):
         "-no-shutdown",
     ]
     child = pexpect.spawn(" ".join(cmd), encoding="latin-1", timeout=30)
+    if realtime:
+        child.logfile_read = RealtimeOutput(sys.stdout)
     _pexpect_expect(child, BOOT_PROMPT, 30, "wait for boot prompt")
     child.sendline("PS1='MARIO_TEST_PROMPT> '")
     _pexpect_expect(child, PROMPT, 10, "wait for MARIO_TEST_PROMPT")
     return child
 
 
-def run_lit_test(test, qemu):
-    child = start_qemu(qemu)
+def run_lit_test(test, qemu, realtime=False):
+    child = start_qemu(qemu, realtime)
     output = []
     prompts = [PROMPT]
     timeout = DEFAULT_TIMEOUT
@@ -266,6 +280,12 @@ def main():
     parser.add_argument("--qemu", default=QEMU)
     parser.add_argument("--test", help="run only this test file")
     parser.add_argument("--list", action="store_true", help="list discovered tests")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="stream QEMU output while the test runs",
+    )
     args = parser.parse_args()
 
     require_files()
@@ -302,8 +322,10 @@ def main():
     for test in tests:
         name = os.path.relpath(test.path, ROOT)
         started = time.monotonic()
+        if args.verbose:
+            print(f"== {name} ==", flush=True)
         try:
-            failures, text = run_lit_test(test, args.qemu)
+            failures, text = run_lit_test(test, args.qemu, args.verbose)
         except PexpectTimeout as exc:
             elapsed = time.monotonic() - started
             failed = True
@@ -316,9 +338,10 @@ def main():
             print(f"FAIL: {name} [{elapsed:.2f}s]")
             for failure in failures:
                 print(f"  {failure}")
-            print("  output:")
-            for line in text.splitlines():
-                print(f"    {line}")
+            if not args.verbose:
+                print("  output:")
+                for line in text.splitlines():
+                    print(f"    {line}")
         else:
             print(f"PASS: {name} [{elapsed:.2f}s]")
 
