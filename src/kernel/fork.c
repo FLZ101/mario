@@ -69,6 +69,10 @@ int do_fork(struct trap_frame *tr, int vfork)
 	if (!(p = alloc_task_struct()))
 		return -ENOMEM;
 	*p = *current;
+	p->syscall_trace_start = 0;
+	p->syscall_trace_running = 0;
+	p->syscall_trace_last_tsc = 0;
+	p->syscall_trace_active = 0;
 
 	p->mm = (struct mm_struct *)kmalloc(sizeof(struct mm_struct));
 	if (!p->mm)

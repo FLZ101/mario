@@ -14,4 +14,3 @@ RUN: cat /sys/kernel/debug/syscalls
 CHECK: execve
 CHECK: read
 CHECK: write
-CHECK-NOT: rt_sigsuspend

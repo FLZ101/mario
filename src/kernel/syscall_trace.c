@@ -489,12 +489,19 @@ static inline uint64_t syscall_trace_tsc(void)
 
 void syscall_trace_start(unsigned int nr)
 {
+	uint64_t now;
+
+	current->syscall_trace_active = 0;
 	if (nr >= NR_SYSCALLS)
 		return;
 	if (trace_pid && current->pid != trace_pid)
 		return;
 
-	current->syscall_trace_start = syscall_trace_tsc();
+	now = syscall_trace_tsc();
+	current->syscall_trace_start = now;
+	current->syscall_trace_running = 0;
+	current->syscall_trace_last_tsc = now;
+	current->syscall_trace_active = 1;
 }
 
 void syscall_trace_end(unsigned int nr)
@@ -504,11 +511,16 @@ void syscall_trace_end(unsigned int nr)
 
 	if (nr >= NR_SYSCALLS)
 		return;
-	if (trace_pid && current->pid != trace_pid)
+	if (!current->syscall_trace_active)
 		return;
 
 	now = syscall_trace_tsc();
-	delta = now - current->syscall_trace_start;
+	delta = current->syscall_trace_running;
+	delta += now - current->syscall_trace_last_tsc;
+	current->syscall_trace_active = 0;
+	current->syscall_trace_start = 0;
+	current->syscall_trace_running = 0;
+	current->syscall_trace_last_tsc = 0;
 	stat = &syscall_trace[nr];
 
 	stat->calls++;
@@ -530,4 +542,24 @@ void syscall_trace_set_pid(pid_t pid)
 pid_t syscall_trace_get_pid(void)
 {
 	return trace_pid;
+}
+
+void syscall_trace_context_switch_out(void)
+{
+	uint64_t now;
+
+	if (!current->syscall_trace_active)
+		return;
+
+	now = syscall_trace_tsc();
+	current->syscall_trace_running += now - current->syscall_trace_last_tsc;
+	current->syscall_trace_last_tsc = now;
+}
+
+void syscall_trace_context_switch_in(void)
+{
+	if (!current->syscall_trace_active)
+		return;
+
+	current->syscall_trace_last_tsc = syscall_trace_tsc();
 }

@@ -10,6 +10,7 @@
 #include <lib/list.h>
 
 #include <mm/mm.h>
+#include <syscall_trace.h>
 
 static LIST_HEAD(runqueue_head);
 
@@ -145,10 +146,13 @@ void schedule(void)
 
 tail:
 	current->need_resched = 0;
-	if (next != current)
+	if (next != current) {
+		syscall_trace_context_switch_out();
 		switch_to(next);
-	else
+		syscall_trace_context_switch_in();
+	} else {
 		irq_restore();
+	}
 }
 
 static void process_timeout(unsigned long data)

@@ -77,6 +77,9 @@ struct task_struct {
 	struct tty_struct *tty;
 	int link_count;
 	uint64_t syscall_trace_start;
+	uint64_t syscall_trace_running;
+	uint64_t syscall_trace_last_tsc;
+	int syscall_trace_active;
 	char comm[16];
 };
 
