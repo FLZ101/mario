@@ -1,0 +1,16 @@
+RUN: echo reset > /sys/kernel/debug/syscalls
+
+SEND: python
+PUSH-PROMPT: >>>
+EXPECT:
+
+SEND: quit()
+POP-PROMPT:
+EXPECT:
+RUN: echo python-exit:$?
+CHECK: python-exit:0
+
+RUN: cat /sys/kernel/debug/syscalls
+CHECK: execve
+CHECK: read
+CHECK: write

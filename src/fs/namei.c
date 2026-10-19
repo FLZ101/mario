@@ -1,5 +1,6 @@
 #include <fs/fs.h>
 #include <fs/proc.h>
+#include <fs/debugfs.h>
 
 /*
  * How long a filename can we get from user space?
@@ -97,6 +98,15 @@ int lookup(struct inode *dir, char *name, int len, struct inode **res)
 		iput(dir);
 		return *res ? 0 : -ENOMEM;
 	}
+	/* Expose the minimal debugfs tree at /sys/kernel/debug. */
+	if ((sb = dir->i_sb) && dir == sb->s_mounted &&
+	    len == 3 && !memcmp(name, "sys", 3)) {
+		*res = debugfs_get_root();
+		iput(dir);
+		return *res ? 0 : -ENOMEM;
+	}
+	if (dir->i_op == &debugfs_dir_iops)
+		return dir->i_op->lookup(dir, name, len, res);
 
 	if (!dir->i_op || !dir->i_op->lookup) {
 		iput(dir);

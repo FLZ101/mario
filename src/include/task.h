@@ -76,6 +76,7 @@ struct task_struct {
 	struct sigaction sigaction[32];
 	struct tty_struct *tty;
 	int link_count;
+	uint64_t syscall_trace_start;
 	char comm[16];
 };
 

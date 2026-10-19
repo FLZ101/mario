@@ -96,8 +96,18 @@ ENTRY(fork_ret)
 ENTRY(system_call)
 	pushl %eax	/* the system call number */
 	SAVE_ALL
+	/* Trace around the handler without changing the stack layout it sees. */
+	movl ERROR_CODE(%esp), %eax
+	pushl %eax
+	call syscall_trace_start
+	addl $4, %esp
+	movl ERROR_CODE(%esp), %eax
 	call *sys_call_table(, %eax, 4)
 	movl %eax, EAX(%esp)	/* save the return value */
+	movl ERROR_CODE(%esp), %eax
+	pushl %eax
+	call syscall_trace_end
+	addl $4, %esp
 
 ret_from_sys_call:
 	jmp ret_common

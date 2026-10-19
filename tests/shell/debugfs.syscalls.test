@@ -1,0 +1,11 @@
+RUN: ls /sys/kernel/debug
+CHECK: syscalls
+
+RUN: cat /sys/kernel/debug/syscalls
+CHECK: syscall
+
+RUN: echo reset > /sys/kernel/debug/syscalls; echo reset:$?
+CHECK: reset:0
+
+RUN: cat /sys/kernel/debug/syscalls
+CHECK: syscall
