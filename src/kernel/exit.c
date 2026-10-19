@@ -2,6 +2,8 @@
 #include <signal.h>
 #include <misc.h>
 
+#include <syscall_trace.h>
+
 #include <errno.h>
 
 #include <mm/uaccess.h>
@@ -227,6 +229,8 @@ void do_exit(long code)
 			kill_pg(p->pgrp, SIGCONT, 1);
 		}
 	}
+	/* Preserve trace CPU counters before the task can be reaped/freed. */
+	syscall_trace_task_exit(current);
 	current->state = TASK_ZOMBIE;
 	current->exit_code = code;
 	schedule();

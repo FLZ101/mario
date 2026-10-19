@@ -69,7 +69,13 @@ build_for_mario()
 
     export CC
     export LD
-    export CFLAGS="-ggdb -O0 -fno-omit-frame-pointer"
+
+    # Measured with tests/shell/python.trace.test:
+    #   -O0: elapsed_ms ~7.4s, user_ms ~6.7s
+    #   -O3: elapsed_ms ~4.2s, user_ms ~3.6s
+    #
+    # The trace also showed kernel/syscall time was not the bottleneck.
+    export CFLAGS="-ggdb -O3 -fno-omit-frame-pointer"
 
     export CURSES_CFLAGS="-I${NCURSES_INSTALL_DIR}/include -I${NCURSES_INSTALL_DIR}/include/ncursesw"
     export CURSES_LIBS="-L${NCURSES_INSTALL_DIR}/lib -lncurses -lpanel"

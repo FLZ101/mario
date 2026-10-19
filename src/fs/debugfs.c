@@ -77,16 +77,66 @@ static int debugfs_sput_u64(char *buf, uint64_t value)
 	return len;
 }
 
+/* Print a TSC cycle count as milliseconds with three fractional digits. */
+static int debugfs_sput_cycles_ms(char *buf, uint64_t cycles,
+				     uint64_t cycles_per_ms)
+{
+	uint64_t whole, frac;
+	int len = 0;
+
+	if (!cycles_per_ms)
+		return sprintk(buf, "0.000");
+
+	whole = cycles / cycles_per_ms;
+	frac = (cycles % cycles_per_ms) * 1000 / cycles_per_ms;
+
+	len += debugfs_sput_u64(buf + len, whole);
+	len += sprintk(buf + len, ".");
+	if (frac < 100)
+		len += sprintk(buf + len, "0");
+	if (frac < 10)
+		len += sprintk(buf + len, "0");
+	len += debugfs_sput_u64(buf + len, frac);
+	return len;
+}
+
 static int debugfs_syscalls_content(char *buf, size_t size)
 {
 	char line[192];
 	int n = 0;
+	uint64_t cycles_per_ms;
+	unsigned long elapsed_ms, user_ms, kernel_ms;
+	unsigned long syscall_ms, kernel_other_ms, offcpu_ms;
 	unsigned int nr;
 
 	if (!size)
 		return 0;
 
-	n += sprintk(buf, "syscall name calls cycles avg_cycles max_cycles\n");
+	cycles_per_ms = syscall_trace_cycles_per_ms();
+
+	/*
+	 * Partition the traced wall time into user, syscall, other-kernel and
+	 * off-CPU time.  syscall_ms is precise TSC accounting; user/kernel use
+	 * the PIT tick counters, and offcpu is the remainder.
+	 */
+	elapsed_ms = syscall_trace_elapsed_ms();
+	user_ms = syscall_trace_user_ms();
+	kernel_ms = syscall_trace_kernel_ms();
+	syscall_ms = syscall_trace_total_ms();
+	kernel_other_ms = kernel_ms > syscall_ms ? kernel_ms - syscall_ms : 0;
+	offcpu_ms = elapsed_ms > user_ms + kernel_ms
+			    ? elapsed_ms - user_ms - kernel_ms
+			    : 0;
+
+	n += sprintk(buf, "elapsed_ms %u\n", (unsigned int)elapsed_ms);
+	n += sprintk(buf + n, "user_ms %u\n", (unsigned int)user_ms);
+	n += sprintk(buf + n, "kernel_ms %u\n", (unsigned int)kernel_ms);
+	n += sprintk(buf + n, "syscall_ms %u\n", (unsigned int)syscall_ms);
+	n += sprintk(buf + n, "kernel_other_ms %u\n",
+		     (unsigned int)kernel_other_ms);
+	n += sprintk(buf + n, "offcpu_ms %u\n", (unsigned int)offcpu_ms);
+	n += sprintk(buf + n,
+		     "syscall name calls total_ms avg_ms max_ms\n");
 
 	for (nr = 0; nr < NR_SYSCALLS; nr++) {
 		struct syscall_trace_stat *stat = &syscall_trace[nr];
@@ -105,11 +155,14 @@ static int debugfs_syscalls_content(char *buf, size_t size)
 			len += sprintk(line + len, "- ");
 		len += debugfs_sput_u64(line + len, stat->calls);
 		len += sprintk(line + len, " ");
-		len += debugfs_sput_u64(line + len, stat->cycles);
+		len += debugfs_sput_cycles_ms(line + len, stat->cycles,
+					     cycles_per_ms);
 		len += sprintk(line + len, " ");
-		len += debugfs_sput_u64(line + len, avg);
+		len += debugfs_sput_cycles_ms(line + len, avg,
+					     cycles_per_ms);
 		len += sprintk(line + len, " ");
-		len += debugfs_sput_u64(line + len, stat->max_cycles);
+		len += debugfs_sput_cycles_ms(line + len, stat->max_cycles,
+					     cycles_per_ms);
 		len += sprintk(line + len, "\n");
 
 		if ((size_t)n + (size_t)len >= size)

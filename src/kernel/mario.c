@@ -12,6 +12,8 @@
 
 #include <fs/fs.h>
 
+#include <syscall_trace.h>
+
 void kernel_thread(void (*fun)(void *), void *arg)
 {
 	__asm__ __volatile__(
@@ -77,6 +79,8 @@ void mario(struct multiboot_info *m)
 	fs_init();
 
 	sti();
+	/* rdtsc needs a running PIT for a known time base. */
+	syscall_trace_calibrate();
 	kernel_thread(init, NULL);
 	cpu_idle();
 }

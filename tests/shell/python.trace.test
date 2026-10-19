@@ -10,7 +10,14 @@ EXPECT:
 RUN: echo python-exit:$?
 CHECK: python-exit:0
 
+# cat also emits elapsed/user/kernel/syscall/other-kernel/offcpu_ms.
 RUN: cat /sys/kernel/debug/syscalls
+CHECK: elapsed_ms
+CHECK: user_ms
+CHECK: kernel_ms
+CHECK: syscall_ms
+CHECK: offcpu_ms
+CHECK: total_ms
 CHECK: execve
 CHECK: read
 CHECK: write

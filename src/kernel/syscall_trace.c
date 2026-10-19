@@ -10,6 +10,18 @@
 struct syscall_trace_stat syscall_trace[NR_SYSCALLS];
 static pid_t trace_pid;
 
+/*
+ * Wall-clock profile state.  tsc_per_ms calibrates raw rdtsc cycles, while
+ * utime/stime are the task tick counters already maintained by the PIT.
+ */
+static uint64_t trace_reset_tsc;
+static uint64_t tsc_per_ms;
+static long trace_start_utime;
+static long trace_start_stime;
+static long trace_end_utime;
+static long trace_end_stime;
+static int trace_task_exited;
+
 const char *syscall_trace_name(unsigned int nr)
 {
 	static const char *const names[NR_SYSCALLS] = {
@@ -529,19 +541,161 @@ void syscall_trace_end(unsigned int nr)
 		stat->max_cycles = delta;
 }
 
+/*
+ * Calibrate rdtsc against the PIT so cycle counters can be displayed as ms.
+ * This runs once at boot, after interrupts are enabled.
+ */
+void syscall_trace_calibrate(void)
+{
+	uint64_t start, end;
+	unsigned long start_jiffies;
+	unsigned long elapsed_ms;
+
+	start = syscall_trace_tsc();
+	start_jiffies = jiffies;
+	while ((unsigned long)jiffies - start_jiffies < 10)
+		;
+	end = syscall_trace_tsc();
+	elapsed_ms = ((unsigned long)jiffies - start_jiffies) * 1000 / HZ;
+	if (elapsed_ms)
+		tsc_per_ms = (end - start) / elapsed_ms;
+}
+
+/* Reset both the per-syscall counters and the wall-clock interval start. */
 void syscall_trace_reset(void)
 {
 	memset(syscall_trace, 0, sizeof(syscall_trace));
+	trace_reset_tsc = syscall_trace_tsc();
 }
 
+static struct task_struct *syscall_trace_find_task(pid_t pid)
+{
+	struct task_struct *task = &init_task;
+
+	do {
+		if (task->pid == pid)
+			return task;
+		task = task->next_task;
+	} while (task != &init_task);
+
+	return NULL;
+}
+
+/*
+ * Start profiling when trace_pid is set.  utime/stime survive exec, so the
+ * same task can be tracked across the shell-to-python transition.
+ */
 void syscall_trace_set_pid(pid_t pid)
 {
+	struct task_struct *task;
+
 	trace_pid = pid;
+	trace_task_exited = 0;
+	if (!pid)
+		return;
+
+	task = syscall_trace_find_task(pid);
+	if (task) {
+		trace_start_utime = task->utime;
+		trace_start_stime = task->stime;
+	}
+	trace_reset_tsc = syscall_trace_tsc();
+}
+
+/*
+ * The traced task may exit before debugfs is read.  Save its final CPU
+ * counters before it becomes a zombie and is later freed.
+ */
+void syscall_trace_task_exit(struct task_struct *task)
+{
+	if (!trace_pid || !task || task->pid != trace_pid)
+		return;
+
+	trace_end_utime = task->utime;
+	trace_end_stime = task->stime;
+	trace_task_exited = 1;
 }
 
 pid_t syscall_trace_get_pid(void)
 {
 	return trace_pid;
+}
+
+/* Wall-clock time since trace_pid was set, using calibrated rdtsc. */
+unsigned long syscall_trace_elapsed_ms(void)
+{
+	uint64_t now;
+
+	if (!tsc_per_ms)
+		return 0;
+	now = syscall_trace_tsc();
+	if (now < trace_reset_tsc)
+		return 0;
+	return (unsigned long)((now - trace_reset_tsc) / tsc_per_ms);
+}
+
+uint64_t syscall_trace_cycles_per_ms(void)
+{
+	return tsc_per_ms;
+}
+
+/*
+ * PIT-sampled user/kernel CPU time.  Prefer the live task and fall back to
+ * the values captured at exit.
+ */
+unsigned long syscall_trace_user_ms(void)
+{
+	struct task_struct *task;
+	long utime;
+
+	if (!trace_pid)
+		return 0;
+	task = syscall_trace_find_task(trace_pid);
+	if (task) {
+		utime = task->utime;
+	} else if (trace_task_exited) {
+		utime = trace_end_utime;
+	} else {
+		return 0;
+	}
+
+	if (utime < trace_start_utime)
+		return 0;
+	return (unsigned long)(utime - trace_start_utime) * 1000 / HZ;
+}
+
+unsigned long syscall_trace_kernel_ms(void)
+{
+	struct task_struct *task;
+	long stime;
+
+	if (!trace_pid)
+		return 0;
+	task = syscall_trace_find_task(trace_pid);
+	if (task) {
+		stime = task->stime;
+	} else if (trace_task_exited) {
+		stime = trace_end_stime;
+	} else {
+		return 0;
+	}
+
+	if (stime < trace_start_stime)
+		return 0;
+	return (unsigned long)(stime - trace_start_stime) * 1000 / HZ;
+}
+
+/* Sum all traced syscall cycles and convert the total to milliseconds. */
+unsigned long syscall_trace_total_ms(void)
+{
+	uint64_t total = 0;
+	unsigned int nr;
+
+	if (!tsc_per_ms)
+		return 0;
+	for (nr = 0; nr < NR_SYSCALLS; nr++)
+		total += syscall_trace[nr].cycles;
+	return (unsigned long)(total / tsc_per_ms);
 }
 
 void syscall_trace_context_switch_out(void)
