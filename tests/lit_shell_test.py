@@ -301,23 +301,26 @@ def main():
     failed = False
     for test in tests:
         name = os.path.relpath(test.path, ROOT)
+        started = time.monotonic()
         try:
             failures, text = run_lit_test(test, args.qemu)
         except PexpectTimeout as exc:
+            elapsed = time.monotonic() - started
             failed = True
-            print(f"FAIL: {name}")
+            print(f"FAIL: {name} [{elapsed:.2f}s]")
             print(f"  {exc}")
             continue
+        elapsed = time.monotonic() - started
         if failures:
             failed = True
-            print(f"FAIL: {name}")
+            print(f"FAIL: {name} [{elapsed:.2f}s]")
             for failure in failures:
                 print(f"  {failure}")
             print("  output:")
             for line in text.splitlines():
                 print(f"    {line}")
         else:
-            print(f"PASS: {name}")
+            print(f"PASS: {name} [{elapsed:.2f}s]")
 
     if failed:
         sys.exit(1)

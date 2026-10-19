@@ -1,0 +1,89 @@
+# MarioFS random-seek performance benchmark.
+#
+# Run the same Python script three times.  Each run imports every available
+# Python builtin module and then reads one byte at several alternating offsets
+# in a regular mariofs file.  The low/high/backward pattern is the same lookup
+# shape that is expensive with the current singly linked block chain.
+#
+# `time` is the shell builtin, so each run also prints the real elapsed time.
+# There is intentionally no timing threshold here; this test provides a
+# repeatable workload and captures timing output.
+TIMEOUT: 60
+
+RUN: mkdir -p /tmp
+
+RUN: time python <<'PYEOF'
+import os, sys
+for name in sys.builtin_module_names:
+    try:
+        __import__(name)
+    except Exception:
+        pass
+path = '/usr/python/lib/python3.13/pydoc_data/topics.py'
+fd = os.open(path, os.O_RDONLY)
+size = os.lseek(fd, 0, os.SEEK_END)
+offsets = (
+    0, size - 1,
+    size // 4, 3 * size // 4,
+    size // 8, 7 * size // 8,
+    3 * size // 8, 5 * size // 8,
+    size // 2, 0,
+)
+for off in offsets:
+    os.lseek(fd, off, os.SEEK_SET)
+    assert os.read(fd, 1)
+os.close(fd)
+print('mariofs-perf-run-1', size)
+PYEOF
+CHECK-REGEX: mariofs-perf-run-1\s+[0-9]+
+CHECK: real
+
+RUN: time python <<'PYEOF'
+import os, sys
+for name in sys.builtin_module_names:
+    try:
+        __import__(name)
+    except Exception:
+        pass
+path = '/usr/python/lib/python3.13/pydoc_data/topics.py'
+fd = os.open(path, os.O_RDONLY)
+size = os.lseek(fd, 0, os.SEEK_END)
+offsets = (
+    0, size - 1,
+    size // 4, 3 * size // 4,
+    size // 8, 7 * size // 8,
+    3 * size // 8, 5 * size // 8,
+    size // 2, 0,
+)
+for off in offsets:
+    os.lseek(fd, off, os.SEEK_SET)
+    assert os.read(fd, 1)
+os.close(fd)
+print('mariofs-perf-run-2', size)
+PYEOF
+CHECK-REGEX: mariofs-perf-run-2\s+[0-9]+
+
+RUN: time python <<'PYEOF'
+import os, sys
+for name in sys.builtin_module_names:
+    try:
+        __import__(name)
+    except Exception:
+        pass
+path = '/usr/python/lib/python3.13/pydoc_data/topics.py'
+fd = os.open(path, os.O_RDONLY)
+size = os.lseek(fd, 0, os.SEEK_END)
+offsets = (
+    0, size - 1,
+    size // 4, 3 * size // 4,
+    size // 8, 7 * size // 8,
+    3 * size // 8, 5 * size // 8,
+    size // 2, 0,
+)
+for off in offsets:
+    os.lseek(fd, off, os.SEEK_SET)
+    assert os.read(fd, 1)
+os.close(fd)
+print('mariofs-perf-run-3', size)
+PYEOF
+CHECK-REGEX: mariofs-perf-run-3\s+[0-9]+

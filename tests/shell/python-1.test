@@ -5,12 +5,9 @@ EXPECT:
 RUN: import subprocess
 RUN: subprocess.run(['pwd'])
 CHECK: returncode=0
-EXIT:
 
 RUN: subprocess.run(['pwd'])
 CHECK: returncode=0
-
-EXIT:
 
 SEND: quit()
 POP-PROMPT:
