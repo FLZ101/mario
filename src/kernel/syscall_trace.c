@@ -8,6 +8,7 @@
 #include <lib/string.h>
 
 struct syscall_trace_stat syscall_trace[NR_SYSCALLS];
+static pid_t trace_pid;
 
 const char *syscall_trace_name(unsigned int nr)
 {
@@ -490,6 +491,8 @@ void syscall_trace_start(unsigned int nr)
 {
 	if (nr >= NR_SYSCALLS)
 		return;
+	if (trace_pid && current->pid != trace_pid)
+		return;
 
 	current->syscall_trace_start = syscall_trace_tsc();
 }
@@ -500,6 +503,8 @@ void syscall_trace_end(unsigned int nr)
 	struct syscall_trace_stat *stat;
 
 	if (nr >= NR_SYSCALLS)
+		return;
+	if (trace_pid && current->pid != trace_pid)
 		return;
 
 	now = syscall_trace_tsc();
@@ -515,4 +520,14 @@ void syscall_trace_end(unsigned int nr)
 void syscall_trace_reset(void)
 {
 	memset(syscall_trace, 0, sizeof(syscall_trace));
+}
+
+void syscall_trace_set_pid(pid_t pid)
+{
+	trace_pid = pid;
+}
+
+pid_t syscall_trace_get_pid(void)
+{
+	return trace_pid;
 }

@@ -12,6 +12,7 @@
 #define DEBUGFS_INO_KERNEL	2UL
 #define DEBUGFS_INO_DEBUG	3UL
 #define DEBUGFS_INO_SYSCALLS	4UL
+#define DEBUGFS_INO_TRACE_PID	5UL
 
 #define DEBUGFS_SYSCALLS_BUF	8192
 
@@ -26,7 +27,7 @@ static int debugfs_name_is(char *name, int len, char *want)
 
 static mode_t debugfs_inode_mode(unsigned long ino)
 {
-	if (ino == DEBUGFS_INO_SYSCALLS)
+	if (ino == DEBUGFS_INO_SYSCALLS || ino == DEBUGFS_INO_TRACE_PID)
 		return S_IFREG | 0644;
 	return S_IFDIR | 0555;
 }
@@ -120,11 +121,59 @@ static int debugfs_syscalls_content(char *buf, size_t size)
 	return n;
 }
 
+static int debugfs_trace_pid_content(char *buf, size_t size)
+{
+	if (size < 16)
+		return -ENOSPC;
+	return sprintk(buf, "%d\n", syscall_trace_get_pid());
+}
+
+static int debugfs_parse_pid(char *buf, int len, pid_t *pid)
+{
+	int n = 0;
+	int i = 0;
+	int digits = 0;
+
+	while (i < len && (buf[i] == ' ' || buf[i] == '\t' ||
+			   buf[i] == '\r' || buf[i] == '\n'))
+		i++;
+	while (i < len && buf[i] >= '0' && buf[i] <= '9') {
+		n = n * 10 + buf[i] - '0';
+		if (n > 32768)
+			return -EINVAL;
+		digits++;
+		i++;
+	}
+	while (i < len && (buf[i] == ' ' || buf[i] == '\t' ||
+			   buf[i] == '\r' || buf[i] == '\n'))
+		i++;
+	if (!digits || i != len)
+		return -EINVAL;
+
+	*pid = n;
+	return 0;
+}
+
 static int debugfs_file_read(struct inode *inode, struct file *file,
 			     char *buf, int count)
 {
 	char *content;
 	int size;
+
+	if (inode->i_ino == DEBUGFS_INO_TRACE_PID) {
+		char tmp[16];
+
+		size = debugfs_trace_pid_content(tmp, sizeof(tmp));
+		if (size < 0)
+			return size;
+		if (file->f_pos >= size)
+			return 0;
+		if (count > size - file->f_pos)
+			count = size - file->f_pos;
+		memcpy_tofs(buf, tmp + file->f_pos, count);
+		file->f_pos += count;
+		return count;
+	}
 
 	if (inode->i_ino != DEBUGFS_INO_SYSCALLS)
 		return -EINVAL;
@@ -149,14 +198,31 @@ static int debugfs_file_read(struct inode *inode, struct file *file,
 static int debugfs_file_write(struct inode *inode, struct file *file,
 			      char *buf, int count)
 {
+	char tmp[16];
+	pid_t pid;
+	int error;
+
 	(void)file;
-	(void)buf;
 
-	if (inode->i_ino != DEBUGFS_INO_SYSCALLS)
-		return -EINVAL;
+	if (inode->i_ino == DEBUGFS_INO_SYSCALLS) {
+		syscall_trace_reset();
+		return count;
+	}
+	if (inode->i_ino == DEBUGFS_INO_TRACE_PID) {
+		if (count <= 0)
+			return -EINVAL;
+		if (count > sizeof(tmp) - 1)
+			count = sizeof(tmp) - 1;
+		memcpy_fromfs(tmp, buf, count);
+		tmp[count] = '\0';
+		error = debugfs_parse_pid(tmp, count, &pid);
+		if (error)
+			return error;
+		syscall_trace_set_pid(pid);
+		return count;
+	}
 
-	syscall_trace_reset();
-	return count;
+	return -EINVAL;
 }
 
 static struct file_operations debugfs_file_fops = {
@@ -176,6 +242,8 @@ static struct inode *debugfs_make_file(unsigned long ino)
 
 	if (ino == DEBUGFS_INO_SYSCALLS)
 		size = DEBUGFS_SYSCALLS_BUF;
+	else if (ino == DEBUGFS_INO_TRACE_PID)
+		size = 16;
 	return debugfs_alloc_inode(ino, size, NULL, &debugfs_file_fops);
 }
 
@@ -199,6 +267,8 @@ static int debugfs_lookup_child(unsigned long dir_ino, char *name, int len,
 	if (dir_ino == DEBUGFS_INO_DEBUG) {
 		if (debugfs_name_is(name, len, "syscalls"))
 			*res = debugfs_make_file(DEBUGFS_INO_SYSCALLS);
+		else if (debugfs_name_is(name, len, "trace_pid"))
+			*res = debugfs_make_file(DEBUGFS_INO_TRACE_PID);
 		return *res ? 0 : -ENOENT;
 	}
 
@@ -223,6 +293,10 @@ static int debugfs_parent(unsigned long dir_ino, struct inode **res)
 		return *res ? 0 : -ENOMEM;
 	}
 	if (dir_ino == DEBUGFS_INO_SYSCALLS) {
+		*res = debugfs_make_dir(DEBUGFS_INO_DEBUG);
+		return *res ? 0 : -ENOMEM;
+	}
+	if (dir_ino == DEBUGFS_INO_TRACE_PID) {
 		*res = debugfs_make_dir(DEBUGFS_INO_DEBUG);
 		return *res ? 0 : -ENOMEM;
 	}
@@ -286,12 +360,20 @@ static int debugfs_get_entry(unsigned long dir_ino, int index, char *name,
 	}
 
 	if (dir_ino == DEBUGFS_INO_DEBUG) {
-		if (index != 0)
+		switch (index) {
+		case 0:
+			sprintk(name, "%s", "syscalls");
+			*ino = DEBUGFS_INO_SYSCALLS;
+			*type = DT_REG;
+			return 0;
+		case 1:
+			sprintk(name, "%s", "trace_pid");
+			*ino = DEBUGFS_INO_TRACE_PID;
+			*type = DT_REG;
+			return 0;
+		default:
 			return -ENOENT;
-		sprintk(name, "%s", "syscalls");
-		*ino = DEBUGFS_INO_SYSCALLS;
-		*type = DT_REG;
-		return 0;
+		}
 	}
 
 	return -ENOTDIR;
