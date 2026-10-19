@@ -196,6 +196,11 @@ void unmap_fixup(struct vm_area_struct *vma, unsigned long addr, unsigned long l
 		assert(mpnt);
 
 		*mpnt = *vma;
+		/* The original vma is about to be freed.  Do not leave the split
+		 * area's share ring pointing at it; keep the new vma self-linked
+		 * exactly as a freshly created private mapping would be. */
+		mpnt->vm_next_share = mpnt;
+		mpnt->vm_prev_share = mpnt;
 		mpnt->vm_offset += (end - vma->vm_start);
 		mpnt->vm_start = end;
 
@@ -213,6 +218,8 @@ void unmap_fixup(struct vm_area_struct *vma, unsigned long addr, unsigned long l
 	assert(mpnt);
 
 	*mpnt = *vma;
+	mpnt->vm_next_share = mpnt;
+	mpnt->vm_prev_share = mpnt;
 	if (mpnt->vm_ops && mpnt->vm_ops->open)
 		mpnt->vm_ops->open(mpnt);
 	if (vma->vm_ops && vma->vm_ops->close) {

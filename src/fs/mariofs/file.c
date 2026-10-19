@@ -19,7 +19,7 @@ static int mario_file_truncate(struct inode *i, int size)
 	if (size < 0)
 		return -EINVAL;
 
-	MARIO_INODE_INVALIDATE_BLOCK_CACHE(i);
+	mario_destroy_block_map(i);
 
 	max_used = i->i_block_size - 4;
 	n = (size + max_used - 1) / max_used;
@@ -67,6 +67,7 @@ static int mario_file_truncate(struct inode *i, int size)
 		mario_put_block(i->i_sb, head, tail);
 	}
 end:
+	mario_destroy_block_map(i);
 	i->i_size = size;
 	i->i_nr_block = n;
 	set_bit(I_Dirty, &i->i_state);
@@ -152,7 +153,7 @@ struct inode_operations mario_link_iops = {
 
 int mario_file_read(struct inode *i, struct file *f, char *buf, int count)
 {
-	int n, block, res = 0;
+	int n, block, nth, res = 0;
 	unsigned int start, end, read;
 	struct buffer_head *bh;
 
@@ -170,7 +171,8 @@ int mario_file_read(struct inode *i, struct file *f, char *buf, int count)
 	/* bytes of data a block contains */
 	n = i->i_block_size - 4;
 	// No more to read
-	if (start/n + 1 != mario_nth_block(i, start/n + 1, &block))
+	nth = mario_nth_block(i, start/n + 1, &block);
+	if (start/n + 1 != nth)
 		return 0;
 read_a_block:
 	if (!(bh = bread(i->i_dev, block)))
@@ -200,7 +202,7 @@ read_a_block:
  */
 int mario_file_write(struct inode *i, struct file *f, char *buf, int count)
 {
-	int n, block, nr, res = 0, ret = 0;
+	int n, block, nr, nth, res = 0, ret = 0;
 	unsigned int start, end, write;
 	struct buffer_head *bh = NULL;
 
@@ -210,7 +212,6 @@ int mario_file_write(struct inode *i, struct file *f, char *buf, int count)
 		return -EINVAL;
 
 	down(&i->i_sem);
-	MARIO_INODE_INVALIDATE_BLOCK_CACHE(i);
 
 	if (f->f_flags & O_APPEND)
 		start = i->i_size;
@@ -226,7 +227,29 @@ int mario_file_write(struct inode *i, struct file *f, char *buf, int count)
 	n = i->i_block_size - 4;
 	nr = start/n + 1;
 
-	block = i->i_rdev;
+	if (nr <= i->i_nr_block) {
+		nth = mario_nth_block(i, nr, &block);
+		if (nth < 0) {
+			ret = nth;
+			goto tail_3;
+		}
+		if (nth != nr) {
+			ret = -EIO;
+			goto tail_3;
+		}
+		nr = 0;
+	} else {
+		nth = mario_nth_block(i, 0, &block);
+		if (nth < 0) {
+			ret = nth;
+			goto tail_3;
+		}
+		if (!nth) {
+			ret = -EIO;
+			goto tail_3;
+		}
+		nr -= nth;
+	}
 write_a_block:
 	if (!(bh = bread(i->i_dev, block)))
 		goto tail_2;
@@ -257,6 +280,7 @@ new_block:
 	set_dirty(bh); // !!! MUST ensure bh's dirty bit is set after modifying it
 
 	i->i_nr_block++;
+	mario_destroy_block_map(i);
 next_1:
 	brelse(bh);
 	goto write_a_block;

@@ -98,8 +98,6 @@ static int mario_add_entry(struct inode *dir, struct mario_dir_entry *__entry,
 	if (res)
 		*res = NULL;
 
-	MARIO_INODE_INVALIDATE_BLOCK_CACHE(dir);
-
 	block_size = dir->i_block_size;
 	n = (block_size - 4) / MARIO_ENTRY_SIZE;	/* entries a block contains */
 	block = dir->i_rdev;

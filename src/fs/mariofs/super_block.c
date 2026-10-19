@@ -1,4 +1,5 @@
 #include <fs/fs.h>
+#include <mm/kmalloc.h>
 
 extern struct inode_operations mario_file_iops;
 extern struct inode_operations mario_dir_iops;
@@ -12,92 +13,147 @@ extern struct file_operations blkdev_fops;
 
 extern struct file_operations chrdev_fops;
 
+#define MARIO_BLOCK_MAP_KMALLOC_MAX	1020
+
+static unsigned long mario_block_map_order(unsigned long bytes)
+{
+	unsigned long pages = (bytes + PAGE_SIZE - 1) >> PAGE_SHIFT;
+	unsigned long order = 0;
+
+	while ((1UL << order) < pages)
+		order++;
+	return order;
+}
+
+void mario_destroy_block_map(struct inode *inode)
+{
+	if (MARIO_INODE_BLOCK_MAP(inode)) {
+		if (MARIO_INODE_BLOCK_MAP_KMALLOC(inode))
+			kfree(MARIO_INODE_BLOCK_MAP(inode));
+		else
+			pages_free((unsigned long)MARIO_INODE_BLOCK_MAP(inode),
+				MARIO_INODE_BLOCK_MAP_ORDER(inode));
+	}
+
+	MARIO_INODE_BLOCK_MAP(inode) = NULL;
+	MARIO_INODE_BLOCK_MAP_LEN(inode) = 0;
+	MARIO_INODE_BLOCK_MAP_ORDER(inode) = 0;
+	MARIO_INODE_BLOCK_MAP_KMALLOC(inode) = 0;
+}
+
+static int mario_build_block_map(struct inode *inode)
+{
+	unsigned long blocks, bytes, block, i;
+	unsigned long *map;
+	struct buffer_head *bh;
+	int next;
+
+	if (MARIO_INODE_BLOCK_MAP(inode))
+		return MARIO_INODE_BLOCK_MAP_LEN(inode);
+
+	blocks = inode->i_nr_block;
+	if (!blocks)
+		return 0;
+	if (blocks > MARIO_NR_BLOCKS(inode->i_sb))
+		return -EIO;
+
+	bytes = blocks * sizeof(unsigned long);
+	if (bytes <= MARIO_BLOCK_MAP_KMALLOC_MAX) {
+		map = kmalloc(bytes);
+		if (!map)
+			return -ENOMEM;
+		MARIO_INODE_BLOCK_MAP_KMALLOC(inode) = 1;
+		MARIO_INODE_BLOCK_MAP_ORDER(inode) = 0;
+	} else {
+		unsigned long order = mario_block_map_order(bytes);
+
+		map = (unsigned long *)pages_alloc(order);
+		if (!map)
+			return -ENOMEM;
+		MARIO_INODE_BLOCK_MAP_KMALLOC(inode) = 0;
+		MARIO_INODE_BLOCK_MAP_ORDER(inode) = order;
+	}
+
+	MARIO_INODE_BLOCK_MAP(inode) = map;
+	MARIO_INODE_BLOCK_MAP_LEN(inode) = 0;
+
+	block = inode->i_rdev;
+	for (i = 0; i < blocks; i++) {
+		map[i] = block;
+		MARIO_INODE_BLOCK_MAP_LEN(inode) = i + 1;
+		if (i + 1 == blocks)
+			break;
+
+		if (!(bh = bread(inode->i_dev, block))) {
+			mario_destroy_block_map(inode);
+			return -EIO;
+		}
+		next = *(int *)(bh->b_data + inode->i_block_size - 4);
+		brelse(bh);
+		if (!next)
+			break;
+		block = next;
+	}
+
+	return MARIO_INODE_BLOCK_MAP_LEN(inode);
+}
+
+static int mario_chain_nth_block(struct inode *inode, int n, int *block_nr)
+{
+	unsigned long block = inode->i_rdev;
+	struct buffer_head *bh;
+	int next, i = 1;
+
+	*block_nr = 0;
+	if (!block)
+		return 0;
+
+	for (; n != i; i++) {
+		if (!(bh = bread(inode->i_dev, block)))
+			return -EIO;
+		next = *(int *)(bh->b_data + inode->i_block_size - 4);
+		brelse(bh);
+		if (!next)
+			break;
+		block = next;
+	}
+
+	*block_nr = block;
+	return i;
+}
+
 /*
- * Try to get block number of the @nth block of that chain;
- * if error occurs
- *   a negative value is returned
- * else
- *   return the number of blocks we touched
- * NOTE:
- *   @inode:	a directory or a file not empty
- *   @n:	0 means the last block
+ * Try to get block number of the @nth block of that chain.
+ * Regular files use a lazily built full block map.  Directories and
+ * non-regular files keep the simple chain walk.
  */
 int mario_nth_block(struct inode *inode, int n, int *block_nr)
 {
-	int i, j, next_block;
-	struct buffer_head *bh;
-	unsigned long contig;
+	unsigned long idx;
+	int len;
 
 	*block_nr = 0;
-	contig = MARIO_INODE_CONTIGUOUS_COUNT(inode);
+	if (n < 0)
+		return -EINVAL;
 
-	if (n > 0 && contig >= n) {
-		i = n;
-		j = inode->i_rdev + n - 1;
-		goto done;
-	}
+	if (!S_ISREG(inode->i_mode))
+		return mario_chain_nth_block(inode, n, block_nr);
 
-	if (n > 0 && contig > 0) {
-		/*
-		 * The first @contig blocks are contiguous.  Start from the
-		 * last known-good block and try to extend that prefix while
-		 * walking forward.
-		 */
-		i = contig;
-		j = inode->i_rdev + contig - 1;
-	} else if (n > 0 && MARIO_INODE_BLOCK_NR(inode) &&
-	    MARIO_INODE_BLOCK_INDEX(inode) &&
-	    MARIO_INODE_BLOCK_INDEX(inode) <= n) {
-		/* Fallback for non-contiguous chains: use the last position. */
-		i = MARIO_INODE_BLOCK_INDEX(inode);
-		j = MARIO_INODE_BLOCK_NR(inode);
-		contig = 0;
-	} else if (n > 0) {
-		i = 1;
-		j = inode->i_rdev;
-		/* A single first block is trivially a contiguous prefix. */
-		contig = 1;
-	} else {
-		/* n == 0 asks for the last block.  Keep it simple and walk
-		 * the whole chain. */
-		i = 1;
-		j = inode->i_rdev;
-		contig = 0;
-	}
+	len = mario_build_block_map(inode);
+	if (len < 0)
+		return len;
+	if (!len)
+		return 0;
 
-	for (; n != i; i++) {
-		if (!(bh = bread(inode->i_dev, j)))
-			return -EIO;
-		next_block = *(int *)(bh->b_data + inode->i_block_size - 4);
-		brelse(bh);
-		if (!next_block)
-			break;
+	if (n == 0)
+		idx = len - 1;
+	else if (n > len)
+		return len;
+	else
+		idx = n - 1;
 
-		/*
-		 * Keep track of a contiguous prefix.  Files created by
-		 * rd-make are contiguous, and this makes the common demand
-		 * paging pattern O(1) after the prefix has been discovered.
-		 */
-		if (contig && contig >= i) {
-			if (next_block == j + 1)
-				contig = i + 1;
-			else
-				contig = i;
-		}
-
-		j = next_block;
-	}
-
-done:
-	*block_nr = j;
-
-	if (i > 0) {
-		MARIO_INODE_BLOCK_INDEX(inode) = i;
-		MARIO_INODE_BLOCK_NR(inode) = j;
-		MARIO_INODE_CONTIGUOUS_COUNT(inode) = contig;
-	}
-
-	return i;
+	*block_nr = MARIO_INODE_BLOCK_MAP(inode)[idx];
+	return n ? n : len;
 }
 
 /*
@@ -205,7 +261,7 @@ static int mario_read_inode(struct inode *i)
 	i->i_nr_block = entry->blocks;
 	i->i_block_size = sb->s_block_size;
 	strcpy(MARIO_INODE_NAME(i), entry->name);
-	MARIO_INODE_INVALIDATE_BLOCK_CACHE(i);
+	mario_destroy_block_map(i);
 
 	if (S_ISREG(i->i_mode)) {
 		i->i_op = &mario_file_iops;
@@ -289,10 +345,16 @@ int mario_write_super(struct super_block *sb)
 	return 0;
 }
 
+static void mario_clear_inode(struct inode *i)
+{
+	mario_destroy_block_map(i);
+}
+
 static struct super_operations mario_sops = {
 	.read_inode = mario_read_inode,
 	.write_inode = mario_write_inode,
-	.write_super = mario_write_super
+	.write_super = mario_write_super,
+	.clear_inode = mario_clear_inode
 };
 
 static struct super_block *mario_read_super(struct super_block *sb)

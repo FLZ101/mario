@@ -48,6 +48,7 @@ struct super_operations {
 	int (*read_inode)(struct inode *);
 	int (*write_inode)(struct inode *);
 	int (*write_super)(struct super_block *);
+	void (*clear_inode)(struct inode *);
 };
 
 struct super_block {

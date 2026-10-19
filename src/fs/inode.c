@@ -78,6 +78,9 @@ static void clear_inode(struct inode *i)
 	struct list_head i_list = i->i_list;
 	struct semaphore i_sem = i->i_sem;
 
+	if (i->i_sb && i->i_sb->s_op && i->i_sb->s_op->clear_inode)
+		i->i_sb->s_op->clear_inode(i);
+
 	memset(i, 0, sizeof(struct inode));
 
 	i->i_list = i_list;
@@ -94,6 +97,7 @@ try:
 		sleep_on(&inode_wait, TASK_UNINTERRUPTIBLE, &inode_lock);
 		goto try;
 	}
+	clear_inode(i);
 	i->i_count = 1;
 	list_del(&i->i_list);
 	list_add_tail(&i->i_list, &lru);
