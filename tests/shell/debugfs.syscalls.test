@@ -1,8 +1,20 @@
 RUN: ls /sys/kernel/debug
 CHECK: syscalls
+CHECK: trace_pid
 
 RUN: cat /sys/kernel/debug/syscalls
 CHECK: syscall
+
+RUN: echo trace_pid_default=$(cat /sys/kernel/debug/trace_pid)
+CHECK: trace_pid_default=0
+
+RUN: echo 123 > /sys/kernel/debug/trace_pid
+RUN: echo trace_pid_set=$(cat /sys/kernel/debug/trace_pid)
+CHECK: trace_pid_set=123
+
+RUN: echo 0 > /sys/kernel/debug/trace_pid
+RUN: echo trace_pid_reset=$(cat /sys/kernel/debug/trace_pid)
+CHECK: trace_pid_reset=0
 
 RUN: echo reset > /sys/kernel/debug/syscalls; echo reset:$?
 CHECK: reset:0

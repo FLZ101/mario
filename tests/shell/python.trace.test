@@ -1,6 +1,6 @@
 RUN: echo reset > /sys/kernel/debug/syscalls
 
-SEND: python
+SEND: /bin/oksh -c 'echo $$ > /sys/kernel/debug/trace_pid; exec python'
 PUSH-PROMPT: >>>
 EXPECT:
 
@@ -14,3 +14,4 @@ RUN: cat /sys/kernel/debug/syscalls
 CHECK: execve
 CHECK: read
 CHECK: write
+CHECK-NOT: rt_sigsuspend
