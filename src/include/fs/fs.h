@@ -109,6 +109,7 @@ struct inode {
 	struct file_operations *i_fop;
 	struct inode *i_mount; // a weak reference to the covered inode
 	struct list_head i_list;
+	struct list_head i_hash;
 	struct semaphore i_sem;
 	unsigned long i_state;
 	unsigned long i_count;
@@ -125,10 +126,12 @@ struct inode {
 #define I_Dirty		0
 #define I_Up2date	1
 #define I_Pipe		2
+#define I_Hash		3
 
 #define inode_dirty(i)		test_bit(I_Dirty, &(i)->i_state)
 #define inode_up2date(i)	test_bit(I_Up2date, &(i)->i_state)
 #define inode_pipe(i)		test_bit(I_Pipe, &(i)->i_state)
+#define inode_hashed(i)		test_bit(I_Hash, &(i)->i_state)
 
 void inode_init(void);
 void inode_invalidate(struct super_block *sb, ino_t ino);

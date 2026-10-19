@@ -5,13 +5,20 @@
 #include <sched.h>
 
 static struct list_head lru;
+static struct list_head inode_hash[256];
 static spinlock_t inode_lock;
 static wait_queue_t inode_wait;
 
 #define NR_INODE	2048
+#define NR_INODE_HASH	256
 
 static struct inode all[NR_INODE];
 static struct inode *find_inode(struct super_block *sb, int ino);
+
+static unsigned long hash_inode(dev_t dev, ino_t ino)
+{
+	return ((unsigned long)dev * 31 + ino) & (NR_INODE_HASH - 1);
+}
 
 void inode_init(void)
 {
@@ -20,6 +27,8 @@ void inode_init(void)
 	INIT_LIST_HEAD(&lru);
 	INIT_LOCK(&inode_lock);
 	init_wait_queue(&inode_wait);
+	for (i = 0; i < NR_INODE_HASH; i++)
+		INIT_LIST_HEAD(&inode_hash[i]);
 
 	for (i = 0; i < NR_INODE; i++) {
 		memset(all + i, 0, sizeof(struct inode));
@@ -80,6 +89,10 @@ static void clear_inode(struct inode *i)
 
 	if (i->i_sb && i->i_sb->s_op && i->i_sb->s_op->clear_inode)
 		i->i_sb->s_op->clear_inode(i);
+	if (inode_hashed(i)) {
+		list_del(&i->i_hash);
+		clear_bit(I_Hash, &i->i_state);
+	}
 
 	memset(i, 0, sizeof(struct inode));
 
@@ -123,8 +136,8 @@ static struct inode *find_inode(struct super_block *sb, int ino)
 	struct list_head *pos;
 	struct inode *tmp;
 
-	list_for_each(pos, &lru) {
-		tmp = list_entry(pos, struct inode, i_list);
+	list_for_each(pos, &inode_hash[hash_inode(sb->s_dev, ino)]) {
+		tmp = list_entry(pos, struct inode, i_hash);
 		if (tmp->i_dev == sb->s_dev && tmp->i_ino == ino)
 			return tmp;
 	}
@@ -148,6 +161,8 @@ try:
 	i->i_dev = sb->s_dev;
 	i->i_ino = ino;
 	i->i_mount = NULL;
+	list_add(&i->i_hash, &inode_hash[hash_inode(sb->s_dev, ino)]);
+	set_bit(I_Hash, &i->i_state);
 tail:
 	i->i_count++;
 	list_del(&i->i_list);
