@@ -7,10 +7,10 @@ all: image
 
 GRUB_FILES	:= $(wildcard grub4dos-0.4.6a/*)
 
-image: hd.img tmp/kernel.exe tmp/boot.bin tmp/rdx $(GRUB_FILES)
+image: hd.img hd2.img tmp/kernel.exe tmp/boot.bin tmp/rdx $(GRUB_FILES)
 	bash update_image.sh
 
-hd.img:
+hd.img hd2.img &: gen_image.sh
 	bash gen_image.sh
 
 tmp/kernel.exe: ../src/kernel/kernel.exe
@@ -24,7 +24,7 @@ tmp/rdx: ../rd/rdx
 
 clean:
 	find tmp -mindepth 1 -maxdepth 1 ! -name '.gitignore' -exec rm -rf {} +
-	rm -f hd.img
+	rm -f hd.img hd2.img
 
 #	-display gtk
 #
@@ -52,8 +52,10 @@ QEMU_FLAGS := \
 	-boot order=c \
 	-m 256M \
 	-drive id=disk,file=hd.img,format=raw,if=none \
+	-drive id=disk2,file=hd2.img,format=raw,if=none \
 	-device ahci,id=ahci \
 	-device ide-hd,drive=disk,bus=ahci.0 \
+	-device ide-hd,drive=disk2,bus=ahci.1 \
 	-display $(QEMU_DISPLAY) \
 	-no-reboot -no-shutdown
 

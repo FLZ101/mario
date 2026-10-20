@@ -1,0 +1,38 @@
+REQUIRES-HD:
+
+RUN: export PATH=/bin/sbase:/bin/toybox:/bin
+RUN: mkdir -p /tmp
+
+RUN: /bin/oksh - <<'EOF'
+check()
+{
+	name=$1
+	pattern=$2
+	dev=$3
+	bs=$4
+	seek=$5
+
+	dd if=/dev/urandom of="$pattern" bs="$bs" count=1 >/dev/null 2>&1
+	dd if="$pattern" of="$dev" bs="$bs" seek="$seek" conv=notrunc >/dev/null 2>&1
+	dd if="$dev" of="$pattern.back" bs="$bs" skip="$seek" count=1 >/dev/null 2>&1
+
+	if cmp "$pattern" "$pattern.back"; then
+		echo "$name-ok"
+	else
+		echo "$name-mismatch"
+	fi
+}
+
+check harddisk-hda /tmp/hda.pattern /dev/hda 65536 8
+check harddisk-hdb /tmp/hdb.pattern /dev/hdb 32768 4
+check harddisk-hda1 /tmp/hda1.pattern /dev/hda1 4096 1
+check harddisk-hda5 /tmp/hda5.pattern /dev/hda5 16384 2
+check harddisk-hdb1 /tmp/hdb1.pattern /dev/hdb1 32768 1
+check harddisk-hdb6 /tmp/hdb6.pattern /dev/hdb6 65536 1
+EOF
+CHECK: harddisk-hda-ok
+CHECK: harddisk-hdb-ok
+CHECK: harddisk-hda1-ok
+CHECK: harddisk-hda5-ok
+CHECK: harddisk-hdb1-ok
+CHECK: harddisk-hdb6-ok

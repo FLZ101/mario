@@ -12,6 +12,7 @@ Test files use a tiny subset of lit syntax:
     one
     two
     EOF
+    REQUIRES-HD:
     EXIT:
 
 Run:
@@ -36,6 +37,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QEMU = os.environ.get("QEMU", "qemu-system-i386")
 KERNEL = os.path.join(ROOT, "src", "kernel", "kernel.exe")
 INITRD = os.path.join(ROOT, "rd", "rdx")
+HD_IMAGE = os.path.join(ROOT, "qemu", "hd.img")
+HD2_IMAGE = os.path.join(ROOT, "qemu", "hd2.img")
 
 
 def prompt_pattern(literal):
@@ -88,6 +91,7 @@ def _pexpect_expect(child, pattern, timeout, description):
 class LitTest:
     def __init__(self, path):
         self.path = path
+        self.requires_hd = False
         self.runs = []
         self.actions = []
         self.checks = []
@@ -159,6 +163,8 @@ class LitTest:
                     self.actions.append(("push-prompt", prompt))
                 elif body.startswith("POP-PROMPT:"):
                     self.actions.append(("pop-prompt", None))
+                elif body.startswith("REQUIRES-HD:"):
+                    self.requires_hd = True
                 elif body.startswith("EXIT:"):
                     break
                 elif body.startswith("CHECK-REGEX:"):
@@ -181,7 +187,7 @@ def require_files():
         sys.exit(2)
 
 
-def start_qemu(qemu, realtime=False):
+def start_qemu(qemu, realtime=False, with_disk=False):
     cmd = [
         qemu,
         "-m",
@@ -197,6 +203,21 @@ def start_qemu(qemu, realtime=False):
         "-no-reboot",
         "-no-shutdown",
     ]
+    if with_disk:
+        cmd += [
+            "-snapshot",
+            "-drive",
+            f"id=mario-test-hd,file={HD_IMAGE},format=raw,if=none",
+            "-drive",
+            f"id=mario-test-hd2,file={HD2_IMAGE},format=raw,if=none",
+            "-device",
+            "ahci,id=mario-test-ahci",
+            "-device",
+            "ide-hd,drive=mario-test-hd,bus=mario-test-ahci.0",
+            "-device",
+            "ide-hd,drive=mario-test-hd2,bus=mario-test-ahci.1",
+        ]
+
     child = pexpect.spawn(" ".join(cmd), encoding="latin-1", timeout=30)
     if realtime:
         child.logfile_read = RealtimeOutput(sys.stdout)
@@ -207,7 +228,7 @@ def start_qemu(qemu, realtime=False):
 
 
 def run_lit_test(test, qemu, realtime=False):
-    child = start_qemu(qemu, realtime)
+    child = start_qemu(qemu, realtime, test.requires_hd)
     output = []
     prompts = [PROMPT]
     timeout = DEFAULT_TIMEOUT
@@ -246,7 +267,7 @@ def run_lit_test(test, qemu, realtime=False):
         child.sendline("halt")
         child.close(force=True)
 
-    text = "\n".join(output)
+    text = "\n".join(chunk.rstrip("\r\n") for chunk in output)
     failures = []
 
     for needle in test.checks:
@@ -318,12 +339,23 @@ def main():
         print(f"No .test files found in: {' '.join(args.paths)}", file=sys.stderr)
         sys.exit(2)
 
+    missing_hd_images = []
+    if any(test.requires_hd for test in tests):
+        missing_hd_images = [
+            path for path in (HD_IMAGE, HD2_IMAGE) if not os.path.exists(path)
+        ]
+
     failed = False
     for test in tests:
         name = os.path.relpath(test.path, ROOT)
         started = time.monotonic()
         if args.verbose:
             print(f"== {name} ==", flush=True)
+        if test.requires_hd and missing_hd_images:
+            print(
+                f"SKIP: {name} [missing {', '.join(missing_hd_images)}]"
+            )
+            continue
         try:
             failures, text = run_lit_test(test, args.qemu, args.verbose)
         except PexpectTimeout as exc:

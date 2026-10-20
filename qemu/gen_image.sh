@@ -2,6 +2,23 @@
 
 set -e
 
+loopdev=""
+loopdev2=""
+
+cleanup()
+{
+	sudo umount tmp/p1 2>/dev/null || true
+	sudo umount tmp/p6 2>/dev/null || true
+
+	if [[ -n "$loopdev" ]] ; then
+		sudo losetup --detach "$loopdev" 2>/dev/null || true
+	fi
+	if [[ -n "$loopdev2" ]] ; then
+		sudo losetup --detach "$loopdev2" 2>/dev/null || true
+	fi
+}
+trap cleanup EXIT
+
 echo "Create hd.img ..."
 dd if=/dev/zero of=hd.img bs=1024k count=400
 
@@ -49,6 +66,37 @@ sudo dd if=tmp/grldr.mbr of=${loopdev} conv=notrunc
 
 sudo losetup --detach $loopdev
 
+echo "Create hd2.img ..."
+dd if=/dev/zero of=hd2.img bs=1024k count=320
+
+echo "Partition hd2.img ..."
+sfdisk hd2.img <<EOF
+unit: sectors
+label: dos
+1: start=2048, size=131072, type=83
+2: start=133120, size=266240, type=5
+3: start=399360, size=131072, type=0b
+5: start=135168, size=131072, type=0b
+6: start=268288, size=131072, type=83
+EOF
+
+echo "Format partitions of hd2.img ..."
+
+loopdev2=$(losetup --find)
+if [[ ! $loopdev2 =~ ^/dev/.* ]] ; then
+	false
+fi
+
+sudo losetup -P $loopdev2 hd2.img
+
+sudo mkfs -t ext2 ${loopdev2}p1
+sudo mkfs -t fat -F 32 ${loopdev2}p3
+sudo mkfs -t fat -F 32 ${loopdev2}p5
+sudo mkfs -t ext2 ${loopdev2}p6
+
+sudo losetup --detach $loopdev2
+
 sfdisk -l hd.img
+sfdisk -l hd2.img
 
 echo "Done"
