@@ -9,7 +9,7 @@ VENV_STAMP := $(ROOT)/.venv/.stamp
 SHELL_TEST_CASES ?= tests/shell
 VGA_TEST_CASES ?= tests/vga
 
-.PHONY: all kernel rd app libc image run debug \
+.PHONY: all kernel rd app libc image update-image run debug \
 	quick-run quick-debug quick-run-gtk quick-debug-gtk \
 	test shell-test vga-test \
 	musl venv precommit setup \
@@ -78,10 +78,10 @@ $(VENV_STAMP): requirements.txt
 
 venv: $(VENV_STAMP)
 
-shell-test: venv kernel rd
+shell-test: venv kernel rd image
 	$(PYTHON) tests/lit_shell_test.py $(SHELL_TEST_CASES)
 
-vga-test: venv kernel rd
+vga-test: venv kernel rd image
 	$(PYTHON) tests/lit_vga_test.py $(VGA_TEST_CASES)
 
 test: shell-test vga-test
@@ -92,24 +92,27 @@ precommit: venv
 setup: precommit
 
 image: kernel rd
-	$(MAKE) -C qemu
+	$(MAKE) image -C qemu
 
-run:
+update-image: kernel rd
+	$(MAKE) update-image -C qemu
+
+run: image
 	$(MAKE) run -C qemu
 
-debug:
+debug: image
 	$(MAKE) debug -C qemu
 
-quick-run:
+quick-run: kernel rd
 	$(MAKE) quick-run -C qemu
 
-quick-debug:
+quick-debug: kernel rd
 	$(MAKE) quick-debug -C qemu
 
-quick-run-gtk:
+quick-run-gtk: kernel rd
 	$(MAKE) QEMU_DISPLAY=gtk quick-run -C qemu
 
-quick-debug-gtk:
+quick-debug-gtk: kernel rd
 	$(MAKE) QEMU_DISPLAY=gtk quick-debug -C qemu
 
 clean-all: clean clean-musl clean-app-usr

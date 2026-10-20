@@ -1,15 +1,19 @@
 SHELL := /bin/bash
 
-.PHONY: all clean image run debug quick-run quick-debug \
+.PHONY: all clean image update-image run debug quick-run quick-debug \
 	tmux-run tmux-debug tmux-attach tmux-kill
 
 all: image
 
 GRUB_FILES	:= $(wildcard grub4dos-0.4.6a/*)
 
-image: hd.img hd2.img tmp/kernel.exe tmp/boot.bin tmp/rdx $(GRUB_FILES)
+update-image: image
 	bash update_image.sh
 
+image: hd.img hd2.img tmp/kernel.exe tmp/boot.bin tmp/rdx $(GRUB_FILES)
+
+# gen_image.sh creates both hd.img and hd2.img, so use a grouped target (&:)
+# to run the recipe a single time, producing both files.
 hd.img hd2.img &: gen_image.sh
 	bash gen_image.sh
 

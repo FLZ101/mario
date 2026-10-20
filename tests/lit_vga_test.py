@@ -15,6 +15,7 @@ Test files use a small subset of lit syntax:
     VGA-DUMP-SCREEN: /tmp/vga-rect.ppm,1,12
     VGA-CHECK-SCREEN: /tmp/vga-rect.ppm
     VGA-CHECK-SCREEN: /tmp/vga-rect.ppm,1,12
+    REQUIRES-HD:
     EXIT:
 
 The serial console is the control channel.  Commands are sent there and the
@@ -52,6 +53,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QEMU = os.environ.get("QEMU", "qemu-system-i386")
 KERNEL = os.path.join(ROOT, "src", "kernel", "kernel.exe")
 INITRD = os.path.join(ROOT, "rd", "rdx")
+HD_IMAGE = os.path.join(ROOT, "qemu", "hd.img")
+HD2_IMAGE = os.path.join(ROOT, "qemu", "hd2.img")
 
 
 def _prompt_pattern(literal):
@@ -131,6 +134,7 @@ VGA_KEYMAP = {
 class VgaLitTest:
     def __init__(self, path):
         self.path = path
+        self.requires_hd = False
         self.actions = []
 
     def parse(self):
@@ -200,6 +204,8 @@ class VgaLitTest:
                     if seconds <= 0:
                         raise ValueError(f"{self.path}: TIMEOUT must be positive")
                     self.actions.append(("set-timeout", seconds))
+                elif body.startswith("REQUIRES-HD:"):
+                    self.requires_hd = True
         return self
 
 
@@ -284,7 +290,7 @@ def require_files():
         sys.exit(2)
 
 
-def start_qemu(qemu, monitor_path, timeout=30):
+def start_qemu(qemu, monitor_path, timeout=30, with_disk=False):
     try:
         os.unlink(monitor_path)
     except FileNotFoundError:
@@ -307,6 +313,20 @@ def start_qemu(qemu, monitor_path, timeout=30):
         "-no-reboot",
         "-no-shutdown",
     ]
+    if with_disk:
+        cmd += [
+            "-snapshot",
+            "-drive",
+            f"id=mario-test-hd,file={HD_IMAGE},format=raw,if=none",
+            "-drive",
+            f"id=mario-test-hd2,file={HD2_IMAGE},format=raw,if=none",
+            "-device",
+            "ahci,id=mario-test-ahci",
+            "-device",
+            "ide-hd,drive=mario-test-hd,bus=mario-test-ahci.0",
+            "-device",
+            "ide-hd,drive=mario-test-hd2,bus=mario-test-ahci.1",
+        ]
     child = pexpect.spawn(" ".join(cmd), encoding="latin-1", timeout=timeout)
     _pexpect_expect(child, BOOT_PROMPT, timeout, "wait for boot prompt")
     child.sendline("PS1='MARIO_VGA_PROMPT> '")
@@ -501,7 +521,7 @@ def parse_screen_check(value):
 
 def run_test(test, qemu, index):
     monitor_path = f"/tmp/mario-vga-lit-{os.getpid()}-{index}.sock"
-    child, monitor = start_qemu(qemu, monitor_path)
+    child, monitor = start_qemu(qemu, monitor_path, with_disk=test.requires_hd)
     failures = []
     timeout = DEFAULT_TIMEOUT
     base_dir = os.path.dirname(test.path)
@@ -651,9 +671,18 @@ def main():
         print(f"No .test files found in: {' '.join(args.paths)}", file=sys.stderr)
         sys.exit(2)
 
+    missing_hd_images = []
+    if any(test.requires_hd for test in tests):
+        missing_hd_images = [
+            path for path in (HD_IMAGE, HD2_IMAGE) if not os.path.exists(path)
+        ]
+
     failed = False
     for index, test in enumerate(tests, 1):
         name = os.path.relpath(test.path, ROOT)
+        if test.requires_hd and missing_hd_images:
+            print(f"SKIP: {name} [missing {', '.join(missing_hd_images)}]")
+            continue
         try:
             failures = run_test(test, args.qemu, index)
         except PexpectTimeout as exc:
