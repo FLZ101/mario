@@ -18,6 +18,18 @@ Devices currently supported by mario:
         1       /dev/rd1
         2       /dev/rd2
 
+3       block   AHCI/SATA hard disk
+
+        0       /dev/hda        Whole disk
+        1       /dev/hda1       Primary partition 1
+        2       /dev/hda2       Primary partition 2
+        3       /dev/hda3       Primary partition 3
+        4       /dev/hda4       Primary partition 4
+        5       /dev/hda5       First logical partition
+        6       /dev/hda6
+        7       /dev/hda7
+        8       /dev/hda8
+
 2       char    TTY devices
 
         0       /dev/tty0       Current virtual console

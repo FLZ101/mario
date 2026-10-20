@@ -51,7 +51,9 @@ endif
 QEMU_FLAGS := \
 	-boot order=c \
 	-m 256M \
-	-drive file=hd.img,format=raw,index=0,media=disk \
+	-drive id=disk,file=hd.img,format=raw,if=none \
+	-device ahci,id=ahci \
+	-device ide-hd,drive=disk,bus=ahci.0 \
 	-display $(QEMU_DISPLAY) \
 	-no-reboot -no-shutdown
 
