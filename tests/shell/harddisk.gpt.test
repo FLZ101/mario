@@ -1,0 +1,47 @@
+REQUIRES-HD:
+
+RUN: export PATH=/bin/sbase:/bin/toybox:/bin
+RUN: mkdir -p /tmp
+
+RUN: for dev in /dev/hdc /dev/hdc1 /dev/hdc2 /dev/hdc3 /dev/hdc4; do test -e "$dev" && echo "$dev"; done
+CHECK: /dev/hdc
+CHECK: /dev/hdc1
+CHECK: /dev/hdc2
+CHECK: /dev/hdc3
+CHECK: /dev/hdc4
+
+RUN: dd if=/dev/hdc of=/tmp/gpt-header.bin bs=512 skip=1 count=1 >/dev/null 2>&1
+RUN: strings /tmp/gpt-header.bin
+CHECK: EFI PART
+
+RUN: /bin/oksh - <<'EOF'
+check()
+{
+	name=$1
+	pattern=$2
+	dev=$3
+	bs=$4
+	seek=$5
+
+	dd if=/dev/urandom of="$pattern" bs="$bs" count=1 >/dev/null 2>&1
+	dd if="$pattern" of="$dev" bs="$bs" seek="$seek" conv=notrunc >/dev/null 2>&1
+	dd if="$dev" of="$pattern.back" bs="$bs" skip="$seek" count=1 >/dev/null 2>&1
+
+	if cmp "$pattern" "$pattern.back"; then
+		echo "$name-ok"
+	else
+		echo "$name-mismatch"
+	fi
+}
+
+check harddisk-gpt-hdc /tmp/hdc.pattern /dev/hdc 65536 8
+check harddisk-gpt-hdc1 /tmp/hdc1.pattern /dev/hdc1 65536 1
+check harddisk-gpt-hdc2 /tmp/hdc2.pattern /dev/hdc2 65536 1
+check harddisk-gpt-hdc3 /tmp/hdc3.pattern /dev/hdc3 65536 1
+check harddisk-gpt-hdc4 /tmp/hdc4.pattern /dev/hdc4 65536 1
+EOF
+CHECK: harddisk-gpt-hdc-ok
+CHECK: harddisk-gpt-hdc1-ok
+CHECK: harddisk-gpt-hdc2-ok
+CHECK: harddisk-gpt-hdc3-ok
+CHECK: harddisk-gpt-hdc4-ok

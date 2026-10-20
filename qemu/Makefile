@@ -10,11 +10,11 @@ GRUB_FILES	:= $(wildcard grub4dos-0.4.6a/*)
 update-image: image
 	bash update_image.sh
 
-image: hd.img hd2.img tmp/kernel.exe tmp/boot.bin tmp/rdx $(GRUB_FILES)
+image: hd.img hd2.img hd3.img tmp/kernel.exe tmp/boot.bin tmp/rdx $(GRUB_FILES)
 
-# gen_image.sh creates both hd.img and hd2.img, so use a grouped target (&:)
-# to run the recipe a single time, producing both files.
-hd.img hd2.img &: gen_image.sh
+# gen_image.sh creates hd.img, hd2.img, and hd3.img, so use a grouped
+# target (&:) to run the recipe a single time, producing all three files.
+hd.img hd2.img hd3.img &: gen_image.sh
 	bash gen_image.sh
 
 tmp/kernel.exe: ../src/kernel/kernel.exe
@@ -28,7 +28,7 @@ tmp/rdx: ../rd/rdx
 
 clean:
 	find tmp -mindepth 1 -maxdepth 1 ! -name '.gitignore' -exec rm -rf {} +
-	rm -f hd.img hd2.img
+	rm -f hd.img hd2.img hd3.img
 
 #	-display gtk
 #
@@ -57,9 +57,11 @@ QEMU_FLAGS := \
 	-m 256M \
 	-drive id=disk,file=hd.img,format=raw,if=none \
 	-drive id=disk2,file=hd2.img,format=raw,if=none \
+	-drive id=disk3,file=hd3.img,format=raw,if=none \
 	-device ahci,id=ahci \
 	-device ide-hd,drive=disk,bus=ahci.0 \
 	-device ide-hd,drive=disk2,bus=ahci.1 \
+	-device ide-hd,drive=disk3,bus=ahci.2 \
 	-display $(QEMU_DISPLAY) \
 	-no-reboot -no-shutdown
 

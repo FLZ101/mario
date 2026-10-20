@@ -19,8 +19,10 @@ SECTIONS
 	.text : AT(PHY_BASE)
 	{
 		*(.text)
+		*(.text.*)
 		. = ALIGN(0x1000);
 		*(.rodata)
+		*(.rodata.*)
 		. = ALIGN(0x1000);
 	}
 
@@ -53,6 +55,7 @@ SECTIONS
 	.debug_line 0 : { *(.debug_line) }
 	.debug_line_str 0 : { *(.debug_line_str) }
 	.debug_rnglists 0 : { *(.debug_rnglists) }
+	.debug_loclists 0 : { *(.debug_loclists) }
 	.debug_str 0 : { *(.debug_str) }
 	.eh_frame 0 : { *(.eh_frame) }
 

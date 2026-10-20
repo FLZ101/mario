@@ -4,8 +4,7 @@
 *.a
 *.bin
 
-*.lst
-!menu.lst
+src/boot/boot.lst
 
 *.img
 

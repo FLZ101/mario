@@ -3,6 +3,7 @@
 
 #include <fs/fs.h>
 #include <fs/ahci.h>
+#include <fs/gpt.h>
 
 #include <pci.h>
 
@@ -413,6 +414,14 @@ static int ahci_read_sectors_poll(struct ahci_port *port, uint64_t lba,
 	return 0;
 }
 
+static int ahci_gpt_read_sectors(void *priv, uint64_t lba,
+				 unsigned int nr, void *buf)
+{
+	struct hd_disk *disk = (struct hd_disk *)priv;
+
+	return ahci_read_sectors_poll(disk->port, lba, nr, (char *)buf);
+}
+
 static int ahci_identify(struct ahci_port *port, uint16_t *identify)
 {
 	return ahci_issue_command(port, ATA_CMD_IDENTIFY, 0, 1,
@@ -573,6 +582,8 @@ static void hd_parse_mbr(struct hd_disk *disk)
 			continue;
 		if ((uint64_t)start + nr > disk->total_sectors)
 			continue;
+		if (type == 0xee)
+			continue;
 
 		if (type == 0x05 || type == 0x0f || type == 0x85) {
 			if (!extended_base)
@@ -585,6 +596,27 @@ static void hd_parse_mbr(struct hd_disk *disk)
 
 	if (extended_base)
 		hd_parse_ebr(disk, extended_base);
+}
+
+static int hd_parse_gpt(struct hd_disk *disk)
+{
+	struct gpt_partition parts[HD_MAX_PARTITIONS];
+	unsigned int nr_parts;
+	unsigned int i;
+	int error;
+
+	error = gpt_parse(disk, disk->total_sectors, ahci_gpt_read_sectors,
+			  parts, HD_MAX_PARTITIONS, &nr_parts);
+	if (error)
+		return error;
+
+	for (i = 0; i < HD_MAX_PARTITIONS; i++) {
+		if (!parts[i].present)
+			continue;
+		hd_add_partition(disk, i + 1, parts[i].first_lba,
+				 parts[i].last_lba - parts[i].first_lba + 1);
+	}
+	return 0;
 }
 
 /*
@@ -785,7 +817,8 @@ void hd_init(void)
 		disk->port = port;
 		disk->total_sectors = total_sectors;
 		memset(disk->partitions, 0, sizeof(disk->partitions));
-		hd_parse_mbr(disk);
+		if (hd_parse_gpt(disk))
+			hd_parse_mbr(disk);
 		disk->present = 1;
 
 		printk("AHCI disk %c: %u sectors\n",

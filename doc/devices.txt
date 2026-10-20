@@ -29,6 +29,14 @@ Devices currently supported by mario:
         6       /dev/hda6
         7       /dev/hda7
         8       /dev/hda8
+        9       /dev/hda9
+        10      /dev/hda10
+        11      /dev/hda11
+        12      /dev/hda12
+        13      /dev/hda13
+        14      /dev/hda14
+        15      /dev/hda15
+        16      /dev/hda16
 
         17      /dev/hdb        Whole disk
         18      /dev/hdb1       Primary partition 1
@@ -39,6 +47,14 @@ Devices currently supported by mario:
         23      /dev/hdb6
         24      /dev/hdb7
         25      /dev/hdb8
+        26      /dev/hdb9
+        27      /dev/hdb10
+        28      /dev/hdb11
+        29      /dev/hdb12
+        30      /dev/hdb13
+        31      /dev/hdb14
+        32      /dev/hdb15
+        33      /dev/hdb16
 
         34      /dev/hdc        Whole disk
         35      /dev/hdc1       Primary partition 1
@@ -49,6 +65,14 @@ Devices currently supported by mario:
         40      /dev/hdc6
         41      /dev/hdc7
         42      /dev/hdc8
+        43      /dev/hdc9
+        44      /dev/hdc10
+        45      /dev/hdc11
+        46      /dev/hdc12
+        47      /dev/hdc13
+        48      /dev/hdc14
+        49      /dev/hdc15
+        50      /dev/hdc16
 
         51      /dev/hdd        Whole disk
         52      /dev/hdd1       Primary partition 1
@@ -59,6 +83,14 @@ Devices currently supported by mario:
         57      /dev/hdd6
         58      /dev/hdd7
         59      /dev/hdd8
+        60      /dev/hdd9
+        61      /dev/hdd10
+        62      /dev/hdd11
+        63      /dev/hdd12
+        64      /dev/hdd13
+        65      /dev/hdd14
+        66      /dev/hdd15
+        67      /dev/hdd16
 
         68      /dev/hde        Whole disk
         69      /dev/hde1       Primary partition 1
@@ -69,6 +101,14 @@ Devices currently supported by mario:
         74      /dev/hde6
         75      /dev/hde7
         76      /dev/hde8
+        77      /dev/hde9
+        78      /dev/hde10
+        79      /dev/hde11
+        80      /dev/hde12
+        81      /dev/hde13
+        82      /dev/hde14
+        83      /dev/hde15
+        84      /dev/hde16
 
         85      /dev/hdf        Whole disk
         86      /dev/hdf1       Primary partition 1
@@ -79,6 +119,14 @@ Devices currently supported by mario:
         91      /dev/hdf6
         92      /dev/hdf7
         93      /dev/hdf8
+        94      /dev/hdf9
+        95      /dev/hdf10
+        96      /dev/hdf11
+        97      /dev/hdf12
+        98      /dev/hdf13
+        99      /dev/hdf14
+        100     /dev/hdf15
+        101     /dev/hdf16
 
 2       char    TTY devices
 

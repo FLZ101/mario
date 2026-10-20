@@ -39,6 +39,7 @@ KERNEL = os.path.join(ROOT, "src", "kernel", "kernel.exe")
 INITRD = os.path.join(ROOT, "rd", "rdx")
 HD_IMAGE = os.path.join(ROOT, "qemu", "hd.img")
 HD2_IMAGE = os.path.join(ROOT, "qemu", "hd2.img")
+HD3_IMAGE = os.path.join(ROOT, "qemu", "hd3.img")
 
 
 def prompt_pattern(literal):
@@ -210,12 +211,16 @@ def start_qemu(qemu, realtime=False, with_disk=False):
             f"id=mario-test-hd,file={HD_IMAGE},format=raw,if=none",
             "-drive",
             f"id=mario-test-hd2,file={HD2_IMAGE},format=raw,if=none",
+            "-drive",
+            f"id=mario-test-hd3,file={HD3_IMAGE},format=raw,if=none",
             "-device",
             "ahci,id=mario-test-ahci",
             "-device",
             "ide-hd,drive=mario-test-hd,bus=mario-test-ahci.0",
             "-device",
             "ide-hd,drive=mario-test-hd2,bus=mario-test-ahci.1",
+            "-device",
+            "ide-hd,drive=mario-test-hd3,bus=mario-test-ahci.2",
         ]
 
     child = pexpect.spawn(" ".join(cmd), encoding="latin-1", timeout=30)
@@ -342,7 +347,9 @@ def main():
     missing_hd_images = []
     if any(test.requires_hd for test in tests):
         missing_hd_images = [
-            path for path in (HD_IMAGE, HD2_IMAGE) if not os.path.exists(path)
+            path
+            for path in (HD_IMAGE, HD2_IMAGE, HD3_IMAGE)
+            if not os.path.exists(path)
         ]
 
     failed = False
@@ -352,9 +359,7 @@ def main():
         if args.verbose:
             print(f"== {name} ==", flush=True)
         if test.requires_hd and missing_hd_images:
-            print(
-                f"SKIP: {name} [missing {', '.join(missing_hd_images)}]"
-            )
+            print(f"SKIP: {name} [missing {', '.join(missing_hd_images)}]")
             continue
         try:
             failures, text = run_lit_test(test, args.qemu, args.verbose)
