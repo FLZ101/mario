@@ -30,6 +30,56 @@ Devices currently supported by mario:
         7       /dev/hda7
         8       /dev/hda8
 
+        17      /dev/hdb        Whole disk
+        18      /dev/hdb1       Primary partition 1
+        19      /dev/hdb2       Primary partition 2
+        20      /dev/hdb3       Primary partition 3
+        21      /dev/hdb4       Primary partition 4
+        22      /dev/hdb5       First logical partition
+        23      /dev/hdb6
+        24      /dev/hdb7
+        25      /dev/hdb8
+
+        34      /dev/hdc        Whole disk
+        35      /dev/hdc1       Primary partition 1
+        36      /dev/hdc2       Primary partition 2
+        37      /dev/hdc3       Primary partition 3
+        38      /dev/hdc4       Primary partition 4
+        39      /dev/hdc5       First logical partition
+        40      /dev/hdc6
+        41      /dev/hdc7
+        42      /dev/hdc8
+
+        51      /dev/hdd        Whole disk
+        52      /dev/hdd1       Primary partition 1
+        53      /dev/hdd2       Primary partition 2
+        54      /dev/hdd3       Primary partition 3
+        55      /dev/hdd4       Primary partition 4
+        56      /dev/hdd5       First logical partition
+        57      /dev/hdd6
+        58      /dev/hdd7
+        59      /dev/hdd8
+
+        68      /dev/hde        Whole disk
+        69      /dev/hde1       Primary partition 1
+        70      /dev/hde2       Primary partition 2
+        71      /dev/hde3       Primary partition 3
+        72      /dev/hde4       Primary partition 4
+        73      /dev/hde5       First logical partition
+        74      /dev/hde6
+        75      /dev/hde7
+        76      /dev/hde8
+
+        85      /dev/hdf        Whole disk
+        86      /dev/hdf1       Primary partition 1
+        87      /dev/hdf2       Primary partition 2
+        88      /dev/hdf3       Primary partition 3
+        89      /dev/hdf4       Primary partition 4
+        90      /dev/hdf5       First logical partition
+        91      /dev/hdf6
+        92      /dev/hdf7
+        93      /dev/hdf8
+
 2       char    TTY devices
 
         0       /dev/tty0       Current virtual console

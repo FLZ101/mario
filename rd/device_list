@@ -19,6 +19,56 @@ hda6 B 3 6
 hda7 B 3 7
 hda8 B 3 8
 
+hdb B 3 17
+hdb1 B 3 18
+hdb2 B 3 19
+hdb3 B 3 20
+hdb4 B 3 21
+hdb5 B 3 22
+hdb6 B 3 23
+hdb7 B 3 24
+hdb8 B 3 25
+
+hdc B 3 34
+hdc1 B 3 35
+hdc2 B 3 36
+hdc3 B 3 37
+hdc4 B 3 38
+hdc5 B 3 39
+hdc6 B 3 40
+hdc7 B 3 41
+hdc8 B 3 42
+
+hdd B 3 51
+hdd1 B 3 52
+hdd2 B 3 53
+hdd3 B 3 54
+hdd4 B 3 55
+hdd5 B 3 56
+hdd6 B 3 57
+hdd7 B 3 58
+hdd8 B 3 59
+
+hde B 3 68
+hde1 B 3 69
+hde2 B 3 70
+hde3 B 3 71
+hde4 B 3 72
+hde5 B 3 73
+hde6 B 3 74
+hde7 B 3 75
+hde8 B 3 76
+
+hdf B 3 85
+hdf1 B 3 86
+hdf2 B 3 87
+hdf3 B 3 88
+hdf4 B 3 89
+hdf5 B 3 90
+hdf6 B 3 91
+hdf7 B 3 92
+hdf8 B 3 93
+
 tty C 2 128
 console C 2 129
 

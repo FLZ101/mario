@@ -138,6 +138,11 @@ hda7 B 3 7
 hda8 B 3 8
 ```
 
+Each present disk consumes `HD_MINORS_PER_DISK` (17) minors: minor 0 is the
+whole disk and minors 1-16 are partition minors.  The static device list
+currently exposes partitions 1-8.  Disk `d` starts at minor
+`d * HD_MINORS_PER_DISK`, giving `/dev/hda` through `/dev/hdf`.
+
 Keep `HD_MAJOR` below `MAX_BLKDEV`; the existing limit is 64.
 
 Update `doc/devices.txt` after the major assignment is implemented.
@@ -195,8 +200,8 @@ Important bits:
 
 1. Map the ABAR and verify `GHC.AE` is supported by `CAP.SAM` if applicable.
 2. Set `GHC.AE`.
-3. For each bit set in `PI`, if the port is implemented and the controller has
-   only one disk, configure the first implemented port.
+3. For each bit set in `PI`, configure implemented ports that have a disk, up
+   to the driver's `HD_MAX_DISKS` limit.
 4. Stop the port command engine and FIS receive if they are running:
    - clear `PxCMD.ST`;
    - clear `PxCMD.FRE`;
@@ -205,8 +210,8 @@ Important bits:
    program `PxCLB`/`PxCLBU` and `PxFB`/`PxFBU`.
 6. Enable `PxCMD.FRE`, then `PxCMD.ST`.
 7. Wait for `PxSSTS.DET` to indicate a present device (`0x3`); if it remains
-   absent, this port has no disk and `hd_init()` returns without registering
-   the block device.
+   absent, skip this port and continue with the next implemented port.  If no
+   port has a disk, `hd_init()` returns without registering the block device.
 
 ### AHCI Memory Structures
 
@@ -431,11 +436,11 @@ equivalent AHCI/IDE attachment. `quick-run` keeps its current no-disk
 
 ### Milestone 2: AHCI identify and whole-disk registration
 
-- Initialize the AHCI controller and the first implemented port.
+- Initialize the AHCI controller and all implemented ports with attached disks.
 - Allocate command structures and submit `IDENTIFY_DEVICE`.
 - Require LBA48 support and read words 100-103.
-- Register major `HD_MAJOR`, minor 0 only.
-- Add `/dev/hda` to `rd/device_list`.
+- Register major `HD_MAJOR` once and expose whole-disk minors for each disk.
+- Add `/dev/hda` through `/dev/hdf` to `rd/device_list`.
 
 ### Milestone 3: IRQ-driven LBA48 read/write
 
@@ -519,7 +524,7 @@ Automated test ideas:
 
 ## Deferred
 
-- Multiple AHCI ports and port multipliers beyond the boot disk.
+- Port multipliers and more than `HD_MAX_DISKS` AHCI disks.
 - NCQ command submission and multiple in-flight commands.
 - ATAPI/PACKET for CD-ROM devices.
 - Byte-granular raw block reads/writes via a bounce buffer.

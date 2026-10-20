@@ -14,15 +14,28 @@
 /*
  * AHCI/SATA block-device driver.
  *
- * The HBA is memory-mapped through its PCI BAR5 (the ABAR).  We configure
- * one implemented port, use a one-entry PRDT for each 512-byte request, and
- * submit commands with the ATA-8 48-bit command variants.  Boot-time identify
- * and MBR/EBR parsing poll the command bit while interrupts are still masked;
- * normal reads and writes wait on ahci_done, which irq_ahci() signals from
- * IRQ10/IRQ11.
+ * The HBA is memory-mapped through its PCI BAR5 (the ABAR).  Every
+ * implemented AHCI port is treated as one independent disk, so a machine
+ * with several SATA drives exposes /dev/hda through /dev/hdf.  Each port
+ * owns its command header, command table, completion semaphore, and error
+ * state; the HBA interrupt handler wakes only the port whose command has
+ * finished.
+ *
+ * Boot-time identify and MBR/EBR parsing poll the command bit while
+ * interrupts are still masked.  Normal reads and writes wait on the port
+ * semaphore, which irq_ahci() signals from IRQ10/IRQ11.
+ *
+ * Minor numbering is disk-minor based:
+ *
+ *   disk_index = minor / HD_MINORS_PER_DISK
+ *   part       = minor % HD_MINORS_PER_DISK
+ *
+ * part == 0 addresses the whole disk and part 1..HD_MAX_PARTITIONS
+ * addresses a parsed MBR/EBR partition.
  */
 
 #define AHCI_HBA_SIZE		0x2000
+#define AHCI_MAX_PORTS		32
 
 #define AHCI_CAP		0x00
 #define AHCI_GHC		0x04
@@ -73,6 +86,8 @@
 
 #define HD_SECTOR_SIZE		512
 #define HD_MAX_PARTITIONS	16
+#define HD_MINORS_PER_DISK	(HD_MAX_PARTITIONS + 1)
+#define HD_MAX_DISKS		6	/* /dev/hda through /dev/hdf */
 
 struct hba_command_header {
 	uint32_t flags_prdtl;
@@ -103,21 +118,34 @@ struct hd_partition {
 	uint8_t present;
 };
 
+/*
+ * AHCI state that must be private to each port.  Without this separation,
+ * an interrupt from one disk would wake the waiter of a different disk.
+ */
+struct ahci_port {
+	volatile uint32_t *port_regs;
+	unsigned int port;
+	unsigned long memory;	/* page holding command header/FIS/table */
+	struct hba_command_header *command_header;
+	struct hba_command_table *command_table;
+	struct semaphore done;
+	volatile int complete;
+	volatile int error;
+	int initialized;
+};
+
+/* One logical disk, bound to an AHCI port when that port is present. */
+struct hd_disk {
+	struct ahci_port *port;
+	uint64_t total_sectors;
+	struct hd_partition partitions[HD_MAX_PARTITIONS];
+	int present;
+};
+
 static volatile uint32_t *hba;		/* ABAR mapped into kernel space */
-static volatile uint32_t *port_regs;	/* selected implemented port */
-static unsigned int ahci_port;
-static unsigned int ahci_present;
-
-static unsigned long ahci_memory;	/* one page for AHCI DMA structures */
-static struct hba_command_header *command_header;
-static struct hba_command_table *command_table;
-
-static struct semaphore ahci_done;
-static volatile int ahci_complete;
-static volatile int ahci_error;
-
-static uint64_t hd_total_sectors;
-static struct hd_partition hd_partitions[HD_MAX_PARTITIONS];
+static struct ahci_port ahci_ports[HD_MAX_DISKS];
+static struct hd_disk hd_disks[HD_MAX_DISKS];
+static unsigned int nr_ahci_disks;
 
 /*
  * MBR/EBR fields are little-endian even though the rest of this kernel does
@@ -161,14 +189,15 @@ static uint32_t hba_read(unsigned int offset)
 	return readl(&hba[offset / 4]);
 }
 
-static void port_write(unsigned int offset, uint32_t value)
+static void port_write(struct ahci_port *port, unsigned int offset,
+		       uint32_t value)
 {
-	writel(value, &port_regs[offset / 4]);
+	writel(value, &port->port_regs[offset / 4]);
 }
 
-static uint32_t port_read(unsigned int offset)
+static uint32_t port_read(struct ahci_port *port, unsigned int offset)
 {
-	return readl(&port_regs[offset / 4]);
+	return readl(&port->port_regs[offset / 4]);
 }
 
 /*
@@ -199,13 +228,13 @@ static void fill_command_fis(uint8_t command, uint64_t lba,
 	cfis[15] = 0;
 }
 
-static int ahci_wait_poll(void)
+static int ahci_wait_poll(struct ahci_port *port)
 {
 	uint32_t tfd;
 	uint32_t is;
 	unsigned int timeout;
 
-	if (wait_clear(&port_regs[AHCI_PxCI / 4], 1))
+	if (wait_clear(&port->port_regs[AHCI_PxCI / 4], 1))
 		return -ETIMEDOUT;
 
 	/*
@@ -214,22 +243,22 @@ static int ahci_wait_poll(void)
 	 * data transfer.  Clear PSS, then wait for the register FIS or error.
 	 */
 	for (timeout = 0; timeout < AHCI_TIMEOUT; timeout++) {
-		is = port_read(AHCI_PxIS);
+		is = port_read(port, AHCI_PxIS);
 		if (is & AHCI_PxIS_TFES)
 			return -EIO;
 		if (is & AHCI_PxIS_PSS)
-			port_write(AHCI_PxIS, AHCI_PxIS_PSS);
+			port_write(port, AHCI_PxIS, AHCI_PxIS_PSS);
 		if (is & AHCI_PxIS_DHRS)
 			break;
 	}
 	if (timeout == AHCI_TIMEOUT)
 		return -ETIMEDOUT;
 
-	tfd = port_read(AHCI_PxTFD);
+	tfd = port_read(port, AHCI_PxTFD);
 	if (tfd & (AHCI_PxTFD_ERR | AHCI_PxTFD_DF))
 		return -EIO;
 
-	is = port_read(AHCI_PxIS);
+	is = port_read(port, AHCI_PxIS);
 	if (is & AHCI_PxIS_TFES)
 		return -EIO;
 
@@ -237,19 +266,19 @@ static int ahci_wait_poll(void)
 }
 
 /*
- * Fill the single shared command table and issue it.  Polling is used before
- * interrupts are enabled; the normal path blocks on ahci_done.
+ * Fill the selected port's command table and issue it.  Polling is used
+ * before interrupts are enabled; the normal path blocks on port->done.
  */
-static int ahci_issue_command(uint8_t command, uint64_t lba,
-			      uint16_t sector_count, char *buf,
+static int ahci_issue_command(struct ahci_port *port, uint8_t command,
+			      uint64_t lba, uint16_t sector_count, char *buf,
 			      int write, int poll)
 {
-	struct hba_command_table *table = command_table;
+	struct hba_command_table *table = port->command_table;
 	struct hba_prdt_entry *prdt = table->prdt;
 	uint32_t flags;
 	int prdtl;
 
-	if (wait_clear(&port_regs[AHCI_PxCI / 4], 1))
+	if (wait_clear(&port->port_regs[AHCI_PxCI / 4], 1))
 		return -ETIMEDOUT;
 
 	memset(table, 0, sizeof(*table));
@@ -266,37 +295,37 @@ static int ahci_issue_command(uint8_t command, uint64_t lba,
 	/* CFL=5, PRDTL set from the data path, and W is set for writes. */
 	flags = 5 | ((uint32_t)prdtl << 16) |
 		((write ? 1U : 0U) << 6);
-	command_header->flags_prdtl = flags;
-	command_header->prdbc = 0;
-	command_header->ctba = __phy((unsigned long)table);
-	command_header->ctbau = 0;
+	port->command_header->flags_prdtl = flags;
+	port->command_header->prdbc = 0;
+	port->command_header->ctba = __phy((unsigned long)table);
+	port->command_header->ctbau = 0;
 
-	sema_init(&ahci_done, 0);
-	ahci_complete = 0;
-	ahci_error = 0;
-	port_write(AHCI_PxIS, 0xffffffffU);
+	sema_init(&port->done, 0);
+	port->complete = 0;
+	port->error = 0;
+	port_write(port, AHCI_PxIS, 0xffffffffU);
 
 	__asm__ __volatile__("" ::: "memory");
-	port_write(AHCI_PxCI, 1);
+	port_write(port, AHCI_PxCI, 1);
 
 	if (poll)
-		return ahci_wait_poll();
+		return ahci_wait_poll(port);
 
-	down(&ahci_done);
-	if (ahci_error)
+	down(&port->done);
+	if (port->error)
 		return -EIO;
 	return 0;
 }
 
 /*
- * IRQ10/IRQ11 entry point installed by src/kernel/entry.S.  It clears the
- * AHCI interrupt bits and wakes the sole command waiter when a register FIS
- * has been received or a task-file error has been signalled.
+ * IRQ10/IRQ11 entry point installed by src/kernel/entry.S.  It walks the
+ * initialized disks, handles only ports signalled in AHCI_IS, and wakes the
+ * matching port waiter when a register FIS or task-file error arrives.
  */
 void irq_ahci(void)
 {
 	uint32_t is;
-	uint32_t pis;
+	unsigned int i;
 
 	if (!hba)
 		return;
@@ -305,30 +334,39 @@ void irq_ahci(void)
 	if (!is)
 		return;
 
-	pis = 0;
-	if (port_regs) {
-		pis = port_read(AHCI_PxIS);
+	for (i = 0; i < nr_ahci_disks; i++) {
+		struct hd_disk *disk = &hd_disks[i];
+		struct ahci_port *port = disk->port;
+		uint32_t pis;
+
+		if (!disk->present || !port->initialized)
+			continue;
+		if (!(is & (1U << port->port)))
+			continue;
+
+		pis = port_read(port, AHCI_PxIS);
 		if (pis & AHCI_PxIS_TFES)
-			ahci_error = 1;
+			port->error = 1;
 		if (pis & AHCI_PxIS_DHRS)
-			ahci_complete = 1;
+			port->complete = 1;
+		if (pis)
+			port_write(port, AHCI_PxIS, pis);
+
+		if (port->complete || port->error)
+			up(&port->done);
 	}
 
-	if (pis)
-		port_write(AHCI_PxIS, pis);
 	hba_write(AHCI_IS, is);
-
-	if (ahci_present && (ahci_complete || ahci_error))
-		up(&ahci_done);
 }
 
-static int ahci_read_sectors(uint64_t lba, unsigned long nr, char *buf)
+static int ahci_read_sectors(struct ahci_port *port, uint64_t lba,
+			     unsigned long nr, char *buf)
 {
 	unsigned long i;
 
 	for (i = 0; i < nr; i++) {
-		int error = ahci_issue_command(ATA_CMD_READ_EXT, lba + i, 1,
-					       buf + i * HD_SECTOR_SIZE,
+		int error = ahci_issue_command(port, ATA_CMD_READ_EXT, lba + i,
+					       1, buf + i * HD_SECTOR_SIZE,
 					       0, 0);
 		if (error)
 			return error;
@@ -336,13 +374,14 @@ static int ahci_read_sectors(uint64_t lba, unsigned long nr, char *buf)
 	return 0;
 }
 
-static int ahci_write_sectors(uint64_t lba, unsigned long nr, char *buf)
+static int ahci_write_sectors(struct ahci_port *port, uint64_t lba,
+			      unsigned long nr, char *buf)
 {
 	unsigned long i;
 
 	for (i = 0; i < nr; i++) {
-		int error = ahci_issue_command(ATA_CMD_WRITE_EXT, lba + i, 1,
-					       buf + i * HD_SECTOR_SIZE,
+		int error = ahci_issue_command(port, ATA_CMD_WRITE_EXT, lba + i,
+					       1, buf + i * HD_SECTOR_SIZE,
 					       1, 0);
 		if (error)
 			return error;
@@ -350,22 +389,23 @@ static int ahci_write_sectors(uint64_t lba, unsigned long nr, char *buf)
 	return 0;
 }
 
-static int ahci_flush(void)
+static int ahci_flush(struct ahci_port *port)
 {
-	return ahci_issue_command(ATA_CMD_FLUSH_EXT, 0, 0, NULL, 0, 0);
+	return ahci_issue_command(port, ATA_CMD_FLUSH_EXT, 0, 0, NULL, 0, 0);
 }
 
 /*
  * Identical to the IRQ-driven read path, except it polls PxCI/PxIS.  This is
  * needed while interrupts are still disabled during hd_init().
  */
-static int ahci_read_sectors_poll(uint64_t lba, unsigned long nr, char *buf)
+static int ahci_read_sectors_poll(struct ahci_port *port, uint64_t lba,
+				  unsigned long nr, char *buf)
 {
 	unsigned long i;
 
 	for (i = 0; i < nr; i++) {
-		int error = ahci_issue_command(ATA_CMD_READ_EXT, lba + i, 1,
-					       buf + i * HD_SECTOR_SIZE,
+		int error = ahci_issue_command(port, ATA_CMD_READ_EXT, lba + i,
+					       1, buf + i * HD_SECTOR_SIZE,
 					       0, 1);
 		if (error)
 			return error;
@@ -373,75 +413,85 @@ static int ahci_read_sectors_poll(uint64_t lba, unsigned long nr, char *buf)
 	return 0;
 }
 
-static int ahci_identify(uint16_t *identify)
+static int ahci_identify(struct ahci_port *port, uint16_t *identify)
 {
-	return ahci_issue_command(ATA_CMD_IDENTIFY, 0, 1,
+	return ahci_issue_command(port, ATA_CMD_IDENTIFY, 0, 1,
 				  (char *)identify, 0, 1);
 }
 
 /*
- * Stop the port DMA engine, point it at our command list and received-FIS
- * area, start FIS receive/DMA, then require a present SATA device.
+ * Stop the port DMA engine, point it at its private command list and
+ * received-FIS area, start FIS receive/DMA, then require a present SATA
+ * device.
  */
-static int ahci_port_init(unsigned int port)
+static int ahci_port_init(struct ahci_port *port, unsigned int port_number)
 {
 	uint32_t cmd;
 
-	port_regs = hba + (AHCI_PX_OFFSET + port * AHCI_PX_STRIDE) / 4;
+	memset(port, 0, sizeof(*port));
+	port->port = port_number;
+	port->port_regs =
+		hba + (AHCI_PX_OFFSET + port_number * AHCI_PX_STRIDE) / 4;
 
-	cmd = port_read(AHCI_PxCMD);
+	cmd = port_read(port, AHCI_PxCMD);
 	cmd &= ~(AHCI_PxCMD_ST | AHCI_PxCMD_FRE);
-	port_write(AHCI_PxCMD, cmd);
-	if (wait_clear(&port_regs[AHCI_PxCMD / 4],
+	port_write(port, AHCI_PxCMD, cmd);
+	if (wait_clear(&port->port_regs[AHCI_PxCMD / 4],
 		       AHCI_PxCMD_CR | AHCI_PxCMD_FR))
 		return -ETIMEDOUT;
 
-	ahci_memory = zero_page_alloc();
-	if (!ahci_memory)
+	port->memory = zero_page_alloc();
+	if (!port->memory)
 		return -ENOMEM;
 
-	command_header = (struct hba_command_header *)ahci_memory;
-	command_table =
-		(struct hba_command_table *)(ahci_memory + 2048);
+	port->command_header = (struct hba_command_header *)port->memory;
+	port->command_table =
+		(struct hba_command_table *)(port->memory + 2048);
 
-	port_write(AHCI_PxCLB, __phy(ahci_memory));
-	port_write(AHCI_PxCLBU, 0);
-	port_write(AHCI_PxFB, __phy(ahci_memory + 1024));
-	port_write(AHCI_PxFBU, 0);
-	port_write(AHCI_PxIS, 0xffffffffU);
-	port_write(AHCI_PxIE, AHCI_PxIE_DHRE | AHCI_PxIE_TFEE);
+	port_write(port, AHCI_PxCLB, __phy(port->memory));
+	port_write(port, AHCI_PxCLBU, 0);
+	port_write(port, AHCI_PxFB, __phy(port->memory + 1024));
+	port_write(port, AHCI_PxFBU, 0);
+	port_write(port, AHCI_PxIS, 0xffffffffU);
+	port_write(port, AHCI_PxIE, AHCI_PxIE_DHRE | AHCI_PxIE_TFEE);
 
-	port_write(AHCI_PxCMD, port_read(AHCI_PxCMD) | AHCI_PxCMD_FRE);
-	if (wait_set(&port_regs[AHCI_PxCMD / 4], AHCI_PxCMD_FR))
+	port_write(port, AHCI_PxCMD, port_read(port, AHCI_PxCMD) |
+		   AHCI_PxCMD_FRE);
+	if (wait_set(&port->port_regs[AHCI_PxCMD / 4], AHCI_PxCMD_FR))
 		return -ETIMEDOUT;
-	port_write(AHCI_PxCMD, port_read(AHCI_PxCMD) | AHCI_PxCMD_ST);
-	if (wait_set(&port_regs[AHCI_PxCMD / 4], AHCI_PxCMD_CR))
+	port_write(port, AHCI_PxCMD, port_read(port, AHCI_PxCMD) |
+		   AHCI_PxCMD_ST);
+	if (wait_set(&port->port_regs[AHCI_PxCMD / 4], AHCI_PxCMD_CR))
 		return -ETIMEDOUT;
 
-	if (wait_set(&port_regs[AHCI_PxSSTS / 4], AHCI_PxSSTS_DET_PRESENT) < 0)
+	if (wait_set(&port->port_regs[AHCI_PxSSTS / 4],
+		     AHCI_PxSSTS_DET_PRESENT) < 0)
 		return -ENODEV;
-	if ((port_read(AHCI_PxSSTS) & AHCI_PxSSTS_DET_MASK) !=
+	if ((port_read(port, AHCI_PxSSTS) & AHCI_PxSSTS_DET_MASK) !=
 	    AHCI_PxSSTS_DET_PRESENT)
 		return -ENODEV;
 
-	ahci_port = port;
+	port->initialized = 1;
 	return 0;
 }
 
-static void hd_add_partition(unsigned int minor, uint64_t start,
-			     uint64_t nr_sectors)
+static void hd_add_partition(struct hd_disk *disk, unsigned int minor,
+			     uint64_t start, uint64_t nr_sectors)
 {
 	unsigned int index;
 
 	if (minor == 0 || minor > HD_MAX_PARTITIONS)
 		return;
 	index = minor - 1;
-	if (hd_partitions[index].present)
+	if (disk->partitions[index].present)
+		return;
+	if (start >= disk->total_sectors ||
+	    nr_sectors > disk->total_sectors - start)
 		return;
 
-	hd_partitions[index].start_sector = start;
-	hd_partitions[index].nr_sectors = nr_sectors;
-	hd_partitions[index].present = 1;
+	disk->partitions[index].start_sector = start;
+	disk->partitions[index].nr_sectors = nr_sectors;
+	disk->partitions[index].present = 1;
 }
 
 /*
@@ -449,7 +499,7 @@ static void hd_add_partition(unsigned int minor, uint64_t start,
  * partition in slot 0 (relative to this EBR) and the next EBR in slot 1
  * (relative to the extended partition base).
  */
-static int hd_parse_ebr(uint64_t extended_base)
+static int hd_parse_ebr(struct hd_disk *disk, uint64_t extended_base)
 {
 	uint8_t sector[HD_SECTOR_SIZE];
 	uint64_t ebr;
@@ -469,9 +519,9 @@ static int hd_parse_ebr(uint64_t extended_base)
 
 		if (logical_minor > HD_MAX_PARTITIONS)
 			break;
-		if (ebr >= hd_total_sectors)
+		if (ebr >= disk->total_sectors)
 			break;
-		if (ahci_read_sectors_poll(ebr, 1, (char *)sector))
+		if (ahci_read_sectors_poll(disk->port, ebr, 1, (char *)sector))
 			break;
 		if (sector[510] != 0x55 || sector[511] != 0xaa)
 			break;
@@ -486,29 +536,29 @@ static int hd_parse_ebr(uint64_t extended_base)
 
 		if (type0 && start0 && nr0) {
 			absolute_start = ebr + start0;
-			if (absolute_start < hd_total_sectors &&
-			    nr0 <= hd_total_sectors - absolute_start)
-				hd_add_partition(logical_minor++,
+			if (absolute_start < disk->total_sectors &&
+			    nr0 <= disk->total_sectors - absolute_start)
+				hd_add_partition(disk, logical_minor++,
 						 absolute_start, nr0);
 		}
 
 		if (!type1 || !next_ebr)
 			break;
 		ebr = extended_base + next_ebr;
-		if (ebr >= hd_total_sectors)
+		if (ebr >= disk->total_sectors)
 			break;
 	}
 
 	return 0;
 }
 
-static void hd_parse_mbr(void)
+static void hd_parse_mbr(struct hd_disk *disk)
 {
 	uint8_t sector[HD_SECTOR_SIZE];
 	uint64_t extended_base = 0;
 	int i;
 
-	if (ahci_read_sectors_poll(0, 1, (char *)sector))
+	if (ahci_read_sectors_poll(disk->port, 0, 1, (char *)sector))
 		return;
 	if (sector[510] != 0x55 || sector[511] != 0xaa)
 		return;
@@ -521,7 +571,7 @@ static void hd_parse_mbr(void)
 
 		if (!type || !start || !nr)
 			continue;
-		if ((uint64_t)start + nr > hd_total_sectors)
+		if ((uint64_t)start + nr > disk->total_sectors)
 			continue;
 
 		if (type == 0x05 || type == 0x0f || type == 0x85) {
@@ -530,27 +580,47 @@ static void hd_parse_mbr(void)
 			continue;
 		}
 
-		hd_add_partition(i + 1, start, nr);
+		hd_add_partition(disk, i + 1, start, nr);
 	}
 
 	if (extended_base)
-		hd_parse_ebr(extended_base);
+		hd_parse_ebr(disk, extended_base);
 }
 
-static int hd_range(dev_t dev, unsigned long sector, unsigned long nr,
-		    uint64_t *start, uint64_t *limit)
+/*
+ * Resolve a device minor to its disk and per-disk partition number.  The
+ * caller is responsible for validating part when part is nonzero.
+ */
+static struct hd_disk *hd_get_disk(dev_t dev, unsigned int *part)
 {
 	unsigned int minor = MINOR(dev);
+	unsigned int disk_index = minor / HD_MINORS_PER_DISK;
+	struct hd_disk *disk;
 
-	if (minor == 0) {
+	if (disk_index >= HD_MAX_DISKS)
+		return NULL;
+
+	disk = &hd_disks[disk_index];
+	if (!disk->present)
+		return NULL;
+
+	*part = minor % HD_MINORS_PER_DISK;
+	return disk;
+}
+
+static int hd_range(struct hd_disk *disk, unsigned int part,
+		    unsigned long sector, unsigned long nr, uint64_t *start,
+		    uint64_t *limit)
+{
+	if (part == 0) {
 		*start = 0;
-		*limit = hd_total_sectors;
+		*limit = disk->total_sectors;
 	} else {
 		struct hd_partition *partition;
 
-		if (minor > HD_MAX_PARTITIONS)
+		if (part > HD_MAX_PARTITIONS)
 			return -ENOENT;
-		partition = &hd_partitions[minor - 1];
+		partition = &disk->partitions[part - 1];
 		if (!partition->present)
 			return -ENOENT;
 		*start = partition->start_sector;
@@ -563,57 +633,65 @@ static int hd_range(dev_t dev, unsigned long sector, unsigned long nr,
 }
 
 /*
- * Minor 0 addresses the whole disk; nonzero minors address a parsed
- * partition and are range-checked before submission.
+ * Minor 0 of each disk addresses the whole disk; nonzero minors address a
+ * parsed partition and are range-checked before submission.
  */
 static int hd_read(dev_t dev, unsigned long sector, unsigned long nr,
 		   char *buf)
 {
+	struct hd_disk *disk;
+	unsigned int part;
 	uint64_t start;
 	uint64_t limit;
 	int error;
 
-	if (!ahci_present)
+	disk = hd_get_disk(dev, &part);
+	if (!disk)
 		return -ENODEV;
-	error = hd_range(dev, sector, nr, &start, &limit);
+	error = hd_range(disk, part, sector, nr, &start, &limit);
 	if (error)
 		return error;
-	return ahci_read_sectors(start + sector, nr, buf);
+	return ahci_read_sectors(disk->port, start + sector, nr, buf);
 }
 
 static int hd_write(dev_t dev, unsigned long sector, unsigned long nr,
 		    char *buf)
 {
+	struct hd_disk *disk;
+	unsigned int part;
 	uint64_t start;
 	uint64_t limit;
 	int error;
 
-	if (!ahci_present)
+	disk = hd_get_disk(dev, &part);
+	if (!disk)
 		return -ENODEV;
-	error = hd_range(dev, sector, nr, &start, &limit);
+	error = hd_range(disk, part, sector, nr, &start, &limit);
 	if (error)
 		return error;
-	error = ahci_write_sectors(start + sector, nr, buf);
+	error = ahci_write_sectors(disk->port, start + sector, nr, buf);
 	if (error)
 		return error;
 	if (nr)
-		return ahci_flush();
+		return ahci_flush(disk->port);
 	return 0;
 }
 
 static int hd_get_info(dev_t dev, struct blkdev_info *info)
 {
-	unsigned int minor = MINOR(dev);
+	struct hd_disk *disk;
+	unsigned int part;
 	uint64_t sectors;
 
-	if (!ahci_present)
+	disk = hd_get_disk(dev, &part);
+	if (!disk)
 		return -ENODEV;
 
-	if (minor == 0) {
-		sectors = hd_total_sectors;
-	} else if (minor <= HD_MAX_PARTITIONS &&
-		   hd_partitions[minor - 1].present) {
-		sectors = hd_partitions[minor - 1].nr_sectors;
+	if (part == 0) {
+		sectors = disk->total_sectors;
+	} else if (part <= HD_MAX_PARTITIONS &&
+		   disk->partitions[part - 1].present) {
+		sectors = disk->partitions[part - 1].nr_sectors;
 	} else {
 		return -ENOENT;
 	}
@@ -634,7 +712,8 @@ struct blkdev_operations hd_ops = {
 
 /*
  * Optional initialization called from blkdev_init().  If no AHCI controller
- * is present this is a no-op; the ramdisk root remains unchanged.
+ * is present this is a no-op; the ramdisk root remains unchanged.  All
+ * implemented ports are probed, up to HD_MAX_DISKS disks.
  */
 void hd_init(void)
 {
@@ -645,7 +724,7 @@ void hd_init(void)
 	uint32_t pi;
 	uint32_t ghc;
 	uint16_t identify[256];
-	int port;
+	unsigned int port_number;
 	int error;
 
 	if (!pci_find_device_by_class(0x01, 0x06, 0x01, &dev))
@@ -668,39 +747,56 @@ void hd_init(void)
 	if (!pi)
 		return;
 
-	port = 0;
-	while (!(pi & 1)) {
-		pi >>= 1;
-		port++;
-		if (port == 32)
-			return;
+	memset(ahci_ports, 0, sizeof(ahci_ports));
+	memset(hd_disks, 0, sizeof(hd_disks));
+	nr_ahci_disks = 0;
+
+	for (port_number = 0;
+	     port_number < AHCI_MAX_PORTS && nr_ahci_disks < HD_MAX_DISKS;
+	     port_number++) {
+		struct ahci_port *port;
+		struct hd_disk *disk;
+		uint64_t total_sectors;
+
+		/* PI bit zero means this port is not implemented by the HBA. */
+		if (!(pi & (1U << port_number)))
+			continue;
+
+		port = &ahci_ports[nr_ahci_disks];
+		error = ahci_port_init(port, port_number);
+		if (error)
+			continue;
+
+		error = ahci_identify(port, identify);
+		if (error)
+			continue;
+		if (!(identify[83] & (1U << 10)) ||
+		    !(identify[86] & (1U << 10)))
+			continue;
+
+		total_sectors = (uint64_t)identify[100] |
+				((uint64_t)identify[101] << 16) |
+				((uint64_t)identify[102] << 32) |
+				((uint64_t)identify[103] << 48);
+		if (!total_sectors)
+			continue;
+
+		disk = &hd_disks[nr_ahci_disks];
+		disk->port = port;
+		disk->total_sectors = total_sectors;
+		memset(disk->partitions, 0, sizeof(disk->partitions));
+		hd_parse_mbr(disk);
+		disk->present = 1;
+
+		printk("AHCI disk %c: %u sectors\n",
+		       'a' + nr_ahci_disks, (unsigned int)total_sectors);
+		nr_ahci_disks++;
 	}
 
-	error = ahci_port_init(port);
-	if (error)
+	if (!nr_ahci_disks)
 		return;
 
-	error = ahci_identify(identify);
-	if (error)
-		return;
-	if (!(identify[83] & (1U << 10)) ||
-	    !(identify[86] & (1U << 10)))
-		return;
-
-	hd_total_sectors = (uint64_t)identify[100] |
-			   ((uint64_t)identify[101] << 16) |
-			   ((uint64_t)identify[102] << 32) |
-			   ((uint64_t)identify[103] << 48);
-	if (!hd_total_sectors)
-		return;
-
-	memset(hd_partitions, 0, sizeof(hd_partitions));
-	hd_parse_mbr();
-
-	ahci_present = 1;
 	error = register_blkdev(HD_MAJOR, &hd_ops);
 	if (error)
 		return;
-
-	printk("AHCI disk: %u sectors\n", (unsigned int)hd_total_sectors);
 }

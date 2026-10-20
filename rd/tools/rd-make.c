@@ -155,7 +155,7 @@ void parse_opt(int argc, char *argv[])
 }
 
 /* the maximum number of device files */
-#define MAX_DEV	32
+#define MAX_DEV	128
 
 struct mario_dir_entry devs[MAX_DEV + 1];
 
