@@ -344,8 +344,6 @@ irq7:
 
 irq8:
 irq9:
-irqa:
-irqb:
 irqc:
 irqd:
 irqe:
@@ -354,6 +352,16 @@ irqe:
 	EOI_SLAVE
 	popl %eax
 	iret
+
+irqa:
+irqb:
+	/* AHCI/SATA: IRQ10 and IRQ11 are the two lines used by QEMU's AHCI. */
+	pushl $-1
+	SAVE_ALL
+	call irq_ahci
+	EOI_MASTER
+	EOI_SLAVE
+	jmp ret_from_intr
 
 irqf:
 	pushl %eax

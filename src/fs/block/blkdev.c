@@ -2,6 +2,7 @@
 #include <errno.h>
 
 #include <fs/blkdev.h>
+#include <fs/ahci.h>
 
 #include <lib/stddef.h>
 
@@ -22,6 +23,7 @@ void blkdev_init(void)
 
 	rd_init();
 	ROOT_DEV = MKDEV(RD_MAJOR, 0);
+	hd_init();
 }
 
 int register_blkdev(unsigned int major, struct blkdev_operations *blkdev_ops)

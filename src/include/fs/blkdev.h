@@ -38,5 +38,6 @@ int get_sector_size(dev_t dev, int *size);
 #define MAX_BLKDEV	64
 
 #define RD_MAJOR	1
+#define HD_MAJOR	3
 
 #endif /* _BLKDEV_H */
