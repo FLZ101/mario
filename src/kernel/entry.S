@@ -611,8 +611,8 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_tkill */
 	.long sys_not_exist /* SYS_sendfile64 */
 	.long sys_not_exist /* SYS_futex */
-	.long sys_not_exist /* SYS_sched_setaffinity */
-	.long sys_not_exist /* SYS_sched_getaffinity */
+	.long sys_sched_setaffinity
+	.long sys_sched_getaffinity
 	.long sys_set_thread_area
 	.long sys_not_exist /* SYS_get_thread_area */
 	.long sys_not_exist /* SYS_io_setup */

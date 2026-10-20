@@ -180,6 +180,65 @@ int sys_gettid(void)
 	return current->pid;
 }
 
+int sys_sched_setaffinity(pid_t pid, size_t len, unsigned long *user_mask)
+{
+	struct task_struct *p;
+	unsigned long mask;
+	int error;
+
+	if (len < sizeof(mask))
+		return -EINVAL;
+
+	if (!pid)
+		pid = current->pid;
+	for_each_task(p) {
+		if (p->pid == pid)
+			goto found_task;
+	}
+	return -ESRCH;
+
+found_task:
+	error = verify_area(VERIFY_READ, user_mask, sizeof(mask));
+	if (error)
+		return error;
+	mask = get_fs_long(user_mask);
+
+	/* Only CPU 0 exists, so that is the only valid affinity mask. */
+	if (mask != 1)
+		return -EINVAL;
+	return 0;
+}
+
+int sys_sched_getaffinity(pid_t pid, size_t len, unsigned long *user_mask)
+{
+	struct task_struct *p;
+	unsigned long mask = 1;
+	size_t i;
+	int error;
+
+	if (len < sizeof(mask))
+		return -EINVAL;
+
+	if (!pid)
+		pid = current->pid;
+	for_each_task(p) {
+		if (p->pid == pid)
+			goto found_task;
+	}
+	return -ESRCH;
+
+found_task:
+	error = verify_area(VERIFY_WRITE, user_mask, len);
+	if (error)
+		return error;
+
+	/* This kernel schedules on a single CPU, so only CPU 0 is ever legal. */
+	put_fs_long(mask, user_mask);
+	for (i = sizeof(mask); i < len; i++)
+		put_fs_byte(0, (char *)user_mask + i);
+	return sizeof(mask);
+}
+
 int sys_prlimit64(pid_t pid, int resource, const struct rlimit *new, struct rlimit *old)
 {
 	int error;
