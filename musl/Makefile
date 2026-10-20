@@ -3,6 +3,8 @@ SHELL := /bin/bash
 RM	:=rm -f
 
 ROOT := $(shell pwd)
+OPTIMIZE ?= -O3
+export OPTIMIZE
 
 MUSL_VER		:=1.2.5
 MUSL_SRC_DIR	:=musl-$(MUSL_VER)

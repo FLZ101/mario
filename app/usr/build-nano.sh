@@ -20,7 +20,7 @@ pushd $NANO_SRC_DIR
 
 export CC
 export CPPFLAGS="-U__linux__ -I${NCURSES_INSTALL_DIR}/include -I${NCURSES_INSTALL_DIR}/include/ncursesw"
-export CFLAGS="-ggdb -O0 -fno-omit-frame-pointer"
+export CFLAGS="-ggdb ${OPTIMIZE} -fno-omit-frame-pointer"
 export LDFLAGS="-L${NCURSES_INSTALL_DIR}/lib"
 export LIBS="-lncurses"
 

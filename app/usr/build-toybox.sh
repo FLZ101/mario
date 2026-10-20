@@ -15,7 +15,7 @@ pushd $TOYBOX_SRC_DIR
 
 export CC
 export LDFLAGS=""
-export CFLAGS="-ggdb -O0 -fno-omit-frame-pointer -D__linux__ -Wno-maybe-uninitialized"
+export CFLAGS="-ggdb ${OPTIMIZE} -fno-omit-frame-pointer -D__linux__ -Wno-maybe-uninitialized"
 export CROSS_COMPILE=
 
 # make menuconfig

@@ -13,27 +13,27 @@ fi
 
 pushd $NCURSES_SRC_DIR
 
-if [[ ! -e Makefile ]] ; then
-    ./configure \
-        --prefix="$NCURSES_INSTALL_DIR" \
-        --with-terminfo-dirs=/usr/share/terminfo:/etc/terminfo \
-        --without-normal \
-        --with-debug --enable-trace --disable-stripping \
-        --without-ada \
-        --without-cxx \
-        --without-cxx-binding \
-        --without-shared \
-        --enable-sigwinch \
-        --without-pthread \
-        --disable-reentrant \
-        --without-develop \
-        CC="$CC" \
-        CFLAGS="-ggdb -O0 -fno-omit-frame-pointer -ffunction-sections" \
-        AR=ar \
-        RANLIB=ranlib
-else
+if [[ -e Makefile ]] ; then
     make distclean
 fi
+
+./configure \
+    --prefix="$NCURSES_INSTALL_DIR" \
+    --with-terminfo-dirs=/usr/share/terminfo:/etc/terminfo \
+    --without-normal \
+    --with-debug --enable-trace --disable-stripping \
+    --without-ada \
+    --without-cxx \
+    --without-cxx-binding \
+    --without-shared \
+    --enable-sigwinch \
+    --without-pthread \
+    --disable-reentrant \
+    --without-develop \
+    CC="$CC" \
+    CFLAGS="-ggdb ${OPTIMIZE} -fno-omit-frame-pointer -ffunction-sections" \
+    AR=ar \
+    RANLIB=ranlib
 
 make -j 1
 make install

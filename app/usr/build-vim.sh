@@ -55,7 +55,7 @@ __undef FEAT_RELTIME
 export CC
 
 export CPPFLAGS="-I${NCURSES_INSTALL_DIR}/include -I${NCURSES_INSTALL_DIR}/include/ncursesw"
-export CFLAGS="-ggdb -O0 -fno-omit-frame-pointer"
+export CFLAGS="-ggdb ${OPTIMIZE} -fno-omit-frame-pointer"
 export LDFLAGS="-L${NCURSES_INSTALL_DIR}/lib"
 
 ./configure \

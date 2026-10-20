@@ -93,6 +93,29 @@ defer_sig = 56
 ENTRY(fork_ret)
 	jmp ret_common
 
+/*
+ * sys_sigreturn and sys_sigsuspend are called directly through the syscall
+ * table without any C argument marshalling.  The first argument slot on the
+ * syscall frame is also the base of struct trap_frame, so the wrappers pass
+ * that pointer explicitly instead of relying on C aliasing of a scalar
+ * parameter.
+ */
+ENTRY(sys_sigreturn)
+	leal 4(%esp), %eax
+	pushl %eax
+	call do_sigreturn
+	addl $4, %esp
+	ret
+
+ENTRY(sys_sigsuspend)
+	movl 4(%esp), %eax
+	leal 4(%esp), %edx
+	pushl %edx
+	pushl %eax
+	call do_sigsuspend
+	addl $8, %esp
+	ret
+
 ENTRY(system_call)
 	pushl %eax	/* the system call number */
 	SAVE_ALL

@@ -3,6 +3,8 @@ SHELL := /bin/bash
 RM	:=rm -f
 
 ROOT := $(shell pwd)
+OPTIMIZE ?= -O3
+export OPTIMIZE
 
 .PHONY:: all build
 .PHONY:: clean clean-src
@@ -32,7 +34,7 @@ ncurses/%.exe: ncurses/%.c
 	# source files must be before libs
 	$(CC) -o $@ $< \
 		-I$(NCURSES_INSTALL_DIR)/include -I$(NCURSES_INSTALL_DIR)/include/ncursesw \
-		-ggdb -O0 -fno-omit-frame-pointer \
+		-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
 		-L$(NCURSES_INSTALL_DIR)/lib -static \
 		-lncurses
 

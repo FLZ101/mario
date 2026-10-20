@@ -75,7 +75,7 @@ build_for_mario()
     #   -O3: elapsed_ms ~4.2s, user_ms ~3.6s
     #
     # The trace also showed kernel/syscall time was not the bottleneck.
-    export CFLAGS="-ggdb -O3 -fno-omit-frame-pointer"
+    export CFLAGS="-ggdb ${OPTIMIZE} -fno-omit-frame-pointer"
 
     export CURSES_CFLAGS="-I${NCURSES_INSTALL_DIR}/include -I${NCURSES_INSTALL_DIR}/include/ncursesw"
     export CURSES_LIBS="-L${NCURSES_INSTALL_DIR}/lib -lncurses -lpanel"

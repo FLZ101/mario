@@ -21,7 +21,7 @@ make distclean
     --enable-debug \
     --disable-shared \
     CC="$CC" \
-    CFLAGS="-std=gnu11 -ggdb -O0 -fno-omit-frame-pointer" \
+    CFLAGS="-std=gnu11 -ggdb ${OPTIMIZE} -fno-omit-frame-pointer" \
     AR=ar \
     RANLIB=ranlib
 

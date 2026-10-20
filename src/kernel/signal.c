@@ -178,14 +178,11 @@ int sys_sigaction(int signum, const struct sigaction *act, struct sigaction *old
 /*
  * This sets tr->esp even though we don't actually use sigstacks yet..
  */
-int sys_sigreturn(unsigned long __unused)
+int do_sigreturn(struct trap_frame *tr)
 {
 #define COPY(x) tr->x = context.x
 
 	struct sigcontext_struct context;
-	struct trap_frame *tr;
-
-	tr = (struct trap_frame *)&__unused;
 	if (verify_area(VERIFY_READ, (void *)tr->esp, sizeof(context)))
 		goto badframe;
 	memcpy_fromfs(&context,(void *)tr->esp, sizeof(context));
@@ -375,10 +372,9 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 	return 1;
 }
 
-int sys_sigsuspend(sigset_t *mask)
+int do_sigsuspend(sigset_t *mask, struct trap_frame *tr)
 {
 	sigset_t old_mask;
-	struct trap_frame *tr = (struct trap_frame *) &mask;
 
 	old_mask = current->blocked;
 	current->blocked = *mask & _BLOCKABLE;

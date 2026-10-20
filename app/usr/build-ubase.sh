@@ -15,6 +15,6 @@ pushd $UBASE_SRC_DIR
 
 make PREFIX=$UBASE_INSTALL_DIR AR=ar RANLIB=ranlib \
     CC=$CC \
-    CFLAGS="-std=c99 -Wall -Wextra -ggdb -O0 -fno-omit-frame-pointer" -j 1 ubase-box-install
+    CFLAGS="-std=c99 -Wall -Wextra -ggdb ${OPTIMIZE} -fno-omit-frame-pointer" -j 1 ubase-box-install
 
 popd

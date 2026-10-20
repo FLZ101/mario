@@ -15,13 +15,24 @@ VGA_TEST_CASES ?= tests/vga
 	musl venv precommit setup \
 	compiler-rt
 
-.PHONY: clean clean-kernel clean-rd clean-app clean-libc clean-image \
+.PHONY: clean clean-kernel clean-rd clean-app-example clean-app-usr clean-libc clean-image \
 	clean-musl clean-compiler-rt
 
 all: kernel rd
 
 COMPILE_COMMANDS_JSON := $(ROOT)/compile_commands.json
 export COMPILE_COMMANDS_JSON
+
+# DEBUG=true (or DEBUG=1) builds the kernel, libc and applications with -O0.
+# The default release build uses -O3.
+DEBUG ?= false
+DEBUG_TRUE := $(filter true True TRUE 1,$(DEBUG))
+ifeq ($(DEBUG_TRUE),)
+OPTIMIZE := -O3
+else
+OPTIMIZE := -O0
+endif
+export OPTIMIZE
 
 CC	:= $(ROOT)/util/cc
 export CC
@@ -101,7 +112,9 @@ quick-run-gtk:
 quick-debug-gtk:
 	$(MAKE) QEMU_DISPLAY=gtk quick-debug -C qemu
 
-clean: clean-kernel clean-rd clean-app clean-libc clean-image clean-compiler-rt
+clean-all: clean clean-musl clean-app-usr
+
+clean: clean-kernel clean-rd clean-app-example clean-libc clean-image clean-compiler-rt
 	$(RM) $(COMPILE_COMMANDS_JSON)
 
 clean-kernel:
@@ -110,8 +123,11 @@ clean-kernel:
 clean-rd:
 	$(MAKE) clean -C rd
 
-clean-app:
+clean-app-example:
 	$(MAKE) clean -C app
+
+clean-app-usr:
+	$(MAKE) clean-usr -C app
 
 clean-libc:
 	$(MAKE) clean -C libc

@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
 ROOT := $(shell pwd)
+OPTIMIZE ?= -O3
 
 COMPILER_RT_SRC_DIR := compiler-rt
 COMPILER_RT_OBJ_DIR := compiler-rt
@@ -28,7 +29,7 @@ $(COMPILER_RT_OBJ_DIR)/%.o: $(COMPILER_RT_SRC_DIR)/%.c
 	@mkdir -p $(COMPILER_RT_OBJ_DIR)
 	@$(CC) -c -D__KERNEL__ \
 		-std=gnu11 -Wall -Werror \
-		-ggdb -O0 -fno-omit-frame-pointer \
+		-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
 		-MMD -MP -o $@ $<
 	@echo $@
 

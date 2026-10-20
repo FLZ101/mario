@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
 RM	:=rm -f
+OPTIMIZE ?= -O3
 NASM	:=nasm
 MAKE	:=make -R
 
@@ -11,7 +12,7 @@ OBJDUMP	:=objdump
 INCLUDE	:=-I include
 CFLAGS	:=-c -D__KERNEL__ $(INCLUDE) \
 	-std=gnu11 -Wall -Werror \
-	-ggdb -O0 -fno-omit-frame-pointer \
+	-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
 	-MMD -MP
 LDFLAGS	:=-T kernel.ld
 

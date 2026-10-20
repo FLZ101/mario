@@ -25,7 +25,7 @@ pushd $SQLITE_SRC_DIR
 
 export CC
 
-export CFLAGS="-ggdb -O0 -fno-omit-frame-pointer"
+export CFLAGS="-ggdb ${OPTIMIZE} -fno-omit-frame-pointer"
 
 ./configure \
     --prefix="$SQLITE_INSTALL_DIR" \

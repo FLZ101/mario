@@ -11,6 +11,8 @@ SHELL := /bin/bash
 
 ROOT := $(shell pwd)
 export ROOT
+OPTIMIZE ?= -O3
+export OPTIMIZE
 
 all: example usr | check
 

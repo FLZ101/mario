@@ -11,9 +11,11 @@ static inline _syscall2(int,getcwd_,char *,buf, size_t, size)
 
 char *getcwd(char *buf, size_t size)
 {
-	char tmp[buf ? 1 : PATH_MAX];
+	char tmp[PATH_MAX] = {0};
+	char *result = buf;
 	if (!buf) {
 		buf = tmp;
+		result = 0;
 		size = sizeof tmp;
 	} else if (!size) {
 		errno = EINVAL;
@@ -26,5 +28,7 @@ char *getcwd(char *buf, size_t size)
 		errno = ENOENT;
 		return 0;
 	}
-	return buf == tmp ? strdup(buf) : buf;
+	if (!result)
+		return strdup(buf);
+	return result;
 }

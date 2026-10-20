@@ -23,7 +23,7 @@ if [[ ! -e Makefile ]] ; then
     ./configure \
         --prefix="$OKSH_INSTALL_DIR" \
         --cc="$CC" \
-        --cflags="-ggdb -O0 -fno-omit-frame-pointer -I${NCURSES_INSTALL_DIR}/include -I${NCURSES_INSTALL_DIR}/include/ncursesw" \
+        --cflags="-ggdb ${OPTIMIZE} -fno-omit-frame-pointer -I${NCURSES_INSTALL_DIR}/include -I${NCURSES_INSTALL_DIR}/include/ncursesw" \
         --no-strip \
         --enable-curses \
         --enable-static \
