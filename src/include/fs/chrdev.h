@@ -20,6 +20,7 @@ int register_chrdev(unsigned int, struct file_operations *);
 #define MEM_MINOR_FULL	2	// /dev/full
 #define MEM_MINOR_URANDOM	3	// /dev/urandom
 #define MEM_MINOR_RANDOM	4	// /dev/random
+#define MEM_MINOR_KMSG	11	// /dev/kmsg
 
 #define TTY_MAJOR	2
 

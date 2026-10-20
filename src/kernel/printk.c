@@ -3,6 +3,7 @@
 #include <lib/stdarg.h>
 #include <lib/stddef.h>
 #include <multiboot.h>
+#include <logbuf.h>
 
 void console_reset(struct console *con);
 void console_sync(struct console *con);
@@ -13,6 +14,8 @@ static struct console *con;
 
 void printk_init(struct multiboot_info *m)
 {
+	logbuf_init();
+
 	con = get_fg_console();
 	console_reset(con);
 
@@ -146,15 +149,19 @@ int printk(const char *fmt, ...)
 
 	static char buf[1024] = {0};
 	char *p = NULL;
+	int prio = LOG_INFO;
 
 	va_list ap;
 	va_start(ap, fmt);
 	int n = vsprintk(buf, fmt, ap);
 	va_end(ap);
 
+	logbuf_store(prio, buf, n);
 
-	for (p = buf; *p; p++)
-		putchar(*p);
+	if (prio < logbuf_console_loglevel(0, 0)) {
+		for (p = buf; *p; p++)
+			putchar(*p);
+	}
 
 	irq_restore();
 	return n;

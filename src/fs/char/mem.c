@@ -1,5 +1,7 @@
 #include <fs/fs.h>
 
+extern struct file_operations kmsg_fops;
+
 /*
  * man 4 null
  *
@@ -146,6 +148,9 @@ int mem_open(struct inode *i, struct file *f)
 	case MEM_MINOR_RANDOM:
 	case MEM_MINOR_URANDOM:
 		f->f_op = &rand_fops;
+		return 0;
+	case MEM_MINOR_KMSG:
+		f->f_op = &kmsg_fops;
 		return 0;
 	default:
 		return -ENODEV;

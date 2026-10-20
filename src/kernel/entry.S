@@ -473,7 +473,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_fstatfs */
 	.long sys_not_exist /* SYS_ioperm */
 	.long sys_not_exist /* SYS_socketcall */
-	.long sys_not_exist /* SYS_syslog */
+	.long sys_syslog /* SYS_syslog */
 	.long sys_setitimer
 	.long sys_getitimer
 	.long sys_not_exist /* SYS_stat */

@@ -10,6 +10,7 @@ Devices currently supported by mario:
 
         3       /dev/urandom
         4       /dev/random
+        11      /dev/kmsg
 
         block   Ramdisks
 

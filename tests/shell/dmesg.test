@@ -1,0 +1,19 @@
+RUN: export PATH=/bin/toybox:/bin/ubase:/bin
+
+RUN: dmesg > /root/dmesg.out; if grep -q 'Ramdisk(s):' /root/dmesg.out; then echo ramdisk-found; else echo ramdisk-missing; fi
+CHECK: ramdisk-found
+
+RUN: dmesg -C
+RUN: dmesg > /root/dmesg.after-clear.out; if grep -q 'Ramdisk(s):' /root/dmesg.after-clear.out; then echo ramdisk-present-after-clear; else echo ramdisk-absent-after-clear; fi
+CHECK: ramdisk-absent-after-clear
+
+RUN: echo mario-kmsg-test > /dev/kmsg
+RUN: dmesg > /root/dmesg.kmsg.out; if grep -q 'mario-kmsg-test' /root/dmesg.kmsg.out; then echo kmsg-write-found; else echo kmsg-write-missing; fi
+CHECK: kmsg-write-found
+
+RUN: dmesg -C
+RUN: echo mario-kmsg-read-test > /dev/kmsg
+RUN: cat /dev/kmsg > /root/kmsg.read.out & pid=$!; sleep 1; kill $pid; wait $pid 2>/dev/null; echo kmsg-read-done
+RUN: cat /root/kmsg.read.out
+CHECK: kmsg-read-done
+CHECK: mario-kmsg-read-test
