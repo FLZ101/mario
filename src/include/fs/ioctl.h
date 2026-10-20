@@ -21,4 +21,8 @@
 #define TIOCNOTTY	0x5422
 #define TIOCGSID	0x5429    // *argp = tcgetsid(fd)
 
+#define BLKGETSIZE	0x1260    // get device size in 512-byte sectors
+#define BLKGETSIZE64	0x80081272 // get device size in bytes
+#define BLKSSZGET	0x1268    // get logical block (sector) size
+
 #endif
