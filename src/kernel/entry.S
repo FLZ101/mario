@@ -387,7 +387,7 @@ ENTRY(sys_call_table)
 	.long sys_close
 	.long sys_waitpid
 	.long sys_creat
-	.long sys_link /* SYS_link */
+	.long sys_link
 	.long sys_unlink
 	.long sys_execve
 	.long sys_chdir
@@ -681,7 +681,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_fstatat64 */
 	.long sys_unlinkat
 	.long sys_renameat
-	.long sys_linkat /* SYS_linkat */
+	.long sys_linkat
 	.long sys_symlinkat
 	.long sys_readlinkat
 	.long sys_fchmodat
