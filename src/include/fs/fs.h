@@ -29,6 +29,7 @@
 #include <fs/pipe.h>
 #include <fs/poll.h>
 #include <fs/mariofs/mariofs.h>
+#include <fs/ext2/ext2.h>
 
 struct file_system_type {
 	struct super_block *(*read_super)(struct super_block *);
@@ -62,6 +63,7 @@ struct super_block {
 	unsigned long s_magic;
 	union {
 		struct mario_sb_info mario_sb;
+		struct ext2_sb_info ext2_sb;
 	} u;
 };
 
@@ -119,6 +121,7 @@ struct inode {
 	union {
 		struct mario_inode_info mario_i;
 		struct pipe_inode_info pipe_i;
+		struct ext2_inode_info ext2_i;
 	} u;
 };
 

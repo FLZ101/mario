@@ -37,7 +37,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QEMU = os.environ.get("QEMU", "qemu-system-i386")
 KERNEL = os.path.join(ROOT, "src", "kernel", "kernel.exe")
 INITRD = os.path.join(ROOT, "rd", "rdx")
-HD_IMAGE = os.path.join(ROOT, "qemu", "hd.img")
+HD1_IMAGE = os.path.join(ROOT, "qemu", "hd1.img")
 HD2_IMAGE = os.path.join(ROOT, "qemu", "hd2.img")
 HD3_IMAGE = os.path.join(ROOT, "qemu", "hd3.img")
 
@@ -208,7 +208,7 @@ def start_qemu(qemu, realtime=False, with_disk=False):
         cmd += [
             "-snapshot",
             "-drive",
-            f"id=mario-test-hd,file={HD_IMAGE},format=raw,if=none",
+            f"id=mario-test-hd,file={HD1_IMAGE},format=raw,if=none",
             "-drive",
             f"id=mario-test-hd2,file={HD2_IMAGE},format=raw,if=none",
             "-drive",
@@ -348,7 +348,7 @@ def main():
     if any(test.requires_hd for test in tests):
         missing_hd_images = [
             path
-            for path in (HD_IMAGE, HD2_IMAGE, HD3_IMAGE)
+            for path in (HD1_IMAGE, HD2_IMAGE, HD3_IMAGE)
             if not os.path.exists(path)
         ]
 

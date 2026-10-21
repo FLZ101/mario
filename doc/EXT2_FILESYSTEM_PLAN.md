@@ -14,17 +14,24 @@ and 64-bit ext4 features are out of scope.
 ## Dependencies
 
 This plan assumes the hard-disk block driver from
-`doc/HARDDISK_DRIVER_PLAN.md` is available and registers a block device such as
-`/dev/hda5`.
+`doc/HARDDISK_DRIVER_PLAN.md` is available and registers block devices such as
+`/dev/hda5`. GPT partitions from `doc/GPT_SUPPORT_PLAN.md` are not required by
+ext2 itself, but the generated `qemu/hd3.img` uses GPT and is now a convenient
+dedicated ext2 test disk.
 
-The existing `qemu/gen_image.sh` already formats one logical partition as ext2:
+The existing `qemu/gen_image.sh` already formats several ext2 test partitions:
 
 ```sh
-sudo mkfs -t ext2 ${loopdev}p5
+sudo mkfs -t ext2 ${loopdev}p5   # /dev/hda5, MBR logical partition
+sudo mkfs -t ext2 ${loopdev2}p1  # /dev/hdb1, MBR primary partition
+sudo mkfs -t ext2 ${loopdev2}p6  # /dev/hdb6, MBR logical partition
+sudo mkfs -t ext2 ${loopdev3}p3  # /dev/hdc3, GPT partition on hd3.img
+sudo mkfs -t ext2 ${loopdev3}p4  # /dev/hdc4, GPT partition on hd3.img
 ```
 
-That partition is a natural read-only test target. The ramdisk-based MarioFS
-root filesystem remains unchanged.
+The two GPT partitions on `hd3.img` are especially convenient read-only test
+targets because they are dedicated to ext2 and are not used by boot or Grub4DOS.
+The ramdisk-based MarioFS root filesystem remains unchanged.
 
 ## Current VFS State
 
@@ -375,7 +382,9 @@ implemented, return `-ENOTSUP` instead of doing an incorrect linear search.
 `ext2_readdir()` treats `f_pos` as a byte offset into the directory. It should:
 
 - Advance past deleted entries but not emit them.
-- Emit each valid entry with its inode number and `IFTODT(file_type)`.
+- Emit each valid entry with its inode number and use `file_type` directly;
+  ext2 directory `file_type` values already use the same numbering as dirent
+  `DT_*` values.
 - Preserve `f_pos` semantics so `getdents`, `telldir`, and `seekdir` work.
 - Handle directory blocks larger than the user-supplied getdents buffer.
 
@@ -484,8 +493,122 @@ After the writable milestone, remove that internal flag and enforce
 - `src/fs/fs.c`
 - `src/fs/stat.c`
 - `src/fs/proc.c`
+- `src/fs/block/blkdev.c`
+- `src/fs/super_block.c`
+- `src/kernel/mario.c`
 
 No changes to `src/Makefile` are needed.
+
+## Direct Ext2 Root (Option A)
+
+This mode makes an ext2 partition the true `/` from the start of userspace.
+The ramdisk is still loaded as an initrd module, but it is not mounted as the
+root filesystem. This is the simpler option when the ext2 image is known at
+boot time and does not need an initrd pivot into it.
+
+### Root device selection
+
+Replace the hard-coded ramdisk root in `src/fs/block/blkdev.c`:
+
+```c
+ROOT_DEV = MKDEV(RD_MAJOR, 0);
+```
+
+with a boot-parameter parser. The Multiboot command line is available from
+`m->cmdline` after converting it from the physical address to the kernel
+virtual address:
+
+```c
+void setup_root_device(struct multiboot_info *m)
+{
+    const char *cmdline = (const char *)(m->cmdline + KERNEL_BASE);
+
+    ROOT_DEV = parse_root_device(cmdline);
+    if (!ROOT_DEV)
+        ROOT_DEV = MKDEV(RD_MAJOR, 0);
+}
+```
+
+Call this before `blkdev_init()`, or change `blkdev_init()` to accept `m`.
+`blkdev_init()` must no longer overwrite `ROOT_DEV` unconditionally.
+
+`parse_root_device()` should accept a Linux-style device name:
+
+- `root=/dev/rd0` keeps the current ramdisk behavior.
+- `root=/dev/hda5` uses the MBR ext2 partition on `hd.img`.
+- `root=/dev/hdc3` uses the first GPT ext2 partition on `hd3.img`.
+
+With the current AHCI minor layout, a disk minor is:
+
+```c
+disk_minor = disk_index * HD_MINORS_PER_DISK;
+partition_minor = disk_minor + partition_number;
+```
+
+For `/dev/hdc3`, this is minor `2 * 17 + 3 = 37`, giving
+`MKDEV(HD_MAJOR, 37)`.
+
+### Root mount
+
+Register ext2 in `src/fs/fs.c` before `mount_root()`:
+
+```c
+register_file_system(&mariofs);
+register_file_system(&ext2);
+mount_root();
+```
+
+Make `mount_root()` deterministic by stopping at the first filesystem whose
+`read_super()` succeeds, or by passing the requested filesystem name. With an
+ext2 root device, `mario_read_super()` fails and `ext2_read_super()` succeeds;
+with the default ramdisk root, the opposite happens.
+
+`ext2_read_super()` must return `NULL` cleanly for non-ext2 devices so the
+ramdisk default remains unchanged.
+
+### Userspace init path
+
+Change `src/kernel/mario.c` from the fixed ramdisk executable:
+
+```c
+execve("/bin/example/init.exe", argv_init, envp_init);
+```
+
+to either `/sbin/init` or a value parsed from `init=/path` on the command line.
+The ext2 root image must then contain that init program and its runtime files.
+
+### Device nodes on the ext2 root
+
+Direct ext2 root does not inherit the ramdisk `/dev` tree. Populate the ext2
+image on the host with static device nodes for the console and serial devices
+needed by init, plus the block devices used by the root filesystem:
+
+```text
+/dev/console
+/dev/ttyS0
+/dev/hdc3
+```
+
+For an initially read-only ext2 driver, create these nodes before packaging
+the image on the host.
+
+### Boot test
+
+With `hd3.img` as the only AHCI disk, it is `/dev/hda`, so its third GPT
+partition is `/dev/hda3`:
+
+```sh
+qemu-system-i386 \
+  -kernel src/kernel/kernel.exe -initrd rd/rdx \
+  -drive id=root,file=qemu/hd3.img,format=raw,if=none \
+  -device ahci,id=ahci \
+  -device ide-hd,drive=root,bus=ahci.0 \
+  -append "root=/dev/hda3 init=/sbin/init console=/dev/ttyS0" \
+  -display none -serial stdio -no-reboot -no-shutdown
+```
+
+When using the existing three-disk `qemu/Makefile` layout, use
+`root=/dev/hdc3` instead.
 
 ## Milestones
 
@@ -495,7 +618,8 @@ No changes to `src/Makefile` are needed.
 - Implement superblock probe, group descriptor loading, and feature checks.
 - Implement raw inode loading.
 - Register the ext2 filesystem.
-- Mount an ext2 partition and make `/` resolve to inode 2.
+- Mount an ext2 partition and make the mounted filesystem root resolve to
+  inode 2.
 - Verify with `ls` on an empty or populated ext2 directory.
 
 ### Milestone 2: Read-only file and directory I/O
@@ -524,16 +648,29 @@ No changes to `src/Makefile` are needed.
 - Update `/proc/mounts` and mount/umount flush behavior.
 - Add corruption and boundary checks.
 
+### Milestone 5: Direct ext2 root
+
+- Parse `root=` and `init=` from the Multiboot command line.
+- Make `ROOT_DEV` configurable while preserving the ramdisk default.
+- Register ext2 before `mount_root()` and make root mount selection
+  deterministic.
+- Boot an ext2 image as `/` without an initrd pivot.
+- Verify the ext2 root's init starts and its `/dev` nodes work.
+
 ## Validation
 
-After the hard-disk driver exists, test with the existing ext2 partition:
+After the hard-disk driver exists, test with an existing ext2 partition. The
+GPT partitions on `hd3.img` are the simplest dedicated targets:
 
 ```text
 mkdir /mnt
-mount -t ext2 /dev/hda5 /mnt
+mount -t ext2 /dev/hdc3 /mnt
 ls -la /mnt
-statfs /mnt
+df /mnt
 ```
+
+The MBR ext2 partitions `/dev/hda5`, `/dev/hdb1`, and `/dev/hdb6` are
+alternatives for the same mount/read tests.
 
 For populated read-only tests, populate the ext2 image on the host:
 

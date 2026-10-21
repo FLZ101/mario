@@ -1,0 +1,44 @@
+REQUIRES-HD:
+
+RUN: export PATH=/bin/toybox:/bin
+
+# The GPT test image has an ext2 filesystem on its third partition.
+RUN: mount -t ext2 /dev/hdc3 /mnt; echo hdc3-mount-status:$?
+CHECK: hdc3-mount-status:0
+
+RUN: ls -la /mnt
+CHECK: lost+found
+CHECK: data
+RUN: test -d /mnt/lost+found; echo lost-found-status:$?
+CHECK: lost-found-status:0
+RUN: ls -la /mnt/data
+CHECK: xue
+RUN: test -f /mnt/data/xue; echo hdc3-file-status:$?
+CHECK: hdc3-file-status:0
+RUN: cat /mnt/data/xue; echo hdc3-file-read-status:$?
+CHECK: yuan
+CHECK: hdc3-file-read-status:0
+
+# Unmount by device path, then remount and unmount by mountpoint.
+RUN: umount /dev/hdc3; echo hdc3-umount-device-status:$?
+CHECK: hdc3-umount-device-status:0
+RUN: test ! -e /mnt/lost+found; echo unmounted-by-device:$?
+CHECK: unmounted-by-device:0
+
+RUN: mount -t ext2 /dev/hdc3 /mnt; echo hdc3-remount-status:$?
+CHECK: hdc3-remount-status:0
+RUN: umount /mnt; echo hdc3-umount-mountpoint-status:$?
+CHECK: hdc3-umount-mountpoint-status:0
+RUN: test ! -e /mnt/lost+found; echo unmounted-by-mountpoint:$?
+CHECK: unmounted-by-mountpoint:0
+
+# The second ext2 partition on the GPT test image also has a small file.
+RUN: mount -t ext2 /dev/hdc4 /mnt; echo hdc4-mount-status:$?
+CHECK: hdc4-mount-status:0
+RUN: ls -la /mnt/data
+CHECK: yu
+RUN: cat /mnt/data/yu; echo hdc4-file-read-status:$?
+CHECK: qing he guang chang
+CHECK: hdc4-file-read-status:0
+RUN: umount /mnt; echo hdc4-umount-status:$?
+CHECK: hdc4-umount-status:0

@@ -7,5 +7,6 @@ void fs_init(void)
 	inode_init();
 	file_init();
 	register_file_system(&mariofs);
+	register_file_system(&ext2);
 	mount_root();
 }

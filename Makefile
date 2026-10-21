@@ -9,7 +9,7 @@ VENV_STAMP := $(ROOT)/.venv/.stamp
 SHELL_TEST_CASES ?= tests/shell
 VGA_TEST_CASES ?= tests/vga
 
-.PHONY: all kernel rd app libc image update-image run debug \
+.PHONY: all kernel rd app libc image run debug \
 	quick-run quick-debug quick-run-gtk quick-debug-gtk \
 	test shell-test vga-test \
 	musl venv precommit setup \
@@ -92,10 +92,7 @@ precommit: venv
 setup: precommit
 
 image: kernel rd
-	$(MAKE) image -C qemu
-
-update-image: kernel rd
-	$(MAKE) update-image -C qemu
+	$(MAKE) -C qemu
 
 run: image
 	$(MAKE) run -C qemu
