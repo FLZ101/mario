@@ -1,0 +1,126 @@
+REQUIRES-HD:
+TIMEOUT: 60
+
+RUN: export PATH=/bin/toybox:/bin
+
+RUN: mount -t ext2 /dev/hdc3 /mnt; echo mount-status:$?
+CHECK: mount-status:0
+
+# Exercise repeated directory creation, multi-block writes, readback, unlink,
+# and rmdir through Python's syscall wrappers.  Keeping the workload in one
+# Python process makes it cheap enough to repeat without a long shell loop.
+RUN: python <<'PYEOF'
+import os
+import stat
+
+base = '/mnt/ext2-stress'
+os.mkdir(base)
+
+for i in range(24):
+    dirname = os.path.join(base, 'd%02d' % i)
+    subdir = os.path.join(dirname, 'sub')
+    path = os.path.join(subdir, 'data.bin')
+
+    os.mkdir(dirname)
+    os.mkdir(subdir)
+
+    data = ('ext2-stress-%02d-' % i).encode() * 4096
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    written = 0
+    while written < len(data):
+        count = os.write(fd, data[written:])
+        if count <= 0:
+            raise RuntimeError('short write')
+        written += count
+    os.close(fd)
+
+    fd = os.open(path, os.O_RDONLY)
+    got = b''
+    while len(got) < len(data):
+        chunk = os.read(fd, len(data) - len(got))
+        if not chunk:
+            break
+        got += chunk
+    os.close(fd)
+    assert got == data
+
+    names = os.listdir(subdir)
+    assert names == ['data.bin']
+
+    os.unlink(path)
+    os.rmdir(subdir)
+    os.rmdir(dirname)
+
+# Fast symlink: target lives in the inode block pointers.
+target = os.path.join(base, 'target.txt')
+fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+os.write(fd, b'link-target\n')
+os.close(fd)
+fast_link = os.path.join(base, 'fast-link')
+os.symlink('target.txt', fast_link)
+assert os.readlink(fast_link) == 'target.txt'
+fd = os.open(fast_link, os.O_RDONLY)
+assert os.read(fd, 64) == b'link-target\n'
+os.close(fd)
+os.unlink(fast_link)
+os.unlink(target)
+
+# Slow symlink: a long target is stored in a data block, not inline.
+long_target = 'slow-target-' + 'x' * 64
+slow_link = os.path.join(base, 'slow-link')
+os.symlink(long_target, slow_link)
+assert os.readlink(slow_link) == long_target
+os.unlink(slow_link)
+
+# Rename a regular file and verify both the old and new names.
+rename_src = os.path.join(base, 'rename-src.txt')
+rename_dst = os.path.join(base, 'rename-dst.txt')
+fd = os.open(rename_src, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+os.write(fd, b'rename-data\n')
+os.close(fd)
+os.rename(rename_src, rename_dst)
+assert not os.path.exists(rename_src)
+fd = os.open(rename_dst, os.O_RDONLY)
+assert os.read(fd, 64) == b'rename-data\n'
+os.close(fd)
+os.unlink(rename_dst)
+
+# Hard link a regular file, then verify link count and shared data.
+link_target = os.path.join(base, 'link-target.txt')
+hard_link = os.path.join(base, 'hard-link.txt')
+fd = os.open(link_target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+os.write(fd, b'hard-link-data\n')
+os.close(fd)
+os.link(link_target, hard_link)
+assert os.stat(link_target).st_nlink == 2
+assert os.stat(hard_link).st_nlink == 2
+os.unlink(link_target)
+fd = os.open(hard_link, os.O_RDONLY)
+assert os.read(fd, 64) == b'hard-link-data\n'
+os.close(fd)
+os.unlink(hard_link)
+
+# FIFO creation goes through ext2_mknod().
+fifo = os.path.join(base, 'stress.fifo')
+os.mkfifo(fifo, 0o600)
+assert stat.S_ISFIFO(os.stat(fifo).st_mode)
+os.unlink(fifo)
+
+# Rename a directory as well, not just regular files.
+rename_dir = os.path.join(base, 'rename-dir')
+renamed_dir = os.path.join(base, 'renamed-dir')
+os.mkdir(rename_dir)
+os.rename(rename_dir, renamed_dir)
+assert os.path.isdir(renamed_dir)
+assert not os.path.exists(rename_dir)
+os.rmdir(renamed_dir)
+
+assert os.listdir(base) == []
+os.rmdir(base)
+print('ext2-stress-ok')
+PYEOF
+
+CHECK: ext2-stress-ok
+
+RUN: umount /mnt; echo umount-status:$?
+CHECK: umount-status:0

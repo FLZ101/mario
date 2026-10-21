@@ -5,6 +5,8 @@
 
 #include <lib/string.h>
 
+extern uint64_t current_time(void);
+
 /* The read-only first implementation registers these operations immediately
  * after probing the superblock. */
 static struct super_operations ext2_sops = {
@@ -148,7 +150,7 @@ struct super_block *ext2_read_super(struct super_block *sb)
 	EXT2_SB(sb).inode_size = esb->s_inode_size;
 	EXT2_SB(sb).incompat_features = esb->s_feature_incompat;
 	EXT2_SB(sb).ro_compat_features = esb->s_feature_ro_compat;
-	EXT2_SB(sb).readonly = 1;
+	EXT2_SB(sb).readonly = 0;
 
 	error = ext2_load_group_descriptors(sb, esb);
 	if (error) {
@@ -173,9 +175,32 @@ struct super_block *ext2_read_super(struct super_block *sb)
 
 int ext2_write_super(struct super_block *sb)
 {
+	struct ext2_super_block *esb;
+	uint8_t *buf;
+	int error;
+
 	if (!sb || EXT2_SB(sb).readonly)
 		return -EROFS;
-	return 0;
+
+	buf = kmalloc(1024);
+	if (!buf)
+		return -ENOMEM;
+	error = blkdev_read(sb->s_dev, 2, 2, (char *)buf);
+	if (error) {
+		kfree(buf);
+		return error;
+	}
+
+	esb = (struct ext2_super_block *)buf;
+	ext2_write32((uint8_t *)&esb->s_free_blocks_count,
+		     EXT2_SB(sb).free_blocks_count);
+	ext2_write32((uint8_t *)&esb->s_free_inodes_count,
+		     EXT2_SB(sb).free_inodes_count);
+	ext2_write32((uint8_t *)&esb->s_wtime, current_time());
+	ext2_write16((uint8_t *)&esb->s_state, 1);
+	error = blkdev_write(sb->s_dev, 2, 2, (char *)buf);
+	kfree(buf);
+	return error;
 }
 
 struct file_system_type ext2 = {

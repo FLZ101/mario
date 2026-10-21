@@ -117,12 +117,54 @@ int ext2_read_inode(struct inode *inode)
 
 int ext2_write_inode(struct inode *inode)
 {
-	/* There is no writable ext2 path yet, so both branches deliberately
-	 * return EROFS.  This keeps the common inode writeback path explicit
-	 * even after the mount-wide read-only flag is eventually relaxed. */
+	struct super_block *sb = inode->i_sb;
+	struct ext2_group_desc *desc;
+	struct ext2_inode *raw = &EXT2_INODE(inode).raw;
+	uint32_t ino = inode->i_ino;
+	uint32_t group;
+	uint32_t index;
+	uint32_t byte_offset;
+	uint32_t block;
+	uint32_t offset;
+	uint8_t *buf;
+	int error;
+
 	if (EXT2_SB(inode->i_sb).readonly)
 		return -EROFS;
-	return -EROFS;
+	if (!sb || ino == 0)
+		return -EINVAL;
+
+	group = (ino - 1) / EXT2_INODES_PER_GROUP(sb);
+	index = (ino - 1) % EXT2_INODES_PER_GROUP(sb);
+	if (group >= EXT2_NR_GROUPS(sb))
+		return -EINVAL;
+
+	ext2_write16((uint8_t *)&raw->i_mode, inode->i_mode);
+	ext2_write32((uint8_t *)&raw->i_size, inode->i_size);
+	ext2_write32((uint8_t *)&raw->i_atime, inode->i_atime);
+	ext2_write32((uint8_t *)&raw->i_ctime, inode->i_ctime);
+	ext2_write32((uint8_t *)&raw->i_mtime, inode->i_mtime);
+	ext2_write16((uint8_t *)&raw->i_links_count, inode->i_nlink);
+	ext2_write32((uint8_t *)&raw->i_blocks, inode->i_nr_block);
+
+	desc = &EXT2_GROUP_DESC(sb)[group];
+	byte_offset = index * EXT2_SB(sb).inode_size;
+	block = ext2_read32((const uint8_t *)&desc->bg_inode_table) +
+		byte_offset / EXT2_BLOCK_SIZE(sb);
+	offset = byte_offset % EXT2_BLOCK_SIZE(sb);
+
+	buf = kmalloc(EXT2_BLOCK_SIZE(sb));
+	if (!buf)
+		return -ENOMEM;
+	error = ext2_read_block(sb, block, buf);
+	if (error) {
+		kfree(buf);
+		return error;
+	}
+	memcpy(buf + offset, raw, sizeof(*raw));
+	error = ext2_write_block(sb, block, buf);
+	kfree(buf);
+	return error;
 }
 
 void ext2_clear_inode(struct inode *inode)

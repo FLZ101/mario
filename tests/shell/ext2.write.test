@@ -1,0 +1,36 @@
+REQUIRES-HD:
+
+RUN: export PATH=/bin/toybox:/bin
+
+RUN: mount -t ext2 /dev/hdc3 /mnt; echo mount-status:$?
+CHECK: mount-status:0
+
+RUN: echo hello > /mnt/ext2-write.txt; echo create-status:$?
+CHECK: create-status:0
+RUN: cat /mnt/ext2-write.txt; echo write-read-status:$?
+CHECK: hello
+CHECK: write-read-status:0
+
+RUN: mkdir /mnt/ext2-dir; echo mkdir-status:$?
+CHECK: mkdir-status:0
+RUN: echo nested > /mnt/ext2-dir/file; cat /mnt/ext2-dir/file
+CHECK: nested
+
+RUN: echo abcdefghijklmnopqrstuvwxyz > /mnt/ext2-trunc.txt; truncate -s 5 /mnt/ext2-trunc.txt; cat /mnt/ext2-trunc.txt; echo truncate-status:$?
+CHECK: abcde
+CHECK: truncate-status:0
+
+RUN: ln -s ext2-write.txt /mnt/ext2-link; cat /mnt/ext2-link
+CHECK: hello
+
+RUN: rm /mnt/ext2-write.txt; test ! -e /mnt/ext2-write.txt; echo unlink-status:$?
+CHECK: unlink-status:0
+RUN: rm /mnt/ext2-dir/file; rmdir /mnt/ext2-dir; echo rmdir-status:$?
+CHECK: rmdir-status:0
+RUN: rm /mnt/ext2-trunc.txt; echo truncate-unlink-status:$?
+CHECK: truncate-unlink-status:0
+RUN: rm /mnt/ext2-link; echo symlink-unlink-status:$?
+CHECK: symlink-unlink-status:0
+
+RUN: umount /mnt; echo umount-status:$?
+CHECK: umount-status:0

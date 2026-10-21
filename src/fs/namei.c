@@ -502,6 +502,85 @@ int sys_unlink(char *pathname)
 	return sys_unlinkat(AT_FDCWD, pathname, 0);
 }
 
+static int do_linkat(int olddirfd, char *oldname, int newdirfd, char *newname,
+		     int flags)
+{
+	struct inode *old_inode;
+	struct inode *new_dir;
+	struct inode *new_base;
+	char *new_basename;
+	int new_len;
+	int error;
+
+	error = namei_at(olddirfd, oldname, &old_inode,
+			 !!(flags & AT_SYMLINK_FOLLOW));
+	if (error)
+		return error;
+
+	error = get_base_inode(newdirfd, 0, &new_base);
+	if (error) {
+		iput(old_inode);
+		return error;
+	}
+	error = dir_namei(newname, &new_len, &new_basename, new_base, &new_dir);
+	if (error) {
+		iput(old_inode);
+		return error;
+	}
+	if (!new_len ||
+	    (new_basename[0] == '.' &&
+	     (new_len == 1 || (new_basename[1] == '.' && new_len == 2)))) {
+		iput(new_dir);
+		iput(old_inode);
+		return -EPERM;
+	}
+	if (old_inode->i_sb != new_dir->i_sb) {
+		iput(new_dir);
+		iput(old_inode);
+		return -EXDEV;
+	}
+	if (!new_dir->i_op || !new_dir->i_op->link) {
+		iput(new_dir);
+		iput(old_inode);
+		return -EPERM;
+	}
+
+	/* The filesystem operation consumes @new_dir but not @old_inode. */
+	error = new_dir->i_op->link(old_inode, new_dir, new_basename, new_len);
+	iput(old_inode);
+	return error;
+}
+
+int sys_linkat(int olddirfd, char *oldname, int newdirfd, char *newname,
+	       int flags)
+{
+	char *old_tmp;
+	char *new_tmp;
+	int error;
+
+	if (flags & ~AT_SYMLINK_FOLLOW)
+		return -EINVAL;
+
+	error = getname(oldname, &old_tmp);
+	if (error)
+		return error;
+	error = getname(newname, &new_tmp);
+	if (error) {
+		putname(old_tmp);
+		return error;
+	}
+
+	error = do_linkat(olddirfd, old_tmp, newdirfd, new_tmp, flags);
+	putname(new_tmp);
+	putname(old_tmp);
+	return error;
+}
+
+int sys_link(char *oldname, char *newname)
+{
+	return sys_linkat(AT_FDCWD, oldname, AT_FDCWD, newname, 0);
+}
+
 static int do_renameat(int olddirfd, char *oldname, int newdirfd,
 	char *newname)
 {

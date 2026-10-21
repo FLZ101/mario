@@ -176,6 +176,7 @@ int sys_mount(char *dev_name, char *dir_name, char *type,
 static int do_umount(dev_t dev)
 {
 	struct super_block *sb;
+	int ret;
 
 	/*
 	 * I don't want to umount ROOT_DEV
@@ -191,8 +192,9 @@ static int do_umount(dev_t dev)
 	sb->s_covered = NULL;
 	iput(sb->s_mounted);
 	sb->s_mounted = NULL;
+	ret = write_super(sb);
 	sb->s_dev = 0; // !!!
-	return write_super(sb);
+	return ret;
 }
 
 /*

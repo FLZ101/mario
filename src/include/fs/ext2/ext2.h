@@ -21,6 +21,8 @@ struct file_operations;
 #define EXT2_DYNAMIC_REV		1
 #define EXT2_NAME_LEN			255
 
+#define EXT2_DIR_REC_LEN(name_len)	(((name_len) + 8 + 3) & ~3)
+
 #define EXT2_NDIR_BLOCKS		12
 #define EXT2_IND_BLOCK			EXT2_NDIR_BLOCKS
 #define EXT2_DIND_BLOCK			(EXT2_IND_BLOCK + 1)
@@ -200,12 +202,18 @@ int ext2_read_block(struct super_block *sb, uint32_t block, void *buf);
 int ext2_write_block(struct super_block *sb, uint32_t block, const void *buf);
 
 uint32_t ext2_bmap(struct inode *inode, uint32_t block, int create);
+int ext2_alloc_block(struct super_block *sb, uint32_t goal, uint32_t *block);
+int ext2_free_block(struct super_block *sb, uint32_t block);
+int ext2_alloc_inode(struct super_block *sb, uint16_t mode, uint32_t *ino);
+int ext2_free_inode(struct super_block *sb, uint32_t ino);
+int ext2_write_group_desc(struct super_block *sb, uint32_t group);
 
 int ext2_read_inode(struct inode *inode);
 int ext2_write_inode(struct inode *inode);
 void ext2_clear_inode(struct inode *inode);
 int ext2_write_super(struct super_block *sb);
 struct super_block *ext2_read_super(struct super_block *sb);
+int ext2_truncate(struct inode *inode, int size);
 
 extern struct file_system_type ext2;
 extern struct inode_operations ext2_file_iops;
