@@ -44,17 +44,20 @@ ifneq ($(QEMU_DISPLAY),gtk)
 QEMU_DISPLAY	:=curses
 endif
 
-QEMU_FLAGS := \
-	-boot order=c \
-	-m 256M \
+HD_FLAGS := \
 	-drive id=disk1,file=hd1.img,format=raw,if=none \
 	-drive id=disk2,file=hd2.img,format=raw,if=none \
 	-drive id=disk3,file=hd3.img,format=raw,if=none \
 	-device ahci,id=ahci \
 	-device ide-hd,drive=disk1,bus=ahci.0 \
 	-device ide-hd,drive=disk2,bus=ahci.1 \
-	-device ide-hd,drive=disk3,bus=ahci.2 \
+	-device ide-hd,drive=disk3,bus=ahci.2
+
+QEMU_FLAGS := \
+	-boot order=c \
+	-m 256M \
 	-display $(QEMU_DISPLAY) \
+	$(HD_FLAGS) \
 	-no-reboot -no-shutdown
 
 run:
@@ -71,6 +74,7 @@ QUICK_QEMU_FLAGS := \
 	-kernel $(KERNEL_EXE) \
 	-initrd $(RDX) \
 	-display $(QEMU_DISPLAY) \
+	$(HD_FLAGS) \
 	-no-reboot -no-shutdown
 
 quick-run:

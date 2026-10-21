@@ -100,16 +100,16 @@ run: image
 debug: image
 	$(MAKE) debug -C qemu
 
-quick-run: kernel rd
+quick-run: image
 	$(MAKE) quick-run -C qemu
 
-quick-debug: kernel rd
+quick-debug: image
 	$(MAKE) quick-debug -C qemu
 
-quick-run-gtk: kernel rd
+quick-run-gtk: image
 	$(MAKE) QEMU_DISPLAY=gtk quick-run -C qemu
 
-quick-debug-gtk: kernel rd
+quick-debug-gtk: image
 	$(MAKE) QEMU_DISPLAY=gtk quick-debug -C qemu
 
 clean-all: clean clean-musl clean-app-usr
@@ -142,5 +142,5 @@ clean-compiler-rt:
 	$(MAKE) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld -f $(COMPILER_RT_MK) clean
 
 .PHONY: tmux-run tmux-debug tmux-attach tmux-kill
-tmux-run tmux-debug tmux-attach tmux-kill:
+tmux-run tmux-debug tmux-attach tmux-kill: image
 	$(MAKE) $@ QEMU_DISPLAY=curses -C qemu

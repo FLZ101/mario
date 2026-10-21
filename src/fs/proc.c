@@ -22,6 +22,7 @@ static struct file_operations proc_dir_fops = {
 #define PROC_INO_VERSION 3UL
 #define PROC_INO_UPTIME	4UL
 #define PROC_INO_MOUNTS	5UL
+#define PROC_INO_PARTITIONS	6UL
 
 #define PROC_INO_PID	0x01000000UL
 #define PROC_INO_FD_DIR	0x02000000UL
@@ -227,6 +228,57 @@ static int proc_pid_cmdline_content(pid_t pid, char *buf)
 	return sprintk(buf, "%s", task->comm);
 }
 
+static int proc_blkdev_name(unsigned int major, unsigned int minor,
+			    char *buf, size_t size)
+{
+	(void)size;
+
+	if (major == RD_MAJOR)
+		return sprintk(buf, "rd%u", minor);
+	if (major == HD_MAJOR) {
+		unsigned int disk = minor / 17;
+		unsigned int part = minor % 17;
+
+		if (!part)
+			return sprintk(buf, "hd%c", 'a' + disk);
+		return sprintk(buf, "hd%c%u", 'a' + disk, part);
+	}
+	return -EINVAL;
+}
+
+static int proc_partitions_content(char *buf, size_t size)
+{
+	unsigned int major;
+	unsigned int minor;
+	int n;
+
+	n = sprintk(buf, "major minor  #blocks  name\n\n");
+	for (major = 1; major <= HD_MAJOR; major += 2) {
+		unsigned int max_minor = major == RD_MAJOR ? 6 : 6 * 17;
+		char name[16];
+
+		for (minor = 0; minor < max_minor; minor++) {
+			struct blkdev_info info;
+			dev_t dev = MKDEV(major, minor);
+			int name_len;
+
+			if (blkdev_get_info(dev, &info))
+				continue;
+			name_len = proc_blkdev_name(major, minor, name,
+						    sizeof(name));
+			if (name_len < 0)
+				continue;
+			if ((size_t)n + 40 >= size)
+				return n;
+			n += sprintk(buf + n, " %u %u %u %s\n", major, minor,
+				     (unsigned int)info.nr *
+				     info.sector_size / 1024,
+				     name);
+		}
+	}
+	return n;
+}
+
 static int proc_file_content(unsigned long ino, char *buf, size_t size)
 {
 	(void)size;
@@ -242,6 +294,8 @@ static int proc_file_content(unsigned long ino, char *buf, size_t size)
 	}
 	case PROC_INO_MOUNTS:
 		return sprintk(buf, "mariofs / mariofs rw 0 0\n");
+	case PROC_INO_PARTITIONS:
+		return proc_partitions_content(buf, size);
 	default:
 		break;
 	}
@@ -432,6 +486,8 @@ static int proc_lookup_child(unsigned long dir_ino, char *name, int len,
 			*res = proc_make_file(PROC_INO_UPTIME);
 		else if (proc_name_is(name, len, "mounts"))
 			*res = proc_make_file(PROC_INO_MOUNTS);
+		else if (proc_name_is(name, len, "partitions"))
+			*res = proc_make_file(PROC_INO_PARTITIONS);
 		else {
 			pid_t pid;
 			if (proc_parse_pid(name, len, &pid) &&
@@ -562,8 +618,13 @@ static int proc_root_entry(int index, char *name, size_t size, ino_t *ino,
 		*ino = PROC_INO_MOUNTS;
 		*type = DT_REG;
 		return 0;
+	case 4:
+		sprintk(name, "%s", "partitions");
+		*ino = PROC_INO_PARTITIONS;
+		*type = DT_REG;
+		return 0;
 	default:
-		index -= 4;
+		index -= 5;
 		for_each_task(task) {
 			if (index-- == 0) {
 				sprintk(name, "%d", task->pid);
