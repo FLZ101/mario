@@ -122,9 +122,15 @@ int fat_write_inode(struct inode *inode)
 	if (inode->i_ino == FAT_ROOT_INO)
 		return 0;
 
-	error = fat_ino_location(sb, inode->i_ino, &cluster, &offset);
-	if (error)
-		return error;
+	/* Use the inode's current directory-entry location rather than i_ino.
+	 * A cross-directory rename relocates the entry while an open inode may
+	 * keep its original synthetic inode number. */
+	cluster = info->dir_cluster;
+	offset = info->dir_offset;
+	if (!cluster || cluster < 2 ||
+	    cluster - 2 >= FAT_SB(sb).total_clusters ||
+	    offset + FAT_ENTRY_SIZE > FAT_CLUSTER_SIZE(sb))
+		return -EINVAL;
 
 	buf = kmalloc(FAT_CLUSTER_SIZE(sb));
 	if (!buf)

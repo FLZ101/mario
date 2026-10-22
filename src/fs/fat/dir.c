@@ -6,6 +6,8 @@
 
 #include <lib/string.h>
 
+extern uint64_t current_time(void);
+
 static int fat_dir_next_cluster(struct inode *dir, uint32_t cluster,
 				uint32_t *next)
 {
@@ -428,6 +430,37 @@ static int fat_read_entry_at(struct inode *dir, uint32_t cluster,
 	error = fat_read_cluster(sb, cluster, buf);
 	if (!error)
 		memcpy(entry, buf + offset, FAT_ENTRY_SIZE);
+	kfree(buf);
+	return error;
+}
+
+static int fat_update_dotdot(struct inode *dir, uint32_t parent_cluster)
+{
+	struct super_block *sb = dir->i_sb;
+	uint32_t cluster_size = FAT_CLUSTER_SIZE(sb);
+	uint8_t *buf;
+	uint8_t *entry;
+	int error;
+
+	if (!FAT_INODE(dir).start_cluster)
+		return -EINVAL;
+	buf = kmalloc(cluster_size);
+	if (!buf)
+		return -ENOMEM;
+	error = fat_read_cluster(sb, FAT_INODE(dir).start_cluster, buf);
+	if (error)
+		goto out;
+
+	entry = buf + FAT_ENTRY_SIZE;
+	if (entry[0] != '.' || entry[1] != '.' ||
+	    !(entry[11] & FAT_ATTR_DIRECTORY)) {
+		error = -EIO;
+		goto out;
+	}
+	fat_write16(entry + 20, parent_cluster >> 16);
+	fat_write16(entry + 26, parent_cluster);
+	error = fat_write_cluster(sb, FAT_INODE(dir).start_cluster, buf);
+out:
 	kfree(buf);
 	return error;
 }
@@ -912,66 +945,185 @@ out:
 static int fat_rename(struct inode *old_dir, char *old_name, int old_len,
 		      struct inode *new_dir, char *new_name, int new_len)
 {
-	uint8_t short_name[11];
-	uint32_t cluster;
-	uint32_t offset;
+	static struct semaphore fat_rename_sem = INIT_MUTEX(fat_rename_sem);
+	uint8_t new_short_name[11];
+	uint8_t old_entry[FAT_ENTRY_SIZE];
+	uint8_t new_entry[FAT_ENTRY_SIZE];
+	uint32_t old_cluster;
+	uint32_t old_offset;
 	uint32_t new_cluster;
 	uint32_t new_offset;
-	uint8_t *buf;
-	uint32_t cluster_size;
-	int error;
+	uint32_t added_cluster;
+	uint32_t added_offset;
+	unsigned long old_ino;
+	unsigned long new_ino = 0;
+	unsigned long target_ino = 0;
+	struct inode *old_inode = NULL;
+	struct inode *new_inode = NULL;
+	int same_dir = old_dir == new_dir;
+	int new_exists = 0;
+	int error = 0;
 
-	if (old_dir != new_dir) {
-		iput(old_dir);
-		iput(new_dir);
-		return -EXDEV;
-	}
 	if (FAT_SB(old_dir->i_sb).readonly) {
 		iput(old_dir);
 		iput(new_dir);
 		return -EROFS;
 	}
-	error = fat_name_to_short(new_name, new_len, short_name);
+
+	error = fat_name_to_short(new_name, new_len, new_short_name);
 	if (error) {
 		iput(old_dir);
 		iput(new_dir);
 		return error;
 	}
 
+	down(&fat_rename_sem);
 	down(&old_dir->i_sem);
+	if (!same_dir)
+		down(&new_dir->i_sem);
+
 	error = fat_dir_find_entry(old_dir, old_name, old_len,
-				   &cluster, &offset);
+				   &old_cluster, &old_offset);
 	if (error)
 		goto out;
-	error = fat_dir_find_entry(new_dir, new_name, new_len,
-				   &new_cluster, &new_offset);
-	if (!error && !(cluster == new_cluster && offset == new_offset)) {
-		error = -EEXIST;
-		goto out;
-	}
-	if (error && error != -ENOENT)
-		goto out;
-	error = fat_dir_short_name_exists(old_dir, short_name,
-					  cluster, offset);
-	if (error) {
-		error = error == 1 ? -EEXIST : error;
-		goto out;
-	}
-
-	cluster_size = FAT_CLUSTER_SIZE(old_dir->i_sb);
-	buf = kmalloc(cluster_size);
-	if (!buf) {
+	old_ino = fat_entry_ino(old_dir->i_sb, old_cluster, old_offset);
+	old_inode = iget(old_dir->i_sb, old_ino);
+	if (!old_inode) {
 		error = -ENOMEM;
 		goto out;
 	}
-	error = fat_read_cluster(old_dir->i_sb, cluster, buf);
+	error = fat_read_entry_at(old_dir, old_cluster, old_offset, old_entry);
+	if (error)
+		goto out;
+
+	error = fat_dir_find_entry(new_dir, new_name, new_len,
+				   &new_cluster, &new_offset);
 	if (!error) {
-		memcpy(buf + offset, short_name, 11);
-		error = fat_write_cluster(old_dir->i_sb, cluster, buf);
+		/* Renaming an entry over itself is a no-op. */
+		if (same_dir && old_cluster == new_cluster &&
+		    old_offset == new_offset)
+			goto out;
+
+		new_exists = 1;
+		target_ino = fat_entry_ino(new_dir->i_sb, new_cluster,
+					   new_offset);
+		new_inode = iget(new_dir->i_sb, target_ino);
+		if (!new_inode) {
+			error = -ENOMEM;
+			goto out;
+		}
+		error = fat_read_entry_at(new_dir, new_cluster, new_offset,
+					  new_entry);
+		if (error)
+			goto out;
+
+		if (S_ISDIR(old_inode->i_mode) &&
+		    !(new_entry[11] & FAT_ATTR_DIRECTORY)) {
+			error = -ENOTDIR;
+			goto out;
+		}
+		if (!S_ISDIR(old_inode->i_mode) &&
+		    (new_entry[11] & FAT_ATTR_DIRECTORY)) {
+			error = -EISDIR;
+			goto out;
+		}
+		if (new_entry[11] & FAT_ATTR_DIRECTORY) {
+			error = fat_dir_is_empty(new_inode);
+			if (error <= 0) {
+				error = error ? error : -ENOTEMPTY;
+				goto out;
+			}
+		}
+	} else if (error != -ENOENT) {
+		goto out;
+	} else {
+		error = 0;
 	}
-	kfree(buf);
+
+	error = fat_delete_entry_at(old_dir, old_cluster, old_offset);
+	if (error) {
+		goto out;
+	}
+	inode_invalidate(old_dir->i_sb, old_ino);
+
+	if (new_exists) {
+		error = fat_delete_entry_at(new_dir, new_cluster, new_offset);
+		if (error) {
+			uint8_t old_short_name[11];
+			unsigned long rollback_ino;
+
+			if (!fat_name_to_short(old_name, old_len,
+					       old_short_name))
+				fat_add_entry(old_dir, old_short_name,
+					      old_entry[11],
+					      fat_entry_first_cluster(old_entry),
+					      fat_entry_size(old_entry),
+					      &rollback_ino);
+			goto out;
+		}
+		inode_invalidate(new_dir->i_sb, target_ino);
+	}
+
+	error = fat_add_entry(new_dir, new_short_name, old_entry[11],
+			      fat_entry_first_cluster(old_entry),
+			      fat_entry_size(old_entry), &new_ino);
+	if (error) {
+		uint8_t rollback_name[11];
+		unsigned long rollback_ino;
+
+		/* Restore the source entry.  The replaced target is restored
+		 * below only when it existed and its name is representable as
+		 * an 8.3 short name; LFN generation is handled separately. */
+		if (!fat_name_to_short(old_name, old_len, rollback_name))
+			fat_add_entry(old_dir, rollback_name, old_entry[11],
+				      fat_entry_first_cluster(old_entry),
+				      fat_entry_size(old_entry), &rollback_ino);
+		if (new_exists &&
+		    !fat_name_to_short(new_name, new_len, rollback_name))
+			fat_add_entry(new_dir, rollback_name, new_entry[11],
+				      fat_entry_first_cluster(new_entry),
+				      fat_entry_size(new_entry), &rollback_ino);
+		goto out;
+	}
+
+	error = fat_ino_location(new_dir->i_sb, new_ino,
+				 &added_cluster, &added_offset);
+	if (error)
+		goto out;
+
+	FAT_INODE(old_inode).dir_cluster = added_cluster;
+	FAT_INODE(old_inode).dir_offset = added_offset;
+	FAT_INODE(old_inode).attributes = old_entry[11];
+	if (S_ISDIR(old_inode->i_mode)) {
+		if (!same_dir) {
+			error = fat_update_dotdot(old_inode,
+						  FAT_INODE(new_dir).start_cluster);
+			if (error)
+				goto out;
+		}
+		FAT_INODE(old_inode).parent_ino = new_dir->i_ino;
+	}
+
+	old_inode->i_mtime = old_inode->i_ctime = current_time();
+	error = fat_write_inode(old_inode);
+	if (error)
+		goto out;
+
+	if (new_exists) {
+		error = fat_free_cluster_chain(new_dir->i_sb,
+					      fat_entry_first_cluster(new_entry));
+		if (error)
+			goto out;
+	}
 out:
+	if (new_inode)
+		iput(new_inode);
+	if (old_inode)
+		iput(old_inode);
+	if (!same_dir)
+		up(&new_dir->i_sem);
 	up(&old_dir->i_sem);
+	up(&fat_rename_sem);
 	iput(old_dir);
 	iput(new_dir);
 	return error;
