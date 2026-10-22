@@ -4,6 +4,7 @@
 #include <sched.h>
 #include <resource.h>
 #include <utsname.h>
+#include <version.h>
 #include <mm/uaccess.h>
 #include <mm/page_alloc.h>
 #include <syscall.h>
@@ -327,12 +328,12 @@ int sys_times(struct tms *buf)
 int sys_uname(struct utsname *buf)
 {
 	static struct utsname u = {
-		"Mario",
-		"PC",
-		"0.1.0",
-		"#1",
-		"i386",
-		""
+		MARIO_OS_NAME,
+		MARIO_NODENAME,
+		MARIO_KERNEL_RELEASE,
+		MARIO_KERNEL_VERSION,
+		MARIO_MACHINE,
+		MARIO_DOMAINNAME,
 	};
 
 	int err = verify_area(VERIFY_WRITE, buf, sizeof(u));

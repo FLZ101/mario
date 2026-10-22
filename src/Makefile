@@ -16,7 +16,9 @@ CFLAGS	:=-c -D__KERNEL__ $(INCLUDE) \
 	-MMD -MP
 LDFLAGS	:=-T kernel.ld
 
-.PHONY:	all clean
+.PHONY:	all clean FORCE
+
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 MESSAGE := $(shell $(CC) --mario-verify 2>&1)
 ifneq ($(MESSAGE),)
@@ -37,9 +39,17 @@ DEPS	:=$(patsubst %.o,%.d,$(OBJS))
 
 all: boot/boot.bin kernel/kernel.exe
 
+$(OBJS): | include/build_info.h
+
+include/build_info.h: FORCE
+	@mkdir -p $(dir $@)
+	@printf '#ifndef _BUILD_INFO_H\n#define _BUILD_INFO_H\n\n#define MARIO_BUILD_COMMIT "-g%s"\n\n#endif\n' '$(GIT_COMMIT)' > $@.tmp
+	@if cmp -s $@.tmp $@ 2>/dev/null; then rm -f $@.tmp; else mv $@.tmp $@; fi
+
 clean:
 	$(RM) $(OBJS)
 	$(RM) $(DEPS)
+	$(RM) include/build_info.h
 	$(RM) boot/boot.bin boot/boot.lst kernel/kernel.exe
 
 -include $(DEPS)

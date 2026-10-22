@@ -5,6 +5,7 @@
 
 #include <sched.h>
 #include <time.h>
+#include <version.h>
 
 #include <lib/string.h>
 
@@ -368,7 +369,8 @@ static int proc_file_content(unsigned long ino, char *buf, size_t size)
 
 	switch (ino) {
 	case PROC_INO_VERSION:
-		return sprintk(buf, "Mario OS version 1.0\n");
+		return sprintk(buf, "%s OS version %s\n",
+			      MARIO_OS_NAME, MARIO_OS_VERSION);
 	case PROC_INO_UPTIME: {
 		long up = jiffies / HZ;
 		long up_cs = (jiffies % HZ) * 100 / HZ;
