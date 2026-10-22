@@ -88,7 +88,7 @@ struct super_block *fat_read_super(struct super_block *sb)
 		goto fail;
 
 	fsb = &FAT_SB(sb);
-	fsb->readonly = 0;
+	fsb->readonly = (sb->s_flags & MS_RDONLY) ? 1 : 0;
 	fsb->next_free = 2;
 	fsb->fat_cache = kmalloc(fsb->bytes_per_sector);
 	if (!fsb->fat_cache)

@@ -70,3 +70,12 @@ CHECK: many-unlink-status:0
 
 RUN: umount /mnt; echo umount-status:$?
 CHECK: umount-status:0
+
+RUN: mount -t vfat -o ro /dev/hdc2 /mnt; echo ro-mount-status:$?
+CHECK: ro-mount-status:0
+RUN: touch /mnt/ro-test; echo ro-write-status:$?
+CHECK: ro-write-status:1
+RUN: test ! -e /mnt/ro-test; echo ro-reject-status:$?
+CHECK: ro-reject-status:0
+RUN: umount /mnt; echo ro-umount-status:$?
+CHECK: ro-umount-status:0

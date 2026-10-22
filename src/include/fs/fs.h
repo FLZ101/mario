@@ -33,6 +33,7 @@
 #include <fs/fat/fat.h>
 
 #define FS_NODEV		1
+#define MS_RDONLY		1
 
 struct file_system_type {
 	struct super_block *(*read_super)(struct super_block *);
@@ -60,6 +61,7 @@ struct super_block {
 	dev_t s_dev;
 	unsigned long s_block_size;
 	unsigned long s_state;
+	unsigned long s_flags;
 	struct super_operations *s_op;
 	struct inode *s_covered; // the inode covering this filesystem tree
 	struct inode *s_mounted; // the / inode of this filesystem tree

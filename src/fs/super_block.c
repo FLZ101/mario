@@ -22,6 +22,7 @@ void sb_init(void)
 
 	for (i = 0; i < NR_SUPER; i++) {
 		all[i].s_dev = 0;
+		all[i].s_flags = 0;
 		all[i].s_mountpoint = NULL;
 		all[i].s_fsname = NULL;
 		init_MUTEX(&all[i].s_sem);
@@ -64,7 +65,8 @@ static int write_super(struct super_block *sb)
 	return 0;
 }
 
-static struct super_block *read_super(dev_t dev, char *name)
+static struct super_block *read_super(dev_t dev, char *name,
+				      unsigned long flags)
 {
 	struct super_block *sb;
 	struct file_system_type *fs;
@@ -84,6 +86,7 @@ static struct super_block *read_super(dev_t dev, char *name)
 			break;
 	}
 	sb->s_dev = dev;
+	sb->s_flags = flags;
 	if (!fs->read_super(sb)) {
 		sb->s_dev = 0;
 		return NULL;
@@ -104,7 +107,7 @@ void mount_root(void)
 		tmp = list_entry(pos, struct file_system_type, list);
 		if (tmp->fs_flags & FS_NODEV)
 			continue;
-		sb = read_super(ROOT_DEV, tmp->name);
+		sb = read_super(ROOT_DEV, tmp->name, 0);
 		if (sb) {
 			/* NOTE! this inode would be referenced 4 times */
 			i = sb->s_mounted;
@@ -132,7 +135,8 @@ extern int fs_may_mount(dev_t dev);
 extern int fs_may_umount(struct super_block *sb, struct inode *mount_root);
 
 static int do_mount(dev_t dev, char *dir_name,
-		    struct file_system_type *fs_type, char *mountpoint)
+		    struct file_system_type *fs_type, char *mountpoint,
+		    unsigned long flags)
 {
 	struct inode *dir_i;
 	struct super_block *sb;
@@ -156,7 +160,7 @@ static int do_mount(dev_t dev, char *dir_name,
 		iput(dir_i);
 		return -EBUSY;
 	}
-	sb = read_super(dev, fs_type->name);
+	sb = read_super(dev, fs_type->name, flags);
 	if (!sb) {
 		iput(dir_i);
 		return -EINVAL;
@@ -215,7 +219,7 @@ int sys_mount(char *dev_name, char *dir_name, char *type,
 			goto out;
 		}
 	}
-	error = do_mount(dev, dir_name, fs_type, dir_copy);
+	error = do_mount(dev, dir_name, fs_type, dir_copy, mountflags);
 out:
 	putname(dir_copy);
 	return error;
