@@ -4,7 +4,7 @@
 #include <types.h>
 
 /*
- * Read-only FAT32 filesystem support.
+ * FAT32 filesystem support.
  *
  * FAT has no inode table.  The kernel uses the physical location of each
  * short-name directory entry as a synthetic inode number.  This lets the VFS
@@ -63,6 +63,7 @@ struct fat_sb_info {
 	uint32_t total_clusters;
 	uint32_t cluster_size;
 	unsigned long readonly;
+	uint32_t next_free;
 
 	uint32_t fat_cache_sector;
 	int fat_cache_valid;
@@ -73,6 +74,7 @@ struct fat_inode_info {
 	uint32_t start_cluster;
 	uint32_t dir_cluster;
 	uint32_t dir_offset;
+	uint32_t parent_ino;
 	uint8_t attributes;
 };
 
@@ -94,14 +96,38 @@ static inline uint32_t fat_read32(const uint8_t *p)
 	       ((uint32_t)p[3] << 24);
 }
 
+static inline void fat_write16(uint8_t *p, uint16_t value)
+{
+	p[0] = (uint8_t)value;
+	p[1] = (uint8_t)(value >> 8);
+}
+
+static inline void fat_write32(uint8_t *p, uint32_t value)
+{
+	p[0] = (uint8_t)value;
+	p[1] = (uint8_t)(value >> 8);
+	p[2] = (uint8_t)(value >> 16);
+	p[3] = (uint8_t)(value >> 24);
+}
+
 struct super_block *fat_read_super(struct super_block *sb);
 
 int fat_read_cluster(struct super_block *sb, uint32_t cluster, void *buf);
+int fat_write_cluster(struct super_block *sb, uint32_t cluster,
+		      const void *buf);
 int fat_read_fat_entry(struct super_block *sb, uint32_t cluster,
 		       uint32_t *value);
+int fat_write_fat_entry(struct super_block *sb, uint32_t cluster,
+			uint32_t value);
 int fat_next_cluster(struct super_block *sb, uint32_t cluster,
 		     uint32_t *next);
 uint32_t fat_cluster_at(struct inode *inode, uint32_t cluster_index);
+uint32_t fat_cluster_at_alloc(struct inode *inode, uint32_t cluster_index,
+			      int *error);
+uint32_t fat_cluster_count(struct inode *inode);
+int fat_alloc_cluster(struct super_block *sb, uint32_t previous,
+		      uint32_t *cluster);
+int fat_free_cluster_chain(struct super_block *sb, uint32_t cluster);
 
 uint32_t fat_entry_first_cluster(const uint8_t *entry);
 uint32_t fat_entry_size(const uint8_t *entry);
@@ -109,11 +135,17 @@ unsigned long fat_entry_ino(struct super_block *sb, uint32_t cluster,
 			    uint32_t offset);
 int fat_ino_location(struct super_block *sb, unsigned long ino,
 		     uint32_t *cluster, uint32_t *offset);
+int fat_make_short_entry(uint8_t *entry, const uint8_t short_name[11],
+			 uint8_t attributes, uint32_t start_cluster,
+			 uint32_t size);
 
 void fat_short_name_from_entry(const uint8_t *entry, char *name);
 int fat_short_name_match(const char *name, int len, const uint8_t *entry);
+int fat_name_to_short(const char *name, int len, uint8_t short_name[11]);
+int fat_short_name_equal(const uint8_t *entry, const uint8_t short_name[11]);
 
 int fat_read_inode(struct inode *inode);
+int fat_write_inode(struct inode *inode);
 void fat_clear_inode(struct inode *inode);
 
 extern struct file_system_type fat;

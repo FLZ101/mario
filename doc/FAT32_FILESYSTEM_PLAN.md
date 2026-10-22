@@ -11,6 +11,30 @@ The target is plain FAT32 as created by `mkfs.fat -F 32`. FAT12 and FAT16 are
 out of scope. The bootloader's FAT32 reader in `src/boot/boot.asm` remains
 unchanged; the kernel driver is a separate implementation.
 
+## Status
+
+The read-only milestones are implemented in `src/fs/fat/`:
+
+- FAT32 BPB parsing and geometry validation
+- `"vfat"` filesystem registration and mounting
+- a single-sector FAT cache and cluster-based data reads
+- short-name and read-only LFN lookup/readdir
+- regular-file reads through FAT cluster chains
+- FAT32 `statfs` and `vfat` reporting in `/proc/mounts`
+
+The writable milestones are implemented with the following scope:
+
+- regular-file write, extension, and truncate
+- create and unlink
+- mkdir and rmdir
+- same-directory rename
+- 8.3 short-name generation for newly created names
+
+Write support deliberately does not generate long file names.  Names that do
+not fit the DOS 8.3 format are rejected.  The writable smoke test is
+`tests/shell/vfat.write.test` and, like the other HD tests, runs with QEMU
+`-snapshot` so the checked-in images are not modified.
+
 ## Dependencies
 
 The AHCI hard-disk driver described in `doc/HARDDISK_DRIVER_PLAN.md` is
@@ -44,15 +68,15 @@ MarioFS root filesystem remains unchanged.
 
 The kernel already has the generic mount, inode, namei, read/write, and
 getdents machinery, and `src/fs/ext2/` is a working second on-disk filesystem.
-FAT32 should follow the ext2 integration path:
+FAT32 follows the ext2 integration path:
 
-- Add `struct fat_sb_info` / `struct fat_inode_info` and add them to the
-  private-data unions in `src/include/fs/fs.h`; ext2 members are already there.
-- Register `struct file_system_type vfat` in `src/fs/fs.c`, next to `ext2`.
-- `statfs64_from_inode()` now has a FAT32 branch in `src/fs/stat.c`; ext2 is
-  still rejected until that helper is generalized further.
-- `/proc/mounts` in `src/fs/proc.c` is now generated from mount records and
-  reports source, mountpoint, filesystem type, and read-only state.
+- `struct fat_sb_info` / `struct fat_inode_info` are in the private-data unions
+  in `src/include/fs/fs.h`; ext2 members are already there.
+- `struct file_system_type fat` is registered as `"vfat"` in `src/fs/fs.c`,
+  next to `ext2`.
+- `statfs64_from_inode()` has a FAT32 branch in `src/fs/stat.c`.
+- `/proc/mounts` in `src/fs/proc.c` reports `vfat` mounts as `rw` or `ro` from
+  the FAT superblock state.
 
 The most important difference from ext2 is that FAT has no native inode table
 and no fixed-size logical block. FAT32 data is addressed by 32-byte directory
@@ -69,8 +93,9 @@ required.
 Register the filesystem under the conventional mount name:
 
 ```c
-struct file_system_type fat_fs_type = {
+struct file_system_type fat = {
     .read_super = fat_read_super,
+    .list = LIST_HEAD_INIT(fat.list),
     .name = "vfat",
 };
 ```
@@ -269,22 +294,24 @@ Extend the private-data unions:
 ```c
 union {
     struct mario_sb_info mario_sb;
+    struct ext2_sb_info ext2_sb;
     struct fat_sb_info fat_sb;
 } u;
 
 union {
     struct mario_inode_info mario_i;
     struct pipe_inode_info pipe_i;
+    struct ext2_inode_info ext2_i;
     struct fat_inode_info fat_i;
 } u;
 ```
 
-Use the same `super_operations.statfs` extension proposed for ext2 so FAT32
-can report its cluster-based geometry.
+FAT32 uses the existing `statfs64_from_inode()` magic-number branch rather than
+adding a new `super_operations.statfs` callback.
 
 ### `src/fs/fs.c`
 
-Register `fat_fs_type`. `fat_read_super()` must fail cleanly for the MarioFS
+Register `fat`. `fat_read_super()` must fail cleanly for the MarioFS
 ramdisk root so registering it before `mount_root()` is safe.
 
 ### `src/fs/stat.c`
@@ -294,18 +321,18 @@ FAT32 `statfs` fills:
 - `f_bsize = cluster_size`
 - `f_frsize = cluster_size`
 - `f_blocks = total_clusters`
-- `f_bfree = free_clusters`
+- `f_bfree = 0` until free-cluster accounting is implemented
 - `f_files = 0`
 - `f_ffree = 0`
-- `f_namelen = 255` once LFN support is present
+- `f_namelen = 255`
 
-For read-only support, free clusters can be counted during mount or read from
-FSInfo if it is valid. For writable support, keep the count in
-`fat_sb_info`.
+For writable support, a simple in-memory `next_free` scan hint is kept in
+`fat_sb_info`.  On-disk FSInfo free-count maintenance remains deferred.
 
 ### `src/fs/proc.c`
 
-Show `vfat` mounts in `/proc/mounts` instead of always printing MarioFS.
+`proc_mount_options()` reports FAT superblocks as `rw` or `ro`, and the generic
+mount-record path already emits source, mountpoint, and filesystem type.
 
 ## Superblock and Mounting
 
@@ -317,12 +344,12 @@ Show `vfat` mounts in `/proc/mounts` instead of always printing MarioFS.
 4. Validate cluster count and supported attributes.
 5. Fill `fat_sb_info`.
 6. Set `sb->s_block_size = cluster_size`.
-7. Set `sb->s_magic = FAT32_SUPER_MAGIC`.
-8. Set `sb->s_op = &fat_super_ops`.
+7. Set `sb->s_magic = FAT_SUPER_MAGIC`.
+8. Set `sb->s_op = &fat_super_operations`.
 9. Create the root inode with `FAT_ROOT_INO`.
 
-Read-only mounts set `fat_sb_info.readonly = 1` until write support is
-complete.
+Writable mounts set `fat_sb_info.readonly = 0`; a `ro` mount option can be
+added later if needed.
 
 ## Inode Operations
 
@@ -336,7 +363,8 @@ complete.
   - directory: `S_IFDIR | 0777`
   - volume label or system/hidden: skip or expose as regular
   - otherwise: `S_IFREG | 0777`
-- Set `i_size`, `i_nlink`, timestamps, `i_block_size`, and `i_nr_block`.
+- Set `i_size`, `i_nlink`, timestamps (currently zero), `i_block_size`, and
+  `i_nr_block`.
 - Assign operation tables:
   - directory: `fat_dir_iops`, `fat_dir_fops`
   - regular file: `fat_file_iops`, `fat_file_fops`
@@ -349,8 +377,9 @@ cluster, attributes, and timestamps. This is required only for writable FAT.
 
 ### `fat_clear_inode`
 
-Release any cached FAT-chain mapping. Do not free the embedded `fat_inode_info`
-itself.
+The read-only implementation keeps no per-inode cache, so this callback is
+currently empty. It must later release any cached FAT-chain mapping without
+freeing the embedded `fat_inode_info`.
 
 ## FAT Chain and File Data
 
@@ -367,7 +396,8 @@ itself.
 Walking the FAT chain from the start on every read is correct but slow for
 random seeks. Cache either the last resolved file cluster or a full
 cluster-chain map in `fat_inode_info`, similar to the MarioFS block-map
-optimization.
+optimization. The current read-only implementation walks from the start and
+does not yet cache file cluster chains.
 
 ### Write Path
 
@@ -389,9 +419,12 @@ optimization.
 
 ## FAT Allocation
 
-Add `src/fs/fat/alloc.c` for writable support:
+The read-only driver implements the chain reader in `src/fs/fat/fat.c`:
 
 - `fat_next_cluster(sb, cluster)` reads the FAT table.
+
+Add `src/fs/fat/alloc.c` for writable support:
+
 - `fat_set_cluster(sb, cluster, value)` updates all FAT copies and the cache.
 - `fat_alloc_cluster(sb, near)` scans for a free FAT entry and marks it end of
   chain.
@@ -423,8 +456,8 @@ same free cluster. The first allocator can be a linear scan; FSInfo's
 - Advance `f_pos` past the emitted short-name entry.
 - Stop at the `0x00` end marker.
 
-The first version can emit short names only. LFN emission is the next
-read-only sub-milestone.
+The current implementation emits the LFN when its checksum and sequence are
+valid; otherwise it falls back to the short name.
 
 ### Create/Mkdir/Unlink/Rmdir
 
@@ -452,9 +485,9 @@ Set these inode operations to `NULL` so the VFS returns an error:
 - `symlink`, `readlink`, `follow_link`: FAT has no native symlinks.
 - `link`: FAT has no hard links.
 
-## Files to Change
+## Files
 
-### New
+### Implemented files
 
 - `src/include/fs/fat/fat.h`
 - `src/fs/fat/super.c`
@@ -462,21 +495,62 @@ Set these inode operations to `NULL` so the VFS returns an error:
 - `src/fs/fat/dir.c`
 - `src/fs/fat/file.c`
 - `src/fs/fat/fat.c`
-- `src/fs/fat/alloc.c`
-- `src/fs/fat/misc.c` (timestamp and name conversions)
+- `src/fs/fat/misc.c` (short-name conversion and matching)
+- `src/fs/fat/alloc.c` (cluster allocation, FAT writes, and chain free)
 
-### Modified
+### Modified for read-only support
 
 - `src/include/fs/fs.h`
 - `src/fs/fs.c`
 - `src/fs/stat.c`
 - `src/fs/proc.c`
 
+### Implemented for writable support
+
+- `src/fs/fat/alloc.c`
+- `tests/shell/vfat.write.test`
+- an optional `app/test/fat` helper
+
 No change to `src/Makefile` is required.
+
+## Remaining FAT32 Operations
+
+The current driver covers the read-only milestones and the basic writable
+operations.  The following operations and hardening work are intentionally
+left for later commits.
+
+Functional gaps:
+
+- Cross-directory `rename`; the current implementation returns `-EXDEV`.
+- `rename` over an existing target; the current implementation returns
+  `-EEXIST` instead of replacing the target.
+- LFN generation on writes; non-8.3 names are rejected until this is added.
+- Timestamp persistence in `fat_write_inode()`; creation, write, and access
+  times are currently left zero.
+- Accurate `statfs` free-space reporting; `f_bfree`, `f_bavail`, `f_files`,
+  and `f_ffree` are currently zero.
+- On-disk FSInfo `next_free`/free-count maintenance; only an in-memory scan
+  hint exists.
+- Directory LFN cleanup across cluster boundaries during unlink/rename.
+
+Correctness and performance hardening:
+
+- Serialize cluster allocation with the filesystem semaphore.
+- Add a per-inode cluster-chain cache to avoid walking the FAT from cluster 0
+  on every read, write, and seek.
+- Replace the single-sector FAT cache with a small LRU or cluster buffer cache.
+- Bound `fat_cluster_count()` and directory scans against corrupt/looping FAT
+  chains.
+- Maintain the dirty-volume bit and free-cluster count.
+- Handle FAT12/FAT16 if broader removable-media support is ever needed.
+
+Native symlinks, hard links, and device/FIFO nodes remain intentionally
+unsupported because FAT has no on-disk representation for them.  `mmap` for
+FAT files is deferred.
 
 ## Milestones
 
-### Milestone 1: Read-only mount and short names
+### Milestone 1: Read-only mount and short names — implemented
 
 - Parse the FAT32 BPB and validate geometry.
 - Register `"vfat"`.
@@ -485,28 +559,28 @@ No change to `src/Makefile` is required.
 - Implement regular-file read through FAT chains.
 - Mount a FAT32 partition and pass `ls`/`cat` tests using short names.
 
-### Milestone 2: Long file names and statfs
+### Milestone 2: Long file names and statfs — implemented
 
 - Parse and validate LFN entries in lookup and readdir.
 - Convert UTF-16LE names lossily to kernel byte names.
 - Integrate `statfs` and `/proc/mounts`.
 - Verify with files created by host `mkfs.fat`/`cp`.
 
-### Milestone 3: Writable files
+### Milestone 3: Writable files — implemented
 
 - Implement `fat_write_inode` and FAT chain allocation/free.
 - Implement file write, extend, and truncate.
 - Implement create and unlink.
 - Verify with `touch`, `echo >`, `cp`, `rm`, and `truncate`.
 
-### Milestone 4: Writable directories and rename
+### Milestone 4: Writable directories and rename — implemented
 
 - Implement mkdir, rmdir, and same-directory rename.
 - Add directory entry allocation and free-slot scanning.
-- Add LFN generation or keep write-side names to valid 8.3 form.
+- Keep write-side names to valid 8.3 form (LFN generation remains deferred).
 - Verify with `mkdir`, `rmdir`, `mv`, and larger shell tests.
 
-### Milestone 5: Performance and hardening
+### Milestone 5: Performance and hardening — planned
 
 - Add a cluster-chain cache for regular files.
 - Add a small FAT-sector LRU and cluster buffer cache.
@@ -549,20 +623,34 @@ echo hello | mcopy -i fat32.img - ::/dir/hello.txt
 
 Then expose `fat32.img` as an AHCI disk in QEMU and mount it.
 
-Automated test candidates:
+Automated tests:
 
 - `tests/shell/vfat.test`: implemented with `REQUIRES-HD:` and mounts, lists,
   and reads FAT32 partitions across the generated test disks.
-- `tests/shell/vfat-write.test`: use `REQUIRES-HD:` and create/write/read/
-  delete/rename with `-snapshot` so the generated images stay clean.
-- A small `app/test/fat` program for deterministic BPB/FAT/directory checks.
+- `tests/shell/vfat.write.test`: implemented with `REQUIRES-HD:` and covers
+  create/write/read/truncate/mkdir/rmdir/rename with `-snapshot` so the
+  generated images stay clean.  It includes a multi-cluster binary-pattern
+  readback check.
+- `tests/shell/vfat.stress.test`: implemented with `REQUIRES-HD:` and exercises
+  repeated create/write/readback/unlink/rmdir cycles plus unsupported symlink,
+  hard-link, FIFO, and long-name operations.
+- A small `app/test/fat` program is planned for deterministic BPB/FAT/directory
+  checks.
+
+Run the implemented FAT tests with:
+
+```sh
+python3 tests/lit_shell_test.py tests/shell/vfat.test
+python3 tests/lit_shell_test.py tests/shell/vfat.write.test
+python3 tests/lit_shell_test.py tests/shell/vfat.stress.test
+```
 
 ## Deferred
 
 - FAT12 and FAT16.
 - LFN generation for writes.
 - Unicode normalization and full UTF-8 output for long names.
-- FSInfo `next_free` allocation hints.
+- On-disk FSInfo `next_free`/free-count hints (an in-memory scan hint exists).
 - Dirty-volume bit, free-cluster count maintenance, and FAT mirror handling.
 - Defragmentation or contiguous cluster allocation.
 - `mmap` for FAT files.

@@ -130,6 +130,8 @@ int fat_ino_location(struct super_block *sb, unsigned long ino,
 		return -EINVAL;
 
 	physical = ino - FAT_ROOT_INO - 1;
+	if (physical % FAT_ENTRY_SIZE)
+		return -EINVAL;
 	*cluster = physical / FAT_CLUSTER_SIZE(sb) + 2;
 	*offset = physical % FAT_CLUSTER_SIZE(sb);
 	if (*cluster - 2 >= FAT_SB(sb).total_clusters ||

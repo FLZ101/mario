@@ -1,0 +1,147 @@
+REQUIRES-HD:
+TIMEOUT: 120
+
+RUN: export PATH=/bin/toybox:/bin
+
+RUN: mount -t vfat /dev/hdc2 /mnt; echo mount-status:$?
+CHECK: mount-status:0
+
+# Exercise repeated create/write/read/unlink/rmdir cycles.  FAT write support
+# currently generates only 8.3 names, so all paths here are deliberately short.
+# Symlink, hard-link, and FIFO creation are intentionally tested as unsupported
+# operations instead of expecting FAT to emulate them.
+RUN: python <<'PYEOF'
+import errno
+import os
+import stat
+
+base = '/mnt/vfs'
+os.mkdir(base)
+
+for i in range(8):
+    dirname = os.path.join(base, 'd%02d' % i)
+    subdir = os.path.join(dirname, 'sub')
+    path = os.path.join(subdir, 'data.bin')
+
+    os.mkdir(dirname)
+    os.mkdir(subdir)
+
+    data = ('vfat-%02d-' % i).encode() * 1024
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    written = 0
+    while written < len(data):
+        count = os.write(fd, data[written:])
+        if count <= 0:
+            raise RuntimeError('short write')
+        written += count
+    os.close(fd)
+
+    fd = os.open(path, os.O_RDONLY)
+    got = b''
+    while len(got) < len(data):
+        chunk = os.read(fd, len(data) - len(got))
+        if not chunk:
+            break
+        got += chunk
+    os.close(fd)
+    assert got == data
+
+    assert os.listdir(subdir) == ['data.bin']
+    os.unlink(path)
+    os.rmdir(subdir)
+    os.rmdir(dirname)
+
+# FAT has no symlink operation.  The VFS should reject the syscall cleanly.
+target = os.path.join(base, 'target.txt')
+fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+os.write(fd, b'link-target\n')
+os.close(fd)
+try:
+    os.symlink('target.txt', os.path.join(base, 'lnk.txt'))
+except OSError as exc:
+    assert exc.errno in (errno.EBADF, errno.ENOSYS, errno.EPERM, errno.EINVAL)
+else:
+    raise AssertionError('symlink unexpectedly succeeded')
+os.unlink(target)
+
+# FAT has no hard links.
+link_target = os.path.join(base, 'ht.txt')
+hard_link = os.path.join(base, 'hl.txt')
+fd = os.open(link_target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+os.write(fd, b'hard-link-data\n')
+os.close(fd)
+try:
+    os.link(link_target, hard_link)
+except OSError as exc:
+    assert exc.errno in (errno.EPERM, errno.ENOSYS, errno.EINVAL)
+else:
+    raise AssertionError('link unexpectedly succeeded')
+os.unlink(link_target)
+
+# FAT has no native device/FIFO nodes.
+try:
+    os.mkfifo(os.path.join(base, 'fifo'), 0o600)
+except OSError as exc:
+    assert exc.errno in (errno.EPERM, errno.ENOSYS, errno.EINVAL)
+else:
+    raise AssertionError('mkfifo unexpectedly succeeded')
+
+# New names must fit the write-side 8.3 name generator.
+try:
+    os.mkdir(os.path.join(base, 'longdirname'))
+except OSError as exc:
+    assert exc.errno in (errno.ENAMETOOLONG, errno.EINVAL)
+else:
+    raise AssertionError('long directory name unexpectedly succeeded')
+
+# Rename a regular file and verify both names.
+rename_src = os.path.join(base, 'rsrc.txt')
+rename_dst = os.path.join(base, 'rdst.txt')
+fd = os.open(rename_src, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+os.write(fd, b'rename-data\n')
+os.close(fd)
+os.rename(rename_src, rename_dst)
+assert not os.path.exists(rename_src)
+fd = os.open(rename_dst, os.O_RDONLY)
+assert os.read(fd, 64) == b'rename-data\n'
+os.close(fd)
+os.unlink(rename_dst)
+
+# Cross-directory rename is not implemented by this FAT driver.
+move_file = os.path.join(base, 'move.txt')
+move_dir = os.path.join(base, 'movedir')
+os.open(move_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600).close()
+os.mkdir(move_dir)
+try:
+    os.rename(move_file, os.path.join(move_dir, 'move.txt'))
+except OSError as exc:
+    assert exc.errno == errno.EXDEV
+else:
+    raise AssertionError('cross-directory rename unexpectedly succeeded')
+os.unlink(move_file)
+os.rmdir(move_dir)
+
+# Rename a directory, then verify unlink refuses directories and rmdir works.
+rename_dir = os.path.join(base, 'rdir')
+renamed_dir = os.path.join(base, 'rdir2')
+os.mkdir(rename_dir)
+os.rename(rename_dir, renamed_dir)
+assert os.path.isdir(renamed_dir)
+assert not os.path.exists(rename_dir)
+try:
+    os.unlink(renamed_dir)
+except OSError as exc:
+    assert exc.errno == errno.EISDIR
+else:
+    raise AssertionError('unlink unexpectedly removed a directory')
+os.rmdir(renamed_dir)
+
+assert os.listdir(base) == []
+os.rmdir(base)
+print('vfat-stress-ok')
+PYEOF
+
+CHECK: vfat-stress-ok
+
+RUN: umount /mnt; echo umount-status:$?
+CHECK: umount-status:0

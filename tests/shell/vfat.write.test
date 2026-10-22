@@ -1,0 +1,72 @@
+REQUIRES-HD:
+
+# Writable FAT32 smoke test.  The test runner uses -snapshot for HD tests, so
+# the checked-in image is not modified.
+
+RUN: export PATH=/bin/toybox:/bin
+RUN: mkdir -p /mnt
+RUN: mkdir -p /tmp
+
+RUN: mount -t vfat /dev/hdc2 /mnt; echo mount-status:$?
+CHECK: mount-status:0
+
+RUN: touch /mnt/wr.txt; echo touch-status:$?
+CHECK: touch-status:0
+
+RUN: echo hello > /mnt/wr.txt; echo write-status:$?
+CHECK: write-status:0
+RUN: cat /mnt/wr.txt; echo read-status:$?
+CHECK: hello
+CHECK: read-status:0
+
+RUN: /bin/oksh - <<'EOF'
+/bin/sbase/dd if=/dev/urandom of=/tmp/fat.pattern bs=4096 count=8 >/dev/null 2>&1
+/bin/sbase/dd if=/tmp/fat.pattern of=/mnt/big.bin >/dev/null 2>&1
+/bin/sbase/dd if=/mnt/big.bin of=/tmp/fat.back >/dev/null 2>&1
+status=mismatch
+if cmp /tmp/fat.pattern /tmp/fat.back; then
+	status=ok
+else
+	status=mismatch
+fi
+echo "big-file:$status"
+EOF
+CHECK: big-file:ok
+
+RUN: touch /mnt/m1 /mnt/m2 /mnt/m3 /mnt/m4 /mnt/m5 /mnt/m6 /mnt/m7 /mnt/m8 /mnt/m9 /mnt/m10 /mnt/m11 /mnt/m12 /mnt/m13 /mnt/m14 /mnt/m15 /mnt/m16 /mnt/m17 /mnt/m18 /mnt/m19 /mnt/m20; echo many-status:$?
+CHECK: many-status:0
+RUN: test -e /mnt/m20; echo many-last:$?
+CHECK: many-last:0
+
+RUN: echo abcdefghijklmnopqrstuvwxyz > /mnt/trunc.txt; truncate -s 5 /mnt/trunc.txt; cat /mnt/trunc.txt; echo truncate-status:$?
+CHECK: abcde
+CHECK: truncate-status:0
+
+RUN: truncate -s 4096 /mnt/zero.bin; /bin/sbase/dd if=/dev/zero of=/tmp/zero.pat bs=4096 count=1 >/dev/null 2>&1; cmp /mnt/zero.bin /tmp/zero.pat; echo zero-status:$?
+CHECK: zero-status:0
+
+RUN: mkdir /mnt/wrdir; echo mkdir-status:$?
+CHECK: mkdir-status:0
+RUN: echo nested > /mnt/wrdir/n.txt; cat /mnt/wrdir/n.txt
+CHECK: nested
+
+RUN: mv /mnt/wr.txt /mnt/ren.txt; echo rename-status:$?
+CHECK: rename-status:0
+RUN: cat /mnt/ren.txt
+CHECK: hello
+
+RUN: rm /mnt/ren.txt; test ! -e /mnt/ren.txt; echo unlink-status:$?
+CHECK: unlink-status:0
+RUN: rm /mnt/wrdir/n.txt; rmdir /mnt/wrdir; echo rmdir-status:$?
+CHECK: rmdir-status:0
+RUN: rm /mnt/trunc.txt; echo truncate-unlink-status:$?
+CHECK: truncate-unlink-status:0
+RUN: rm /mnt/zero.bin; echo zero-unlink-status:$?
+CHECK: zero-unlink-status:0
+RUN: rm /mnt/big.bin; echo big-unlink-status:$?
+CHECK: big-unlink-status:0
+RUN: rm /mnt/m1 /mnt/m2 /mnt/m3 /mnt/m4 /mnt/m5 /mnt/m6 /mnt/m7 /mnt/m8 /mnt/m9 /mnt/m10 /mnt/m11 /mnt/m12 /mnt/m13 /mnt/m14 /mnt/m15 /mnt/m16 /mnt/m17 /mnt/m18 /mnt/m19 /mnt/m20; echo many-unlink-status:$?
+CHECK: many-unlink-status:0
+
+RUN: umount /mnt; echo umount-status:$?
+CHECK: umount-status:0

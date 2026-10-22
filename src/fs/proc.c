@@ -269,7 +269,9 @@ static int proc_mount_source(struct super_block *sb, char *buf, size_t size)
 
 static const char *proc_mount_options(struct super_block *sb)
 {
-	return sb->s_magic == FAT_SUPER_MAGIC ? "ro" : "rw";
+	if (sb->s_magic == FAT_SUPER_MAGIC)
+		return FAT_SB(sb).readonly ? "ro" : "rw";
+	return "rw";
 }
 
 static int proc_mount_line(struct super_block *sb, char *buf, size_t size)

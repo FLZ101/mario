@@ -88,7 +88,8 @@ struct super_block *fat_read_super(struct super_block *sb)
 		goto fail;
 
 	fsb = &FAT_SB(sb);
-	fsb->readonly = 1;
+	fsb->readonly = 0;
+	fsb->next_free = 2;
 	fsb->fat_cache = kmalloc(fsb->bytes_per_sector);
 	if (!fsb->fat_cache)
 		goto fail;
@@ -115,6 +116,7 @@ fail:
 
 static struct super_operations fat_super_operations = {
 	.read_inode = fat_read_inode,
+	.write_inode = fat_write_inode,
 	.clear_inode = fat_clear_inode,
 };
 
