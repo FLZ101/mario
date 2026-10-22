@@ -11,6 +11,8 @@ RUN: mount -t vfat /dev/hdc2 /mnt; echo mount-status:$?
 CHECK: mount-status:0
 RUN: df /mnt; echo df-status:$?
 CHECK: df-status:0
+RUN: df -i /mnt; echo dfi-status:$?
+CHECK: dfi-status:0
 
 RUN: touch /mnt/wr.txt; echo touch-status:$?
 CHECK: touch-status:0

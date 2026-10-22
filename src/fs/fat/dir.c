@@ -1081,6 +1081,114 @@ static int fat_dir_is_empty(struct inode *dir)
 	}
 }
 
+/*
+ * Walk every directory in the filesystem and count used short-name entries
+ * and free directory slots.  LFN and volume-label entries consume directory
+ * capacity but are not files, so they are excluded from the used count.
+ */
+int fat_count_directory_entries(struct super_block *sb, uint32_t *used,
+				uint32_t *free)
+{
+	struct fat_sb_info *fsb = &FAT_SB(sb);
+	uint32_t total = fsb->total_clusters;
+	uint32_t *stack;
+	uint8_t *seen;
+	uint32_t top = 0;
+	uint32_t used_count = 0;
+	uint32_t free_count = 0;
+	int error = 0;
+
+	if (!sb || !used || !free)
+		return -EINVAL;
+
+	seen = kmalloc(total);
+	if (!seen)
+		return -ENOMEM;
+	memset(seen, 0, total);
+	stack = kmalloc(total * sizeof(*stack));
+	if (!stack) {
+		kfree(seen);
+		return -ENOMEM;
+	}
+
+	stack[top++] = fsb->root_cluster;
+	if (fsb->root_cluster >= 2 &&
+	    fsb->root_cluster - 2 < total)
+		seen[fsb->root_cluster - 2] = 1;
+
+	while (top) {
+		uint32_t dir_cluster = stack[--top];
+		uint32_t cluster = dir_cluster;
+		uint32_t chain_seen = 0;
+
+		while (cluster && chain_seen++ < total) {
+			uint32_t next = 0;
+			uint32_t offset;
+			uint8_t *buf;
+
+			buf = kmalloc(fsb->cluster_size);
+			if (!buf) {
+				error = -ENOMEM;
+				goto out;
+			}
+			error = fat_read_cluster(sb, cluster, buf);
+			if (error) {
+				kfree(buf);
+				goto out;
+			}
+
+			for (offset = 0; offset < fsb->cluster_size;
+			     offset += FAT_ENTRY_SIZE) {
+				const uint8_t *entry = buf + offset;
+				uint8_t first = entry[0];
+				uint8_t attributes = entry[11];
+				uint32_t start_cluster;
+
+				if (first == 0x00 || first == 0xe5) {
+					free_count++;
+					continue;
+				}
+				if (attributes == FAT_ATTR_LFN ||
+				    (attributes & FAT_ATTR_VOLUME_ID))
+					continue;
+
+				used_count++;
+				if (!(attributes & FAT_ATTR_DIRECTORY))
+					continue;
+
+				start_cluster = fat_entry_first_cluster(entry);
+				if (start_cluster >= 2 &&
+				    start_cluster - 2 < total &&
+				    !seen[start_cluster - 2]) {
+					seen[start_cluster - 2] = 1;
+					stack[top++] = start_cluster;
+				}
+			}
+
+			kfree(buf);
+			error = fat_next_cluster(sb, cluster, &next);
+			if (error == -ENOENT)
+				break;
+			if (error)
+				goto out;
+			cluster = next;
+		}
+
+		if (cluster) {
+			error = -EIO;
+			goto out;
+		}
+	}
+
+	*used = used_count;
+	*free = free_count;
+	error = 0;
+out:
+	kfree(stack);
+	kfree(seen);
+	return error;
+}
+
 static int fat_lookup(struct inode *dir, char *name, int len,
 		      struct inode **res)
 {

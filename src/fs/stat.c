@@ -83,14 +83,20 @@ static int statfs64_from_inode(struct inode *inode, struct statfs64 *buf)
 		return 0;
 	}
 	if (sb->s_magic == FAT_SUPER_MAGIC) {
+		uint32_t used_entries = 0;
+		uint32_t free_entries = 0;
+
 		memset(buf, 0, sizeof(*buf));
 		buf->f_type = sb->s_magic;
 		buf->f_bsize = FAT_CLUSTER_SIZE(sb);
 		buf->f_blocks = FAT_SB(sb).total_clusters;
 		buf->f_bfree = FAT_SB(sb).free_clusters;
 		buf->f_bavail = FAT_SB(sb).free_clusters;
-		buf->f_files = 0;
-		buf->f_ffree = 0;
+		if (!fat_count_directory_entries(sb, &used_entries,
+						 &free_entries)) {
+			buf->f_files = used_entries;
+			buf->f_ffree = free_entries;
+		}
 		buf->f_fsid.__val[0] = sb->s_dev;
 		buf->f_fsid.__val[1] = 0;
 		buf->f_namelen = 255;
