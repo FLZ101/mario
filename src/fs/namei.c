@@ -92,12 +92,6 @@ int lookup(struct inode *dir, char *name, int len, struct inode **res)
 
 	if (dir->i_op == &proc_dir_iops)
 		return dir->i_op->lookup(dir, name, len, res);
-	if ((sb = dir->i_sb) && dir == sb->s_mounted &&
-	    len == 4 && !memcmp(name, "proc", 4)) {
-		*res = proc_get_root();
-		iput(dir);
-		return *res ? 0 : -ENOMEM;
-	}
 	/* Expose the minimal debugfs tree at /sys/kernel/debug. */
 	if ((sb = dir->i_sb) && dir == sb->s_mounted &&
 	    len == 3 && !memcmp(name, "sys", 3)) {

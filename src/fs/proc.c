@@ -14,6 +14,8 @@ static struct file_operations proc_dir_fops = {
 	.readdir = proc_readdir,
 };
 
+static struct super_block *proc_sb;
+
 /*
  * procfs inode numbers are synthetic.  The top byte is a node class
  * and the low bytes encode pid/fd where needed.
@@ -159,9 +161,9 @@ static struct inode *proc_alloc_inode(unsigned long ino, int size,
 	if (!inode)
 		return NULL;
 
-	inode->i_dev = 0;
+	inode->i_dev = proc_sb ? proc_sb->s_dev : 0;
 	inode->i_ino = ino;
-	inode->i_sb = NULL;
+	inode->i_sb = proc_sb;
 	inode->i_rdev = 0;
 	inode->i_mount = NULL;
 	inode->i_nr_block = 0;
@@ -253,6 +255,9 @@ static int proc_mount_source(struct super_block *sb, char *buf, size_t size)
 
 	if (!sb->s_covered)
 		return sprintk(buf, "mariofs");
+
+	if (!sb->s_dev && sb->s_fsname)
+		return sprintk(buf, "%s", sb->s_fsname);
 
 	n = sprintk(buf, "/dev/");
 	if (n < 0 || (size_t)n >= size)
@@ -628,7 +633,9 @@ static int proc_parent(unsigned long dir_ino, struct inode **res)
 	*res = NULL;
 
 	if (dir_ino == PROC_INO_ROOT) {
-		*res = current->fs->root;
+		if (!proc_sb || !proc_sb->s_covered)
+			return -ENOENT;
+		*res = proc_sb->s_covered;
 		iref(*res);
 		return 0;
 	}
@@ -829,5 +836,30 @@ static int proc_readdir(struct inode *dir, struct file *file, void *dirent,
 
 struct inode *proc_get_root(void)
 {
-	return proc_make_dir(PROC_INO_ROOT);
+	if (!proc_sb || !proc_sb->s_mounted)
+		return NULL;
+	iref(proc_sb->s_mounted);
+	return proc_sb->s_mounted;
 }
+
+static struct super_operations proc_sops;
+
+static struct super_block *proc_read_super(struct super_block *sb)
+{
+	proc_sb = sb;
+	sb->s_magic = PROC_SUPER_MAGIC;
+	sb->s_block_size = 512;
+	sb->s_op = &proc_sops;
+	sb->s_mounted = proc_make_dir(PROC_INO_ROOT);
+	if (!sb->s_mounted)
+		return NULL;
+	sb->s_mounted->i_sb = sb;
+	return sb;
+}
+
+struct file_system_type proc = {
+	.read_super = proc_read_super,
+	.list = LIST_HEAD_INIT(proc.list),
+	.name = "proc",
+	.fs_flags = FS_NODEV,
+};

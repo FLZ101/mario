@@ -32,10 +32,13 @@
 #include <fs/ext2/ext2.h>
 #include <fs/fat/fat.h>
 
+#define FS_NODEV		1
+
 struct file_system_type {
 	struct super_block *(*read_super)(struct super_block *);
 	struct list_head list;
 	char *name;
+	int fs_flags;
 };
 
 extern struct list_head file_systems;

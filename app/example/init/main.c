@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/wait.h>
+#include <sys/mount.h>
 #include <signal.h>
 #include <string.h>
 #include <time.h>
@@ -130,6 +131,11 @@ int main(int argc, char *argv[], char *envp[])
         exit(EXIT_FAILURE);
 
     PrintFile("/etc/welcome.txt");
+
+    if (0 != mount("proc", "/proc", "proc", 0, NULL)) {
+        perror("mount proc");
+        exit(EXIT_FAILURE);
+    }
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));

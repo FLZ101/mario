@@ -1,5 +1,8 @@
 RUN: export PATH=/bin/toybox:/bin
 
+RUN: ls /
+CHECK: proc
+
 RUN: cat /proc/version
 CHECK: Mario OS version 1.0
 
@@ -8,6 +11,9 @@ CHECK-REGEX: [0-9]+\.[0-9]+ 0\.00
 
 RUN: cat /proc/mounts
 CHECK: mariofs / mariofs rw 0 0
+
+RUN: mount
+CHECK: proc on /proc type proc (rw)
 
 RUN: readlink /proc/self
 CHECK-REGEX: /proc/[0-9]+
@@ -29,3 +35,10 @@ CHECK: proc-fd-list:0
 
 RUN: test -d /proc/self/fd; echo proc-fd-dir:$?
 CHECK: proc-fd-dir:0
+
+RUN: umount /proc; echo proc-umount:$?
+CHECK: proc-umount:0
+RUN: mount -t proc proc /proc; echo proc-remount:$?
+CHECK: proc-remount:0
+RUN: cat /proc/version
+CHECK: Mario OS version 1.0
