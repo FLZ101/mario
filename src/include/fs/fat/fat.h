@@ -45,6 +45,17 @@ struct file_operations;
 #define FAT_BPB_ROOT_CLUSTER		44
 #define FAT_BPB_FSINFO			48
 
+/* FAT32 FSInfo sector layout. */
+#define FAT_FSINFO_LEAD_SIG_OFFSET	0
+#define FAT_FSINFO_STRUCT_SIG_OFFSET	484
+#define FAT_FSINFO_FREE_COUNT_OFFSET	488
+#define FAT_FSINFO_NEXT_FREE_OFFSET	492
+#define FAT_FSINFO_TRAIL_SIG_OFFSET	508
+#define FAT_FSINFO_LEAD_SIG		0x41615252UL
+#define FAT_FSINFO_STRUCT_SIG		0x61417272UL
+#define FAT_FSINFO_TRAIL_SIG		0xaa550000UL
+#define FAT_FSINFO_UNKNOWN		0xffffffffUL
+
 /*
  * Kernel-side mount state for one FAT32 filesystem.  The BPB is read manually
  * from a byte buffer because its fields are unaligned and must not be
@@ -58,12 +69,14 @@ struct fat_sb_info {
 	uint32_t fat_size32;
 	uint32_t total_sectors;
 	uint32_t root_cluster;
+	uint32_t fsinfo_sector;
 	uint32_t first_data_sector;
 	uint32_t data_sectors;
 	uint32_t total_clusters;
 	uint32_t cluster_size;
 	unsigned long readonly;
 	uint32_t next_free;
+	uint32_t free_clusters;
 
 	uint32_t fat_cache_sector;
 	int fat_cache_valid;
@@ -119,6 +132,8 @@ int fat_read_fat_entry(struct super_block *sb, uint32_t cluster,
 		       uint32_t *value);
 int fat_write_fat_entry(struct super_block *sb, uint32_t cluster,
 			uint32_t value);
+int fat_load_fsinfo(struct super_block *sb);
+int fat_write_fsinfo(struct super_block *sb);
 int fat_next_cluster(struct super_block *sb, uint32_t cluster,
 		     uint32_t *next);
 int fat_count_free_clusters(struct super_block *sb, uint32_t *free_count);

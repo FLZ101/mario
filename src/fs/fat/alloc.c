@@ -6,6 +6,93 @@
 #include <lib/string.h>
 
 /*
+ * Read the FAT32 FSInfo sector and use its next-free hint if the sector is
+ * valid.  The free-cluster count is loaded when present; callers fall back to
+ * a full FAT scan when the field is unknown or invalid.
+ */
+int fat_load_fsinfo(struct super_block *sb)
+{
+	struct fat_sb_info *fsb = &FAT_SB(sb);
+	uint8_t *buf;
+	uint32_t next_free;
+	uint32_t free_count;
+	int error;
+
+	if (!sb || !fsb->fsinfo_sector ||
+	    fsb->fsinfo_sector >= fsb->total_sectors)
+		return -ENOENT;
+
+	buf = kmalloc(fsb->bytes_per_sector);
+	if (!buf)
+		return -ENOMEM;
+	error = blkdev_read(sb->s_dev, fsb->fsinfo_sector, 1, (char *)buf);
+	if (error)
+		goto out;
+	if (fat_read32(buf + FAT_FSINFO_LEAD_SIG_OFFSET) !=
+	    FAT_FSINFO_LEAD_SIG ||
+	    fat_read32(buf + FAT_FSINFO_STRUCT_SIG_OFFSET) !=
+	    FAT_FSINFO_STRUCT_SIG ||
+	    fat_read32(buf + FAT_FSINFO_TRAIL_SIG_OFFSET) !=
+	    FAT_FSINFO_TRAIL_SIG) {
+		error = -ENOENT;
+		goto out;
+	}
+
+	next_free = fat_read32(buf + FAT_FSINFO_NEXT_FREE_OFFSET);
+	if (next_free >= 2 && next_free - 2 < fsb->total_clusters)
+		fsb->next_free = next_free;
+	free_count = fat_read32(buf + FAT_FSINFO_FREE_COUNT_OFFSET);
+	if (free_count != FAT_FSINFO_UNKNOWN &&
+	    free_count <= fsb->total_clusters)
+		fsb->free_clusters = free_count;
+	else
+		fsb->free_clusters = FAT_FSINFO_UNKNOWN;
+	error = 0;
+out:
+	kfree(buf);
+	return error;
+}
+
+/*
+ * Write the in-memory free-cluster count and allocation hint back to the
+ * FSInfo sector.  Only a validated FSInfo sector is updated; the kernel keeps
+ * working with its in-memory counters even when the sector is absent.
+ */
+int fat_write_fsinfo(struct super_block *sb)
+{
+	struct fat_sb_info *fsb = &FAT_SB(sb);
+	uint8_t *buf;
+	int error;
+
+	if (!sb || !fsb->fsinfo_sector ||
+	    fsb->fsinfo_sector >= fsb->total_sectors)
+		return -ENOENT;
+
+	buf = kmalloc(fsb->bytes_per_sector);
+	if (!buf)
+		return -ENOMEM;
+	error = blkdev_read(sb->s_dev, fsb->fsinfo_sector, 1, (char *)buf);
+	if (error)
+		goto out;
+	if (fat_read32(buf + FAT_FSINFO_LEAD_SIG_OFFSET) !=
+	    FAT_FSINFO_LEAD_SIG ||
+	    fat_read32(buf + FAT_FSINFO_STRUCT_SIG_OFFSET) !=
+	    FAT_FSINFO_STRUCT_SIG ||
+	    fat_read32(buf + FAT_FSINFO_TRAIL_SIG_OFFSET) !=
+	    FAT_FSINFO_TRAIL_SIG) {
+		error = -ENOENT;
+		goto out;
+	}
+
+	fat_write32(buf + FAT_FSINFO_FREE_COUNT_OFFSET, fsb->free_clusters);
+	fat_write32(buf + FAT_FSINFO_NEXT_FREE_OFFSET, fsb->next_free);
+	error = blkdev_write(sb->s_dev, fsb->fsinfo_sector, 1, (char *)buf);
+out:
+	kfree(buf);
+	return error;
+}
+
+/*
  * Write one data cluster.  All cluster validation is shared with the read
  * path so that a bad inode cannot address metadata outside the data area.
  */
@@ -127,6 +214,8 @@ int fat_alloc_cluster(struct super_block *sb, uint32_t previous,
 			fsb->next_free = candidate + 1;
 			if (fsb->next_free - 2 >= fsb->total_clusters)
 				fsb->next_free = 2;
+			fsb->free_clusters--;
+			fat_write_fsinfo(sb);
 			*cluster = candidate;
 			error = 0;
 			goto out;
@@ -152,6 +241,8 @@ int fat_alloc_cluster(struct super_block *sb, uint32_t previous,
 			fsb->next_free = candidate + 1;
 			if (fsb->next_free - 2 >= fsb->total_clusters)
 				fsb->next_free = 2;
+			fsb->free_clusters--;
+			fat_write_fsinfo(sb);
 			*cluster = candidate;
 			error = 0;
 			goto out;
@@ -184,6 +275,10 @@ int fat_free_cluster_chain(struct super_block *sb, uint32_t cluster)
 		error = fat_next_cluster(sb, cluster, &next);
 		if (error == -ENOENT) {
 			error = fat_write_fat_entry(sb, cluster, 0);
+			if (!error && fsb->free_clusters < fsb->total_clusters)
+				fsb->free_clusters++;
+			if (!error)
+				fat_write_fsinfo(sb);
 			return error;
 		}
 		if (error)
@@ -191,10 +286,15 @@ int fat_free_cluster_chain(struct super_block *sb, uint32_t cluster)
 		error = fat_write_fat_entry(sb, cluster, 0);
 		if (error)
 			return error;
+		if (fsb->free_clusters < fsb->total_clusters)
+			fsb->free_clusters++;
 		cluster = next;
 	}
 
-	return cluster ? -EIO : 0;
+	error = cluster ? -EIO : 0;
+	if (!error)
+		fat_write_fsinfo(sb);
+	return error;
 }
 
 /*

@@ -27,6 +27,7 @@ static int fat_parse_bpb(struct super_block *sb, const uint8_t *buf)
 	total32 = fat_read32(buf + FAT_BPB_TOTAL_SECTORS32);
 	fsb->fat_size32 = fat_read32(buf + FAT_BPB_FAT_SIZE32);
 	fsb->root_cluster = fat_read32(buf + FAT_BPB_ROOT_CLUSTER);
+	fsb->fsinfo_sector = fat_read16(buf + FAT_BPB_FSINFO);
 
 	if (fsb->bytes_per_sector != 512)
 		return -EINVAL;
@@ -44,6 +45,9 @@ static int fat_parse_bpb(struct super_block *sb, const uint8_t *buf)
 	 * 16-bit field only when it is present. */
 	fsb->total_sectors = total16 ? total16 : total32;
 	if (!fsb->total_sectors)
+		return -EINVAL;
+	if (fsb->fsinfo_sector &&
+	    fsb->fsinfo_sector >= fsb->total_sectors)
 		return -EINVAL;
 
 	fat_start = fsb->reserved_sectors;
@@ -95,6 +99,13 @@ struct super_block *fat_read_super(struct super_block *sb)
 		goto fail;
 	fsb->fat_cache_sector = 0;
 	fsb->fat_cache_valid = 0;
+	fsb->free_clusters = FAT_FSINFO_UNKNOWN;
+	fat_load_fsinfo(sb);
+	if (fsb->free_clusters == FAT_FSINFO_UNKNOWN) {
+		error = fat_count_free_clusters(sb, &fsb->free_clusters);
+		if (error)
+			goto fail_cache;
+	}
 
 	sb->s_block_size = fsb->cluster_size;
 	sb->s_magic = FAT_SUPER_MAGIC;
