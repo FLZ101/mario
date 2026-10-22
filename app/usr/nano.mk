@@ -11,7 +11,7 @@ build-nano: src-nano
 src-nano: $(NANO_SRC_DIR)/configure
 
 $(NANO_SRC_DIR)/configure: | $(NANO_SRC_FILE)
-	tar xf $(NANO_SRC_FILE)
+	tar --no-same-owner -xf $(NANO_SRC_FILE)
 
 $(NANO_SRC_FILE):
 	wget -c --no-check-certificate $(NANO_SRC_URL) -O $(NANO_SRC_FILE)

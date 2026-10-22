@@ -83,7 +83,7 @@ def _pexpect_expect(child, pattern, timeout, description):
     try:
         return child.expect(pattern, timeout=timeout)
     except pexpect.exceptions.TIMEOUT:
-        last = str(getattr(child, "before", ""))[-500:]
+        last = re.sub(r"\r+\n", "\n", str(getattr(child, "before", ""))[-500:])
         raise PexpectTimeout(
             f"{description} timed out after {timeout:g}s\nLast output: {last!r}"
         ) from None
@@ -95,9 +95,6 @@ class LitTest:
         self.requires_hd = False
         self.runs = []
         self.actions = []
-        self.checks = []
-        self.check_nots = []
-        self.check_regexes = []
 
     def parse(self):
         heredoc_delimiter = None
@@ -169,11 +166,15 @@ class LitTest:
                 elif body.startswith("EXIT:"):
                     break
                 elif body.startswith("CHECK-REGEX:"):
-                    self.check_regexes.append(body[len("CHECK-REGEX:") :].strip())
+                    self.actions.append(
+                        ("check-regex", body[len("CHECK-REGEX:") :].strip())
+                    )
                 elif body.startswith("CHECK-NOT:"):
-                    self.check_nots.append(body[len("CHECK-NOT:") :].strip())
+                    self.actions.append(
+                        ("check-not", body[len("CHECK-NOT:") :].strip())
+                    )
                 elif body.startswith("CHECK:"):
-                    self.checks.append(body[len("CHECK:") :].strip())
+                    self.actions.append(("check", body[len("CHECK:") :].strip()))
 
         if heredoc_delimiter is not None:
             raise ValueError(f"{self.path}: unterminated heredoc {heredoc_delimiter!r}")
@@ -208,7 +209,7 @@ def start_qemu(qemu, realtime=False, with_disk=False):
         cmd += [
             "-snapshot",
             "-drive",
-            f"id=mario-test-hd,file={HD1_IMAGE},format=raw,if=none",
+            f"id=mario-test-hd1,file={HD1_IMAGE},format=raw,if=none",
             "-drive",
             f"id=mario-test-hd2,file={HD2_IMAGE},format=raw,if=none",
             "-drive",
@@ -216,7 +217,7 @@ def start_qemu(qemu, realtime=False, with_disk=False):
             "-device",
             "ahci,id=mario-test-ahci",
             "-device",
-            "ide-hd,drive=mario-test-hd,bus=mario-test-ahci.0",
+            "ide-hd,drive=mario-test-hd1,bus=mario-test-ahci.0",
             "-device",
             "ide-hd,drive=mario-test-hd2,bus=mario-test-ahci.1",
             "-device",
@@ -237,6 +238,14 @@ def run_lit_test(test, qemu, realtime=False):
     output = []
     prompts = [PROMPT]
     timeout = DEFAULT_TIMEOUT
+    failures = []
+    last_success_end = 0
+    report_start = 0
+    saw_failure = False
+
+    def captured_text():
+        chunks = [re.sub(r"\r+\n", "\n", chunk).rstrip("\r\n") for chunk in output]
+        return "\n".join(chunks)
 
     try:
         for action, value in test.actions:
@@ -268,31 +277,46 @@ def run_lit_test(test, qemu, realtime=False):
             elif action == "pop-prompt":
                 if len(prompts) > 1:
                     prompts.pop()
+            elif action == "check":
+                text = captured_text()
+                if value in text:
+                    last_success_end = len(text)
+                else:
+                    if not saw_failure:
+                        report_start = last_success_end
+                        saw_failure = True
+                    failures.append(f"CHECK: {value!r}")
+            elif action == "check-not":
+                text = captured_text()
+                if value not in text:
+                    last_success_end = len(text)
+                else:
+                    if not saw_failure:
+                        report_start = last_success_end
+                        saw_failure = True
+                    failures.append(f"CHECK-NOT: {value!r}")
+            elif action == "check-regex":
+                text = captured_text()
+                try:
+                    matched = re.search(value, text) is not None
+                except re.error as exc:
+                    if not saw_failure:
+                        report_start = last_success_end
+                        saw_failure = True
+                    failures.append(f"CHECK-REGEX: {value!r} (invalid regex: {exc})")
+                    continue
+                if matched:
+                    last_success_end = len(text)
+                else:
+                    if not saw_failure:
+                        report_start = last_success_end
+                        saw_failure = True
+                    failures.append(f"CHECK-REGEX: {value!r}")
     finally:
         child.sendline("halt")
         child.close(force=True)
 
-    text = "\n".join(chunk.rstrip("\r\n") for chunk in output)
-    failures = []
-
-    for needle in test.checks:
-        if needle not in text:
-            failures.append(f"CHECK: {needle!r}")
-
-    for needle in test.check_nots:
-        if needle in text:
-            failures.append(f"CHECK-NOT: {needle!r}")
-
-    for pattern in test.check_regexes:
-        try:
-            matched = re.search(pattern, text) is not None
-        except re.error as exc:
-            failures.append(f"CHECK-REGEX: {pattern!r} (invalid regex: {exc})")
-            continue
-        if not matched:
-            failures.append(f"CHECK-REGEX: {pattern!r}")
-
-    return failures, text
+    return failures, captured_text(), report_start
 
 
 def main():
@@ -362,24 +386,31 @@ def main():
             print(f"SKIP: {name} [missing {', '.join(missing_hd_images)}]")
             continue
         try:
-            failures, text = run_lit_test(test, args.qemu, args.verbose)
+            failures, text, report_start = run_lit_test(test, args.qemu, args.verbose)
         except PexpectTimeout as exc:
             elapsed = time.monotonic() - started
             failed = True
             print(f"FAIL: {name} [{elapsed:.2f}s]")
-            print(f"  {exc}")
+            print(exc)
             continue
         elapsed = time.monotonic() - started
         if failures:
             failed = True
             print(f"FAIL: {name} [{elapsed:.2f}s]")
-            for failure in failures:
-                print(f"  {failure}")
+            for message in failures:
+                print(message)
             if not args.verbose:
-                print("  output:")
-                for line in text.splitlines():
-                    print(f"    {line}")
+                context = text[report_start:].lstrip("\n")
+                if context:
+                    print("\noutput since last success:\n")
+                    for line in context.splitlines():
+                        print(line)
+                    print()
+                else:
+                    print("(no output since last success)")
         else:
+            if args.verbose:
+                print()
             print(f"PASS: {name} [{elapsed:.2f}s]")
 
     if failed:

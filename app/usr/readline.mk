@@ -12,7 +12,7 @@ build-readline: src-readline
 src-readline: $(READLINE_SRC_DIR)/configure
 
 $(READLINE_SRC_DIR)/configure: | $(READLINE_SRC_FILE)
-	tar xf $(READLINE_SRC_FILE)
+	tar --no-same-owner -xf $(READLINE_SRC_FILE)
 
 $(READLINE_SRC_FILE):
 	wget -c --no-check-certificate $(READLINE_SRC_URL) -O $(READLINE_SRC_FILE)

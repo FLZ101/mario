@@ -11,7 +11,7 @@ build-sqlite: src-sqlite
 src-sqlite: $(SQLITE_SRC_DIR)/configure
 
 $(SQLITE_SRC_DIR)/configure: | $(SQLITE_SRC_FILE)
-	tar xf $(SQLITE_SRC_FILE)
+	tar --no-same-owner -xf $(SQLITE_SRC_FILE)
 
 $(SQLITE_SRC_FILE):
 	wget -c --no-check-certificate $(SQLITE_SRC_URL) -O $(SQLITE_SRC_FILE)

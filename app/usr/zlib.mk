@@ -12,7 +12,7 @@ build-zlib: src-zlib
 src-zlib: $(ZLIB_SRC_DIR)/configure
 
 $(ZLIB_SRC_DIR)/configure: | $(ZLIB_SRC_FILE)
-	tar xf $(ZLIB_SRC_FILE)
+	tar --no-same-owner -xf $(ZLIB_SRC_FILE)
 
 $(ZLIB_SRC_FILE):
 	wget -c --no-check-certificate $(ZLIB_SRC_URL) -O $(ZLIB_SRC_FILE)

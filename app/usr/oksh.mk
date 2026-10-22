@@ -11,7 +11,7 @@ build-oksh: src-oksh
 src-oksh: $(OKSH_SRC_DIR)/configure
 
 $(OKSH_SRC_DIR)/configure: | $(OKSH_SRC_FILE)
-	tar xf $(OKSH_SRC_FILE)
+	tar --no-same-owner -xf $(OKSH_SRC_FILE)
 
 $(OKSH_SRC_FILE):
 	wget -c --no-check-certificate $(OKSH_SRC_URL) -O $(OKSH_SRC_FILE)

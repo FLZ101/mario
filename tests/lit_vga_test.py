@@ -79,7 +79,7 @@ def _pexpect_expect(child, pattern, timeout, description):
     try:
         return child.expect(pattern, timeout=timeout)
     except pexpect.exceptions.TIMEOUT:
-        last = str(getattr(child, "before", ""))[-500:]
+        last = re.sub(r"\r+\n", "\n", str(getattr(child, "before", ""))[-500:])
         raise PexpectTimeout(
             f"{description} timed out after {timeout:g}s\nLast output: {last!r}"
         ) from None
@@ -318,7 +318,7 @@ def start_qemu(qemu, monitor_path, timeout=30, with_disk=False):
         cmd += [
             "-snapshot",
             "-drive",
-            f"id=mario-test-hd,file={HD1_IMAGE},format=raw,if=none",
+            f"id=mario-test-hd1,file={HD1_IMAGE},format=raw,if=none",
             "-drive",
             f"id=mario-test-hd2,file={HD2_IMAGE},format=raw,if=none",
             "-drive",
@@ -326,7 +326,7 @@ def start_qemu(qemu, monitor_path, timeout=30, with_disk=False):
             "-device",
             "ahci,id=mario-test-ahci",
             "-device",
-            "ide-hd,drive=mario-test-hd,bus=mario-test-ahci.0",
+            "ide-hd,drive=mario-test-hd1,bus=mario-test-ahci.0",
             "-device",
             "ide-hd,drive=mario-test-hd2,bus=mario-test-ahci.1",
             "-device",
@@ -530,6 +530,15 @@ def run_test(test, qemu, index):
     failures = []
     timeout = DEFAULT_TIMEOUT
     base_dir = os.path.dirname(test.path)
+    saw_failure = False
+    report_screen = None
+
+    def note_failure(message):
+        nonlocal saw_failure, report_screen
+        if not saw_failure:
+            saw_failure = True
+            report_screen = vga_grid(monitor)
+        failures.append(message)
 
     try:
         for action, value in test.actions:
@@ -547,46 +556,38 @@ def run_test(test, qemu, index):
             elif action == "set-timeout":
                 timeout = value
             elif action == "vga_check":
-                text, found = wait_vga_text(monitor, value)
+                _, found = wait_vga_text(monitor, value)
                 if not found:
-                    failures.append(f"VGA-CHECK: {value!r}")
-                    failures.append(f"  VGA text: {text[-400:]!r}")
+                    note_failure(f"VGA-CHECK: {value!r}")
             elif action == "vga_check_not":
-                text, absent = wait_vga_not_text(monitor, value)
+                _, absent = wait_vga_not_text(monitor, value)
                 if not absent:
-                    failures.append(f"VGA-CHECK-NOT: {value!r}")
-                    failures.append(f"  VGA text: {text[-400:]!r}")
+                    note_failure(f"VGA-CHECK-NOT: {value!r}")
             elif action == "vga_check_regex":
                 text, _ = wait_vga_text(monitor, "")
                 try:
                     matched = re.search(value, text) is not None
                 except re.error as exc:
-                    failures.append(
-                        f"VGA-CHECK-REGEX: {value!r} (invalid regex: {exc})"
-                    )
-                    matched = False
+                    note_failure(f"VGA-CHECK-REGEX: {value!r} (invalid regex: {exc})")
+                    continue
                 if not matched:
-                    failures.append(f"VGA-CHECK-REGEX: {value!r}")
-                    failures.append(f"  VGA text: {text[-400:]!r}")
+                    note_failure(f"VGA-CHECK-REGEX: {value!r}")
             elif action == "vga_check_not_regex":
                 text, _ = wait_vga_text(monitor, "")
                 try:
                     matched = re.search(value, text) is not None
                 except re.error as exc:
-                    failures.append(
+                    note_failure(
                         f"VGA-CHECK-NOT-REGEX: {value!r} (invalid regex: {exc})"
                     )
-                    matched = False
+                    continue
                 if matched:
-                    failures.append(f"VGA-CHECK-NOT-REGEX: {value!r}")
-                    failures.append(f"  VGA text: {text[-400:]!r}")
+                    note_failure(f"VGA-CHECK-NOT-REGEX: {value!r}")
             elif action == "vga_check_cell":
                 row, col, text = value
-                grid, found = wait_vga_cell(monitor, row, col, text)
+                _, found = wait_vga_cell(monitor, row, col, text)
                 if not found:
-                    failures.append(f"VGA-CHECK-CELL: {row},{col},{text!r}")
-                    if 1 <= row <= len(grid):
-                        failures.append(f"  grid row: {grid[row - 1]!r}")
+                    note_failure(f"VGA-CHECK-CELL: {row},{col},{text!r}")
             elif action == "dump-screen":
                 path, crop = parse_screen_check(value)
                 dump_screen(monitor, path, base_dir, crop)
@@ -603,17 +604,17 @@ def run_test(test, qemu, index):
                 try:
                     dump_screen(monitor, current_path, base_dir)
                     if not os.path.exists(expected):
-                        failures.append(f"VGA-CHECK-SCREEN: missing {expected!r}")
+                        note_failure(f"VGA-CHECK-SCREEN: missing {expected!r}")
                     elif crop is not None:
                         if not screens_equal_rows(current_path, expected, *crop):
-                            failures.append(f"VGA-CHECK-SCREEN: {value!r}")
-                            failures.append(f"  expected: {expected}")
-                            failures.append(f"  actual:   {current_path}")
+                            note_failure(f"VGA-CHECK-SCREEN: {value!r}")
+                            failures.append(f"expected: {expected}")
+                            failures.append(f"actual:   {current_path}")
                             keep_current = True
                     elif not screens_equal(current_path, expected):
-                        failures.append(f"VGA-CHECK-SCREEN: {value!r}")
-                        failures.append(f"  expected: {expected}")
-                        failures.append(f"  actual:   {current_path}")
+                        note_failure(f"VGA-CHECK-SCREEN: {value!r}")
+                        failures.append(f"expected: {expected}")
+                        failures.append(f"actual:   {current_path}")
                         keep_current = True
                 finally:
                     if not keep_current:
@@ -624,7 +625,7 @@ def run_test(test, qemu, index):
     finally:
         stop_qemu(child, monitor, monitor_path)
 
-    return failures
+    return failures, report_screen
 
 
 def discover_tests(paths, extension):
@@ -691,17 +692,21 @@ def main():
             print(f"SKIP: {name} [missing {', '.join(missing_hd_images)}]")
             continue
         try:
-            failures = run_test(test, args.qemu, index)
+            failures, report_screen = run_test(test, args.qemu, index)
         except PexpectTimeout as exc:
             failed = True
             print(f"FAIL: {name}")
-            print(f"  {exc}")
+            print(exc)
             continue
         if failures:
             failed = True
             print(f"FAIL: {name}")
             for failure in failures:
-                print(f"  {failure}")
+                print(failure)
+            if report_screen:
+                print("\nVGA screen since last success:\n")
+                for row in report_screen:
+                    print(row.rstrip())
         else:
             print(f"PASS: {name}")
 

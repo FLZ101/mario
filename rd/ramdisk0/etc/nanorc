@@ -1,5 +1,0 @@
-set autoindent
-set linenumbers
-set constantshow
-
-include /usr/share/nano/*.nanorc
