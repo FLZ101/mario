@@ -1,0 +1,34 @@
+RUN: export PATH=/bin/toybox:/bin
+
+RUN: ls /
+CHECK: proc
+CHECK: sys
+
+RUN: mount
+CHECK: proc on /proc type proc (rw)
+CHECK: sysfs on /sys type sysfs (rw)
+CHECK: debugfs on /sys/kernel/debug type debugfs (rw)
+
+RUN: cat /proc/mounts
+CHECK: proc /proc proc rw 0 0
+CHECK: sysfs /sys sysfs rw 0 0
+CHECK: debugfs /sys/kernel/debug debugfs rw 0 0
+
+RUN: ls /sys
+CHECK: kernel
+
+RUN: ls /sys/kernel
+CHECK: debug
+
+RUN: ls /sys/kernel/debug
+CHECK: syscalls
+CHECK: trace_pid
+
+RUN: cd /sys/kernel/debug && pwd
+CHECK: /sys/kernel/debug
+
+RUN: cd /
+RUN: umount /sys/kernel/debug; echo debug-umount:$?
+CHECK: debug-umount:0
+RUN: umount /sys; echo sys-umount:$?
+CHECK: sys-umount:0

@@ -129,7 +129,7 @@ void mount_root(void)
 }
 
 extern int fs_may_mount(dev_t dev);
-extern int fs_may_umount(dev_t dev, struct inode *mount_root);
+extern int fs_may_umount(struct super_block *sb, struct inode *mount_root);
 
 static int do_mount(dev_t dev, char *dir_name,
 		    struct file_system_type *fs_type, char *mountpoint)
@@ -227,7 +227,7 @@ static int do_umount_sb(struct super_block *sb)
 
 	if (!sb || !sb->s_covered)
 		return -EINVAL;
-	if (!fs_may_umount(sb->s_dev, sb->s_mounted))
+	if (!fs_may_umount(sb, sb->s_mounted))
 		return -EBUSY;
 	sb->s_covered->i_mount = NULL;
 	iput(sb->s_covered);

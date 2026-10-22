@@ -9,14 +9,14 @@
 #include <lib/string.h>
 
 #define DEBUGFS_INO_ROOT	1UL
-#define DEBUGFS_INO_KERNEL	2UL
-#define DEBUGFS_INO_DEBUG	3UL
 #define DEBUGFS_INO_SYSCALLS	4UL
 #define DEBUGFS_INO_TRACE_PID	5UL
 
 #define DEBUGFS_SYSCALLS_BUF	8192
 
 static struct file_operations debugfs_dir_fops;
+
+static struct super_block *debugfs_sb;
 
 static int debugfs_name_is(char *name, int len, char *want)
 {
@@ -41,9 +41,9 @@ static struct inode *debugfs_alloc_inode(unsigned long ino, int size,
 	if (!inode)
 		return NULL;
 
-	inode->i_dev = 0;
+	inode->i_dev = debugfs_sb ? debugfs_sb->s_dev : 0;
 	inode->i_ino = ino;
-	inode->i_sb = NULL;
+	inode->i_sb = debugfs_sb;
 	inode->i_rdev = 0;
 	inode->i_mount = NULL;
 	inode->i_nr_block = 0;
@@ -306,18 +306,6 @@ static int debugfs_lookup_child(unsigned long dir_ino, char *name, int len,
 	*res = NULL;
 
 	if (dir_ino == DEBUGFS_INO_ROOT) {
-		if (debugfs_name_is(name, len, "kernel"))
-			*res = debugfs_make_dir(DEBUGFS_INO_KERNEL);
-		return *res ? 0 : -ENOENT;
-	}
-
-	if (dir_ino == DEBUGFS_INO_KERNEL) {
-		if (debugfs_name_is(name, len, "debug"))
-			*res = debugfs_make_dir(DEBUGFS_INO_DEBUG);
-		return *res ? 0 : -ENOENT;
-	}
-
-	if (dir_ino == DEBUGFS_INO_DEBUG) {
 		if (debugfs_name_is(name, len, "syscalls"))
 			*res = debugfs_make_file(DEBUGFS_INO_SYSCALLS);
 		else if (debugfs_name_is(name, len, "trace_pid"))
@@ -333,24 +321,15 @@ static int debugfs_parent(unsigned long dir_ino, struct inode **res)
 	*res = NULL;
 
 	if (dir_ino == DEBUGFS_INO_ROOT) {
-		*res = current->fs->root;
+		if (!debugfs_sb || !debugfs_sb->s_covered)
+			return -ENOENT;
+		*res = debugfs_sb->s_covered;
 		iref(*res);
 		return 0;
 	}
-	if (dir_ino == DEBUGFS_INO_KERNEL) {
+
+	if (dir_ino == DEBUGFS_INO_SYSCALLS || dir_ino == DEBUGFS_INO_TRACE_PID) {
 		*res = debugfs_make_dir(DEBUGFS_INO_ROOT);
-		return *res ? 0 : -ENOMEM;
-	}
-	if (dir_ino == DEBUGFS_INO_DEBUG) {
-		*res = debugfs_make_dir(DEBUGFS_INO_KERNEL);
-		return *res ? 0 : -ENOMEM;
-	}
-	if (dir_ino == DEBUGFS_INO_SYSCALLS) {
-		*res = debugfs_make_dir(DEBUGFS_INO_DEBUG);
-		return *res ? 0 : -ENOMEM;
-	}
-	if (dir_ino == DEBUGFS_INO_TRACE_PID) {
-		*res = debugfs_make_dir(DEBUGFS_INO_DEBUG);
 		return *res ? 0 : -ENOMEM;
 	}
 
@@ -395,24 +374,6 @@ static int debugfs_get_entry(unsigned long dir_ino, int index, char *name,
 	(void)size;
 
 	if (dir_ino == DEBUGFS_INO_ROOT) {
-		if (index != 0)
-			return -ENOENT;
-		sprintk(name, "%s", "kernel");
-		*ino = DEBUGFS_INO_KERNEL;
-		*type = DT_DIR;
-		return 0;
-	}
-
-	if (dir_ino == DEBUGFS_INO_KERNEL) {
-		if (index != 0)
-			return -ENOENT;
-		sprintk(name, "%s", "debug");
-		*ino = DEBUGFS_INO_DEBUG;
-		*type = DT_DIR;
-		return 0;
-	}
-
-	if (dir_ino == DEBUGFS_INO_DEBUG) {
 		switch (index) {
 		case 0:
 			sprintk(name, "%s", "syscalls");
@@ -457,5 +418,30 @@ static struct file_operations debugfs_dir_fops = {
 
 struct inode *debugfs_get_root(void)
 {
-	return debugfs_make_dir(DEBUGFS_INO_ROOT);
+	if (!debugfs_sb || !debugfs_sb->s_mounted)
+		return NULL;
+	iref(debugfs_sb->s_mounted);
+	return debugfs_sb->s_mounted;
 }
+
+static struct super_operations debugfs_sops;
+
+static struct super_block *debugfs_read_super(struct super_block *sb)
+{
+	debugfs_sb = sb;
+	sb->s_magic = DEBUGFS_SUPER_MAGIC;
+	sb->s_block_size = 4096;
+	sb->s_op = &debugfs_sops;
+	sb->s_mounted = debugfs_make_dir(DEBUGFS_INO_ROOT);
+	if (!sb->s_mounted)
+		return NULL;
+	sb->s_mounted->i_sb = sb;
+	return sb;
+}
+
+struct file_system_type debugfs = {
+	.read_super = debugfs_read_super,
+	.list = LIST_HEAD_INIT(debugfs.list),
+	.name = "debugfs",
+	.fs_flags = FS_NODEV,
+};

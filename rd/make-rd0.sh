@@ -49,7 +49,7 @@ if [[ "${1:-}" == --deps ]] ; then
 	exit 0
 fi
 
-mkdir -p ramdisk0/{bin/example,bin/test,mnt,proc,root/work,usr/share/terminfo}
+mkdir -p ramdisk0/{bin/example,bin/test,mnt,proc,root/work,sys/kernel/debug,usr/share/terminfo}
 cp -u $EXES_EXAMPLE ramdisk0/bin/example
 cp -u $EXES_TEST ramdisk0/bin/test
 

@@ -1,5 +1,7 @@
 #include <fs/fs.h>
 #include <fs/proc.h>
+#include <fs/sysfs.h>
+#include <fs/debugfs.h>
 
 int sys_statx(int dirfd, char *pathname, int flags, unsigned int mask, struct statx *statxbuf)
 {
@@ -48,6 +50,23 @@ static int statfs64_from_inode(struct inode *inode, struct statfs64 *buf)
 
 	sb = inode->i_sb;
 	if (sb->s_magic == PROC_SUPER_MAGIC) {
+		memset(buf, 0, sizeof(*buf));
+		buf->f_type = sb->s_magic;
+		buf->f_bsize = sb->s_block_size;
+		buf->f_blocks = 0;
+		buf->f_bfree = 0;
+		buf->f_bavail = 0;
+		buf->f_files = 0;
+		buf->f_ffree = 0;
+		buf->f_fsid.__val[0] = 0;
+		buf->f_fsid.__val[1] = 0;
+		buf->f_namelen = NAME_MAX;
+		buf->f_frsize = sb->s_block_size;
+		buf->f_flags = 0;
+		return 0;
+	}
+	if (sb->s_magic == SYSFS_SUPER_MAGIC ||
+	    sb->s_magic == DEBUGFS_SUPER_MAGIC) {
 		memset(buf, 0, sizeof(*buf));
 		buf->f_type = sb->s_magic;
 		buf->f_bsize = sb->s_block_size;

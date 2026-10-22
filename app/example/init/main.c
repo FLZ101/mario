@@ -136,6 +136,14 @@ int main(int argc, char *argv[], char *envp[])
         perror("mount proc");
         exit(EXIT_FAILURE);
     }
+    if (0 != mount("sysfs", "/sys", "sysfs", 0, NULL)) {
+        perror("mount sysfs");
+        exit(EXIT_FAILURE);
+    }
+    if (0 != mount("debugfs", "/sys/kernel/debug", "debugfs", 0, NULL)) {
+        perror("mount debugfs");
+        exit(EXIT_FAILURE);
+    }
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));

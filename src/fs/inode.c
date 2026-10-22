@@ -251,14 +251,14 @@ int fs_may_mount(dev_t dev)
 	return 1;
 }
 
-int fs_may_umount(dev_t dev, struct inode *mount_root)
+int fs_may_umount(struct super_block *sb, struct inode *mount_root)
 {
 	struct list_head *pos;
 	struct inode *tmp;
 
 	list_for_each(pos, &lru) {
 		tmp = list_entry(pos, struct inode, i_list);
-		if (tmp->i_dev != dev || !tmp->i_count)
+		if (tmp->i_sb != sb || !tmp->i_count)
 			continue;
 		if (tmp == mount_root && tmp->i_count == 1)
 			continue;
