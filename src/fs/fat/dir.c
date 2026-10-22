@@ -1547,6 +1547,12 @@ static int fat_unlink(struct inode *dir, char *name, int len)
 	inode_invalidate(dir->i_sb,
 			 fat_entry_ino(dir->i_sb, cluster, offset));
 	error = fat_free_cluster_chain(dir->i_sb, start_cluster);
+	if (error) {
+		unsigned long rollback_ino;
+
+		fat_add_entry_name(dir, name, len, entry[11], start_cluster,
+				   fat_entry_size(entry), &rollback_ino);
+	}
 out:
 	up(&dir->i_sem);
 	iput(dir);
@@ -1605,8 +1611,14 @@ static int fat_rmdir(struct inode *dir, char *name, int len)
 	error = fat_delete_entry_at(dir, cluster, offset);
 	if (!error)
 		error = fat_free_cluster_chain(dir->i_sb, start_cluster);
-	if (!error)
+	if (error) {
+		unsigned long rollback_ino;
+
+		fat_add_entry_name(dir, name, len, entry[11], start_cluster, 0,
+				   &rollback_ino);
+	} else {
 		inode_invalidate(dir->i_sb, ino);
+	}
 out:
 	if (inode)
 		iput(inode);
