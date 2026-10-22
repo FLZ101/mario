@@ -521,27 +521,30 @@ left for later commits.
 
 Functional gaps:
 
+- Read-only mount flag handling and enforcement.
 - Cross-directory `rename`; the current implementation returns `-EXDEV`.
 - `rename` over an existing target; the current implementation returns
   `-EEXIST` instead of replacing the target.
 - LFN generation on writes; non-8.3 names are rejected until this is added.
+- Directory LFN cleanup across cluster boundaries during unlink/rename.
 - Timestamp persistence in `fat_write_inode()`; creation, write, and access
   times are currently left zero.
 - Accurate `statfs` free-space reporting; `f_bfree`, `f_bavail`, `f_files`,
   and `f_ffree` are currently zero.
 - On-disk FSInfo `next_free`/free-count maintenance; only an in-memory scan
   hint exists.
-- Directory LFN cleanup across cluster boundaries during unlink/rename.
 
 Correctness and performance hardening:
 
+- Maintain the dirty-volume bit and free-cluster count.
 - Serialize cluster allocation with the filesystem semaphore.
+- Roll back partial write, truncate, mkdir, unlink, rmdir, and rename
+  operations on allocation or I/O failure.
+- Bound `fat_cluster_count()` and directory scans against corrupt/looping FAT
+  chains.
 - Add a per-inode cluster-chain cache to avoid walking the FAT from cluster 0
   on every read, write, and seek.
 - Replace the single-sector FAT cache with a small LRU or cluster buffer cache.
-- Bound `fat_cluster_count()` and directory scans against corrupt/looping FAT
-  chains.
-- Maintain the dirty-volume bit and free-cluster count.
 - Handle FAT12/FAT16 if broader removable-media support is ever needed.
 
 Native symlinks, hard links, and device/FIFO nodes remain intentionally
@@ -582,10 +585,31 @@ FAT files is deferred.
 
 ### Milestone 5: Performance and hardening — planned
 
-- Add a cluster-chain cache for regular files.
-- Add a small FAT-sector LRU and cluster buffer cache.
-- Add corruption checks for bad FAT values and directory loops.
-- Update mount/umount dirty-state handling.
+- Enforce read-only mounts and honor a `ro` mount flag.
+- Complete rename semantics:
+  - cross-directory rename
+  - replace an existing target
+  - update the moved directory's `..` entry
+  - invalidate/relocate synthetic inode numbers safely
+- Generate LFN entries on writes, including checksums, ordering, and cleanup
+  across directory-cluster boundaries.
+- Persist creation, modification, and access timestamps from the inode into
+  directory entries.
+- Fill accurate `statfs` values:
+  - `f_bfree` / `f_bavail` free-cluster counts
+  - `f_files` / `f_ffree` directory-entry counts
+- Maintain FSInfo `next_free` and free-count fields.
+- Maintain the dirty-volume bit and integrate writeback with umount/inode
+  eviction when the VFS gains sync/umount flushing hooks.
+- Serialize FAT allocation with the filesystem semaphore.
+- Add rollback for partial write/truncate/directory-operation failures so a
+  failed operation cannot leave leaked or inconsistent clusters.
+- Bound all FAT-chain and directory walks against corrupt or looping chains.
+- Add a per-inode cluster-chain cache for efficient random reads, writes, and
+  seeks.
+- Replace the single-sector FAT cache with a small LRU or cluster buffer cache.
+- Add `rename`, `unlink`, and `rmdir` tests for LFN and multi-cluster
+  directories.
 
 ## Validation
 
