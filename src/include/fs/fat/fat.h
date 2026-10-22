@@ -90,6 +90,10 @@ struct fat_inode_info {
 	uint32_t dir_offset;
 	uint32_t parent_ino;
 	uint8_t attributes;
+	uint32_t chain_cache_start;
+	uint32_t chain_cache_index;
+	uint32_t chain_cache_cluster;
+	int chain_cache_valid;
 };
 
 #define FAT_SB(sb)			((sb)->u.fat_sb)

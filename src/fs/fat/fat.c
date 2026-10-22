@@ -116,14 +116,30 @@ int fat_count_free_clusters(struct super_block *sb, uint32_t *free_count)
  */
 uint32_t fat_cluster_at(struct inode *inode, uint32_t cluster_index)
 {
-	uint32_t cluster = FAT_INODE(inode).start_cluster;
+	struct fat_inode_info *info = &FAT_INODE(inode);
+	uint32_t cluster;
 
-	while (cluster_index--) {
+	if (!info->chain_cache_valid ||
+	    info->chain_cache_start != info->start_cluster) {
+		info->chain_cache_start = info->start_cluster;
+		info->chain_cache_index = 0;
+		info->chain_cache_cluster = info->start_cluster;
+		info->chain_cache_valid = 1;
+	}
+	if (cluster_index < info->chain_cache_index) {
+		info->chain_cache_index = 0;
+		info->chain_cache_cluster = info->start_cluster;
+	}
+
+	cluster = info->chain_cache_cluster;
+	while (cluster_index > info->chain_cache_index) {
 		uint32_t next;
 
 		if (fat_next_cluster(inode->i_sb, cluster, &next))
 			return 0;
 		cluster = next;
+		info->chain_cache_cluster = cluster;
+		info->chain_cache_index++;
 	}
 	return cluster;
 }
