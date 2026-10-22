@@ -196,8 +196,9 @@ uint32_t fat_cluster_count(struct inode *inode)
 {
 	uint32_t cluster = FAT_INODE(inode).start_cluster;
 	uint32_t count = 0;
+	uint32_t seen = 0;
 
-	while (cluster) {
+	while (cluster && seen++ < FAT_SB(inode->i_sb).total_clusters) {
 		uint32_t next;
 
 		count++;

@@ -136,6 +136,8 @@ static int fat_read_dir_cluster(struct inode *dir, uint32_t cluster_index,
 	uint32_t cluster_size = FAT_CLUSTER_SIZE(sb);
 	int error;
 
+	if (cluster_index >= FAT_SB(sb).total_clusters)
+		return -EIO;
 	*cluster = fat_cluster_at(dir, cluster_index);
 	if (!*cluster)
 		return -ENOENT;
@@ -476,6 +478,7 @@ static int fat_lookup(struct inode *dir, char *name, int len,
 	uint32_t cluster;
 	uint32_t offset;
 	uint32_t cluster_size;
+	uint32_t cluster_index = 0;
 	uint8_t *buf;
 	struct fat_lfn lfn;
 	int lfn_pending;
@@ -573,6 +576,11 @@ static int fat_lookup(struct inode *dir, char *name, int len,
 		}
 
 		kfree(buf);
+		if (cluster_index >= FAT_SB(sb).total_clusters) {
+			iput(dir);
+			return -EIO;
+		}
+		cluster_index++;
 		error = fat_dir_next_cluster(dir, cluster, &next);
 		if (error == -ENOENT) {
 			iput(dir);
@@ -608,6 +616,8 @@ static int fat_readdir(struct inode *dir, struct file *file, void *dirent,
 		cluster = fat_cluster_at(dir, cluster_index);
 		if (!cluster)
 			return 0;
+		if (cluster_index >= FAT_SB(sb).total_clusters)
+			return -EIO;
 
 		buf = kmalloc(cluster_size);
 		if (!buf)
