@@ -33,6 +33,7 @@ struct file_operations;
 #define FAT_EOC_MIN		0x0ffffff8UL
 #define FAT_EOC_MAX		0x0fffffffUL
 #define FAT_BAD_CLUSTER		0x0ffffff7UL
+#define FAT_FAT_CACHE_SLOTS	4
 
 /* BPB field offsets in the first sector of the mounted partition. */
 #define FAT_BPB_BYTES_PER_SECTOR	11
@@ -79,9 +80,10 @@ struct fat_sb_info {
 	uint32_t next_free;
 	uint32_t free_clusters;
 
-	uint32_t fat_cache_sector;
-	int fat_cache_valid;
-	uint8_t *fat_cache;
+	uint32_t fat_cache_sector[FAT_FAT_CACHE_SLOTS];
+	int fat_cache_valid[FAT_FAT_CACHE_SLOTS];
+	int fat_cache_age[FAT_FAT_CACHE_SLOTS];
+	uint8_t *fat_cache[FAT_FAT_CACHE_SLOTS];
 };
 
 struct fat_inode_info {

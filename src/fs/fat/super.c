@@ -139,11 +139,18 @@ struct super_block *fat_read_super(struct super_block *sb)
 	fsb = &FAT_SB(sb);
 	fsb->readonly = (sb->s_flags & MS_RDONLY) ? 1 : 0;
 	fsb->next_free = 2;
-	fsb->fat_cache = kmalloc(fsb->bytes_per_sector);
-	if (!fsb->fat_cache)
-		goto fail;
-	fsb->fat_cache_sector = 0;
-	fsb->fat_cache_valid = 0;
+	{
+		int i;
+
+		for (i = 0; i < FAT_FAT_CACHE_SLOTS; i++) {
+			fsb->fat_cache[i] = kmalloc(fsb->bytes_per_sector);
+			if (!fsb->fat_cache[i])
+				goto fail_cache;
+			fsb->fat_cache_sector[i] = 0;
+			fsb->fat_cache_valid[i] = 0;
+			fsb->fat_cache_age[i] = 0;
+		}
+	}
 	fsb->free_clusters = FAT_FSINFO_UNKNOWN;
 	fat_load_fsinfo(sb);
 	if (fsb->free_clusters == FAT_FSINFO_UNKNOWN) {
@@ -172,8 +179,14 @@ struct super_block *fat_read_super(struct super_block *sb)
 	return sb;
 
 fail_cache:
-	kfree(fsb->fat_cache);
-	fsb->fat_cache = NULL;
+	{
+		int i;
+
+		for (i = 0; i < FAT_FAT_CACHE_SLOTS; i++) {
+			kfree(fsb->fat_cache[i]);
+			fsb->fat_cache[i] = NULL;
+		}
+	}
 fail:
 	kfree(buf);
 	return NULL;

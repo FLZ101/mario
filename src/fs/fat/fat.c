@@ -34,6 +34,9 @@ int fat_read_fat_entry(struct super_block *sb, uint32_t cluster,
 	struct fat_sb_info *fsb = &FAT_SB(sb);
 	uint32_t sector;
 	uint32_t offset;
+	uint8_t *buf;
+	int slot;
+	int i;
 	int error;
 
 	if (!sb || !value || cluster < 2 ||
@@ -44,16 +47,41 @@ int fat_read_fat_entry(struct super_block *sb, uint32_t cluster,
 		 fsb->bytes_per_sector;
 	offset = (cluster * 4) % fsb->bytes_per_sector;
 
-	if (!fsb->fat_cache_valid || fsb->fat_cache_sector != sector) {
-		error = blkdev_read(sb->s_dev, sector, 1,
-				    (char *)fsb->fat_cache);
-		if (error)
-			return error;
-		fsb->fat_cache_sector = sector;
-		fsb->fat_cache_valid = 1;
+	slot = -1;
+	for (i = 0; i < FAT_FAT_CACHE_SLOTS; i++) {
+		if (fsb->fat_cache_valid[i] &&
+		    fsb->fat_cache_sector[i] == sector) {
+			slot = i;
+			break;
+		}
 	}
 
-	*value = fat_read32(fsb->fat_cache + offset) & 0x0fffffff;
+	if (slot < 0) {
+		slot = 0;
+		for (i = 0; i < FAT_FAT_CACHE_SLOTS; i++) {
+			if (!fsb->fat_cache_valid[i]) {
+				slot = i;
+				break;
+			}
+			if (fsb->fat_cache_age[i] > fsb->fat_cache_age[slot])
+				slot = i;
+		}
+		error = blkdev_read(sb->s_dev, sector, 1,
+				    (char *)fsb->fat_cache[slot]);
+		if (error)
+			return error;
+		fsb->fat_cache_sector[slot] = sector;
+		fsb->fat_cache_valid[slot] = 1;
+	}
+
+	for (i = 0; i < FAT_FAT_CACHE_SLOTS; i++) {
+		if (fsb->fat_cache_valid[i] && i != slot)
+			fsb->fat_cache_age[i]++;
+	}
+	fsb->fat_cache_age[slot] = 0;
+
+	buf = fsb->fat_cache[slot];
+	*value = fat_read32(buf + offset) & 0x0fffffff;
 	return 0;
 }
 

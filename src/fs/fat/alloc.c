@@ -153,9 +153,14 @@ int fat_write_fat_entry(struct super_block *sb, uint32_t cluster,
 
 		/* Keep the primary FAT sector cache coherent. */
 		if (i == 0) {
-			memcpy(fsb->fat_cache, buf, fsb->bytes_per_sector);
-			fsb->fat_cache_sector = sector;
-			fsb->fat_cache_valid = 1;
+			int slot;
+
+			for (slot = 0; slot < FAT_FAT_CACHE_SLOTS; slot++) {
+				if (fsb->fat_cache_valid[slot] &&
+				    fsb->fat_cache_sector[slot] == sector)
+					memcpy(fsb->fat_cache[slot], buf,
+					       fsb->bytes_per_sector);
+			}
 		}
 	}
 	error = 0;
