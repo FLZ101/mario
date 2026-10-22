@@ -108,6 +108,46 @@ static int fat_zero_range(struct inode *inode, uint64_t start,
 	return 0;
 }
 
+/*
+ * Roll an inode's FAT chain back to @keep_clusters allocated clusters after a
+ * failed extension.  The in-memory start cluster is restored immediately;
+ * fat_write_inode() persists it later when the VFS flushes the dirty inode.
+ */
+static int fat_file_rollback_to_clusters(struct inode *inode,
+					 uint32_t keep_clusters)
+{
+	struct super_block *sb = inode->i_sb;
+	uint32_t tail;
+	int error;
+
+	if (!keep_clusters) {
+		tail = FAT_INODE(inode).start_cluster;
+		FAT_INODE(inode).start_cluster = 0;
+		FAT_INODE(inode).chain_cache_valid = 0;
+		return tail ? fat_free_cluster_chain(sb, tail) : 0;
+	}
+
+	{
+		uint32_t keep;
+
+		keep = fat_cluster_at(inode, keep_clusters - 1);
+		if (!keep)
+			return -EIO;
+		error = fat_next_cluster(sb, keep, &tail);
+		if (error == -ENOENT)
+			return 0;
+		if (error)
+			return error;
+		error = fat_write_fat_entry(sb, keep, FAT_EOC_MAX);
+		if (error)
+			return error;
+	}
+	if (!tail)
+		return 0;
+	FAT_INODE(inode).chain_cache_valid = 0;
+	return fat_free_cluster_chain(sb, tail);
+}
+
 static int fat_file_truncate(struct inode *inode, int size)
 {
 	struct super_block *sb;
@@ -169,8 +209,14 @@ static int fat_file_truncate(struct inode *inode, int size)
 
 	if ((uint64_t)size > old_size) {
 		error = fat_zero_range(inode, old_size, size);
-		if (error)
+		if (error) {
+			uint32_t old_clusters =
+				(uint32_t)((old_size + cluster_size - 1) /
+					   cluster_size);
+
+			fat_file_rollback_to_clusters(inode, old_clusters);
 			return error;
+		}
 	}
 
 	inode->i_size = size;
@@ -217,6 +263,11 @@ static int fat_file_write(struct inode *inode, struct file *file, char *buf,
 	if (start > old_size) {
 		error = fat_zero_range(inode, old_size, start);
 		if (error) {
+			uint32_t old_clusters =
+				(uint32_t)((old_size + cluster_size - 1) /
+					   cluster_size);
+
+			fat_file_rollback_to_clusters(inode, old_clusters);
 			up(&inode->i_sem);
 			return error;
 		}
@@ -274,6 +325,8 @@ static int fat_file_write(struct inode *inode, struct file *file, char *buf,
 		set_bit(I_Dirty, &inode->i_state);
 		error = fat_write_inode(inode);
 	}
+	if (!total && error)
+		fat_file_rollback_to_clusters(inode, old_clusters);
 
 	up(&inode->i_sem);
 	return total ? (int)total : error;
