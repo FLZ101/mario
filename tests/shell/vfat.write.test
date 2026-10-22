@@ -100,6 +100,16 @@ CHECK: lfn-rm:0
 RUN: rmdir /mnt/longdir-for-vfat-test; echo lfn-clean:$?
 CHECK: lfn-clean:0
 
+# Force a directory past one cluster and verify that LFN entries remain
+# discoverable while deleting files across the expanded chain.
+RUN: mkdir /mnt/lfn-multi; for i in 1 2 3 4 5 6 7 8; do echo data$i > /mnt/lfn-multi/long-name-file-$i.txt; done; echo lfn-multi-fill:$?
+CHECK: lfn-multi-fill:0
+RUN: cat /mnt/lfn-multi/long-name-file-8.txt; echo lfn-multi-read:$?
+CHECK: data8
+CHECK: lfn-multi-read:0
+RUN: for i in 1 2 3 4 5 6 7 8; do rm /mnt/lfn-multi/long-name-file-$i.txt; done; rmdir /mnt/lfn-multi; echo lfn-multi-clean:$?
+CHECK: lfn-multi-clean:0
+
 RUN: rm /mnt/ren.txt; test ! -e /mnt/ren.txt; echo unlink-status:$?
 CHECK: unlink-status:0
 RUN: rm /mnt/wrdir/n.txt; rmdir /mnt/wrdir; echo rmdir-status:$?
