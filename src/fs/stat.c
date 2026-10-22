@@ -46,6 +46,22 @@ static int statfs64_from_inode(struct inode *inode, struct statfs64 *buf)
 		return -ENODEV;
 
 	sb = inode->i_sb;
+	if (sb->s_magic == FAT_SUPER_MAGIC) {
+		memset(buf, 0, sizeof(*buf));
+		buf->f_type = sb->s_magic;
+		buf->f_bsize = FAT_CLUSTER_SIZE(sb);
+		buf->f_blocks = FAT_SB(sb).total_clusters;
+		buf->f_bfree = 0;
+		buf->f_bavail = 0;
+		buf->f_files = 0;
+		buf->f_ffree = 0;
+		buf->f_fsid.__val[0] = sb->s_dev;
+		buf->f_fsid.__val[1] = 0;
+		buf->f_namelen = 255;
+		buf->f_frsize = FAT_CLUSTER_SIZE(sb);
+		buf->f_flags = 0;
+		return 0;
+	}
 	if (sb->s_magic != MARIO_MAGIC)
 		return -ENOSYS;
 

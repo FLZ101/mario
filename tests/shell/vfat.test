@@ -1,0 +1,46 @@
+REQUIRES-HD:
+
+# Read-only FAT32 smoke test.  The generated hard-disk images contain both
+# boot/update partitions and dedicated FAT32 data partitions.
+
+RUN: export PATH=/bin/toybox:/bin
+RUN: mkdir -p /mnt
+
+RUN: mount -t vfat /dev/hda1 /mnt; echo hda1-mount-status:$?
+CHECK: hda1-mount-status:0
+RUN: ls -la /mnt
+CHECK: grldr
+CHECK: menu.lst
+RUN: cat /mnt/menu.lst
+CHECK: timeout 3
+CHECK: chainloader /boot.bin
+RUN: umount /mnt; echo hda1-umount-status:$?
+CHECK: hda1-umount-status:0
+
+RUN: mount -t vfat /dev/hda7 /mnt; echo hda7-mount-status:$?
+CHECK: hda7-mount-status:0
+RUN: ls -la /mnt
+CHECK: boot.bin
+CHECK: kernel.exe
+CHECK: rdx
+RUN: cat /mnt/data/the/lazy; echo hda7-read-status:$?
+CHECK: dog
+CHECK: hda7-read-status:0
+RUN: umount /mnt; echo hda7-umount-status:$?
+CHECK: hda7-umount-status:0
+
+RUN: mount -t vfat /dev/hdb3 /mnt; echo hdb3-mount-status:$?
+CHECK: hdb3-mount-status:0
+RUN: cat /mnt/data/she; echo hdb3-read-status:$?
+CHECK: the
+CHECK: hdb3-read-status:0
+RUN: umount /mnt; echo hdb3-umount-status:$?
+CHECK: hdb3-umount-status:0
+
+RUN: mount -t vfat /dev/hdc1 /mnt; echo hdc1-mount-status:$?
+CHECK: hdc1-mount-status:0
+RUN: cat /mnt/data/wu; echo hdc1-read-status:$?
+CHECK: han
+CHECK: hdc1-read-status:0
+RUN: umount /mnt; echo hdc1-umount-status:$?
+CHECK: hdc1-umount-status:0

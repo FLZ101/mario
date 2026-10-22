@@ -13,29 +13,46 @@ unchanged; the kernel driver is a separate implementation.
 
 ## Dependencies
 
-This plan assumes the hard-disk block driver from
-`doc/HARDDISK_DRIVER_PLAN.md` exposes FAT32 partitions as block devices.
+The AHCI hard-disk driver described in `doc/HARDDISK_DRIVER_PLAN.md` is
+implemented and exposes MBR/GPT partitions as block devices. With the three
+test disks attached by `qemu/Makefile`, the mapping is:
 
-`qemu/gen_image.sh` already creates two FAT32 partitions:
+- `qemu/hd1.img` -> `/dev/hda`
+- `qemu/hd2.img` -> `/dev/hdb`
+- `qemu/hd3.img` -> `/dev/hdc`
+
+The image scripts already format several FAT32 test partitions:
 
 ```sh
-sudo mkfs -t fat -F 32 ${loopdev}p1
-sudo mkfs -t fat -F 32 ${loopdev}p7
+# qemu/make-hd1.sh
+sudo mkfs -t fat -F 32 ${loopdev}p1   # /dev/hda1 boot/GRUB partition
+sudo mkfs -t fat -F 32 ${loopdev}p7   # /dev/hda7 kernel/initrd update partition
+
+# qemu/make-hd2.sh
+sudo mkfs -t fat -F 32 ${loopdev}p3   # /dev/hdb3 primary FAT32
+sudo mkfs -t fat -F 32 ${loopdev}p5   # /dev/hdb5 logical FAT32
+
+# qemu/make-hd3.sh
+sudo mkfs -t fat -F 32 ${loopdev}p1   # /dev/hdc1 GPT FAT32
+sudo mkfs -t fat -F 32 ${loopdev}p2   # /dev/hdc2 GPT FAT32
 ```
 
-These are natural test targets. The ramdisk-based MarioFS root filesystem
-remains unchanged.
+These are natural read-only and writable test targets. The ramdisk-based
+MarioFS root filesystem remains unchanged.
 
 ## Current VFS State
 
 The kernel already has the generic mount, inode, namei, read/write, and
-getdents machinery. FAT32 needs the same VFS integration described in
-`doc/EXT2_FILESYSTEM_PLAN.md`:
+getdents machinery, and `src/fs/ext2/` is a working second on-disk filesystem.
+FAT32 should follow the ext2 integration path:
 
-- Add a filesystem-specific private-data union member.
-- Register a `struct file_system_type`.
-- Refactor `statfs64_from_inode()` so it is not MarioFS-only.
-- Update `/proc/mounts` when a FAT32 filesystem is mounted.
+- Add `struct fat_sb_info` / `struct fat_inode_info` and add them to the
+  private-data unions in `src/include/fs/fs.h`; ext2 members are already there.
+- Register `struct file_system_type vfat` in `src/fs/fs.c`, next to `ext2`.
+- `statfs64_from_inode()` now has a FAT32 branch in `src/fs/stat.c`; ext2 is
+  still rejected until that helper is generalized further.
+- `/proc/mounts` in `src/fs/proc.c` is now generated from mount records and
+  reports source, mountpoint, filesystem type, and read-only state.
 
 The most important difference from ext2 is that FAT has no native inode table
 and no fixed-size logical block. FAT32 data is addressed by 32-byte directory
@@ -498,7 +515,8 @@ No change to `src/Makefile` is required.
 
 ## Validation
 
-After the hard-disk driver exists, mount the existing boot FAT partition:
+After the hard-disk driver is built, mount the existing boot FAT partition
+from `qemu/hd1.img`:
 
 ```text
 mkdir /mnt
@@ -507,12 +525,18 @@ ls -la /mnt
 cat /mnt/menu.lst
 ```
 
-This partition already contains short and long names (`grldr`, `menu.lst`).
-The update-image FAT partition also contains `kernel.exe`, `boot.bin`, and
-`rdx`.
+`/dev/hda1` already contains short and long names (`grldr`, `menu.lst`).
+`/dev/hda7` is the update-image FAT partition and contains `kernel.exe`,
+`boot.bin`, and `rdx`.
+
+`qemu/hd2.img` provides two dedicated FAT32 data partitions, `/dev/hdb3` and
+`/dev/hdb5`, and `qemu/hd3.img` provides two GPT FAT32 partitions, `/dev/hdc1`
+and `/dev/hdc2`. These are populated with small test files and are convenient
+for read-only tests.
 
 For writable tests, use `qemu-system-i386 -snapshot` or a separate disposable
-FAT32 image. Do not write to the checked-in `qemu/hd.img` in normal tests.
+FAT32 image. Do not write to the checked-in `qemu/hd1.img`, `qemu/hd2.img`, or
+`qemu/hd3.img` in normal tests.
 
 Host-side image creation:
 
@@ -523,13 +547,14 @@ mmd -i fat32.img ::/dir
 echo hello | mcopy -i fat32.img - ::/dir/hello.txt
 ```
 
-Then expose `fat32.img` as an IDE disk in QEMU and mount it.
+Then expose `fat32.img` as an AHCI disk in QEMU and mount it.
 
 Automated test candidates:
 
-- `tests/shell/vfat.test`: mount, list, read, stat, unmount.
-- `tests/shell/vfat-write.test`: create/write/read/delete/rename on a
-  disposable image.
+- `tests/shell/vfat.test`: implemented with `REQUIRES-HD:` and mounts, lists,
+  and reads FAT32 partitions across the generated test disks.
+- `tests/shell/vfat-write.test`: use `REQUIRES-HD:` and create/write/read/
+  delete/rename with `-snapshot` so the generated images stay clean.
 - A small `app/test/fat` program for deterministic BPB/FAT/directory checks.
 
 ## Deferred
