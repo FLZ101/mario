@@ -3,6 +3,8 @@
 
 #include <lib/string.h>
 
+extern uint64_t current_time(void);
+
 static int fat_tolower(char c)
 {
 	if (c >= 'A' && c <= 'Z')
@@ -134,6 +136,57 @@ int fat_short_name_equal(const uint8_t *entry, const uint8_t short_name[11])
 	return 1;
 }
 
+static uint16_t fat_dos_date(uint64_t seconds)
+{
+	uint64_t days = seconds / 86400;
+	uint64_t z = days + 719468;
+	uint64_t era = z / 146097;
+	uint64_t doe = z - era * 146097;
+	uint64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+	uint64_t y = yoe + era * 400;
+	uint64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+	uint64_t mp = (5 * doy + 2) / 153;
+	uint64_t d = doy - (153 * mp + 2) / 5 + 1;
+	uint64_t m = mp + (mp < 10 ? 3 : -9);
+	uint16_t dos_year;
+
+	y += (m <= 2);
+	dos_year = y >= 1980 ? y - 1980 : 0;
+	if (dos_year > 127)
+		dos_year = 127;
+	return (dos_year << 9) | (m << 5) | d;
+}
+
+static uint16_t fat_dos_time(uint64_t seconds)
+{
+	uint64_t tod = seconds % 86400;
+	uint16_t hour = tod / 3600;
+	uint16_t minute = (tod / 60) % 60;
+	uint16_t second = (tod % 60) / 2;
+
+	return (hour << 11) | (minute << 5) | second;
+}
+
+void fat_entry_set_create_times(uint8_t *entry, uint64_t time)
+{
+	uint16_t date = fat_dos_date(time);
+	uint16_t tod = fat_dos_time(time);
+
+	fat_write16(entry + 14, tod);
+	fat_write16(entry + 16, date);
+	fat_write16(entry + 18, date);
+	fat_write16(entry + 22, tod);
+	fat_write16(entry + 24, date);
+}
+
+void fat_entry_set_modify_times(uint8_t *entry, uint64_t atime,
+				uint64_t mtime)
+{
+	fat_write16(entry + 18, fat_dos_date(atime));
+	fat_write16(entry + 22, fat_dos_time(mtime));
+	fat_write16(entry + 24, fat_dos_date(mtime));
+}
+
 int fat_make_short_entry(uint8_t *entry, const uint8_t short_name[11],
 			 uint8_t attributes, uint32_t start_cluster,
 			 uint32_t size)
@@ -144,5 +197,6 @@ int fat_make_short_entry(uint8_t *entry, const uint8_t short_name[11],
 	fat_write16(entry + 20, start_cluster >> 16);
 	fat_write16(entry + 26, start_cluster);
 	fat_write32(entry + 28, size);
+	fat_entry_set_create_times(entry, current_time());
 	return 0;
 }

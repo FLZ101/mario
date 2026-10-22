@@ -145,6 +145,9 @@ int fat_write_inode(struct inode *inode)
 	fat_write16(entry + 20, info->start_cluster >> 16);
 	fat_write16(entry + 26, info->start_cluster);
 	fat_write32(entry + 28, inode->i_size);
+	if (inode->i_mtime)
+		fat_entry_set_modify_times(entry, inode->i_atime,
+					   inode->i_mtime);
 	error = fat_write_cluster(sb, cluster, buf);
 out:
 	kfree(buf);

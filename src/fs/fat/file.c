@@ -5,6 +5,8 @@
 
 #include <lib/string.h>
 
+extern uint64_t current_time(void);
+
 static int fat_file_read(struct inode *inode, struct file *file, char *buf,
 			 int count)
 {
@@ -173,6 +175,7 @@ static int fat_file_truncate(struct inode *inode, int size)
 
 	inode->i_size = size;
 	inode->i_nr_block = ((uint64_t)size + 511) / 512;
+	inode->i_mtime = inode->i_ctime = current_time();
 	FAT_INODE(inode).attributes |= FAT_ATTR_ARCHIVE;
 	set_bit(I_Dirty, &inode->i_state);
 	return fat_write_inode(inode);
@@ -266,6 +269,7 @@ static int fat_file_write(struct inode *inode, struct file *file, char *buf,
 		inode->i_nr_block = ((uint64_t)start + 511) / 512;
 	}
 	if (total) {
+		inode->i_mtime = inode->i_ctime = current_time();
 		FAT_INODE(inode).attributes |= FAT_ATTR_ARCHIVE;
 		set_bit(I_Dirty, &inode->i_state);
 		error = fat_write_inode(inode);

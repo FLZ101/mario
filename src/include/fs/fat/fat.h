@@ -138,6 +138,9 @@ int fat_ino_location(struct super_block *sb, unsigned long ino,
 int fat_make_short_entry(uint8_t *entry, const uint8_t short_name[11],
 			 uint8_t attributes, uint32_t start_cluster,
 			 uint32_t size);
+void fat_entry_set_create_times(uint8_t *entry, uint64_t time);
+void fat_entry_set_modify_times(uint8_t *entry, uint64_t atime,
+				uint64_t mtime);
 
 void fat_short_name_from_entry(const uint8_t *entry, char *name);
 int fat_short_name_match(const char *name, int len, const uint8_t *entry);
