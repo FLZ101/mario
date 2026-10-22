@@ -14,6 +14,40 @@ static int fat_dir_next_cluster(struct inode *dir, uint32_t cluster,
 	return fat_next_cluster(dir->i_sb, cluster, next);
 }
 
+static uint32_t fat_dir_entries_per_cluster(struct super_block *sb)
+{
+	return FAT_CLUSTER_SIZE(sb) / FAT_ENTRY_SIZE;
+}
+
+static int fat_dir_last_cluster(struct inode *dir, uint32_t *last,
+				uint32_t *previous)
+{
+	uint32_t cluster = FAT_INODE(dir).start_cluster;
+	uint32_t prev = 0;
+	uint32_t seen = 0;
+
+	if (!cluster)
+		return -ENOENT;
+	while (cluster && seen++ < FAT_SB(dir->i_sb).total_clusters) {
+		uint32_t next;
+		int error;
+
+		prev = cluster;
+		error = fat_dir_next_cluster(dir, cluster, &next);
+		if (error == -ENOENT)
+			break;
+		if (error)
+			return error;
+		cluster = next;
+	}
+	if (!prev)
+		return -ENOENT;
+	*last = prev;
+	if (previous)
+		*previous = prev;
+	return 0;
+}
+
 struct fat_lfn {
 	char name[256];
 	int len;
@@ -357,6 +391,176 @@ out:
 	return error;
 }
 
+/*
+ * Find a run of @slots free directory entries.  Runs that fit in one existing
+ * cluster are preferred; otherwise the directory is extended with zeroed
+ * clusters and the run is placed at the start of the newly allocated region.
+ */
+static int fat_dir_find_free_run(struct inode *dir, uint32_t slots,
+				 uint32_t *res_cluster, uint32_t *res_offset,
+				 int *end_marker)
+{
+	struct super_block *sb = dir->i_sb;
+	uint32_t cluster_size = FAT_CLUSTER_SIZE(sb);
+	uint32_t entries_per_cluster = fat_dir_entries_per_cluster(sb);
+	uint32_t cluster_index = 0;
+
+	*end_marker = 0;
+	if (slots <= entries_per_cluster) {
+		for (;;) {
+			uint32_t cluster;
+			uint8_t *buf;
+			uint32_t offset;
+			uint32_t run = 0;
+			uint32_t run_start = 0;
+			int run_zero = 0;
+			int error;
+
+			error = fat_read_dir_cluster(dir, cluster_index,
+						     &cluster, &buf);
+			if (error == -ENOENT)
+				break;
+			if (error)
+				return error;
+
+			for (offset = 0; offset < cluster_size;
+			     offset += FAT_ENTRY_SIZE) {
+				uint8_t first = buf[offset];
+
+				if (first == 0xe5 || first == 0x00) {
+					if (!run)
+						run_start = offset;
+					run++;
+					run_zero = first == 0x00;
+					if (run == slots) {
+						*res_cluster = cluster;
+						*res_offset = run_start;
+						*end_marker = run_zero;
+						kfree(buf);
+						return 0;
+					}
+					continue;
+				}
+				run = 0;
+				run_zero = 0;
+			}
+
+			kfree(buf);
+			cluster_index++;
+		}
+	}
+
+	/* Extend the directory with enough zeroed clusters for the run. */
+	{
+		uint32_t last;
+		uint32_t previous = 0;
+		uint32_t need = (slots + entries_per_cluster - 1) /
+				entries_per_cluster;
+		uint32_t first_new = 0;
+		uint32_t i;
+		uint8_t *buf;
+		int error;
+
+		error = fat_dir_last_cluster(dir, &last, &previous);
+		if (error && error != -ENOENT)
+			return error;
+		if (!error)
+			previous = last;
+
+		buf = kmalloc(cluster_size);
+		if (!buf)
+			return -ENOMEM;
+		memset(buf, 0, cluster_size);
+
+		for (i = 0; i < need; i++) {
+			uint32_t cluster;
+
+			error = fat_alloc_cluster(sb, previous, &cluster);
+			if (error)
+				goto out;
+			if (!first_new)
+				first_new = cluster;
+			error = fat_write_cluster(sb, cluster, buf);
+			if (error) {
+				fat_free_cluster_chain(sb, first_new);
+				goto out;
+			}
+			previous = cluster;
+		}
+		kfree(buf);
+
+		*res_cluster = first_new;
+		*res_offset = 0;
+		*end_marker = slots * FAT_ENTRY_SIZE < need * cluster_size;
+		return 0;
+out:
+		kfree(buf);
+		return error;
+	}
+}
+
+/*
+ * Clear every end-of-directory marker (a zero first byte) that precedes
+ * @target_cluster/@target_offset.  A multi-slot LFN run can be placed after
+ * what used to be the directory's final slot, so without this the directory
+ * scan would still stop at the old marker and never reach the new entries.
+ */
+static int fat_dir_clear_end_markers_before(struct inode *dir,
+					    uint32_t target_cluster,
+					    uint32_t target_offset)
+{
+	struct super_block *sb = dir->i_sb;
+	uint32_t cluster_size = FAT_CLUSTER_SIZE(sb);
+	uint32_t cur_cluster = FAT_INODE(dir).start_cluster;
+	uint32_t cur_offset = 0;
+
+	while (cur_cluster) {
+		uint8_t *buf;
+		uint32_t next = 0;
+		int changed = 0;
+		int error;
+
+		buf = kmalloc(cluster_size);
+		if (!buf)
+			return -ENOMEM;
+		error = fat_read_cluster(sb, cur_cluster, buf);
+		if (error) {
+			kfree(buf);
+			return error;
+		}
+
+		while (cur_offset < cluster_size) {
+			if (cur_cluster == target_cluster &&
+			    cur_offset == target_offset) {
+				kfree(buf);
+				return 0;
+			}
+			if (buf[cur_offset] == 0x00) {
+				buf[cur_offset] = 0xe5;
+				changed = 1;
+			}
+			cur_offset += FAT_ENTRY_SIZE;
+		}
+
+		if (changed) {
+			error = fat_write_cluster(sb, cur_cluster, buf);
+			if (error) {
+				kfree(buf);
+				return error;
+			}
+		}
+		kfree(buf);
+
+		error = fat_dir_next_cluster(dir, cur_cluster, &next);
+		if (error)
+			return error;
+		cur_cluster = next;
+		cur_offset = 0;
+	}
+
+	return -ENOENT;
+}
+
 static int fat_add_entry(struct inode *dir, const uint8_t short_name[11],
 			 uint8_t attributes, uint32_t start_cluster,
 			 uint32_t size, unsigned long *ino_out)
@@ -385,35 +589,408 @@ static int fat_add_entry(struct inode *dir, const uint8_t short_name[11],
 	return 0;
 }
 
+static int fat_char_for_short(char c)
+{
+	if (c >= 'a' && c <= 'z')
+		return c - 'a' + 'A';
+	if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+	    c == '_' || c == '-' || c == '!' || c == '#' || c == '$' ||
+	    c == '%' || c == '&' || c == '\'' || c == '(' || c == ')' ||
+	    c == '+' || c == ',' || c == ';' || c == '=' || c == '@' ||
+	    c == '[' || c == ']' || c == '^' || c == '`' || c == '{' ||
+	    c == '}' || c == '~')
+		return c;
+	return '_';
+}
+
+static int fat_short_alias(struct inode *dir, const char *name, int len,
+			   uint8_t short_name[11])
+{
+	uint8_t base[16];
+	uint8_t ext[4];
+	int last_dot = -1;
+	int base_len = 0;
+	int ext_len = 0;
+	int i;
+	int n;
+
+	for (i = 0; i < len; i++)
+		if (name[i] == '.')
+			last_dot = i;
+
+	if (last_dot > 0 && last_dot < len - 1) {
+		base_len = last_dot;
+		ext_len = len - last_dot - 1;
+	} else {
+		base_len = len;
+	}
+
+	for (i = 0; i < base_len && i < 6; i++) {
+		base[i] = fat_char_for_short(name[i]);
+	}
+	for (; i < (int)sizeof(base); i++)
+		base[i] = ' ';
+	if (base[0] == ' ')
+		base[0] = '_';
+
+	for (i = 0; i < ext_len && i < 3; i++)
+		ext[i] = fat_char_for_short(name[last_dot + 1 + i]);
+	for (; i < 4; i++)
+		ext[i] = ' ';
+
+	for (n = 1; n < 10000; n++) {
+		char digits[5];
+		int value = n;
+		int digits_len = 0;
+		int prefix = 7 - digits_len;
+
+		do {
+			digits[digits_len++] = '0' + value % 10;
+			value /= 10;
+		} while (value);
+		/* Reverse the decimal string. */
+		for (i = 0; i < digits_len / 2; i++) {
+			char tmp = digits[i];
+
+			digits[i] = digits[digits_len - 1 - i];
+			digits[digits_len - 1 - i] = tmp;
+		}
+		prefix = 7 - digits_len;
+		if (prefix > 6)
+			prefix = 6;
+		if (prefix < 1)
+			prefix = 1;
+
+		memset(short_name, ' ', 11);
+		memcpy(short_name, base, prefix);
+		short_name[prefix] = '~';
+		memcpy(short_name + prefix + 1, digits, digits_len);
+		memcpy(short_name + 8, ext, 3);
+
+		i = fat_dir_short_name_exists(dir, short_name, 0, 0);
+		if (!i)
+			return 0;
+		if (i < 0)
+			return i;
+	}
+	return -EEXIST;
+}
+
+static void fat_fill_lfn_entry(uint8_t *entry, uint8_t seq,
+			       uint8_t checksum, const char *name, int len,
+			       int base)
+{
+	int i;
+
+	memset(entry, 0xff, FAT_ENTRY_SIZE);
+	entry[0] = seq;
+	entry[11] = FAT_ATTR_LFN;
+	entry[12] = 0;
+	entry[13] = checksum;
+	entry[26] = 0;
+
+	for (i = 0; i < 13; i++) {
+		uint16_t ch;
+
+		if (base + i < len)
+			ch = (uint8_t)name[base + i];
+		else
+			ch = 0xffff;
+		fat_write16(entry + fat_lfn_offsets[i], ch);
+	}
+}
+
+static int fat_add_entry_name(struct inode *dir, const char *name, int len,
+			      uint8_t attributes, uint32_t start_cluster,
+			      uint32_t size, unsigned long *ino_out)
+{
+	struct super_block *sb = dir->i_sb;
+	uint32_t cluster_size = FAT_CLUSTER_SIZE(sb);
+	uint8_t short_name[11];
+	uint8_t *entries;
+	uint32_t slots;
+	uint32_t lfn_slots;
+	uint32_t cluster;
+	uint32_t offset;
+	uint32_t short_cluster;
+	uint32_t short_offset;
+	uint8_t checksum;
+	uint32_t cur_cluster;
+	uint32_t cur_offset;
+	int end_marker;
+	int i;
+	int error;
+
+	if (len < 1 || len > 255)
+		return -ENAMETOOLONG;
+	for (i = 0; i < len; i++) {
+		uint8_t c = name[i];
+
+		if (c < 0x20 || c == '/' || c == '\\' || c == ':' ||
+		    c == '*' || c == '?' || c == '"' || c == '<' ||
+		    c == '>' || c == '|')
+			return -EINVAL;
+	}
+
+	error = fat_dir_find_entry(dir, name, len, &cluster, &offset);
+	if (!error)
+		return -EEXIST;
+	if (error != -ENOENT)
+		return error;
+
+	if (!fat_name_to_short(name, len, short_name))
+		return fat_add_entry(dir, short_name, attributes, start_cluster,
+				     size, ino_out);
+
+	error = fat_short_alias(dir, name, len, short_name);
+	if (error)
+		return error;
+
+	lfn_slots = (len + 12) / 13;
+	slots = lfn_slots + 1;
+	entries = kmalloc(slots * FAT_ENTRY_SIZE);
+	if (!entries)
+		return -ENOMEM;
+
+	checksum = fat_short_name_checksum(short_name);
+	/* The actual base offset is (seq - 1) * 13. */
+	for (i = 0; i < (int)lfn_slots; i++) {
+		uint8_t seq = lfn_slots - i;
+		int base;
+
+		if (i == 0)
+			seq |= 0x40;
+		base = ((seq & 0x1f) - 1) * 13;
+		fat_fill_lfn_entry(entries + i * FAT_ENTRY_SIZE,
+				   seq, checksum, name, len, base);
+	}
+
+	fat_make_short_entry(entries + lfn_slots * FAT_ENTRY_SIZE, short_name,
+			     attributes, start_cluster, size);
+
+	error = fat_dir_find_free_run(dir, slots, &cluster, &offset,
+				      &end_marker);
+	if (error)
+		goto out;
+
+	error = fat_dir_clear_end_markers_before(dir, cluster, offset);
+	if (error)
+		goto out;
+
+	cur_cluster = cluster;
+	cur_offset = offset;
+	short_cluster = 0;
+	short_offset = 0;
+	for (i = 0; i < (int)slots; i++) {
+		int last = i == (int)slots - 1;
+
+		if (last) {
+			short_cluster = cur_cluster;
+			short_offset = cur_offset;
+		}
+		error = fat_write_entry_at(dir, cur_cluster, cur_offset,
+					   entries + i * FAT_ENTRY_SIZE,
+					   last ? end_marker : 0);
+		if (error)
+			goto out;
+		cur_offset += FAT_ENTRY_SIZE;
+		if (cur_offset >= cluster_size) {
+			uint32_t next;
+
+			error = fat_dir_next_cluster(dir, cur_cluster, &next);
+			if (error)
+				goto out;
+			cur_cluster = next;
+			cur_offset = 0;
+		}
+	}
+
+	*ino_out = fat_entry_ino(sb, short_cluster, short_offset);
+	inode_invalidate(sb, *ino_out);
+	error = 0;
+out:
+	kfree(entries);
+	return error;
+}
+
+static int fat_dir_cluster_index(struct inode *dir, uint32_t cluster,
+				 uint32_t *index_out)
+{
+	uint32_t cur = FAT_INODE(dir).start_cluster;
+	uint32_t index = 0;
+	uint32_t seen = 0;
+
+	while (cur && seen++ < FAT_SB(dir->i_sb).total_clusters) {
+		uint32_t next;
+		int error;
+
+		if (cur == cluster) {
+			*index_out = index;
+			return 0;
+		}
+		error = fat_dir_next_cluster(dir, cur, &next);
+		if (error == -ENOENT)
+			break;
+		if (error)
+			return error;
+		cur = next;
+		index++;
+	}
+	return -ENOENT;
+}
+
+static int fat_dir_prev_cluster(struct inode *dir, uint32_t cluster,
+				uint32_t *prev_out)
+{
+	uint32_t cur = FAT_INODE(dir).start_cluster;
+	uint32_t prev = 0;
+	uint32_t seen = 0;
+
+	while (cur && seen++ < FAT_SB(dir->i_sb).total_clusters) {
+		uint32_t next;
+		int error;
+
+		if (cur == cluster) {
+			if (!prev)
+				return -ENOENT;
+			*prev_out = prev;
+			return 0;
+		}
+		prev = cur;
+		error = fat_dir_next_cluster(dir, cur, &next);
+		if (error == -ENOENT)
+			break;
+		if (error)
+			return error;
+		cur = next;
+	}
+	return -ENOENT;
+}
+
+/*
+ * Delete a short-name entry together with any preceding long-name entries.
+ * LFN slots are written directly before the short entry and can cross a
+ * directory-cluster boundary, so the backward walk follows the directory
+ * chain rather than assuming all slots live in one cluster.
+ */
 static int fat_delete_entry_at(struct inode *dir, uint32_t cluster,
 			       uint32_t offset)
 {
 	struct super_block *sb = dir->i_sb;
 	uint32_t cluster_size = FAT_CLUSTER_SIZE(sb);
+	uint32_t first_cluster = cluster;
+	uint32_t first_offset = offset;
+	uint32_t cur_cluster;
+	uint32_t cur_offset;
+	uint32_t index;
 	uint8_t *buf;
 	int error;
 
-	buf = kmalloc(cluster_size);
-	if (!buf)
-		return -ENOMEM;
-	error = fat_read_cluster(sb, cluster, buf);
+	error = fat_dir_cluster_index(dir, cluster, &index);
 	if (error)
-		goto out;
+		return error;
 
-	while (offset >= FAT_ENTRY_SIZE && buf[offset - FAT_ENTRY_SIZE] != 0xe5 &&
-	       buf[offset - FAT_ENTRY_SIZE + 11] == FAT_ATTR_LFN)
-		offset -= FAT_ENTRY_SIZE;
+	cur_cluster = cluster;
+	cur_offset = offset;
+	for (;;) {
+		uint32_t prev;
+		uint32_t check;
 
-	while (offset < cluster_size &&
-	       buf[offset + 11] == FAT_ATTR_LFN) {
-		buf[offset] = 0xe5;
-		offset += FAT_ENTRY_SIZE;
+		buf = kmalloc(cluster_size);
+		if (!buf)
+			return -ENOMEM;
+		error = fat_read_cluster(sb, cur_cluster, buf);
+		if (error) {
+			kfree(buf);
+			return error;
+		}
+
+		if (cur_offset == 0) {
+			if (index == 0) {
+				kfree(buf);
+				break;
+			}
+			kfree(buf);
+			error = fat_dir_prev_cluster(dir, cur_cluster, &prev);
+			if (error)
+				return error;
+			buf = kmalloc(cluster_size);
+			if (!buf)
+				return -ENOMEM;
+			error = fat_read_cluster(sb, prev, buf);
+			if (error) {
+				kfree(buf);
+				return error;
+			}
+			check = cluster_size - FAT_ENTRY_SIZE;
+			if (buf[check] != 0xe5 &&
+			    buf[check + 11] == FAT_ATTR_LFN) {
+				cur_cluster = prev;
+				cur_offset = check;
+				index--;
+				kfree(buf);
+				continue;
+			}
+			kfree(buf);
+			break;
+		}
+
+		check = cur_offset - FAT_ENTRY_SIZE;
+		if (buf[check] != 0xe5 && buf[check + 11] == FAT_ATTR_LFN) {
+			cur_offset = check;
+			kfree(buf);
+			continue;
+		}
+		kfree(buf);
+		break;
 	}
-	buf[offset] = 0xe5;
-	error = fat_write_cluster(sb, cluster, buf);
-out:
-	kfree(buf);
-	return error;
+
+	first_cluster = cur_cluster;
+	first_offset = cur_offset;
+	cur_cluster = first_cluster;
+	cur_offset = first_offset;
+	for (;;) {
+		int changed = 0;
+
+		buf = kmalloc(cluster_size);
+		if (!buf)
+			return -ENOMEM;
+		error = fat_read_cluster(sb, cur_cluster, buf);
+		if (error) {
+			kfree(buf);
+			return error;
+		}
+
+		while (cur_offset < cluster_size) {
+			if (cur_cluster == cluster && cur_offset == offset) {
+				buf[cur_offset] = 0xe5;
+				changed = 1;
+				error = changed ? fat_write_cluster(sb, cur_cluster,
+								   buf) : 0;
+				kfree(buf);
+				return error;
+			}
+			if (buf[cur_offset] != 0xe5) {
+				buf[cur_offset] = 0xe5;
+				changed = 1;
+			}
+			cur_offset += FAT_ENTRY_SIZE;
+		}
+
+		if (changed) {
+			error = fat_write_cluster(sb, cur_cluster, buf);
+			if (error) {
+				kfree(buf);
+				return error;
+			}
+		}
+		kfree(buf);
+
+		error = fat_dir_next_cluster(dir, cur_cluster, &cur_cluster);
+		if (error)
+			return error;
+		cur_offset = 0;
+	}
 }
 
 static int fat_read_entry_at(struct inode *dir, uint32_t cluster,
@@ -736,7 +1313,6 @@ static int fat_readdir(struct inode *dir, struct file *file, void *dirent,
 static int fat_create(struct inode *dir, char *name, int len,
 		      struct inode **res)
 {
-	uint8_t short_name[11];
 	unsigned long ino;
 	struct inode *inode;
 	int error;
@@ -747,12 +1323,8 @@ static int fat_create(struct inode *dir, char *name, int len,
 		return -EROFS;
 	}
 
-	error = fat_name_to_short(name, len, short_name);
-	if (error) {
-		iput(dir);
-		return error;
-	}
-	error = fat_add_entry(dir, short_name, FAT_ATTR_ARCHIVE, 0, 0, &ino);
+	error = fat_add_entry_name(dir, name, len, FAT_ATTR_ARCHIVE, 0, 0,
+				   &ino);
 	if (error) {
 		iput(dir);
 		return error;
@@ -768,7 +1340,6 @@ static int fat_create(struct inode *dir, char *name, int len,
 
 static int fat_mkdir(struct inode *dir, char *name, int len)
 {
-	uint8_t short_name[11];
 	uint8_t dot_name[11];
 	uint8_t dotdot_name[11];
 	uint8_t entry[FAT_ENTRY_SIZE];
@@ -787,12 +1358,6 @@ static int fat_mkdir(struct inode *dir, char *name, int len)
 	    (len == 2 && name[0] == '.' && name[1] == '.')) {
 		iput(dir);
 		return -EINVAL;
-	}
-
-	error = fat_name_to_short(name, len, short_name);
-	if (error) {
-		iput(dir);
-		return error;
 	}
 
 	down(&dir->i_sem);
@@ -825,8 +1390,8 @@ static int fat_mkdir(struct inode *dir, char *name, int len)
 		goto out;
 	}
 
-	error = fat_add_entry(dir, short_name, FAT_ATTR_DIRECTORY, cluster, 0,
-			      &ino);
+	error = fat_add_entry_name(dir, name, len, FAT_ATTR_DIRECTORY,
+				   cluster, 0, &ino);
 	if (error) {
 		fat_free_cluster_chain(dir->i_sb, cluster);
 		goto out;
@@ -946,7 +1511,6 @@ static int fat_rename(struct inode *old_dir, char *old_name, int old_len,
 		      struct inode *new_dir, char *new_name, int new_len)
 {
 	static struct semaphore fat_rename_sem = INIT_MUTEX(fat_rename_sem);
-	uint8_t new_short_name[11];
 	uint8_t old_entry[FAT_ENTRY_SIZE];
 	uint8_t new_entry[FAT_ENTRY_SIZE];
 	uint32_t old_cluster;
@@ -968,13 +1532,6 @@ static int fat_rename(struct inode *old_dir, char *old_name, int old_len,
 		iput(old_dir);
 		iput(new_dir);
 		return -EROFS;
-	}
-
-	error = fat_name_to_short(new_name, new_len, new_short_name);
-	if (error) {
-		iput(old_dir);
-		iput(new_dir);
-		return error;
 	}
 
 	down(&fat_rename_sem);
@@ -1049,40 +1606,33 @@ static int fat_rename(struct inode *old_dir, char *old_name, int old_len,
 	if (new_exists) {
 		error = fat_delete_entry_at(new_dir, new_cluster, new_offset);
 		if (error) {
-			uint8_t old_short_name[11];
 			unsigned long rollback_ino;
 
-			if (!fat_name_to_short(old_name, old_len,
-					       old_short_name))
-				fat_add_entry(old_dir, old_short_name,
-					      old_entry[11],
-					      fat_entry_first_cluster(old_entry),
-					      fat_entry_size(old_entry),
-					      &rollback_ino);
+			fat_add_entry_name(old_dir, old_name, old_len,
+					   old_entry[11],
+					   fat_entry_first_cluster(old_entry),
+					   fat_entry_size(old_entry),
+					   &rollback_ino);
 			goto out;
 		}
 		inode_invalidate(new_dir->i_sb, target_ino);
 	}
 
-	error = fat_add_entry(new_dir, new_short_name, old_entry[11],
-			      fat_entry_first_cluster(old_entry),
-			      fat_entry_size(old_entry), &new_ino);
+	error = fat_add_entry_name(new_dir, new_name, new_len, old_entry[11],
+				   fat_entry_first_cluster(old_entry),
+				   fat_entry_size(old_entry), &new_ino);
 	if (error) {
-		uint8_t rollback_name[11];
 		unsigned long rollback_ino;
 
-		/* Restore the source entry.  The replaced target is restored
-		 * below only when it existed and its name is representable as
-		 * an 8.3 short name; LFN generation is handled separately. */
-		if (!fat_name_to_short(old_name, old_len, rollback_name))
-			fat_add_entry(old_dir, rollback_name, old_entry[11],
-				      fat_entry_first_cluster(old_entry),
-				      fat_entry_size(old_entry), &rollback_ino);
-		if (new_exists &&
-		    !fat_name_to_short(new_name, new_len, rollback_name))
-			fat_add_entry(new_dir, rollback_name, new_entry[11],
-				      fat_entry_first_cluster(new_entry),
-				      fat_entry_size(new_entry), &rollback_ino);
+		fat_add_entry_name(old_dir, old_name, old_len, old_entry[11],
+				   fat_entry_first_cluster(old_entry),
+				   fat_entry_size(old_entry), &rollback_ino);
+		if (new_exists)
+			fat_add_entry_name(new_dir, new_name, new_len,
+					   new_entry[11],
+					   fat_entry_first_cluster(new_entry),
+					   fat_entry_size(new_entry),
+					   &rollback_ino);
 		goto out;
 	}
 

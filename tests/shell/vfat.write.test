@@ -75,6 +75,29 @@ CHECK: rename-rm:0
 RUN: rmdir /mnt/srcdir /mnt/dstdir /mnt/todir/mvd /mnt/todir /mnt/fromdir; echo rename-clean:$?
 CHECK: rename-clean:0
 
+# Long file names are encoded with LFN entries and remain discoverable after
+# create, rename, read, unlink, and rmdir.
+RUN: echo long > /mnt/long-file-name-for-vfat.txt; cat /mnt/long-file-name-for-vfat.txt; echo lfn-create:$?
+CHECK: long
+CHECK: lfn-create:0
+RUN: mv /mnt/long-file-name-for-vfat.txt /mnt/longer-renamed-file-name.txt; cat /mnt/longer-renamed-file-name.txt; echo lfn-rename:$?
+CHECK: long
+CHECK: lfn-rename:0
+RUN: ls -la /mnt; echo before-longdir-ls:$?
+CHECK: before-longdir-ls:0
+RUN: mkdir /mnt/longdir-for-vfat-test; echo lfn-mkdir:$?
+CHECK: lfn-mkdir:0
+RUN: echo nested > /mnt/longdir-for-vfat-test/data.txt; echo lfn-file:$?
+CHECK: lfn-file:0
+RUN: echo nested > /tmp/lfn.expect; cat /mnt/longdir-for-vfat-test/data.txt > /tmp/lfn.cat; cmp /tmp/lfn.cat /tmp/lfn.expect; echo lfn-content:$?
+CHECK: lfn-content:0
+RUN: ls -la /mnt; ls -la /mnt/longdir-for-vfat-test; echo lfn-ls:$?
+CHECK: lfn-ls:0
+RUN: rm /mnt/longdir-for-vfat-test/data.txt /mnt/longer-renamed-file-name.txt; echo lfn-rm:$?
+CHECK: lfn-rm:0
+RUN: rmdir /mnt/longdir-for-vfat-test; echo lfn-clean:$?
+CHECK: lfn-clean:0
+
 RUN: rm /mnt/ren.txt; test ! -e /mnt/ren.txt; echo unlink-status:$?
 CHECK: unlink-status:0
 RUN: rm /mnt/wrdir/n.txt; rmdir /mnt/wrdir; echo rmdir-status:$?
