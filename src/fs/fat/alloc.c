@@ -81,6 +81,8 @@ out:
  * Find a free FAT32 cluster, mark it end-of-chain, and link it after
  * @previous when @previous is non-zero.
  */
+static struct semaphore fat_alloc_sem = INIT_MUTEX(fat_alloc_sem);
+
 int fat_alloc_cluster(struct super_block *sb, uint32_t previous,
 		      uint32_t *cluster)
 {
@@ -93,6 +95,8 @@ int fat_alloc_cluster(struct super_block *sb, uint32_t previous,
 		return -EINVAL;
 	if (previous && (previous < 2 || previous - 2 >= fsb->total_clusters))
 		return -EINVAL;
+
+	down(&fat_alloc_sem);
 
 	start = fsb->next_free ? fsb->next_free : 2;
 	if (start < 2)
@@ -110,21 +114,22 @@ int fat_alloc_cluster(struct super_block *sb, uint32_t previous,
 
 		error = fat_read_fat_entry(sb, candidate, &value);
 		if (error)
-			return error;
+			goto out;
 		if (value == 0) {
 			error = fat_write_fat_entry(sb, candidate, FAT_EOC_MAX);
 			if (error)
-				return error;
+				goto out;
 			if (previous) {
 				error = fat_write_fat_entry(sb, previous, candidate);
 				if (error)
-					return error;
+					goto out;
 			}
 			fsb->next_free = candidate + 1;
 			if (fsb->next_free - 2 >= fsb->total_clusters)
 				fsb->next_free = 2;
 			*cluster = candidate;
-			return 0;
+			error = 0;
+			goto out;
 		}
 	}
 
@@ -134,25 +139,29 @@ int fat_alloc_cluster(struct super_block *sb, uint32_t previous,
 
 		error = fat_read_fat_entry(sb, candidate, &value);
 		if (error)
-			return error;
+			goto out;
 		if (value == 0) {
 			error = fat_write_fat_entry(sb, candidate, FAT_EOC_MAX);
 			if (error)
-				return error;
+				goto out;
 			if (previous) {
 				error = fat_write_fat_entry(sb, previous, candidate);
 				if (error)
-					return error;
+					goto out;
 			}
 			fsb->next_free = candidate + 1;
 			if (fsb->next_free - 2 >= fsb->total_clusters)
 				fsb->next_free = 2;
 			*cluster = candidate;
-			return 0;
+			error = 0;
+			goto out;
 		}
 	}
 
-	return -ENOSPC;
+	error = -ENOSPC;
+out:
+	up(&fat_alloc_sem);
+	return error;
 }
 
 /*
