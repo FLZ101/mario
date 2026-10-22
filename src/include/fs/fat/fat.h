@@ -44,6 +44,7 @@ struct file_operations;
 #define FAT_BPB_FAT_SIZE32		36
 #define FAT_BPB_ROOT_CLUSTER		44
 #define FAT_BPB_FSINFO			48
+#define FAT_BPB_CLEAN_SHUTDOWN		0x41
 
 /* FAT32 FSInfo sector layout. */
 #define FAT_FSINFO_LEAD_SIG_OFFSET	0

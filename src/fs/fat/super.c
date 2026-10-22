@@ -8,6 +8,51 @@
 static struct super_operations fat_super_operations;
 
 /*
+ * Update the FAT32 clean-shutdown bit in the boot sector.  Bit 0 is clear
+ * while the volume may contain unflushed writes, and set after a clean
+ * unmount.  Read-only mounts never touch the flag.
+ */
+static int fat_set_clean_shutdown(struct super_block *sb, int clean)
+{
+	struct fat_sb_info *fsb = &FAT_SB(sb);
+	uint8_t *buf;
+	int error;
+
+	buf = kmalloc(fsb->bytes_per_sector);
+	if (!buf)
+		return -ENOMEM;
+	error = blkdev_read(sb->s_dev, 0, 1, (char *)buf);
+	if (error)
+		goto out;
+	if (buf[510] != 0x55 || buf[511] != 0xaa) {
+		error = -EIO;
+		goto out;
+	}
+	if (clean)
+		buf[FAT_BPB_CLEAN_SHUTDOWN] |= 0x01;
+	else
+		buf[FAT_BPB_CLEAN_SHUTDOWN] &= ~0x01;
+	error = blkdev_write(sb->s_dev, 0, 1, (char *)buf);
+out:
+	kfree(buf);
+	return error;
+}
+
+static int fat_write_super(struct super_block *sb)
+{
+	int error;
+
+	if (!sb || FAT_SB(sb).readonly)
+		return 0;
+
+	error = fat_set_clean_shutdown(sb, 1);
+	if (error)
+		return error;
+	fat_write_fsinfo(sb);
+	return 0;
+}
+
+/*
  * Parse and validate the FAT32 BPB from a 512-byte boot sector.  Fields are
  * read directly from the buffer rather than through a packed struct because
  * the BPB layout predates natural C alignment.
@@ -113,6 +158,15 @@ struct super_block *fat_read_super(struct super_block *sb)
 	sb->s_mounted = iget(sb, FAT_ROOT_INO);
 	if (!sb->s_mounted)
 		goto fail_cache;
+	if (!fsb->readonly) {
+		error = fat_set_clean_shutdown(sb, 0);
+		if (error) {
+			iput(sb->s_mounted);
+			sb->s_mounted = NULL;
+			goto fail_cache;
+		}
+		set_bit(SB_Dirty, &sb->s_state);
+	}
 
 	kfree(buf);
 	return sb;
@@ -128,6 +182,7 @@ fail:
 static struct super_operations fat_super_operations = {
 	.read_inode = fat_read_inode,
 	.write_inode = fat_write_inode,
+	.write_super = fat_write_super,
 	.clear_inode = fat_clear_inode,
 };
 
