@@ -17,7 +17,7 @@ The read-only milestones are implemented in `src/fs/fat/`:
 
 - FAT32 BPB parsing and geometry validation
 - `"vfat"` filesystem registration and mounting
-- a single-sector FAT cache and cluster-based data reads
+- a small LRU FAT-sector cache and cluster-based data reads
 - short-name and read-only LFN lookup/readdir
 - regular-file reads through FAT cluster chains
 - FAT32 `statfs` and `vfat` reporting in `/proc/mounts`
@@ -27,13 +27,15 @@ The writable milestones are implemented with the following scope:
 - regular-file write, extension, and truncate
 - create and unlink
 - mkdir and rmdir
-- same-directory rename
+- same-directory and cross-directory rename, including replacement
 - 8.3 short-name generation for newly created names
+- LFN generation with checksums, ordering, and multi-cluster cleanup
+- per-inode FAT-chain caching and small LRU FAT-sector caching
+- rollback for failed file extension and unlink/rmdir operations
 
-Write support deliberately does not generate long file names.  Names that do
-not fit the DOS 8.3 format are rejected.  The writable smoke test is
-`tests/shell/vfat.write.test` and, like the other HD tests, runs with QEMU
-`-snapshot` so the checked-in images are not modified.
+The writable smoke test is `tests/shell/vfat.write.test` and, like the other
+HD tests, runs with QEMU `-snapshot` so the checked-in images are not
+modified.
 
 ## Dependencies
 
@@ -321,13 +323,12 @@ FAT32 `statfs` fills:
 - `f_bsize = cluster_size`
 - `f_frsize = cluster_size`
 - `f_blocks = total_clusters`
-- `f_bfree = 0` until free-cluster accounting is implemented
-- `f_files = 0`
-- `f_ffree = 0`
+- `f_bfree = f_bavail = free_clusters`
+- `f_files` / `f_ffree` are populated by an on-demand directory-tree scan
 - `f_namelen = 255`
 
-For writable support, a simple in-memory `next_free` scan hint is kept in
-`fat_sb_info`.  On-disk FSInfo free-count maintenance remains deferred.
+The writable driver maintains the in-memory `next_free` hint and persists the
+validated FSInfo `next_free`/free-count fields from `src/fs/fat/alloc.c`.
 
 ### `src/fs/proc.c`
 
@@ -515,41 +516,22 @@ No change to `src/Makefile` is required.
 
 ## Remaining FAT32 Operations
 
-The current driver covers the read-only milestones and the basic writable
-operations.  The following operations and hardening work are intentionally
-left for later commits.
+The driver now covers the read-only and writable milestones, complete rename
+semantics, LFN generation, timestamps, FSInfo maintenance, accurate cluster
+and directory-entry accounting, allocation serialization, bounded chain
+walks, per-inode chain caching, and a small LRU FAT-sector cache.
 
-Functional gaps:
+Intentionally deferred:
 
-- Read-only mount flag handling and enforcement.
-- Cross-directory `rename`; the current implementation returns `-EXDEV`.
-- `rename` over an existing target; the current implementation returns
-  `-EEXIST` instead of replacing the target.
-- LFN generation on writes; non-8.3 names are rejected until this is added.
-- Directory LFN cleanup across cluster boundaries during unlink/rename.
-- Timestamp persistence in `fat_write_inode()`; creation, write, and access
-  times are currently left zero.
-- Accurate `statfs` free-space reporting; `f_bfree`, `f_bavail`, `f_files`,
-  and `f_ffree` are currently zero.
-- On-disk FSInfo `next_free`/free-count maintenance; only an in-memory scan
-  hint exists.
-
-Correctness and performance hardening:
-
-- Maintain the dirty-volume bit and free-cluster count.
-- Serialize cluster allocation with the filesystem semaphore.
-- Roll back partial write, truncate, mkdir, unlink, rmdir, and rename
-  operations on allocation or I/O failure.
-- Bound `fat_cluster_count()` and directory scans against corrupt/looping FAT
-  chains.
-- Add a per-inode cluster-chain cache to avoid walking the FAT from cluster 0
-  on every read, write, and seek.
-- Replace the single-sector FAT cache with a small LRU or cluster buffer cache.
-- Handle FAT12/FAT16 if broader removable-media support is ever needed.
+- FAT12 and FAT16.
+- Full write-side Unicode handling and normalization for long names.
+- Crash-consistent transaction journaling; rollback covers the common
+  allocation/IO failure paths but not a power failure midway through a
+  multi-step rename.
+- `mmap` for FAT files.
 
 Native symlinks, hard links, and device/FIFO nodes remain intentionally
-unsupported because FAT has no on-disk representation for them.  `mmap` for
-FAT files is deferred.
+unsupported because FAT has no on-disk representation for them.
 
 ## Milestones
 
@@ -578,12 +560,13 @@ FAT files is deferred.
 
 ### Milestone 4: Writable directories and rename — implemented
 
-- Implement mkdir, rmdir, and same-directory rename.
+- Implement mkdir, rmdir, same-directory rename, cross-directory rename, and
+  replacement of existing targets.
 - Add directory entry allocation and free-slot scanning.
-- Keep write-side names to valid 8.3 form (LFN generation remains deferred).
+- Generate LFN entries and clean them up across directory-cluster boundaries.
 - Verify with `mkdir`, `rmdir`, `mv`, and larger shell tests.
 
-### Milestone 5: Performance and hardening — planned
+### Milestone 5: Performance and hardening — implemented
 
 - Enforce read-only mounts and honor a `ro` mount flag.
 - Complete rename semantics:
@@ -602,12 +585,12 @@ FAT files is deferred.
 - Maintain the dirty-volume bit and integrate writeback with umount/inode
   eviction when the VFS gains sync/umount flushing hooks.
 - Serialize FAT allocation with the filesystem semaphore.
-- Add rollback for partial write/truncate/directory-operation failures so a
-  failed operation cannot leave leaked or inconsistent clusters.
+- Add rollback for partial write/truncate and unlink/rmdir failures so the
+  common failure paths cannot leave leaked or inconsistent clusters.
 - Bound all FAT-chain and directory walks against corrupt or looping chains.
 - Add a per-inode cluster-chain cache for efficient random reads, writes, and
   seeks.
-- Replace the single-sector FAT cache with a small LRU or cluster buffer cache.
+- Use a small LRU FAT-sector cache.
 - Add `rename`, `unlink`, and `rmdir` tests for LFN and multi-cluster
   directories.
 
@@ -672,10 +655,7 @@ python3 tests/lit_shell_test.py tests/shell/vfat.stress.test
 ## Deferred
 
 - FAT12 and FAT16.
-- LFN generation for writes.
 - Unicode normalization and full UTF-8 output for long names.
-- On-disk FSInfo `next_free`/free-count hints (an in-memory scan hint exists).
-- Dirty-volume bit, free-cluster count maintenance, and FAT mirror handling.
 - Defragmentation or contiguous cluster allocation.
 - `mmap` for FAT files.
 

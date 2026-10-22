@@ -53,9 +53,9 @@ int fat_short_name_match(const char *name, int len, const uint8_t *entry)
 }
 
 /*
- * Convert a VFS name to a DOS 8.3 short name.  The writable implementation
- * intentionally does not generate LFN entries; names that do not fit the
- * classic 8.3 format are rejected.
+ * Convert a VFS name to a DOS 8.3 short name.  Names that do not fit the
+ * classic 8.3 format are handled by fat_add_entry_name(), which generates LFN
+ * entries around a numeric short-name alias.
  */
 int fat_name_to_short(const char *name, int len, uint8_t short_name[11])
 {
