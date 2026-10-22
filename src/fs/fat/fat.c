@@ -79,6 +79,36 @@ int fat_next_cluster(struct super_block *sb, uint32_t cluster,
 }
 
 /*
+ * Count the free data clusters in a FAT32 volume.  This is used by statfs
+ * rather than being maintained incrementally, so it remains correct even if
+ * an allocation rollback or an external tool changes the FAT directly.
+ */
+int fat_count_free_clusters(struct super_block *sb, uint32_t *free_count)
+{
+	uint32_t cluster;
+	uint32_t free;
+	int error;
+
+	if (!sb || !free_count)
+		return -EINVAL;
+
+	free = 0;
+	for (cluster = 2;
+	     cluster - 2 < FAT_SB(sb).total_clusters;
+	     cluster++) {
+		uint32_t value;
+
+		error = fat_read_fat_entry(sb, cluster, &value);
+		if (error)
+			return error;
+		if (value == 0)
+			free++;
+	}
+	*free_count = free;
+	return 0;
+}
+
+/*
  * Walk a FAT chain forward and return the physical cluster corresponding to
  * cluster_index logical clusters from the inode's start cluster.  Zero means
  * the chain ended, which is treated as end-of-file for a regular file or end

@@ -121,6 +121,7 @@ int fat_write_fat_entry(struct super_block *sb, uint32_t cluster,
 			uint32_t value);
 int fat_next_cluster(struct super_block *sb, uint32_t cluster,
 		     uint32_t *next);
+int fat_count_free_clusters(struct super_block *sb, uint32_t *free_count);
 uint32_t fat_cluster_at(struct inode *inode, uint32_t cluster_index);
 uint32_t fat_cluster_at_alloc(struct inode *inode, uint32_t cluster_index,
 			      int *error);
