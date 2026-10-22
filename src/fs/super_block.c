@@ -2,6 +2,10 @@
 
 #include <misc.h>
 
+#include <mm/kmalloc.h>
+
+#include <lib/string.h>
+
 /* Initialized in @blkdev_init() */
 dev_t ROOT_DEV = 0;
 
@@ -18,6 +22,8 @@ void sb_init(void)
 
 	for (i = 0; i < NR_SUPER; i++) {
 		all[i].s_dev = 0;
+		all[i].s_mountpoint = NULL;
+		all[i].s_fsname = NULL;
 		init_MUTEX(&all[i].s_sem);
 	}
 
@@ -70,6 +76,7 @@ static struct super_block *read_super(dev_t dev, char *name)
 		sb->s_dev = 0;
 		return NULL;
 	}
+	sb->s_fsname = fs->name;
 	return sb;
 }
 
@@ -90,6 +97,13 @@ void mount_root(void)
 			iref(i);
 			iref(i);
 			sb->s_covered = NULL;
+			if (!sb->s_mountpoint) {
+				sb->s_mountpoint = kmalloc(2);
+				if (!sb->s_mountpoint)
+					hang("mount_root mountpoint");
+				sb->s_mountpoint[0] = '/';
+				sb->s_mountpoint[1] = '\0';
+			}
 			current->fs->pwd = i;
 			current->fs->root = i;
 		}
@@ -103,7 +117,7 @@ void mount_root(void)
 extern int fs_may_mount(dev_t dev);
 extern int fs_may_umount(dev_t dev, struct inode *mount_root);
 
-static int do_mount(dev_t dev, char *dir_name, char *type)
+static int do_mount(dev_t dev, char *dir_name, char *type, char *mountpoint)
 {
 	struct inode *dir_i;
 	struct super_block *sb;
@@ -139,6 +153,12 @@ static int do_mount(dev_t dev, char *dir_name, char *type)
 		return -EBUSY;
 	}
 
+	sb->s_mountpoint = kmalloc(strlen(mountpoint) + 1);
+	if (!sb->s_mountpoint) {
+		iput(dir_i);
+		return -ENOMEM;
+	}
+	memcpy(sb->s_mountpoint, mountpoint, strlen(mountpoint) + 1);
 	sb->s_covered = dir_i;
 	dir_i->i_mount = sb->s_mounted;
 	return 0;
@@ -149,6 +169,7 @@ int sys_mount(char *dev_name, char *dir_name, char *type,
 {
 	int error;
 	char *tmp;
+	char *dir_copy;
 	dev_t dev;
 	struct inode *inode;
 	struct file_system_type *fs_type;
@@ -159,18 +180,27 @@ int sys_mount(char *dev_name, char *dir_name, char *type,
 	putname(tmp);
 	if (!fs_type)
 		return -ENODEV;
-	error = namei(dev_name, &inode, 0);
+	error = getname(dir_name, &dir_copy);
 	if (error)
 		return error;
+	error = namei(dev_name, &inode, 0);
+	if (error)
+		goto out;
 	if (!S_ISBLK(inode->i_mode)) {
 		iput(inode);
-		return -ENOTBLK;
+		error = -ENOTBLK;
+		goto out;
 	}
 	dev = inode->i_rdev;
 	iput(inode);
-	if (MAJOR(dev) >= MAX_BLKDEV)
-		return -ENXIO;
-	return do_mount(dev, dir_name, fs_type->name);
+	if (MAJOR(dev) >= MAX_BLKDEV) {
+		error = -ENXIO;
+		goto out;
+	}
+	error = do_mount(dev, dir_name, fs_type->name, dir_copy);
+out:
+	putname(dir_copy);
+	return error;
 }
 
 static int do_umount(dev_t dev)
@@ -192,6 +222,11 @@ static int do_umount(dev_t dev)
 	sb->s_covered = NULL;
 	iput(sb->s_mounted);
 	sb->s_mounted = NULL;
+	if (sb->s_mountpoint) {
+		kfree(sb->s_mountpoint);
+		sb->s_mountpoint = NULL;
+	}
+	sb->s_fsname = NULL;
 	ret = write_super(sb);
 	sb->s_dev = 0; // !!!
 	return ret;
@@ -228,4 +263,25 @@ int sys_umount(char *name)
 int sys_umount2(char *name, int flags)
 {
 	return sys_umount(name);
+}
+
+int get_mount_super(int index, struct super_block **sb)
+{
+	if (index < 0 || index >= NR_SUPER || !sb)
+		return -EINVAL;
+	if (!all[index].s_dev || !all[index].s_mounted)
+		return -ENOENT;
+	*sb = &all[index];
+	return 0;
+}
+
+int get_nr_mounts(void)
+{
+	int count = 0;
+	int i;
+
+	for (i = 0; i < NR_SUPER; i++)
+		if (all[i].s_dev && all[i].s_mounted)
+			count++;
+	return count;
 }

@@ -246,6 +246,89 @@ static int proc_blkdev_name(unsigned int major, unsigned int minor,
 	return -EINVAL;
 }
 
+static int proc_mount_source(struct super_block *sb, char *buf, size_t size)
+{
+	int n;
+
+	if (!sb->s_covered)
+		return sprintk(buf, "mariofs");
+
+	n = sprintk(buf, "/dev/");
+	if (n < 0 || (size_t)n >= size)
+		return n;
+	n += proc_blkdev_name(MAJOR(sb->s_dev), MINOR(sb->s_dev),
+			      buf + n, size - n);
+	return n;
+}
+
+static const char *proc_mount_options(struct super_block *sb)
+{
+	return sb->s_magic == FAT_SUPER_MAGIC ? "ro" : "rw";
+}
+
+static int proc_mount_line(struct super_block *sb, char *buf, size_t size)
+{
+	char source[64];
+	int n;
+
+	n = proc_mount_source(sb, source, sizeof(source));
+	if (n < 0)
+		return n;
+	return sprintk(buf, "%s %s %s %s 0 0\n", source,
+		      sb->s_mountpoint ? sb->s_mountpoint : "/",
+		      sb->s_fsname ? sb->s_fsname : "unknown",
+		      proc_mount_options(sb));
+}
+
+static int proc_mounts_content(char *buf, int count, off64_t pos)
+{
+	int index;
+	uint64_t offset = pos;
+
+	for (index = 0;; index++) {
+		struct super_block *sb;
+		char line[PATH_MAX + 128];
+		int len;
+		int error;
+
+		error = get_mount_super(index, &sb);
+		if (error)
+			break;
+		len = proc_mount_line(sb, line, sizeof(line));
+		if (len < 0)
+			continue;
+		if (offset < (uint64_t)len) {
+			int chunk = MIN((uint64_t)count, (uint64_t)len - offset);
+
+			memcpy_tofs(buf, line + offset, chunk);
+			return chunk;
+		}
+		offset -= len;
+	}
+	return 0;
+}
+
+static int proc_mounts_size(void)
+{
+	int index;
+	int size = 0;
+
+	for (index = 0;; index++) {
+		struct super_block *sb;
+		char line[PATH_MAX + 128];
+		int len;
+		int error;
+
+		error = get_mount_super(index, &sb);
+		if (error)
+			break;
+		len = proc_mount_line(sb, line, sizeof(line));
+		if (len > 0)
+			size += len;
+	}
+	return size;
+}
+
 static int proc_partitions_content(char *buf, size_t size)
 {
 	unsigned int major;
@@ -292,8 +375,6 @@ static int proc_file_content(unsigned long ino, char *buf, size_t size)
 
 		return sprintk(buf, "%d.%d 0.00\n", (int)up, (int)up_cs);
 	}
-	case PROC_INO_MOUNTS:
-		return sprintk(buf, "mariofs / mariofs rw 0 0\n");
 	case PROC_INO_PARTITIONS:
 		return proc_partitions_content(buf, size);
 	default:
@@ -312,7 +393,18 @@ static int proc_file_read(struct inode *inode, struct file *file,
 			  char *buf, int count)
 {
 	char content[512];
-	int size = proc_file_content(inode->i_ino, content, sizeof(content));
+	int size;
+
+	if (inode->i_ino == PROC_INO_MOUNTS) {
+		int n = proc_mounts_content(buf, count, file->f_pos);
+
+		if (n < 0)
+			return n;
+		file->f_pos += n;
+		return n;
+	}
+
+	size = proc_file_content(inode->i_ino, content, sizeof(content));
 
 	if (size < 0)
 		return size;
@@ -450,8 +542,12 @@ static struct inode_operations proc_link_iops = {
 static struct inode *proc_make_file(unsigned long ino)
 {
 	char content[512];
-	int size = proc_file_content(ino, content, sizeof(content));
+	int size;
 
+	if (ino == PROC_INO_MOUNTS)
+		size = proc_mounts_size();
+	else
+		size = proc_file_content(ino, content, sizeof(content));
 	if (size < 0)
 		return NULL;
 	return proc_alloc_inode(ino, size, NULL, &proc_file_fops);

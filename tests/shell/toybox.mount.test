@@ -13,6 +13,10 @@ CHECK: mounted-file:0
 RUN: mount
 CHECK: mariofs on / type mariofs (rw)
 
+# The same mounted rd2 must also appear in the raw /proc/mounts stream.
+RUN: cat /proc/mounts
+CHECK: /dev/rd2 /mnt mariofs rw 0 0
+
 # Unmount by device path and verify rd2 is no longer visible.
 RUN: umount /dev/rd2; echo umount-device-status:$?
 CHECK: umount-device-status:0

@@ -62,6 +62,8 @@ struct super_block {
 	struct inode *s_mounted; // the / inode of this filesystem tree
 	struct semaphore s_sem;
 	unsigned long s_magic;
+	char *s_mountpoint;
+	const char *s_fsname;
 	union {
 		struct mario_sb_info mario_sb;
 		struct ext2_sb_info ext2_sb;
@@ -76,6 +78,8 @@ struct super_block {
 
 void sb_init(void);
 void mount_root(void);
+int get_mount_super(int index, struct super_block **sb);
+int get_nr_mounts(void);
 
 struct inode_operations {
 	int (*lookup)(struct inode *, char *, int, struct inode **);
