@@ -2,6 +2,15 @@
 
 #include <mm/page_alloc.h>
 #include <mm/kmalloc.h>
+#include <lib/spinlock.h>
+
+/*
+ * kmalloc bucket lock.  As with the buddy allocator, interrupts disabled on
+ * one CPU are not enough once another CPU can allocate a block concurrently.
+ * The kmalloc -> buddy lock order is intentional: kmalloc may allocate whole
+ * boards, but the buddy allocator never calls back into kmalloc.
+ */
+static spinlock_t kmalloc_lock = SPINLOCK_UNLOCKED;
 
 struct board_header;
 struct block_header {
@@ -86,7 +95,9 @@ void free_board(struct board_header *board)
 
 void *kmalloc(size_t size)
 {
-	irq_save();
+	unsigned long flags;
+
+	spin_lock_irqsave(&kmalloc_lock, flags);
 
 	if (!size)
 		goto fail;
@@ -111,17 +122,19 @@ void *kmalloc(size_t size)
 
 	board->firstfree = block->next;
 
-	irq_restore();
+	spin_unlock_irqrestore(&kmalloc_lock, flags);
 	return &block->next;
 fail:
-	irq_restore();
+	spin_unlock_irqrestore(&kmalloc_lock, flags);
 	pr_err("kmalloc size=%u failed\n", (unsigned int)size);
 	return NULL;
 }
 
 void kfree(void *ptr)
 {
-	irq_save();
+	unsigned long flags;
+
+	spin_lock_irqsave(&kmalloc_lock, flags);
 
 	struct block_header *block =
 		(struct block_header *)((unsigned long)ptr - 4);
@@ -141,5 +154,5 @@ void kfree(void *ptr)
 		free_board(board);
 	}
 
-	irq_restore();
+	spin_unlock_irqrestore(&kmalloc_lock, flags);
 }

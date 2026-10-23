@@ -8,14 +8,24 @@
 #include <mm/uaccess.h>
 
 #include <lib/string.h>
+#include <lib/spinlock.h>
 
 static LIST_HEAD(timer_head);
+
+/*
+ * Timer wheel lock.  add_timer()/del_timer() are called from process and
+ * interrupt paths, while run_timer_list() removes entries and invokes
+ * callbacks that may add timers again.  The run path therefore releases the
+ * lock around the callback.
+ */
+static spinlock_t timer_lock = SPINLOCK_UNLOCKED;
 
 void add_timer(struct timer_list *timer)
 {
 	struct list_head *tmp;
+	unsigned long flags;
 
-	irq_save();
+	spin_lock_irqsave(&timer_lock, flags);
 	timer->expires += jiffies;
 	list_for_each(tmp, &timer_head) {
 		struct timer_list *t =
@@ -24,7 +34,7 @@ void add_timer(struct timer_list *timer)
 			break;
 	}
 	list_add_tail(&timer->list, tmp);
-	irq_restore();
+	spin_unlock_irqrestore(&timer_lock, flags);
 }
 
 static inline int timer_in_list(struct timer_list *timer)
@@ -43,34 +53,45 @@ static void __del_timer(struct timer_list *timer)
 
 int del_timer(struct timer_list *timer)
 {
-	if (!timer_in_list(timer))
-		return 0;
+	unsigned long flags;
 
-	irq_save();
+	spin_lock_irqsave(&timer_lock, flags);
+	if (!timer_in_list(timer)) {
+		spin_unlock_irqrestore(&timer_lock, flags);
+		return 0;
+	}
 	__del_timer(timer);
-	irq_restore();
+	spin_unlock_irqrestore(&timer_lock, flags);
 	return 1;
 }
 
 void run_timer_list(void)
 {
-	struct list_head *tmp;
 	unsigned long flags;
+	struct timer_list *t;
 
-	save_flags(flags);
-	cli();
-	list_for_each(tmp, &timer_head) {
-		struct timer_list *t =
-			list_entry(tmp, struct timer_list, list);
-		if (t->expires > jiffies)
-			break;
+	for (;;) {
+		t = NULL;
+		spin_lock_irqsave(&timer_lock, flags);
+		if (list_empty(&timer_head))
+			goto unlock;
+
+		t = list_entry(timer_head.next, struct timer_list, list);
+		if (t->expires > jiffies) {
+			t = NULL;
+			goto unlock;
+		}
 
 		__del_timer(t);
+unlock:
+		spin_unlock_irqrestore(&timer_lock, flags);
 
-		tmp = t->list.prev;
+		if (!t)
+			break;
+
+		/* Invoke callbacks without the timer lock so they may rearm. */
 		t->fun(t->data);
 	}
-	restore_flags(flags);
 }
 
 void it_real_fun(unsigned long data)

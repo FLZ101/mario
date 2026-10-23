@@ -3,6 +3,7 @@
 
 #include <lib/list.h>
 #include <lib/stddef.h>
+#include <lib/spinlock.h>
 
 #define WNOHANG		0x00000001
 #define WUNTRACED	0x00000002
@@ -30,5 +31,8 @@ static inline void init_wait_queue(wait_queue_t *q)
 
 void in_wait_queue(wait_queue_t *q, wait_queue_node_t *n);
 void out_wait_queue(wait_queue_t *q, wait_queue_node_t *n);
+
+/* Protects every wait_queue_t's embedded task list. */
+extern spinlock_t wait_queue_lock;
 
 #endif /* _WAIT_H */

@@ -9,9 +9,17 @@
 
 #include <lib/list.h>
 
+/*
+ * Protects the global init_task-linked task list.  SET_LINKS/REMOVE_LINKS used
+ * to rely on local interrupt disable; that is insufficient on SMP because two
+ * CPUs can insert or reap tasks concurrently.
+ */
+extern spinlock_t tasklist_lock;
+
 #define REMOVE_LINKS(p) \
 do { \
-	irq_save(); \
+	unsigned long __tasklist_flags; \
+	spin_lock_irqsave(&tasklist_lock, __tasklist_flags); \
 	(p)->next_task->prev_task = (p)->prev_task; \
 	(p)->prev_task->next_task = (p)->next_task; \
 	if ((p)->p_osptr) \
@@ -20,12 +28,13 @@ do { \
 		(p)->p_ysptr->p_osptr = (p)->p_osptr; \
 	else \
 		(p)->p_pptr->p_cptr = (p)->p_osptr; \
-	irq_restore(); \
+	spin_unlock_irqrestore(&tasklist_lock, __tasklist_flags); \
 } while (0)
 
 #define SET_LINKS(p) \
 do { \
-	irq_save(); \
+	unsigned long __tasklist_flags; \
+	spin_lock_irqsave(&tasklist_lock, __tasklist_flags); \
 	(p)->next_task = &init_task; \
 	(p)->prev_task = init_task.prev_task; \
 	init_task.prev_task->next_task = (p); \
@@ -34,7 +43,7 @@ do { \
 	if (((p)->p_osptr = (p)->p_pptr->p_cptr) != NULL) \
 		(p)->p_osptr->p_ysptr = p; \
 	(p)->p_pptr->p_cptr = p; \
-	irq_restore(); \
+	spin_unlock_irqrestore(&tasklist_lock, __tasklist_flags); \
 } while (0)
 
 #define DEF_COUNTER	(10*HZ/100)	/* 100 ms time slice */

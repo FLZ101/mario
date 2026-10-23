@@ -8,6 +8,7 @@
 #include <mm/page_alloc.h>
 #include <mm/bootmem.h>
 #include <mm/e820.h>
+#include <lib/spinlock.h>
 
 #define MAX_ORDER 11
 
@@ -20,6 +21,14 @@ struct free_area {
 unsigned long max_pfn;
 
 struct page *mem_map;
+
+/*
+ * Buddy allocator lock.  Interrupt masking alone only excludes the local CPU;
+ * after AP bring-up two CPUs could otherwise modify the same free_area list.
+ * The lock is statically unlocked because the BSS is zeroed before
+ * page_alloc_init() runs.
+ */
+static spinlock_t page_alloc_lock = SPINLOCK_UNLOCKED;
 
 #define __free_list_del(page) list_del(&(page)->list)
 
@@ -108,13 +117,15 @@ void page_alloc_init(void)
 struct page *alloc_pages(unsigned long order)
 {
 	unsigned long n;
-	irq_save();
+	unsigned long flags;
+
+	spin_lock_irqsave(&page_alloc_lock, flags);
 	// int free_before = get_free_area_size();
 	// int free_expected = free_before - (1 << order);
 
 	for (n = order; list_empty(&free_area[n].free_list); n++) {
 		if (n == MAX_ORDER - 1) {
-			irq_restore();
+			spin_unlock_irqrestore(&page_alloc_lock, flags);
 			pr_err("alloc_pages order=%u failed\n",
 			       (unsigned int)order);
 			return NULL;
@@ -133,7 +144,7 @@ struct page *alloc_pages(unsigned long order)
 	}
 
 	// assert(free_expected == get_free_area_size());
-	irq_restore();
+	spin_unlock_irqrestore(&page_alloc_lock, flags);
 	return page;
 }
 
@@ -185,7 +196,9 @@ struct page *expand(struct page *page, unsigned long order)
 
 void free_pages(struct page *page, unsigned long order)
 {
-	irq_save();
+	unsigned long flags;
+
+	spin_lock_irqsave(&page_alloc_lock, flags);
 	// int free_before = get_free_area_size();
 	// int free_expected = free_before + (1 << order);
 
@@ -203,7 +216,7 @@ void free_pages(struct page *page, unsigned long order)
 	__free_list_add(page, order);
 
 	// assert(free_expected == get_free_area_size());
-	irq_restore();
+	spin_unlock_irqrestore(&page_alloc_lock, flags);
 }
 
 void free_page(struct page *page)

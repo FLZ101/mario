@@ -14,6 +14,13 @@
 
 static LIST_HEAD(runqueue_head);
 
+/*
+ * Global task-list lock used by SET_LINKS/REMOVE_LINKS in <sched.h>.  It is
+ * deliberately separate from runqueue and wait-queue locks so process creation
+ * and reaping do not create an unnecessary lock-order dependency.
+ */
+spinlock_t tasklist_lock = SPINLOCK_UNLOCKED;
+
 void print_runqueue(void)
 {
 	struct list_head *tmp;
@@ -214,8 +221,9 @@ void sleep_on(wait_queue_t *q, long state, spinlock_t *lock)
 void wake_up(wait_queue_t *q, long state)
 {
 	struct list_head *tmp, *head;
+	unsigned long flags;
 
-	irq_save();
+	spin_lock_irqsave(&wait_queue_lock, flags);
 
 	head = &q->task_list;
 	list_for_each(tmp, head) {
@@ -226,7 +234,7 @@ void wake_up(wait_queue_t *q, long state)
 			wake_up_process(node->p);
 	}
 
-	irq_restore();
+	spin_unlock_irqrestore(&wait_queue_lock, flags);
 }
 
 /*
@@ -235,8 +243,9 @@ void wake_up(wait_queue_t *q, long state)
 void wake_up_1st(wait_queue_t *q)
 {
 	struct list_head *head;
+	unsigned long flags;
 
-	irq_save();
+	spin_lock_irqsave(&wait_queue_lock, flags);
 	if (list_empty(&q->task_list))
 		goto tail;
 	head = &q->task_list;
@@ -245,5 +254,5 @@ void wake_up_1st(wait_queue_t *q)
 
 	wake_up_process(node->p);
 tail:
-	irq_restore();
+	spin_unlock_irqrestore(&wait_queue_lock, flags);
 }
