@@ -10,14 +10,14 @@ KERNEL_EXE := ../src/kernel/kernel.exe
 
 image: hd1.img hd2.img hd3.img
 
-hd1.img: $(shell ./make-hd1.sh --deps)
-	bash make-hd1.sh
+hd1.img: make-hd1.py mkdisk.py $(shell python3 make-hd1.py --deps)
+	python3 make-hd1.py
 
-hd2.img: $(shell ./make-hd2.sh --deps)
-	bash make-hd2.sh
+hd2.img: make-hd2.py mkdisk.py $(shell python3 make-hd2.py --deps)
+	python3 make-hd2.py
 
-hd3.img: $(shell ./make-hd3.sh --deps)
-	bash make-hd3.sh
+hd3.img: make-hd3.py mkdisk.py $(shell python3 make-hd3.py --deps)
+	python3 make-hd3.py
 
 clean:
 	rm -rf tmp/ hd1.img hd2.img hd3.img

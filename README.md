@@ -43,7 +43,7 @@ A simple Linux clone for x86.
 ## Prerequisites
 
 ```
-$ sudo dnf install make gcc binutils nasm qemu-system-x86 gdb dosfstools e2fsprogs
+$ sudo dnf install make gcc binutils nasm qemu-system-x86 gdb dosfstools e2fsprogs mtools
 
 $ sudo dnf install wget
 
