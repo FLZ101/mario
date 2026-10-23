@@ -189,9 +189,11 @@ def require_files():
         sys.exit(2)
 
 
-def start_qemu(qemu, realtime=False, with_disk=False):
+def start_qemu(qemu, realtime=False, with_disk=False, smp=1):
     cmd = [
         qemu,
+        "-smp",
+        str(smp),
         "-m",
         "256M",
         "-kernel",
@@ -233,8 +235,10 @@ def start_qemu(qemu, realtime=False, with_disk=False):
     return child
 
 
-def run_lit_test(test, qemu, realtime=False):
-    child = start_qemu(qemu, realtime, test.requires_hd)
+def run_lit_test(test, qemu, realtime=False, smp=1):
+    # Start a fresh QEMU for this test so an SMP configuration from one case
+    # cannot leak into the next case.
+    child = start_qemu(qemu, realtime, test.requires_hd, smp)
     output = []
     prompts = [PROMPT]
     timeout = DEFAULT_TIMEOUT
@@ -331,12 +335,20 @@ def main():
     parser.add_argument("--test", help="run only this test file")
     parser.add_argument("--list", action="store_true", help="list discovered tests")
     parser.add_argument(
+        "--smp",
+        type=int,
+        default=1,
+        help="number of QEMU CPUs to expose (default: 1)",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
         help="stream QEMU output while the test runs",
     )
     args = parser.parse_args()
+    if args.smp < 1:
+        parser.error("--smp must be at least 1")
 
     require_files()
     test_paths = []
@@ -386,7 +398,9 @@ def main():
             print(f"SKIP: {name} [missing {', '.join(missing_hd_images)}]")
             continue
         try:
-            failures, text, report_start = run_lit_test(test, args.qemu, args.verbose)
+            failures, text, report_start = run_lit_test(
+                test, args.qemu, args.verbose, args.smp
+            )
         except PexpectTimeout as exc:
             elapsed = time.monotonic() - started
             failed = True

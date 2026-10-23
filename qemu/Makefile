@@ -1,6 +1,11 @@
 SHELL := /bin/bash
 
+# Number of QEMU CPUs.  Defaults to one until SMP bring-up lands so the
+# existing single-CPU kernel path remains the default for all targets.
+SMP ?= 1
+
 .PHONY: all clean image run debug quick-run quick-debug \
+	smp2-run smp4-run smp2-debug smp4-debug \
 	tmux-run tmux-debug tmux-attach tmux-kill
 
 all: image
@@ -56,6 +61,7 @@ HD_FLAGS := \
 QEMU_FLAGS := \
 	-boot order=c \
 	-m 256M \
+	-smp $(SMP) \
 	-display $(QEMU_DISPLAY) \
 	$(HD_FLAGS) \
 	-no-reboot -no-shutdown
@@ -71,11 +77,26 @@ debug:
 #	-d int,mmu,guest_errors -D qemu.log
 QUICK_QEMU_FLAGS := \
 	-m 256M \
+	-smp $(SMP) \
 	-kernel $(KERNEL_EXE) \
 	-initrd $(RDX) \
 	-display $(QEMU_DISPLAY) \
 	$(HD_FLAGS) \
 	-no-reboot -no-shutdown
+
+# Convenience targets for exercising the SMP bring-up work without changing
+# the default single-CPU command line used by the test suite.
+smp2-run: image
+	$(MAKE) quick-run SMP=2
+
+smp4-run: image
+	$(MAKE) quick-run SMP=4
+
+smp2-debug: image
+	$(MAKE) quick-debug SMP=2
+
+smp4-debug: image
+	$(MAKE) quick-debug SMP=4
 
 quick-run:
 	qemu-system-i386 $(QUICK_QEMU_FLAGS)
