@@ -4,6 +4,7 @@
 #include <fs/tty/tty.h>
 
 #include <sched.h>
+#include <smp.h>
 #include <time.h>
 #include <version.h>
 
@@ -26,6 +27,7 @@ static struct super_block *proc_sb;
 #define PROC_INO_UPTIME	4UL
 #define PROC_INO_MOUNTS	5UL
 #define PROC_INO_PARTITIONS	6UL
+#define PROC_INO_CPUINFO	7UL
 
 #define PROC_INO_PID	0x01000000UL
 #define PROC_INO_FD_DIR	0x02000000UL
@@ -372,6 +374,20 @@ static int proc_partitions_content(char *buf, size_t size)
 	return n;
 }
 
+static int proc_cpuinfo_content(char *buf, size_t size)
+{
+	int n = 0;
+
+	for (int cpu = 0; cpu < nr_cpu_ids; cpu++) {
+		int add = sprintkn(buf + n, size - n,
+				   "processor\t: %d\n", cpu);
+		if (add < 0 || add >= size - n)
+			break;
+		n += add;
+	}
+	return n;
+}
+
 static int proc_file_content(unsigned long ino, char *buf, size_t size)
 {
 	switch (ino) {
@@ -387,6 +403,8 @@ static int proc_file_content(unsigned long ino, char *buf, size_t size)
 	}
 	case PROC_INO_PARTITIONS:
 		return proc_partitions_content(buf, size);
+	case PROC_INO_CPUINFO:
+		return proc_cpuinfo_content(buf, size);
 	default:
 		break;
 	}
@@ -593,6 +611,8 @@ static int proc_lookup_child(unsigned long dir_ino, char *name, int len,
 			*res = proc_make_file(PROC_INO_MOUNTS);
 		else if (proc_name_is(name, len, "partitions"))
 			*res = proc_make_file(PROC_INO_PARTITIONS);
+		else if (proc_name_is(name, len, "cpuinfo"))
+			*res = proc_make_file(PROC_INO_CPUINFO);
 		else {
 			pid_t pid;
 			if (proc_parse_pid(name, len, &pid) &&
@@ -728,8 +748,13 @@ static int proc_root_entry(int index, char *name, size_t size, ino_t *ino,
 		*ino = PROC_INO_PARTITIONS;
 		*type = DT_REG;
 		return 0;
+	case 5:
+		sprintkn(name, size, "%s", "cpuinfo");
+		*ino = PROC_INO_CPUINFO;
+		*type = DT_REG;
+		return 0;
 	default:
-		index -= 5;
+		index -= 6;
 		for_each_task(task) {
 			if (index-- == 0) {
 				sprintkn(name, size, "%d", task->pid);

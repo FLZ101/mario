@@ -3,10 +3,10 @@
 
 #include <smp.h>
 
-/* Single-CPU per-CPU accessor until APs have their own cpu_info slots. */
+/* BSP-only accessor until scheduler work makes this CPU-local in Step 6. */
 static inline struct cpu_info *this_cpu_info(void)
 {
-	return &bsp_cpu_info;
+	return &cpu_info[0];
 }
 
 #endif	/* _PERCPU_H */

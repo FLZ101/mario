@@ -1,0 +1,8 @@
+# Verify AP bring-up reports the requested number of CPUs through procfs.
+# This test is skipped by the default one-CPU suite.
+
+REQUIRES-SMP: 4
+
+RUN: export PATH=/bin:/bin/toybox:/bin/sbase
+RUN: grep -c '^processor' /proc/cpuinfo
+CHECK: 4

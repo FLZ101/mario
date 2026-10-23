@@ -93,6 +93,7 @@ class LitTest:
     def __init__(self, path):
         self.path = path
         self.requires_hd = False
+        self.requires_smp = 0
         self.runs = []
         self.actions = []
 
@@ -163,6 +164,9 @@ class LitTest:
                     self.actions.append(("pop-prompt", None))
                 elif body.startswith("REQUIRES-HD:"):
                     self.requires_hd = True
+                elif body.startswith("REQUIRES-SMP:"):
+                    spec = body[len("REQUIRES-SMP:") :].strip()
+                    self.requires_smp = int(spec) if spec else 2
                 elif body.startswith("EXIT:"):
                     break
                 elif body.startswith("CHECK-REGEX:"):
@@ -200,6 +204,8 @@ def start_qemu(qemu, realtime=False, with_disk=False, smp=1):
         KERNEL,
         "-initrd",
         INITRD,
+        "-append",
+        f"mario.smp={smp}",
         "-display",
         "none",
         "-serial",
@@ -396,6 +402,9 @@ def main():
             print(f"== {name} ==", flush=True)
         if test.requires_hd and missing_hd_images:
             print(f"SKIP: {name} [missing {', '.join(missing_hd_images)}]")
+            continue
+        if test.requires_smp and args.smp < test.requires_smp:
+            print(f"SKIP: {name} [requires SMP >= {test.requires_smp}]")
             continue
         try:
             failures, text, report_start = run_lit_test(

@@ -80,6 +80,7 @@ QUICK_QEMU_FLAGS := \
 	-smp $(SMP) \
 	-kernel $(KERNEL_EXE) \
 	-initrd $(RDX) \
+	-append "mario.smp=$(SMP)" \
 	-display $(QEMU_DISPLAY) \
 	$(HD_FLAGS) \
 	-no-reboot -no-shutdown

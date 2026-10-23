@@ -207,16 +207,20 @@ loop.  Device interrupts may still be handled by the BSP.
 
 Changes:
 
-- Add CPUID/APIC detection in `src/kernel/cpu.c` or `smp.c`.
-- Add an Intel MP floating-pointer/table parser, then MADT via ACPI RSDP when
-  available, to enumerate CPU IDs.
-- Add a low-memory real-mode/protected-mode trampoline in
-  `src/kernel/smp_boot.S`.
-- Send INIT-SIPI-SIPI from `src/kernel/apic.c`.
-- `smp_ap_entry()` initializes the AP's per-CPU segment, GDT/TSS, idle task,
-  and enters a per-CPU idle loop.
-- Expose online CPU count through `sysconf(_SC_NPROCESSORS_ONLN)`/`nproc`
-  inputs and optionally `/proc/cpuinfo`.
+- Put detection, APIC MMIO, INIT/SIPI, and bring-up in `src/kernel/smp.c`;
+  keep the low-memory start-up code in `src/kernel/smp_trampoline.asm`.
+- Enumerate CPUs from the MP floating pointer/table first, then from the
+  ACPI MADT (RSDP/XSDT discovered through QEMU `fw_cfg`); the direct QEMU
+  `-kernel` path has neither table, so it accepts `mario.smp=N` from the
+  Multiboot command line instead.
+- Give the trampoline page a temporary identity mapping while APs turn on
+  paging, and unmap it again after all APs enter their idle loop so normal
+  low-address protection and process page-table copying are unchanged.
+- `smp_ap_entry()` installs an AP-local GDT/per-CPU segment and enters a
+  halted idle loop; it does not run the scheduler until Step 6.
+- Expose online CPUs through `/proc/cpuinfo` so `nproc` can consume it.
+- Keep the PIC-only single-CPU path when `mario.smp=N` is absent and no
+  MP/ACPI tables are available.
 
 Comments required: document the trampoline's physical/virtual address split
 and why APs stay in idle until Step 6.
@@ -229,9 +233,8 @@ Correctness checks:
 - `nproc` or `cat /proc/cpuinfo` reports the number of started CPUs.
 - With `SMP=1` the kernel keeps the old PIC-only path and does not require MP
   table/APIC presence.
-- Add `tests/shell/smp.boot.test` that asserts the kernel log reports the
-  expected number of CPUs; mark it `REQUIRES-SMP` so the default suite skips
-  it.
+- Add `tests/shell/smp.boot.test`, marked `REQUIRES-SMP: 4`, that asserts
+  `/proc/cpuinfo` reports the requested number of processors.
 
 Commit: `x86: enumerate CPUs and boot APs into idle loops`
 

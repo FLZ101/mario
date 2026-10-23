@@ -3,7 +3,7 @@
 #include <smp.h>
 #include <task.h>
 
-struct cpu_info bsp_cpu_info;
+struct cpu_info cpu_info[NR_CPUS];
 
 /*
  * Install the BSP cpu_info as the base of the per-CPU GDT descriptor and load
@@ -31,11 +31,11 @@ static void set_percpu_gdt_base(unsigned long base)
 
 void percpu_init(void)
 {
-	bsp_cpu_info.id = 0;
-	bsp_cpu_info.online = 1;
-	bsp_cpu_info.current_task = &init_task;
+	cpu_info[0].id = 0;
+	cpu_info[0].online = 1;
+	cpu_info[0].current_task = &init_task;
 
-	set_percpu_gdt_base((unsigned long)&bsp_cpu_info);
+	set_percpu_gdt_base((unsigned long)&cpu_info[0]);
 	__asm__ __volatile__(
 		"movw %0, %%ax\n\t"
 		"movw %%ax, %%gs"

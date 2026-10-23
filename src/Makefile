@@ -34,6 +34,7 @@ OBJS	+=$(addsuffix .o,$(basename $(wildcard */*/*.[Sc])))
 # make kernel/start.o the first object file
 OBJS	:=$(filter-out start.o,$(OBJS))
 OBJS	:=kernel/start.o $(OBJS)
+OBJS	+=kernel/smp_trampoline.o
 
 DEPS	:=$(patsubst %.o,%.d,$(OBJS))
 
@@ -63,6 +64,10 @@ kernel/kernel.exe: $(OBJS)
 
 %.o: %.S
 	@$(CC) $(CFLAGS) -D__ASSEMBLY__ -o $@ $<
+	@echo $@
+
+%.o: %.asm
+	@$(NASM) -f elf32 -o $@ $<
 	@echo $@
 
 %.o: %.c
