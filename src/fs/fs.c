@@ -15,7 +15,5 @@ void fs_init(void)
 	register_file_system(&proc);
 	register_file_system(&sysfs);
 	register_file_system(&debugfs);
-	pr_info("Filesystems registered\n");
 	mount_root();
-	pr_info("Root filesystem mounted\n");
 }

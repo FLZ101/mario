@@ -24,7 +24,6 @@ void blkdev_init(void)
 	rd_init();
 	ROOT_DEV = MKDEV(RD_MAJOR, 0);
 	hd_init();
-	pr_info("Block devices initialized\n");
 }
 
 int register_blkdev(unsigned int major, struct blkdev_operations *blkdev_ops)

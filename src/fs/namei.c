@@ -79,6 +79,11 @@ int lookup(struct inode *dir, char *name, int len, struct inode **res)
 	*res = NULL;
 	if (!dir)
 		return -ENOENT;
+	/* cases like dir/ */
+	if (!len) {
+		*res = dir;
+		return 0;
+	}
 	if (len == 2 && name[0] == '.' && name[1] == '.') {
 		if (dir == current->fs->root) {
 			*res = dir;
@@ -101,11 +106,6 @@ int lookup(struct inode *dir, char *name, int len, struct inode **res)
 	if (!dir->i_op || !dir->i_op->lookup) {
 		iput(dir);
 		return -ENOTDIR;
-	}
-	/* cases like dir/ */
-	if (!len) {
-		*res = dir;
-		return 0;
 	}
 	return dir->i_op->lookup(dir, name, len, res);
 }

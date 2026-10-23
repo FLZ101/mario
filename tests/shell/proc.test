@@ -27,6 +27,9 @@ CHECK: self
 CHECK: uptime
 CHECK: version
 
+RUN: cd / && ls proc/ > /dev/null; echo ls-proc-relative:$?
+CHECK: ls-proc-relative:0
+
 RUN: ls /proc/self
 CHECK: fd
 

@@ -17,12 +17,21 @@ CHECK: debugfs /sys/kernel/debug debugfs rw 0 0
 RUN: ls /sys
 CHECK: kernel
 
+RUN: cd / && ls sys/ > /dev/null; echo ls-sys-relative:$?
+CHECK: ls-sys-relative:0
+
 RUN: ls /sys/kernel
 CHECK: debug
+
+RUN: cd / && ls sys/kernel/ > /dev/null; echo ls-sys-kernel-relative:$?
+CHECK: ls-sys-kernel-relative:0
 
 RUN: ls /sys/kernel/debug
 CHECK: syscalls
 CHECK: trace_pid
+
+RUN: cd / && ls sys/kernel/debug/ > /dev/null; echo ls-debug-relative:$?
+CHECK: ls-debug-relative:0
 
 RUN: cd /sys/kernel/debug && pwd
 CHECK: /sys/kernel/debug
