@@ -198,7 +198,7 @@ read_a_block:
 	if (start == end)
 		return res;
 	if (!block) {
-		printk("%s%s", __FUNCTION__, ": Corrupt mariofs\n");
+		pr_err("%s%s", __FUNCTION__, ": Corrupt mariofs\n");
 		return res;
 	}
 	goto read_a_block;

@@ -17,3 +17,20 @@ RUN: cat /dev/kmsg > /root/kmsg.read.out & pid=$!; sleep 1; kill $pid; wait $pid
 RUN: cat /root/kmsg.read.out
 CHECK: kmsg-read-done
 CHECK: mario-kmsg-read-test
+
+RUN: echo '<3>mario-kmsg-err' > /dev/kmsg
+RUN: dmesg -r > /root/dmesg.prio.out; if grep -q '<3>mario-kmsg-err' /root/dmesg.prio.out; then echo prio-ok; else echo prio-missing; fi
+CHECK: prio-ok
+
+RUN: dmesg -C
+RUN: echo '<3>mario-filter-err' > /dev/kmsg
+RUN: echo '<6>mario-filter-info' > /dev/kmsg
+RUN: dmesg -r > /root/dmesg.filter.out; grep '^<3>' /root/dmesg.filter.out > /root/dmesg.filter.err.out; if grep -q 'mario-filter-err' /root/dmesg.filter.err.out; then echo filter-err-ok; else echo filter-err-missing; fi
+RUN: if grep -q 'mario-filter-info' /root/dmesg.filter.err.out; then echo filter-info-leaked; else echo filter-info-excluded; fi
+RUN: if grep -q '<6>mario-filter-info' /root/dmesg.filter.out; then echo filter-info-stored; else echo filter-info-missing; fi
+CHECK: filter-err-ok
+CHECK: filter-info-excluded
+CHECK: filter-info-stored
+
+RUN: dmesg -n 4; echo dmesg-level-accepted
+CHECK: dmesg-level-accepted

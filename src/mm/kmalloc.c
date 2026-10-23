@@ -115,6 +115,7 @@ void *kmalloc(size_t size)
 	return &block->next;
 fail:
 	irq_restore();
+	pr_err("kmalloc size=%u failed\n", (unsigned int)size);
 	return NULL;
 }
 

@@ -196,7 +196,7 @@ static char proc_task_state(struct task_struct *task)
 	}
 }
 
-static int proc_pid_stat_content(pid_t pid, char *buf)
+static int proc_pid_stat_content(pid_t pid, char *buf, size_t size)
 {
 	struct task_struct *task = proc_find_task(pid);
 	int n;
@@ -204,47 +204,48 @@ static int proc_pid_stat_content(pid_t pid, char *buf)
 	if (!task)
 		return -ENOENT;
 
-	n = sprintk(buf, "%d (%s) %c", task->pid, task->comm,
-		    proc_task_state(task));
-	n += sprintk(buf + n, " %d %d %d %d %d 0 0 0 0 0",
-		     task->p_pptr ? task->p_pptr->pid : 0,
-		     task->pgrp, task->session,
-		     task->tty ? task->tty->dev : 0,
-		     task->tty ? task->tty->pgrp : 0);
-	n += sprintk(buf + n, " %d %d %d %d %d %d 1",
-		     (int)task->utime, (int)task->stime,
-		     (int)task->utime_children, (int)task->stime_children,
-		     task->priority, NZERO - task->priority);
-	n += sprintk(buf + n, " 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0");
-	n += sprintk(buf + n, " %d", task->exit_signal);
-	n += sprintk(buf + n, " 0 0 0 0 0 0 0 0\n");
+	n = sprintkn(buf, size, "%d (%s) %c", task->pid, task->comm,
+		     proc_task_state(task));
+	n += sprintkn(buf + n, size - n,
+		      " %d %d %d %d %d 0 0 0 0 0",
+		      task->p_pptr ? task->p_pptr->pid : 0,
+		      task->pgrp, task->session,
+		      task->tty ? task->tty->dev : 0,
+		      task->tty ? task->tty->pgrp : 0);
+	n += sprintkn(buf + n, size - n,
+		      " %d %d %d %d %d %d 1",
+		      (int)task->utime, (int)task->stime,
+		      (int)task->utime_children, (int)task->stime_children,
+		      task->priority, NZERO - task->priority);
+	n += sprintkn(buf + n, size - n,
+		      " 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0");
+	n += sprintkn(buf + n, size - n, " %d", task->exit_signal);
+	n += sprintkn(buf + n, size - n, " 0 0 0 0 0 0 0 0\n");
 	return n;
 }
 
-static int proc_pid_cmdline_content(pid_t pid, char *buf)
+static int proc_pid_cmdline_content(pid_t pid, char *buf, size_t size)
 {
 	struct task_struct *task = proc_find_task(pid);
 
 	if (!task)
 		return -ENOENT;
 
-	return sprintk(buf, "%s", task->comm);
+	return sprintkn(buf, size, "%s", task->comm);
 }
 
 static int proc_blkdev_name(unsigned int major, unsigned int minor,
 			    char *buf, size_t size)
 {
-	(void)size;
-
 	if (major == RD_MAJOR)
-		return sprintk(buf, "rd%u", minor);
+		return sprintkn(buf, size, "rd%u", minor);
 	if (major == HD_MAJOR) {
 		unsigned int disk = minor / 17;
 		unsigned int part = minor % 17;
 
 		if (!part)
-			return sprintk(buf, "hd%c", 'a' + disk);
-		return sprintk(buf, "hd%c%u", 'a' + disk, part);
+			return sprintkn(buf, size, "hd%c", 'a' + disk);
+		return sprintkn(buf, size, "hd%c%u", 'a' + disk, part);
 	}
 	return -EINVAL;
 }
@@ -254,12 +255,12 @@ static int proc_mount_source(struct super_block *sb, char *buf, size_t size)
 	int n;
 
 	if (!sb->s_covered)
-		return sprintk(buf, "mariofs");
+		return sprintkn(buf, size, "mariofs");
 
 	if (!sb->s_dev && sb->s_fsname)
-		return sprintk(buf, "%s", sb->s_fsname);
+		return sprintkn(buf, size, "%s", sb->s_fsname);
 
-	n = sprintk(buf, "/dev/");
+	n = sprintkn(buf, size, "/dev/");
 	if (n < 0 || (size_t)n >= size)
 		return n;
 	n += proc_blkdev_name(MAJOR(sb->s_dev), MINOR(sb->s_dev),
@@ -282,10 +283,10 @@ static int proc_mount_line(struct super_block *sb, char *buf, size_t size)
 	n = proc_mount_source(sb, source, sizeof(source));
 	if (n < 0)
 		return n;
-	return sprintk(buf, "%s %s %s %s 0 0\n", source,
-		      sb->s_mountpoint ? sb->s_mountpoint : "/",
-		      sb->s_fsname ? sb->s_fsname : "unknown",
-		      proc_mount_options(sb));
+	return sprintkn(buf, size, "%s %s %s %s 0 0\n", source,
+			sb->s_mountpoint ? sb->s_mountpoint : "/",
+			sb->s_fsname ? sb->s_fsname : "unknown",
+			proc_mount_options(sb));
 }
 
 static int proc_mounts_content(char *buf, int count, off64_t pos)
@@ -343,7 +344,7 @@ static int proc_partitions_content(char *buf, size_t size)
 	unsigned int minor;
 	int n;
 
-	n = sprintk(buf, "major minor  #blocks  name\n\n");
+	n = sprintkn(buf, size, "major minor  #blocks  name\n\n");
 	for (major = 1; major <= HD_MAJOR; major += 2) {
 		unsigned int max_minor = major == RD_MAJOR ? 6 : 6 * 17;
 		char name[16];
@@ -361,10 +362,11 @@ static int proc_partitions_content(char *buf, size_t size)
 				continue;
 			if ((size_t)n + 40 >= size)
 				return n;
-			n += sprintk(buf + n, " %u %u %u %s\n", major, minor,
-				     (unsigned int)info.nr *
-				     info.sector_size / 1024,
-				     name);
+			n += sprintkn(buf + n, size - n,
+				      " %u %u %u %s\n", major, minor,
+				      (unsigned int)info.nr *
+				      info.sector_size / 1024,
+				      name);
 		}
 	}
 	return n;
@@ -372,17 +374,16 @@ static int proc_partitions_content(char *buf, size_t size)
 
 static int proc_file_content(unsigned long ino, char *buf, size_t size)
 {
-	(void)size;
-
 	switch (ino) {
 	case PROC_INO_VERSION:
-		return sprintk(buf, "%s OS version %s\n",
-			      MARIO_OS_NAME, MARIO_OS_VERSION);
+		return sprintkn(buf, size, "%s OS version %s\n",
+				MARIO_OS_NAME, MARIO_OS_VERSION);
 	case PROC_INO_UPTIME: {
 		long up = jiffies / HZ;
 		long up_cs = (jiffies % HZ) * 100 / HZ;
 
-		return sprintk(buf, "%d.%d 0.00\n", (int)up, (int)up_cs);
+		return sprintkn(buf, size, "%d.%d 0.00\n",
+				(int)up, (int)up_cs);
 	}
 	case PROC_INO_PARTITIONS:
 		return proc_partitions_content(buf, size);
@@ -391,9 +392,9 @@ static int proc_file_content(unsigned long ino, char *buf, size_t size)
 	}
 
 	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_STAT)
-		return proc_pid_stat_content(proc_ino_pid(ino), buf);
+		return proc_pid_stat_content(proc_ino_pid(ino), buf, size);
 	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_CMDLINE)
-		return proc_pid_cmdline_content(proc_ino_pid(ino), buf);
+		return proc_pid_cmdline_content(proc_ino_pid(ino), buf, size);
 
 	return -EINVAL;
 }
@@ -432,17 +433,15 @@ static struct file_operations proc_file_fops = {
 
 static int proc_link_target(unsigned long ino, char *buf, size_t size)
 {
-	(void)size;
-
 	if (ino == PROC_INO_SELF)
-		return sprintk(buf, "/proc/%d", current->pid);
+		return sprintkn(buf, size, "/proc/%d", current->pid);
 
 	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_EXE) {
 		struct task_struct *task = proc_find_task(proc_ino_pid(ino));
 
 		if (!task)
 			return -ENOENT;
-		return sprintk(buf, "/bin/%s", task->comm);
+		return sprintkn(buf, size, "/bin/%s", task->comm);
 	}
 
 	if ((ino & PROC_INO_TYPE_MASK) != PROC_INO_FD)
@@ -468,26 +467,27 @@ static int proc_link_target(unsigned long ino, char *buf, size_t size)
 
 		if (major == TTY_MAJOR) {
 			if (minor == TTY_MINOR)
-				return sprintk(buf, "/dev/tty");
+				return sprintkn(buf, size, "/dev/tty");
 			if (minor == SYSTEM_CONSOLE_MINOR)
-				return sprintk(buf, "/dev/console");
+				return sprintkn(buf, size, "/dev/console");
 			if (minor == TTY_MINOR_0)
-				return sprintk(buf, "/dev/tty0");
+				return sprintkn(buf, size, "/dev/tty0");
 			if (TTY_MINOR_1 <= minor &&
 			    minor < TTY_MINOR_1 + NUM_CONSOLE)
-				return sprintk(buf, "/dev/tty%d",
-					       minor - TTY_MINOR_1 + 1);
+				return sprintkn(buf, size, "/dev/tty%d",
+						minor - TTY_MINOR_1 + 1);
 			if (SERIAL_MINOR_0 <= minor &&
 			    minor < SERIAL_MINOR_0 + NUM_SERIAL)
-				return sprintk(buf, "/dev/ttyS%d",
-					       minor - SERIAL_MINOR_0);
+				return sprintkn(buf, size, "/dev/ttyS%d",
+						minor - SERIAL_MINOR_0);
 		}
 	}
 
 	if (S_ISREG(inode->i_mode))
-		return sprintk(buf, "/%s", MARIO_INODE_NAME(inode));
+		return sprintkn(buf, size, "/%s", MARIO_INODE_NAME(inode));
 
-	return sprintk(buf, "anon_inode:[%u]", (unsigned int)inode->i_ino);
+	return sprintkn(buf, size, "anon_inode:[%u]",
+			(unsigned int)inode->i_ino);
 }
 
 static int proc_readlink(struct inode *inode, char *buf, int count)
@@ -702,31 +702,29 @@ static int proc_root_entry(int index, char *name, size_t size, ino_t *ino,
 {
 	struct task_struct *task;
 
-	(void)size;
-
 	switch (index) {
 	case 0:
-		sprintk(name, "%s", "self");
+		sprintkn(name, size, "%s", "self");
 		*ino = PROC_INO_SELF;
 		*type = DT_LNK;
 		return 0;
 	case 1:
-		sprintk(name, "%s", "version");
+		sprintkn(name, size, "%s", "version");
 		*ino = PROC_INO_VERSION;
 		*type = DT_REG;
 		return 0;
 	case 2:
-		sprintk(name, "%s", "uptime");
+		sprintkn(name, size, "%s", "uptime");
 		*ino = PROC_INO_UPTIME;
 		*type = DT_REG;
 		return 0;
 	case 3:
-		sprintk(name, "%s", "mounts");
+		sprintkn(name, size, "%s", "mounts");
 		*ino = PROC_INO_MOUNTS;
 		*type = DT_REG;
 		return 0;
 	case 4:
-		sprintk(name, "%s", "partitions");
+		sprintkn(name, size, "%s", "partitions");
 		*ino = PROC_INO_PARTITIONS;
 		*type = DT_REG;
 		return 0;
@@ -734,7 +732,7 @@ static int proc_root_entry(int index, char *name, size_t size, ino_t *ino,
 		index -= 5;
 		for_each_task(task) {
 			if (index-- == 0) {
-				sprintk(name, "%d", task->pid);
+				sprintkn(name, size, "%d", task->pid);
 				*ino = proc_pid_ino(task->pid);
 				*type = DT_DIR;
 				return 0;
@@ -747,26 +745,24 @@ static int proc_root_entry(int index, char *name, size_t size, ino_t *ino,
 static int proc_pid_entry(pid_t pid, int index, char *name, size_t size,
 			  ino_t *ino, unsigned char *type)
 {
-	(void)size;
-
 	switch (index) {
 	case 0:
-		sprintk(name, "%s", "cmdline");
+		sprintkn(name, size, "%s", "cmdline");
 		*ino = proc_pid_file_ino(PROC_INO_PID_CMDLINE, pid);
 		*type = DT_REG;
 		return 0;
 	case 1:
-		sprintk(name, "%s", "exe");
+		sprintkn(name, size, "%s", "exe");
 		*ino = proc_pid_file_ino(PROC_INO_PID_EXE, pid);
 		*type = DT_LNK;
 		return 0;
 	case 2:
-		sprintk(name, "%s", "fd");
+		sprintkn(name, size, "%s", "fd");
 		*ino = proc_fd_dir_ino(pid);
 		*type = DT_DIR;
 		return 0;
 	case 3:
-		sprintk(name, "%s", "stat");
+		sprintkn(name, size, "%s", "stat");
 		*ino = proc_pid_file_ino(PROC_INO_PID_STAT, pid);
 		*type = DT_REG;
 		return 0;
@@ -782,8 +778,6 @@ static int proc_fd_dir_entry(pid_t pid, int index, char *name, size_t size,
 	int seen = 0;
 	int fd;
 
-	(void)size;
-
 	if (!task)
 		return -ENOENT;
 
@@ -791,7 +785,7 @@ static int proc_fd_dir_entry(pid_t pid, int index, char *name, size_t size,
 		if (!task->files->fd[fd])
 			continue;
 		if (seen++ == index) {
-			sprintk(name, "%d", fd);
+			sprintkn(name, size, "%d", fd);
 			*ino = proc_fd_ino(pid, fd);
 			*type = DT_LNK;
 			return 0;

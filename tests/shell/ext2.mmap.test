@@ -1,4 +1,5 @@
 REQUIRES-HD:
+TIMEOUT: 60
 
 RUN: export PATH=/bin/toybox:/bin
 RUN: mkdir -p /mnt /tmp
@@ -16,6 +17,7 @@ m = mmap.mmap(fd, 16, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ | mmap.PROT_WR
 assert m[:4] == b'0123'
 m[0:4] = b'priv'
 m.flush()
+m.close()
 os.close(fd)
 assert open(path, 'rb').read(4) == b'0123'
 
@@ -23,6 +25,7 @@ assert open(path, 'rb').read(4) == b'0123'
 fd = os.open(path, os.O_RDWR)
 m = mmap.mmap(fd, 16, flags=mmap.MAP_SHARED, prot=mmap.PROT_READ | mmap.PROT_WRITE)
 os.close(fd)
+assert m[:4] == b'0123'
 m[0:4] = b'shar'
 m.flush()
 m.close()

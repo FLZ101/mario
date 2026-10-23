@@ -87,14 +87,14 @@ int fill_exec(struct Elf32_Phdr *phdr_tbl, int nr, struct exec *exe)
 		if (phdr_tbl[i].p_type != PT_LOAD)
 			continue;
 		if (j == MAX_PHDRS) {
-			printk("Too many program headers!\n");
+			pr_err("Too many program headers!\n");
 			return -EINVAL;
 		}
 		exe->phdr[j++] = phdr_tbl[i];
 	}
 
 	if (!exe->at_phdr) {
-		printk("No PT_PHDR program header found!\n");
+		pr_err("No PT_PHDR program header found!\n");
 		return -EINVAL;
 	}
 
@@ -145,7 +145,7 @@ int fill_exec(struct Elf32_Phdr *phdr_tbl, int nr, struct exec *exe)
 	}
 
 	if (state == BEGIN) {
-		printk("No code!\n");
+		pr_err("No code!\n");
 		return -EINVAL;
 	}
 
@@ -466,7 +466,7 @@ int do_exec(struct exec *exe, int fd, struct trap_frame *tr)
 	int err;
 
 	if (get_n_word(exe) * sizeof(long) > PAGE_SIZE) {
-		printk("Unable to fit argc, argv, envp and aux vector into one page!\n");
+		pr_err("Unable to fit argc, argv, envp and aux vector into one page!\n");
 		return -EINVAL;
 	}
 

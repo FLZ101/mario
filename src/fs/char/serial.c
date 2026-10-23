@@ -92,7 +92,7 @@ struct tty_driver serial_driver = {
 
 void serial_init()
 {
-    printk("Serial device(s):");
+    pr_info("Serial device(s):");
 
     serial_table[0].port = COM1;
     serial_table[1].port = COM2;
@@ -121,9 +121,9 @@ void serial_init()
             continue;
         tty->initialized = 1;
 
-        printk(" /dev/ttyS%d", i);
+        pr_info(" /dev/ttyS%d", i);
     }
-    printk("\n");
+    pr_info("\n");
 
     register_tty_driver(&serial_driver);
 }

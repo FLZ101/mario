@@ -6,13 +6,13 @@
 
 void print_tr(struct trap_frame *tr)
 {
-	printk("ebx=%x, ecx=%x, edx=%x, esi=%x\n",
+	pr_debug("ebx=%x, ecx=%x, edx=%x, esi=%x\n",
 		tr->ebx, tr->ecx, tr->edx, tr->esi);
-	printk("edi=%x, ebp=%x, eax=%x,  ds=%x\n",
+	pr_debug("edi=%x, ebp=%x, eax=%x,  ds=%x\n",
 		tr->edi, tr->ebp, tr->eax, tr->ds);
-	printk(" es=%x, err=%x, eip=%x,  cs=%x\n",
+	pr_debug(" es=%x, err=%x, eip=%x,  cs=%x\n",
 		tr->es, tr->error_code, tr->eip, tr->cs);
-	printk("efl=%x, esp=%x,  ss=%x,  gs=%x\n",
+	pr_debug("efl=%x, esp=%x,  ss=%x,  gs=%x\n",
 		tr->eflags, tr->esp, tr->ss, tr->gs);
 }
 
@@ -100,14 +100,15 @@ void trap_init(void)
 
 void die(char *str, struct trap_frame *tr, long err)
 {
-	printk("[%u] %s\n", err, str);
+	pr_err("%s err=%u\n", str, (unsigned int)err);
 	print_tr(tr);
 	do_exit(SIGSEGV);
 }
 
 void die_if_kernel(char *str, struct trap_frame *tr, long err)
 {
-	printk("[%u] %s\n", err, str);
+	if (!userland(tr))
+		pr_crit("Oops: %s err=%d pid=%d\n", str, (int)err, current->pid);
 	print_tr(tr);
 	if (!userland(tr))
 		do_exit(SIGSEGV);
@@ -146,7 +147,7 @@ void do_general_protection(struct trap_frame *tr, long error_code)
 
 void do_nmi(struct trap_frame *tr, long error_code)
 {
-	printk("[WARN] NMI received\n");
+	pr_warn("[WARN] NMI received\n");
 	print_tr(tr);
 }
 

@@ -66,8 +66,10 @@ extern void copy_fs(struct task_struct *p);
 int do_fork(struct trap_frame *tr, int vfork)
 {
 	struct task_struct *p;
-	if (!(p = alloc_task_struct()))
+	if (!(p = alloc_task_struct())) {
+		pr_task_err("fork failed: no memory\n");
 		return -ENOMEM;
+	}
 	*p = *current;
 	p->syscall_trace_start = 0;
 	p->syscall_trace_running = 0;
@@ -132,6 +134,8 @@ int do_fork(struct trap_frame *tr, int vfork)
 		wake_up_process(p);
 	}
 	current->did_vfork = 0;
+	pr_task_debug("fork -> %d%s\n", p->pid,
+		      vfork ? " (vfork)" : "");
 	return p->pid;
 fail_4:
 	kfree(p->files);
@@ -141,6 +145,7 @@ fail_2:
 	kfree(p->mm);
 fail_1:
 	free_task_struct(p);
+	pr_task_err("fork failed: no memory\n");
 	return -ENOMEM;
 }
 

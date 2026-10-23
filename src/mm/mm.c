@@ -14,7 +14,7 @@ void print_mmap(struct mm_struct *mm)
 	struct vm_area_struct *vma;
 
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {
-		printk("%x, %x, ", vma->vm_start, vma->vm_end);
+		pr_debug("%x, %x, ", vma->vm_start, vma->vm_end);
 		char c1, c2;
 		if (vma->vm_flags & VM_WRITE)
 			c1 = 'w';
@@ -26,7 +26,7 @@ void print_mmap(struct mm_struct *mm)
 			c2 = 'S';
 		else
 			c2 = 'P';
-		printk("%c, %c\n", c1, c2);
+		pr_debug("%c, %c\n", c1, c2);
 	}
 }
 

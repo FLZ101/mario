@@ -179,7 +179,7 @@ int mario_get_block(struct super_block *sb, int nr, int *head, int *tail)
 		k = j;
 		if (!j) {	/* terribly bad */
 			up(&sb->s_sem);
-			printk("%s%s", __FUNCTION__, ": Corrupt mariofs\n");
+			pr_err("%s%s", __FUNCTION__, ": Corrupt mariofs\n");
 			return -EIO;
 		}
 		/*

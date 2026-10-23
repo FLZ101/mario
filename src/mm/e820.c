@@ -43,7 +43,7 @@ void add_memory_region(__u64 addr, __u64 len, __u32 type)
 		len = MAX_MEMORY - addr;
 
 	if ((i = e820.nr_map) >= E820MAX) {
-		printk("Too many entries in the memory map!\n");
+		pr_err("Too many entries in the memory map!\n");
 		return;
 	}
 
@@ -57,14 +57,14 @@ void print_e820_map(void)
 {
 	int i;
 
-	printk("Available memory:\n");
-	printk("base\t\tlength\n");
+	pr_info("Available memory:\n");
+	pr_info("base\t\tlength\n");
 
 	for (i = 0; i < e820.nr_map; i++) {
 		/*
 		 * :) Don't forget the (unsigned int)
 		 */
-		printk("%x\t%x\n", (unsigned int)e820.map[i].addr,
+		pr_info("%x\t%x\n", (unsigned int)e820.map[i].addr,
 			(unsigned int)e820.map[i].len);
 	}
 }

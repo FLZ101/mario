@@ -22,7 +22,7 @@ void print_runqueue(void)
 	irq_save();
 	list_for_each(tmp, &runqueue_head) {
 		p = list_entry(tmp, struct task_struct, run_list);
-		printk("%d-", p->pid);
+		pr_debug("%d-", p->pid);
 	}
 	irq_restore();
 }

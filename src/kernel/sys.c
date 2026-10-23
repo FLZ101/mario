@@ -439,7 +439,7 @@ int sys_not_exist(struct trap_frame tr)
 	case SYS_setfsgid32:
 		return 0;
 	default:
-		printk("Not implemented: %d\n", tr.eax);
+		pr_warn("Not implemented: %d\n", tr.eax);
 		break;
 	}
 	return -ENOSYS;

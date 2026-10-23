@@ -759,25 +759,39 @@ void hd_init(void)
 	unsigned int port_number;
 	int error;
 
-	if (!pci_find_device_by_class(0x01, 0x06, 0x01, &dev))
+	if (!pci_find_device_by_class(0x01, 0x06, 0x01, &dev)) {
+		pr_debug("AHCI: no controller found\n");
 		return;
-	if (pci_bar_info(&dev, 5, &abar, &bar_flags, &bar_count))
+	}
+	if (pci_bar_info(&dev, 5, &abar, &bar_flags, &bar_count)) {
+		pr_debug("AHCI: cannot read BAR5\n");
 		return;
-	if (bar_flags & 0x01)
+	}
+	if (bar_flags & 0x01) {
+		pr_debug("AHCI: BAR5 is I/O mapped\n");
 		return;
-	if (!abar)
+	}
+	if (!abar) {
+		pr_debug("AHCI: BAR5 is zero\n");
 		return;
+	}
 
 	hba = ioremap(abar, AHCI_HBA_SIZE);
-	if (!hba)
+	if (!hba) {
+		pr_err("AHCI: cannot map controller at %x\n",
+		       (unsigned int)abar);
 		return;
+	}
+	pr_info("AHCI controller found at %x\n", (unsigned int)abar);
 
 	ghc = hba_read(AHCI_GHC);
 	hba_write(AHCI_GHC, ghc | AHCI_GHC_AE | AHCI_GHC_IE);
 
 	pi = hba_read(AHCI_PI);
-	if (!pi)
+	if (!pi) {
+		pr_warn("AHCI: controller has no implemented ports\n");
 		return;
+	}
 
 	memset(ahci_ports, 0, sizeof(ahci_ports));
 	memset(hd_disks, 0, sizeof(hd_disks));
@@ -796,22 +810,34 @@ void hd_init(void)
 
 		port = &ahci_ports[nr_ahci_disks];
 		error = ahci_port_init(port, port_number);
-		if (error)
+		if (error) {
+			if (error != -ENODEV)
+				pr_warn("AHCI: port %u init failed err=%d\n",
+					port_number, error);
 			continue;
+		}
 
 		error = ahci_identify(port, identify);
-		if (error)
+		if (error) {
+			pr_warn("AHCI: port %u identify failed\n", port_number);
 			continue;
+		}
 		if (!(identify[83] & (1U << 10)) ||
-		    !(identify[86] & (1U << 10)))
+		    !(identify[86] & (1U << 10))) {
+			pr_warn("AHCI: port %u lacks LBA48 support\n",
+				port_number);
 			continue;
+		}
 
 		total_sectors = (uint64_t)identify[100] |
 				((uint64_t)identify[101] << 16) |
 				((uint64_t)identify[102] << 32) |
 				((uint64_t)identify[103] << 48);
-		if (!total_sectors)
+		if (!total_sectors) {
+			pr_warn("AHCI: port %u reports zero sectors\n",
+				port_number);
 			continue;
+		}
 
 		disk = &hd_disks[nr_ahci_disks];
 		disk->port = port;
@@ -821,15 +847,20 @@ void hd_init(void)
 			hd_parse_mbr(disk);
 		disk->present = 1;
 
-		printk("AHCI disk %c: %u sectors\n",
+		pr_info("AHCI disk %c: %u sectors\n",
 		       'a' + nr_ahci_disks, (unsigned int)total_sectors);
 		nr_ahci_disks++;
 	}
 
-	if (!nr_ahci_disks)
+	if (!nr_ahci_disks) {
+		pr_warn("AHCI: no disks detected\n");
 		return;
+	}
 
 	error = register_blkdev(HD_MAJOR, &hd_ops);
-	if (error)
+	if (error) {
+		pr_err("AHCI: register_blkdev failed err=%d\n", error);
 		return;
+	}
+	pr_info("AHCI: %u disk(s) detected\n", nr_ahci_disks);
 }

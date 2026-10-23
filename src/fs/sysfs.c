@@ -154,12 +154,10 @@ struct inode_operations sysfs_dir_iops = {
 static int sysfs_get_entry(unsigned long dir_ino, int index, char *name,
 			   size_t size, ino_t *ino, unsigned char *type)
 {
-	(void)size;
-
 	if (dir_ino == SYSFS_INO_ROOT) {
 		if (index != 0)
 			return -ENOENT;
-		sprintk(name, "%s", "kernel");
+		sprintkn(name, size, "%s", "kernel");
 		*ino = SYSFS_INO_KERNEL;
 		*type = DT_DIR;
 		return 0;
@@ -168,7 +166,7 @@ static int sysfs_get_entry(unsigned long dir_ino, int index, char *name,
 	if (dir_ino == SYSFS_INO_KERNEL) {
 		if (index != 0)
 			return -ENOENT;
-		sprintk(name, "%s", "debug");
+		sprintkn(name, size, "%s", "debug");
 		*ino = SYSFS_INO_DEBUG;
 		*type = DT_DIR;
 		return 0;

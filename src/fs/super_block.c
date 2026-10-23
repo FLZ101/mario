@@ -144,43 +144,55 @@ static int do_mount(dev_t dev, char *dir_name,
 
 	error = namei(dir_name, &dir_i, 0);
 	if (error)
-		return error;
+		goto fail;
 	if (!S_ISDIR(dir_i->i_mode)) {
 		iput(dir_i);
-		return -ENOTDIR;
+		error = -ENOTDIR;
+		goto fail;
 	}
 
 	// Does not allow overlay
 	if (dir_i->i_count != 1 || dir_i->i_mount) {
 		iput(dir_i);
-		return -EBUSY;
+		error = -EBUSY;
+		goto fail;
 	}
 
 	if (dev && !fs_may_mount(dev)) {
 		iput(dir_i);
-		return -EBUSY;
+		error = -EBUSY;
+		goto fail;
 	}
 	sb = read_super(dev, fs_type->name, flags);
 	if (!sb) {
 		iput(dir_i);
-		return -EINVAL;
+		error = -EINVAL;
+		goto fail;
 	}
 
 	// Already mounted
 	if (sb->s_covered) {
 		iput(dir_i);
-		return -EBUSY;
+		error = -EBUSY;
+		goto fail;
 	}
 
 	sb->s_mountpoint = kmalloc(strlen(mountpoint) + 1);
 	if (!sb->s_mountpoint) {
 		iput(dir_i);
-		return -ENOMEM;
+		error = -ENOMEM;
+		goto fail;
 	}
 	memcpy(sb->s_mountpoint, mountpoint, strlen(mountpoint) + 1);
 	sb->s_covered = dir_i;
 	dir_i->i_mount = sb->s_mounted;
+	pr_info("mount dev=%x dir=%s type=%s\n", dev, mountpoint,
+		fs_type->name);
 	return 0;
+
+fail:
+	pr_err("mount failed dev=%x dir=%s err=%d\n", dev, mountpoint, error);
+	return error;
 }
 
 int sys_mount(char *dev_name, char *dir_name, char *type,
@@ -255,35 +267,53 @@ int sys_umount(char *name)
 {
 	struct inode *inode;
 	struct super_block *sb;
+	char *name_copy;
 	int error;
+
+	error = getname(name, &name_copy);
+	if (error)
+		return error;
 
 	error = namei(name, &inode, 0);
 	if (error)
-		return error;
+		goto out;
 	if (S_ISBLK(inode->i_mode)) {
 		dev_t dev = inode->i_rdev;
 
 		iput(inode);
-		if (MAJOR(dev) >= MAX_BLKDEV)
-			return -ENXIO;
-		if (dev == ROOT_DEV)
-			return 0;
+		if (MAJOR(dev) >= MAX_BLKDEV) {
+			error = -ENXIO;
+			goto out;
+		}
+		if (dev == ROOT_DEV) {
+			error = 0;
+			goto out;
+		}
 		sb = get_super(dev);
-		if (!sb || !sb->s_covered)
-			return -EINVAL;
+		if (!sb || !sb->s_covered) {
+			error = -EINVAL;
+			goto out;
+		}
 	} else if (S_ISDIR(inode->i_mode)) {
 		// If inode->i_sb is not mounted or inode is not the root
 		if (!inode->i_sb->s_covered || inode->i_sb->s_mounted != inode) {
 			iput(inode);
-			return -EINVAL;
+			error = -EINVAL;
+			goto out;
 		}
 		sb = inode->i_sb;
 		iput(inode);
 	} else {
 		iput(inode);
-		return -EINVAL;
+		error = -EINVAL;
+		goto out;
 	}
-	return do_umount_sb(sb);
+	error = do_umount_sb(sb);
+	if (!error)
+		pr_info("umount %s\n", name_copy);
+out:
+	putname(name_copy);
+	return error;
 }
 
 int sys_umount2(char *name, int flags)

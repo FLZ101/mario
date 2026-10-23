@@ -40,9 +40,9 @@ void print_free_area()
 		list_for_each(pos, &free_area[order].free_list) {
 			++size;
 		}
-		printk("(%d %d) ", order, size);
+		pr_debug("(%d %d) ", order, size);
 	}
-	printk("\n");
+	pr_debug("\n");
 }
 
 int get_free_area_size()
@@ -115,6 +115,8 @@ struct page *alloc_pages(unsigned long order)
 	for (n = order; list_empty(&free_area[n].free_list); n++) {
 		if (n == MAX_ORDER - 1) {
 			irq_restore();
+			pr_err("alloc_pages order=%u failed\n",
+			       (unsigned int)order);
 			return NULL;
 		}
 	}

@@ -58,46 +58,50 @@ static struct inode *debugfs_alloc_inode(unsigned long ino, int size,
 	return inode;
 }
 
-static int debugfs_sput_u64(char *buf, uint64_t value)
+static int debugfs_sput_u64(char *buf, size_t size, uint64_t value)
 {
 	char tmp[20];
 	int i = sizeof(tmp);
 	int len = 0;
 
+	if (!size)
+		return 0;
 	if (!value)
-		return sprintk(buf, "0");
+		return sprintkn(buf, size, "0");
 
 	while (value) {
 		tmp[--i] = "0123456789"[value % 10];
 		value /= 10;
 	}
-	while (i < sizeof(tmp))
+	while (i < sizeof(tmp) && len < size - 1)
 		buf[len++] = tmp[i++];
 	buf[len] = '\0';
 	return len;
 }
 
 /* Print a TSC cycle count as milliseconds with three fractional digits. */
-static int debugfs_sput_cycles_ms(char *buf, uint64_t cycles,
+static int debugfs_sput_cycles_ms(char *buf, size_t size, uint64_t cycles,
 				     uint64_t cycles_per_ms)
 {
 	uint64_t whole, frac;
-	int len = 0;
+	int n = 0;
 
+	if (!size)
+		return 0;
 	if (!cycles_per_ms)
-		return sprintk(buf, "0.000");
+		return sprintkn(buf, size, "0.000");
 
 	whole = cycles / cycles_per_ms;
 	frac = (cycles % cycles_per_ms) * 1000 / cycles_per_ms;
 
-	len += debugfs_sput_u64(buf + len, whole);
-	len += sprintk(buf + len, ".");
+	n += debugfs_sput_u64(buf + n, size - n, whole);
+	n += sprintkn(buf + n, size - n, ".");
 	if (frac < 100)
-		len += sprintk(buf + len, "0");
+		n += sprintkn(buf + n, size - n, "0");
 	if (frac < 10)
-		len += sprintk(buf + len, "0");
-	len += debugfs_sput_u64(buf + len, frac);
-	return len;
+		n += sprintkn(buf + n, size - n, "0");
+	n += debugfs_sput_u64(buf + n, size - n, frac);
+	return n;
 }
 
 static int debugfs_syscalls_content(char *buf, size_t size)
@@ -128,15 +132,20 @@ static int debugfs_syscalls_content(char *buf, size_t size)
 			    ? elapsed_ms - user_ms - kernel_ms
 			    : 0;
 
-	n += sprintk(buf, "elapsed_ms %u\n", (unsigned int)elapsed_ms);
-	n += sprintk(buf + n, "user_ms %u\n", (unsigned int)user_ms);
-	n += sprintk(buf + n, "kernel_ms %u\n", (unsigned int)kernel_ms);
-	n += sprintk(buf + n, "syscall_ms %u\n", (unsigned int)syscall_ms);
-	n += sprintk(buf + n, "kernel_other_ms %u\n",
-		     (unsigned int)kernel_other_ms);
-	n += sprintk(buf + n, "offcpu_ms %u\n", (unsigned int)offcpu_ms);
-	n += sprintk(buf + n,
-		     "syscall name calls total_ms avg_ms max_ms\n");
+	n += sprintkn(buf, size, "elapsed_ms %u\n",
+		      (unsigned int)elapsed_ms);
+	n += sprintkn(buf + n, size - n, "user_ms %u\n",
+		      (unsigned int)user_ms);
+	n += sprintkn(buf + n, size - n, "kernel_ms %u\n",
+		      (unsigned int)kernel_ms);
+	n += sprintkn(buf + n, size - n, "syscall_ms %u\n",
+		      (unsigned int)syscall_ms);
+	n += sprintkn(buf + n, size - n, "kernel_other_ms %u\n",
+		      (unsigned int)kernel_other_ms);
+	n += sprintkn(buf + n, size - n, "offcpu_ms %u\n",
+		      (unsigned int)offcpu_ms);
+	n += sprintkn(buf + n, size - n,
+		      "syscall name calls total_ms avg_ms max_ms\n");
 
 	for (nr = 0; nr < NR_SYSCALLS; nr++) {
 		struct syscall_trace_stat *stat = &syscall_trace[nr];
@@ -147,23 +156,24 @@ static int debugfs_syscalls_content(char *buf, size_t size)
 			continue;
 
 		avg = stat->cycles / stat->calls;
-		len += sprintk(line + len, "%u ", nr);
+		len += sprintkn(line + len, sizeof(line) - len, "%u ", nr);
 		if (syscall_trace_name(nr))
-			len += sprintk(line + len, "%s ",
-				       syscall_trace_name(nr));
+			len += sprintkn(line + len, sizeof(line) - len,
+					"%s ", syscall_trace_name(nr));
 		else
-			len += sprintk(line + len, "- ");
-		len += debugfs_sput_u64(line + len, stat->calls);
-		len += sprintk(line + len, " ");
-		len += debugfs_sput_cycles_ms(line + len, stat->cycles,
-					     cycles_per_ms);
-		len += sprintk(line + len, " ");
-		len += debugfs_sput_cycles_ms(line + len, avg,
-					     cycles_per_ms);
-		len += sprintk(line + len, " ");
-		len += debugfs_sput_cycles_ms(line + len, stat->max_cycles,
-					     cycles_per_ms);
-		len += sprintk(line + len, "\n");
+			len += sprintkn(line + len, sizeof(line) - len, "- ");
+		len += debugfs_sput_u64(line + len, sizeof(line) - len,
+					stat->calls);
+		len += sprintkn(line + len, sizeof(line) - len, " ");
+		len += debugfs_sput_cycles_ms(line + len, sizeof(line) - len,
+					     stat->cycles, cycles_per_ms);
+		len += sprintkn(line + len, sizeof(line) - len, " ");
+		len += debugfs_sput_cycles_ms(line + len, sizeof(line) - len,
+					     avg, cycles_per_ms);
+		len += sprintkn(line + len, sizeof(line) - len, " ");
+		len += debugfs_sput_cycles_ms(line + len, sizeof(line) - len,
+					     stat->max_cycles, cycles_per_ms);
+		len += sprintkn(line + len, sizeof(line) - len, "\n");
 
 		if ((size_t)n + (size_t)len >= size)
 			break;
@@ -178,7 +188,7 @@ static int debugfs_trace_pid_content(char *buf, size_t size)
 {
 	if (size < 16)
 		return -ENOSPC;
-	return sprintk(buf, "%d\n", syscall_trace_get_pid());
+	return sprintkn(buf, size, "%d\n", syscall_trace_get_pid());
 }
 
 static int debugfs_parse_pid(char *buf, int len, pid_t *pid)
@@ -371,17 +381,15 @@ struct inode_operations debugfs_dir_iops = {
 static int debugfs_get_entry(unsigned long dir_ino, int index, char *name,
 			     size_t size, ino_t *ino, unsigned char *type)
 {
-	(void)size;
-
 	if (dir_ino == DEBUGFS_INO_ROOT) {
 		switch (index) {
 		case 0:
-			sprintk(name, "%s", "syscalls");
+			sprintkn(name, size, "%s", "syscalls");
 			*ino = DEBUGFS_INO_SYSCALLS;
 			*type = DT_REG;
 			return 0;
 		case 1:
-			sprintk(name, "%s", "trace_pid");
+			sprintkn(name, size, "%s", "trace_pid");
 			*ino = DEBUGFS_INO_TRACE_PID;
 			*type = DT_REG;
 			return 0;

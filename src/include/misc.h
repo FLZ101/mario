@@ -41,24 +41,7 @@
 #define PFN_UP(x)	(((unsigned long)(x) + PAGE_SIZE-1) >> PAGE_SHIFT)
 #define PFN_DOWN(x)	((unsigned long)(x) >> PAGE_SHIFT)
 
-int printk(const char *fmt, ...);
-int sprintk(char *buf, const char *fmt, ...);
-
-#define hang(...) do { \
-	printk(__VA_ARGS__); \
-	__asm__ __volatile__ ("cli; 1:hlt; jmp 1b"); \
-} while (0)
-
-#define unreachable() \
-	hang("unreachable"); \
-	__builtin_unreachable()
-
-#define assert(expr) do { \
-	if (!(expr)) { \
-		hang("Assertion '" #expr "' failed in %s() @ %s:%d", \
-			__func__, __FILE__, __LINE__); \
-	} \
-} while (0)
+#include "printk.h"
 
 #define MIN(a, b) ((a) <= (b) ? (a) : (b))
 #define MAX(a, b) ((a) >= (b) ? (a) : (b))

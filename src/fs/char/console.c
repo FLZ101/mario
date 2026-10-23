@@ -43,7 +43,7 @@ volatile int debug_console = 1;
 
 #define DEBUG_PRINTK(...) do { \
 	if (debug_console && !is_system_console(con)) \
-		printk(__VA_ARGS__); \
+		pr_debug(__VA_ARGS__); \
 } while (0)
 
 static struct tty_struct *get_console_tty(struct console *con)
@@ -788,7 +788,8 @@ static void csi_n(struct console *con)
 		struct tty_struct *tty = get_console_tty(con);
 
 		char resp[32];
-		sprintk(resp, "\033[%d;%dR", tty->winsize.ws_row, tty->winsize.ws_col);
+		sprintkn(resp, sizeof(resp), "\033[%d;%dR",
+			 tty->winsize.ws_row, tty->winsize.ws_col);
 
 		tty_receive_s(tty, resp);
 		break;

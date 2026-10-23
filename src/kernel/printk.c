@@ -35,20 +35,28 @@ static void putchar(char c)
 	console_write_char(con, c);
 }
 
-static void sput_c(char **buf, char c)
+/*
+ * Append one character to a formatted string.
+ *
+ * @end is the one-past-last-formatted-character address for bounded output,
+ * or NULL for the legacy unbounded printk/sprintk paths.  A bounded caller
+ * passes buf + size - 1, reserving the final byte for the terminating NUL.
+ */
+static void sput_c(char **buf, char *end, char c)
 {
+	if (end && *buf >= end)
+		return;
 	*((*buf)++) = c;
-	**buf = '\0';
 }
 
-static void sput_s(char **buf, char *str)
+static void sput_s(char **buf, char *end, char *str)
 {
 	char c;
 	while ((c = *(str++)))
-		sput_c(buf, c);
+		sput_c(buf, end, c);
 }
 
-static void sput_x(char **buf, unsigned int n)
+static void sput_x(char **buf, char *end, unsigned int n)
 {
 	int i, j;
 	char s[11] = {'0', 'x'};
@@ -63,16 +71,16 @@ static void sput_x(char **buf, unsigned int n)
 			s[i] = '0';
 		}
 	}
-	sput_s(buf, s);
+	sput_s(buf, end, s);
 }
 
-static void sput_u(char **buf, unsigned int n)
+static void sput_u(char **buf, char *end, unsigned int n)
 {
 	int i, j;
 	char s[11] = {0};
 
 	if (n == 0) {
-		sput_s(buf, "0");
+		sput_s(buf, end, "0");
 		return;
 	}
 
@@ -85,23 +93,23 @@ static void sput_u(char **buf, unsigned int n)
 			break;
 		}
 	}
-	sput_s(buf, s + i + 1);
+	sput_s(buf, end, s + i + 1);
 }
 
-static void sput_d(char **buf, int n)
+static void sput_d(char **buf, char *end, int n)
 {
 	if (0 <= n) {
-		sput_u(buf, n);
+		sput_u(buf, end, n);
 	} else {
-		sput_s(buf, "-");
-		sput_u(buf, -n);
+		sput_s(buf, end, "-");
+		sput_u(buf, end, -n);
 	}
 }
 
 /*
  * %u, %d, %x, %c, %s
  */
-static int vsprintk(char *buf, const char *fmt, va_list ap)
+static int vformat(char *buf, char *end, const char *fmt, va_list ap)
 {
 	char *p0 = buf, *p1 = buf;
 	char c;
@@ -110,28 +118,34 @@ static int vsprintk(char *buf, const char *fmt, va_list ap)
 			c = *(fmt++);
 			switch (c) {
 			case 'u':
-				sput_u(&p1, va_arg(ap, unsigned int));
+				sput_u(&p1, end, va_arg(ap, unsigned int));
 				break;
 			case 'd':
-				sput_d(&p1, va_arg(ap, int));
+				sput_d(&p1, end, va_arg(ap, int));
 				break;
 			case 'x':
-				sput_x(&p1, va_arg(ap, unsigned int));
+				sput_x(&p1, end, va_arg(ap, unsigned int));
 				break;
 			case 'c':
-				sput_c(&p1, va_arg(ap, char));
+				sput_c(&p1, end, va_arg(ap, char));
 				break;
 			case 's':
-				sput_s(&p1, va_arg(ap, char *));
+				sput_s(&p1, end, va_arg(ap, char *));
 				break;
 			default:
 				break;
 			}
 			continue;
 		}
-		sput_c(&p1, c);
+		sput_c(&p1, end, c);
 	}
+	*p1 = '\0';
 	return p1 - p0;
+}
+
+static int vsprintk(char *buf, const char *fmt, va_list ap)
+{
+	return vformat(buf, NULL, fmt, ap);
 }
 
 int sprintk(char *buf, const char *fmt, ...)
@@ -143,17 +157,61 @@ int sprintk(char *buf, const char *fmt, ...)
 	return n;
 }
 
+/*
+ * Bounded variants.  sprintkn()/vsprintkn() write at most size - 1 formatted
+ * characters plus a NUL terminator, so they are safe for stack or heap
+ * buffers whose capacity is known by the caller.
+ */
+int vsprintkn(char *buf, size_t size, const char *fmt, va_list ap)
+{
+	if (!buf || !size)
+		return 0;
+	return vformat(buf, buf + size - 1, fmt, ap);
+}
+
+int sprintkn(char *buf, size_t size, const char *fmt, ...)
+{
+	va_list ap;
+	int n;
+
+	va_start(ap, fmt);
+	n = vsprintkn(buf, size, fmt, ap);
+	va_end(ap);
+	return n;
+}
+
 int printk(const char *fmt, ...)
 {
+	static char buf[1024] = {0};
+	char *p;
+	int prio = LOG_INFO;
+	va_list ap;
+	int n;
+
+	/*
+	 * Accept the standard "<N>" priority prefix.  The prefix is stripped
+	 * before formatting so it is stored and printed as a metadata priority,
+	 * not as part of the visible message.  Malformed prefixes fall back to
+	 * the default LOG_INFO priority.
+	 */
+	if (fmt[0] == '<') {
+		const char *q = fmt + 1;
+		int value = 0;
+
+		while ('0' <= *q && *q <= '9') {
+			value = value * 10 + (*q - '0');
+			q++;
+		}
+		if (q != fmt + 1 && *q == '>') {
+			prio = value & 7;
+			fmt = q + 1;
+		}
+	}
+
 	irq_save();
 
-	static char buf[1024] = {0};
-	char *p = NULL;
-	int prio = LOG_INFO;
-
-	va_list ap;
 	va_start(ap, fmt);
-	int n = vsprintk(buf, fmt, ap);
+	n = vsprintkn(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
 
 	logbuf_store(prio, buf, n);

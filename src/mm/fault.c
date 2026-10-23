@@ -15,7 +15,7 @@ extern void print_mmap(struct mm_struct *mm);
  */
 void oom(struct task_struct *p)
 {
-	printk("Out of memory for %s\n", current->comm);
+	pr_warn("Out of memory for %s\n", current->comm);
 	p->sigaction[SIGKILL-1].sa_handler = SIG_DFL;
 	p->blocked &= ~(1<<(SIGKILL-1));
 	send_sig(SIGKILL, p, 1);
@@ -192,7 +192,7 @@ good_area:
 	return;
 
 bad_area:
-	printk("[page fault] %d %x; ", current->pid, addr);
+	pr_debug("[page fault] %d %x; ", current->pid, addr);
 
 	if (error_code & 4) {
 		current->thread.cr2 = addr;
@@ -203,16 +203,16 @@ bad_area:
 	__asm__("movl %%cr3, %0" : "=r" (page));
 	page = __vir(page);
 	pde = ((unsigned long *) page)[addr >> 22];
-	printk("pde = %x ", pde);
+	pr_debug("pde = %x ", pde);
 
 	if (pde & 1) {
 		pde &= PAGE_MASK;
 		addr &= 0x003ff000;
 		pde = __vir(pde);
 		pte = ((unsigned long *) pde)[addr >> PAGE_SHIFT];
-		printk("pte = %x", pte);
+		pr_debug("pte = %x", pte);
 	}
-	printk("\n");
+	pr_debug("\n");
 	// print_mmap(current->mm);
 
 	if (userland(tr)) {

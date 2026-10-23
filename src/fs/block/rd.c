@@ -70,9 +70,9 @@ tail:
 
 	last_rd_end = rd_info[nr_rd - 1].rd_end;
 
-	printk("Ramdisk(s):\n");
+	pr_info("Ramdisk(s):\n");
 	for (i = 0; i < nr_rd; i++) {
-		printk("rd_start=%x, rd_end=%x, name=%s\n",
+		pr_info("rd_start=%x, rd_end=%x, name=%s\n",
 			rd_info[i].rd_start,
 			rd_info[i].rd_end,
 			rd_info[i].name

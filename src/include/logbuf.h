@@ -17,6 +17,8 @@
 
 #define LOG_KERN      (0 << 3)
 
+/* Console filtering is threshold based: messages with prio < level print. */
+
 struct log_record {
 	uint32_t len;      /* text length, excluding NUL */
 	uint16_t prio;     /* LOG_* priority/facility, default LOG_INFO */

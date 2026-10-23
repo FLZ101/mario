@@ -83,6 +83,24 @@ POSIX-style shared-address-space threads.
 - Task-list macros in `src/include/sched.h` (`SET_LINKS`, `REMOVE_LINKS`) use
   `irq_save()`, which only protects against local interrupts.
 
+File-backed mmap, added after this plan was first written, creates more shared
+mutable state on top of those existing UP assumptions:
+
+- `src/mm/filemap.c` keeps a global `filemap_pages` list keyed by
+  `(inode, file page index)`. Lookup, insertion, and invalidation are all
+  lock-free. Once CPUs run concurrently, faults against the same file offset,
+  `msync`, and truncate can corrupt that list or race page refcounts.
+- `struct vm_area_struct` now owns `vm_file` and participates in the
+  `vm_next_share`/`vm_prev_share` ring. `dup_mmap()`, `unmap_fixup()`, and
+  `remove_shared_vm_struct()` update those links without an mm lock, so the
+  existing fork-only sharing assumption is no longer enough.
+- `do_wp_page()` reads `page->count` and then separately updates the PTE or
+  refcount. That decision is only safe while one CPU is in the fault path.
+- `src/fs/file.c` increments `struct file::f_count` under `file_lock`, but
+  `put_file()`/`release_file()` decrement it without that lock. The new
+  `vm_file` references add cross-task teardown paths for the same `struct
+  file`.
+
 ### No clone/CLONE_THREAD
 
 - `src/include/syscall.h` already defines `SYS_clone` and `SYS_clone3`, but
@@ -208,6 +226,21 @@ Replace the single runqueue with per-CPU runqueues plus one global task list:
   `exit_mmap`, `find_vma`) take the mm lock when modifying shared state.
 - Page-fault and COW paths use the same mm lock or a smaller fault mutex;
   no cross-CPU VMA traversal may be lock-free.
+- Protect the VMA share ring as part of the mm lock. In particular,
+  `dup_mmap()`, `remove_shared_vm_struct()`, and the split path in
+  `unmap_fixup()` must not repair `vm_next_share`/`vm_prev_share` while
+  another CPU can fault or unmap in the same mm.
+
+File-backed mmap cache changes:
+
+- Add a `filemap_lock` in `src/mm/filemap.c` and hold it around lookup,
+  insertion, invalidation, and removal of `struct filemap_page` entries.
+- Make `filemap_nopage()` and `filemap_invalidate_pages()/inode()` serialize
+  against each other. At minimum, truncate must not free a cache entry while
+  a page fault is about to `ref_page()` it.
+- Keep writeback and truncate ordered through the inode semaphore or the page
+  cache lock; `filemap_sync_pte()` already checks for cache membership, but
+  that check must itself be race-free.
 
 Allocator changes:
 
@@ -225,7 +258,10 @@ Allocator changes:
 - `CLONE_FS`: share `fs` instead of `copy_fs()`.
 - `CLONE_SIGHAND`: share signal handlers; block mask and pending signals remain
   per thread where required.
-- Make `struct file` reference-counted for shared file tables.
+- Make `struct file::f_count` SMP-safe: either convert it to `atomic_t` or
+  update every increment/decrement under `file_lock`. The current split
+  (`fref()` locks, `put_file()`/`release_file()` do not) is unsafe for both
+  shared file tables and `vm_file` teardown.
 - Protect the global file/inode/buffer/superblock tables with the already
   introduced real spinlocks; their current locks become SMP-safe once the
   spinlock implementation is fixed.
@@ -312,6 +348,8 @@ Modified files:
   prefixes/memory clobbers to SMP operations.
 - `src/mm/page_alloc.c`, `src/mm/kmalloc.c`, `src/mm/mm.c`,
   `src/mm/fault.c`: replace interrupt-mask-only protection with spinlocks.
+- `src/mm/filemap.c`: add a page-cache lock for the global file-backed mmap
+  cache and serialize invalidation against page faults/writeback.
 - `src/include/mm/mm.h`: add mm lock/reference fields.
 - `src/fs/file.c`, `src/fs/pipe.c`, and other global table users: use the
   fixed spinlock rather than relying on local interrupt masking.
@@ -325,6 +363,10 @@ Modified files:
 - Add `spin_lock_irqsave()`/`spin_unlock_irqrestore()`.
 - Convert page allocator, `kmalloc`, task-list macros, and global filesystem
   tables from `irq_save()` to real locks.
+- Convert the global file-backed mmap page cache in `src/mm/filemap.c` to use
+  a real spinlock for lookup/insert/invalidate/remove.
+- Make `struct file::f_count` updates atomic or always under `file_lock`, so
+  `vm_file` references are safe before shared-mm threads are introduced.
 - Add the per-CPU data abstraction and switch `current` to a `%fs`-based
   pointer while still booting only the BSP.
 
@@ -334,6 +376,9 @@ Validation:
 - `make` and the normal `qemu/Makefile` targets remain unchanged.
 - Add a short stress test that forks, allocates, and reads/writes files on one
   CPU to catch lock-conversion regressions.
+- Keep the existing `vfat.mmap.stress.test`, `ext2.mmap.stress.test`, and
+  `mariofs.mmap.stress.test` passing to verify that filemap locking did not
+  break shared/private mappings or truncate invalidation.
 
 ### 2. CPU enumeration and AP boot
 
@@ -423,6 +468,14 @@ continue to pass.
 - **Locks currently imply local interrupt disable.** Converting all callers
   atomically is large. Start with one real spinlock primitive and convert the
   allocator, task list, and scheduler first.
+- **File-backed mmap added a global unsynchronized cache.** `filemap_pages`
+  is the newest shared list and must be locked before AP boot; otherwise
+  concurrent page faults, `msync`, and truncate can corrupt the list rather
+  than only produce wrong data.
+- **`vm_file` makes file refcounts cross-task.** A process can close an fd
+  while another CPU unmaps a VMA that still holds the same `struct file`, so
+  the non-atomic `f_count` decrement must be fixed with the mm/VMA locking
+  work.
 - **`current` via ESP is used in assembly.** Keep a temporary single-CPU
   fallback and switch `%fs` setup early in both BSP and AP boot.
 - **Shared GDT/TLS is racy.** Move GDT/TSS/TLS into per-CPU data before
