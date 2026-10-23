@@ -97,6 +97,7 @@ void do_no_page(struct vm_area_struct *vma, unsigned long addr,
 	pde_t *pd;
 	pte_t *pt;
 	unsigned long page;
+	unsigned long pte_prot;
 
 	pd = pde_offset(vma->vm_mm->pd, addr);
 	/*
@@ -109,30 +110,38 @@ void do_no_page(struct vm_area_struct *vma, unsigned long addr,
 	}
 	pt = pte_offset(__vir(*pd), addr);
 	if (!vma->vm_ops || !vma->vm_ops->nopage) {
-		unsigned long tmp = get_zero_page();
-		if (!tmp)
+		page = get_zero_page();
+		if (!page)
 			goto fail;
-		*pt = mk_pte(tmp, vma->vm_page_prot);
+		*pt = mk_pte(page, vma->vm_page_prot);
 		return;
 	}
 	/*
 	 * Try to get the page we want from the share ring
 	 */
 	page = get_shared_page(vma, addr);
-	if (page)
-		goto ok_page;
-	page = get_zero_page();
+	if (!page)
+		page = vma->vm_ops->nopage(vma, addr);
 	if (!page)
 		goto fail;
-	if (vma->vm_ops->nopage(vma, addr, page)) {
-		put_page(page);
-		goto fail;
-	}
-ok_page:
-	*pt = mk_pte(page, vma->vm_page_prot);
+
+	/*
+	 * A private writable file mapping starts read-only so the first write
+	 * goes through the normal copy-on-write path instead of modifying the
+	 * cached file page in place.
+	 */
+	pte_prot = vma->vm_page_prot;
+	if (vma->vm_file && (vma->vm_flags & VM_WRITE) &&
+	    !(vma->vm_flags & VM_SHARED))
+		pte_prot &= ~PG_RW;
+
+	*pt = mk_pte(page, pte_prot);
 	return;
 fail:
-	oom(current);
+	if (vma->vm_file)
+		send_sig(SIGBUS, current, 1);
+	else
+		oom(current);
 	*pt = BAD_PAGE;
 }
 

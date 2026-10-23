@@ -308,6 +308,11 @@ int ext2_truncate(struct inode *inode, int size)
 	new_blocks = (new_size + block_size - 1) / block_size;
 
 	if (new_blocks >= old_blocks) {
+		/* The inode grows (or stays the same size).  Drop cached pages
+		 * beyond the old EOF so future faults read the newly allocated
+		 * bytes instead of the stale zero-filled mmap page. */
+		if (new_size > old_size)
+			filemap_invalidate_pages(inode, old_size);
 		inode->i_size = new_size;
 		ext2_write32((uint8_t *)&raw->i_size, new_size);
 		set_bit(I_Dirty, &inode->i_state);
@@ -362,6 +367,10 @@ int ext2_truncate(struct inode *inode, int size)
 		}
 	}
 
+	/* The inode shrinks.  Discard or zero cached mmap pages at and beyond
+	 * the new EOF so a later shared-mapping writeback cannot restore data
+	 * that no longer belongs to the file. */
+	filemap_invalidate_pages(inode, new_size);
 	inode->i_size = new_size;
 	inode->i_mtime = inode->i_ctime = current_time();
 	ext2_write32((uint8_t *)&raw->i_size, new_size);
@@ -459,4 +468,5 @@ struct inode_operations ext2_link_iops = {
 struct file_operations ext2_file_fops = {
 	.read = ext2_file_read,
 	.write = ext2_file_write,
+	.mmap = generic_file_mmap,
 };

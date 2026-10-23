@@ -1,0 +1,198 @@
+# MarioFS mmap stress coverage.  The stages are separate Python processes so
+# a failure in one operation does not leave a large partially-consumed heredoc
+# in the test shell.
+TIMEOUT: 60
+
+RUN: mkdir -p /tmp
+
+RUN: python <<'PYEOF'
+import os, mmap
+
+PAGE = 4096
+path = '/tmp/mmstress.bin'
+
+def block(round_no, page_no, size=64):
+    return bytes((round_no * 17 + page_no * 29 + i * 7) & 0xff
+                 for i in range(size))
+
+for round_no, pages in enumerate((3, 5, 7), 1):
+    size = pages * PAGE
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.ftruncate(fd, size)
+    os.close(fd)
+
+    fd = os.open(path, os.O_RDWR)
+    m = mmap.mmap(fd, size, flags=mmap.MAP_SHARED,
+                  prot=mmap.PROT_READ | mmap.PROT_WRITE)
+    os.close(fd)
+    for p in range(pages):
+        data = block(round_no, p)
+        m[p * PAGE:p * PAGE + len(data)] = data
+        m[(p + 1) * PAGE - len(data):(p + 1) * PAGE] = data
+        assert m[p * PAGE:p * PAGE + len(data)] == data
+    m.flush()
+    m.close()
+
+    fd = os.open(path, os.O_RDONLY)
+    for p in range(pages):
+        data = block(round_no, p)
+        os.lseek(fd, p * PAGE, os.SEEK_SET)
+        assert os.read(fd, len(data)) == data
+        os.lseek(fd, (p + 1) * PAGE - len(data), os.SEEK_SET)
+        assert os.read(fd, len(data)) == data
+    os.close(fd)
+
+print('mariofs-mmap-stress-shared-ok')
+PYEOF
+CHECK: mariofs-mmap-stress-shared-ok
+
+RUN: python <<'PYEOF'
+import os, mmap
+
+PAGE = 4096
+path = '/tmp/mmstress.bin'
+
+fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_TRUNC, 0o600)
+os.ftruncate(fd, PAGE)
+os.close(fd)
+
+fd = os.open(path, os.O_RDWR)
+os.write(fd, b'Z' * PAGE)
+os.close(fd)
+
+fd = os.open(path, os.O_RDWR)
+m = mmap.mmap(fd, PAGE, flags=mmap.MAP_PRIVATE,
+              prot=mmap.PROT_READ | mmap.PROT_WRITE)
+os.close(fd)
+assert m[:64] == b'Z' * 64
+m[:] = b'P' * PAGE
+m.flush()
+m.close()
+
+fd = os.open(path, os.O_RDONLY)
+assert os.read(fd, PAGE) == b'Z' * PAGE
+os.close(fd)
+print('mariofs-mmap-stress-private-ok')
+PYEOF
+CHECK: mariofs-mmap-stress-private-ok
+
+RUN: python <<'PYEOF'
+import os, mmap
+
+PAGE = 4096
+path = '/tmp/mmstress.bin'
+
+fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_TRUNC, 0o600)
+os.ftruncate(fd, 8 * PAGE)
+os.close(fd)
+
+fd = os.open(path, os.O_RDWR)
+m = mmap.mmap(fd, 8 * PAGE, flags=mmap.MAP_SHARED,
+              prot=mmap.PROT_READ | mmap.PROT_WRITE)
+os.close(fd)
+m[0:16] = b'Tttttttttttttttt'
+m[PAGE:PAGE + 16] = b'Uuuuuuuuuuuuuuuu'
+m.flush()
+m.close()
+
+for cut in (4 * PAGE, PAGE, 3 * PAGE + 123, 6 * PAGE + 77, 0):
+    fd = os.open(path, os.O_RDWR)
+    os.ftruncate(fd, cut)
+    os.close(fd)
+    assert os.path.getsize(path) == cut
+    if cut:
+        fd = os.open(path, os.O_RDWR)
+        m = mmap.mmap(fd, cut, flags=mmap.MAP_SHARED,
+                      prot=mmap.PROT_READ | mmap.PROT_WRITE)
+        os.close(fd)
+        m[cut - 1:cut] = b'e'
+        m.flush()
+        m.close()
+
+print('mariofs-mmap-stress-truncate-ok')
+PYEOF
+CHECK: mariofs-mmap-stress-truncate-ok
+
+RUN: python <<'PYEOF'
+import os, mmap
+
+PAGE = 4096
+path = '/tmp/mmstress.bin'
+new_size = 5 * PAGE + 11
+
+fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_TRUNC, 0o600)
+os.ftruncate(fd, PAGE)
+os.close(fd)
+fd = os.open(path, os.O_RDWR)
+os.write(fd, b'g' * PAGE)
+os.close(fd)
+
+fd = os.open(path, os.O_RDWR)
+os.ftruncate(fd, new_size)
+os.close(fd)
+
+fd = os.open(path, os.O_RDWR)
+m = mmap.mmap(fd, new_size, flags=mmap.MAP_SHARED,
+              prot=mmap.PROT_READ | mmap.PROT_WRITE)
+os.close(fd)
+assert m[:PAGE] == b'g' * PAGE
+assert m[PAGE:new_size] == b'\0' * (new_size - PAGE)
+m[new_size - 1:new_size] = b'G'
+m.flush()
+m.close()
+
+fd = os.open(path, os.O_RDONLY)
+os.lseek(fd, new_size - 1, os.SEEK_SET)
+assert os.read(fd, 1) == b'G'
+os.close(fd)
+print('mariofs-mmap-stress-growth-ok')
+PYEOF
+CHECK: mariofs-mmap-stress-growth-ok
+
+RUN: python <<'PYEOF'
+import os, mmap
+
+PAGE = 4096
+path = '/tmp/mmstress.bin'
+
+def block(round_no, page_no, size=64):
+    return bytes((round_no * 17 + page_no * 29 + i * 7) & 0xff
+                 for i in range(size))
+
+for r in range(3):
+    base_size = (2 + r) * PAGE
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.ftruncate(fd, base_size)
+    os.close(fd)
+
+    fd = os.open(path, os.O_RDWR)
+    m = mmap.mmap(fd, base_size, flags=mmap.MAP_SHARED,
+                  prot=mmap.PROT_READ | mmap.PROT_WRITE)
+    os.close(fd)
+    head = ('H%02d' % r).encode().ljust(32, b'x')
+    m[:32] = head
+    m.flush()
+
+    append = block(50 + r, 0, 512 + r * 211)
+    afd = os.open(path, os.O_WRONLY | os.O_APPEND)
+    for off in range(0, len(append), 257):
+        chunk = append[off:off + 257]
+        total = 0
+        while total < len(chunk):
+            n = os.write(afd, chunk[total:])
+            assert n > 0
+            total += n
+    os.close(afd)
+    assert os.path.getsize(path) == base_size + len(append)
+    m.close()
+
+    fd = os.open(path, os.O_RDONLY)
+    os.lseek(fd, 0, os.SEEK_SET)
+    assert os.read(fd, 32) == head
+    os.lseek(fd, base_size, os.SEEK_SET)
+    assert os.read(fd, len(append)) == append
+    os.close(fd)
+
+print('mariofs-mmap-stress-append-ok')
+PYEOF
+CHECK: mariofs-mmap-stress-append-ok

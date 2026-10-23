@@ -49,11 +49,13 @@ typedef unsigned long pte_t;
 
 #define __pe_rw(p)		(*(p) & PG_RW)
 #define __pe_present(p)		(*(p) & PG_PRESENT)
+#define __pe_dirty(p)		(*(p) & PG_DIRTY)
 
 #define set_pe_rw(p)		*(p) |= PG_RW
 #define set_pe_present(p)	*(p) |= PG_PRESENT
 
 #define clear_pe_rw(p)		*(p) &= ~PG_RW
+#define clear_pe_dirty(p)	*(p) &= ~PG_DIRTY
 #define clear_pe_present(p)	*(p) &= ~PG_PRESENT
 
 #define __pde_offset(vir) \

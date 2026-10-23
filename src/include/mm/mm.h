@@ -33,7 +33,7 @@ struct vm_operations_struct {
 	void (*close)(struct vm_area_struct *);
 	void (*sync)(struct vm_area_struct *, unsigned long, unsigned long, int);
 	void (*unmap)(struct vm_area_struct *, unsigned long, unsigned long);
-	int (*nopage)(struct vm_area_struct *, unsigned long, unsigned long);
+	unsigned long (*nopage)(struct vm_area_struct *, unsigned long);
 	int (*wppage)(struct vm_area_struct *, unsigned long, unsigned long);
 };
 
@@ -50,6 +50,7 @@ struct vm_area_struct {
 	unsigned long vm_flags;
 	/* attributes of pages in this vm_area */
 	unsigned long vm_page_prot;
+	struct file *vm_file;
 	struct inode *vm_inode;
 	unsigned long vm_offset;
 	struct vm_operations_struct *vm_ops;
@@ -74,5 +75,7 @@ struct vm_area_struct {
 struct vm_area_struct *find_vma(struct mm_struct *, unsigned long);
 
 int generic_file_mmap(struct inode *, struct file *, struct vm_area_struct *);
+void filemap_invalidate_pages(struct inode *, unsigned long);
+void filemap_invalidate_inode(struct inode *);
 
 #endif /* _MM_H */

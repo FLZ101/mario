@@ -218,5 +218,7 @@ int dir_namei(char *pathname, int *namelen, char **name,
 int open_namei(char *, int, struct inode **,struct inode *);
 
 int generic_file_mmap(struct inode *, struct file *, struct vm_area_struct *);
+void filemap_invalidate_pages(struct inode *, unsigned long);
+void filemap_invalidate_inode(struct inode *);
 
 #endif /* _FS_H */

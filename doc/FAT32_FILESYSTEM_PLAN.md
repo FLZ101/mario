@@ -528,7 +528,6 @@ Intentionally deferred:
 - Crash-consistent transaction journaling; rollback covers the common
   allocation/IO failure paths but not a power failure midway through a
   multi-step rename.
-- `mmap` for FAT files.
 
 Native symlinks, hard links, and device/FIFO nodes remain intentionally
 unsupported because FAT has no on-disk representation for them.
@@ -657,7 +656,6 @@ python3 tests/lit_shell_test.py tests/shell/vfat.stress.test
 - FAT12 and FAT16.
 - Unicode normalization and full UTF-8 output for long names.
 - Defragmentation or contiguous cluster allocation.
-- `mmap` for FAT files.
 
 ## Risks
 

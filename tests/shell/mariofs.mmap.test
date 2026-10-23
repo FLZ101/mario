@@ -1,0 +1,15 @@
+# MarioFS file-backed mmap tests.  These run on the ramdisk root and exercise
+# MAP_PRIVATE, MAP_SHARED, msync, munmap, write past EOF, partial munmap, and
+# truncate/page-cache invalidation.
+TIMEOUT: 60
+
+RUN: mkdir -p /tmp
+RUN: /bin/test/mm.exe
+CHECK: private-ok
+CHECK: shared-ok
+CHECK: past-eof-ok
+CHECK: partial-unmap-ok
+CHECK: truncate-ok
+CHECK: fork-cow-ok
+CHECK: shared-coherent-ok
+CHECK: shared-fork-ok

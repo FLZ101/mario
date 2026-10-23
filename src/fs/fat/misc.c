@@ -20,13 +20,25 @@ void fat_short_name_from_entry(const uint8_t *entry, char *name)
 {
 	int i;
 	int len = 0;
+	uint8_t case_bits = entry[12];
 
-	for (i = 0; i < 8 && entry[i] != ' '; i++)
-		name[len++] = entry[i];
+	for (i = 0; i < 8 && entry[i] != ' '; i++) {
+		char c = entry[i];
+
+		if ((case_bits & FAT_NTRES_LCASE_BASE) && c >= 'A' && c <= 'Z')
+			c = c - 'A' + 'a';
+		name[len++] = c;
+	}
 	if (entry[8] != ' ') {
 		name[len++] = '.';
-		for (i = 8; i < 11 && entry[i] != ' '; i++)
-			name[len++] = entry[i];
+		for (i = 8; i < 11 && entry[i] != ' '; i++) {
+			char c = entry[i];
+
+			if ((case_bits & FAT_NTRES_LCASE_EXT) &&
+			    c >= 'A' && c <= 'Z')
+				c = c - 'A' + 'a';
+			name[len++] = c;
+		}
 	}
 	name[len] = '\0';
 }

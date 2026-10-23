@@ -11,7 +11,7 @@ static int mario_file_truncate(struct inode *i, int size)
 {
 	int error, tmp;
 	int head, tail, *next_block;
-	unsigned long n, max_used, blocks;
+	unsigned long n, max_used, blocks, old_size;
 	struct buffer_head *bh;
 
 	if (!S_ISREG(i->i_mode))
@@ -19,6 +19,7 @@ static int mario_file_truncate(struct inode *i, int size)
 	if (size < 0)
 		return -EINVAL;
 
+	old_size = i->i_size;
 	mario_destroy_block_map(i);
 
 	max_used = i->i_block_size - 4;
@@ -68,6 +69,13 @@ static int mario_file_truncate(struct inode *i, int size)
 	}
 end:
 	mario_destroy_block_map(i);
+	/* MarioFS mmap pages are cached by inode and file-page index, so the
+	 * truncate path must invalidate pages outside the new size exactly as
+	 * ext2 and FAT32 do. */
+	if ((unsigned long)size < old_size)
+		filemap_invalidate_pages(i, size);
+	else if ((unsigned long)size > old_size)
+		filemap_invalidate_pages(i, old_size);
 	i->i_size = size;
 	i->i_nr_block = n;
 	set_bit(I_Dirty, &i->i_state);

@@ -30,6 +30,10 @@ struct file_operations;
 #define FAT_ATTR_ARCHIVE	0x20
 #define FAT_ATTR_LFN		0x0f
 
+/* VFAT name-case flags stored in the reserved byte of a short entry. */
+#define FAT_NTRES_LCASE_BASE	0x08
+#define FAT_NTRES_LCASE_EXT	0x10
+
 #define FAT_EOC_MIN		0x0ffffff8UL
 #define FAT_EOC_MAX		0x0fffffffUL
 #define FAT_BAD_CLUSTER		0x0ffffff7UL

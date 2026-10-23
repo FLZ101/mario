@@ -36,7 +36,8 @@ void merge_mmap(struct mm_struct *mm)
 
 	for (p1 = mm->mmap; p1 && (p2 = p1->vm_next);) {
 		if (p1->vm_end == p2->vm_start && p1->vm_flags == p2->vm_flags &&
-			!(p1->vm_flags & VM_SHARED) && !p1->vm_inode && !p2->vm_inode) {
+			!(p1->vm_flags & VM_SHARED) && !p1->vm_file && !p2->vm_file &&
+			!p1->vm_inode && !p2->vm_inode) {
 			p1->vm_end = p2->vm_end;
 			p1->vm_next = p2->vm_next;
 			kfree(p2);
@@ -131,7 +132,9 @@ void exit_mmap(struct task_struct *t)
 		if (vma->vm_ops && vma->vm_ops->close)
 			vma->vm_ops->close(vma);
 		remove_shared_vm_struct(vma);
-		if (vma->vm_inode)
+		if (vma->vm_file)
+			put_file(vma->vm_file);
+		else if (vma->vm_inode)
 			iput(vma->vm_inode);
 		kfree(vma);
 		vma = next;
@@ -153,7 +156,9 @@ int dup_mmap(struct task_struct *t)
 		*tmp = *vma;
 		tmp->vm_mm = t->mm;
 		tmp->vm_next = NULL;
-		if (tmp->vm_inode)
+		if (tmp->vm_file)
+			fref(tmp->vm_file);
+		else if (tmp->vm_inode)
 			iref(tmp->vm_inode);
 		/* a shared area? */
 		if (tmp->vm_flags & VM_SHARED) {
@@ -180,7 +185,9 @@ void unmap_fixup(struct vm_area_struct *vma, unsigned long addr, unsigned long l
 	if (addr == vma->vm_start && end == vma->vm_end) {
 		if (vma->vm_ops && vma->vm_ops->close)
 			vma->vm_ops->close(vma);
-		if (vma->vm_inode)
+		if (vma->vm_file)
+			put_file(vma->vm_file);
+		else if (vma->vm_inode)
 			iput(vma->vm_inode);
 		return;
 	}
@@ -204,7 +211,9 @@ void unmap_fixup(struct vm_area_struct *vma, unsigned long addr, unsigned long l
 		mpnt->vm_offset += (end - vma->vm_start);
 		mpnt->vm_start = end;
 
-		if (mpnt->vm_inode)
+		if (mpnt->vm_file)
+			fref(mpnt->vm_file);
+		else if (mpnt->vm_inode)
 			iref(mpnt->vm_inode);
 		if (mpnt->vm_ops && mpnt->vm_ops->open)
 			mpnt->vm_ops->open(mpnt);
@@ -220,6 +229,10 @@ void unmap_fixup(struct vm_area_struct *vma, unsigned long addr, unsigned long l
 	*mpnt = *vma;
 	mpnt->vm_next_share = mpnt;
 	mpnt->vm_prev_share = mpnt;
+	if (mpnt->vm_file)
+		fref(mpnt->vm_file);
+	else if (mpnt->vm_inode)
+		iref(mpnt->vm_inode);
 	if (mpnt->vm_ops && mpnt->vm_ops->open)
 		mpnt->vm_ops->open(mpnt);
 	if (vma->vm_ops && vma->vm_ops->close) {
@@ -227,6 +240,18 @@ void unmap_fixup(struct vm_area_struct *vma, unsigned long addr, unsigned long l
 		vma->vm_ops->close(vma);
 	}
 	insert_vm_struct(current->mm, mpnt);
+
+	/*
+	 * The caller frees @vma after this function returns.  The inserted
+	 * replacement VMA(s) took their own references above, so release the
+	 * original VMA's file/inode ownership here.
+	 */
+	if (vma->vm_file)
+		put_file(vma->vm_file);
+	else if (vma->vm_inode)
+		iput(vma->vm_inode);
+	vma->vm_file = NULL;
+	vma->vm_inode = NULL;
 }
 
 void unmap_pte_range(pde_t *pd, unsigned long addr, unsigned long len)
@@ -324,6 +349,50 @@ int do_munmap(unsigned long addr, unsigned long len)
 int sys_munmap(unsigned long addr, unsigned long len)
 {
 	return do_munmap(addr, len);
+}
+
+/*
+ * Flush shared writable mappings in [addr, addr+len).  The current kernel has
+ * no background writeback, so MS_ASYNC and MS_SYNC are equivalent.
+ */
+int sys_msync(unsigned long addr, unsigned long len, int flags)
+{
+	struct vm_area_struct *vma;
+	unsigned long start, stop, end, cursor;
+
+	if (addr & ~PAGE_MASK)
+		return -EINVAL;
+	if (addr > KERNEL_BASE || len > KERNEL_BASE - addr)
+		return -EINVAL;
+	if ((flags & ~(MS_ASYNC | MS_INVALIDATE | MS_SYNC)) ||
+	    ((flags & MS_SYNC) && (flags & MS_ASYNC)))
+		return -EINVAL;
+	if (!len)
+		return 0;
+
+	len = PAGE_ALIGN(len);
+	end = addr + len;
+	cursor = addr;
+
+	for (vma = find_vma(current->mm, cursor);
+	     vma && vma->vm_start < end;
+	     vma = vma->vm_next) {
+		/* A gap means the caller asked to sync an unmapped area. */
+		if (vma->vm_start > cursor)
+			return -ENOMEM;
+
+		start = MAX(cursor, vma->vm_start);
+		stop = MIN(end, vma->vm_end);
+		if (vma->vm_ops && vma->vm_ops->sync &&
+		    (vma->vm_flags & VM_SHARED) &&
+		    (vma->vm_flags & VM_WRITE))
+			vma->vm_ops->sync(vma, start, stop - start, flags);
+		cursor = MAX(cursor, vma->vm_end);
+	}
+
+	if (cursor < end)
+		return -ENOMEM;
+	return 0;
 }
 
 static unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
@@ -441,6 +510,7 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 		vma->vm_offset = off;
 	else
 		vma->vm_offset = 0;
+	vma->vm_file = NULL;
 	vma->vm_inode = NULL;
 
 	do_munmap(addr, len);	/* Clear old maps */
@@ -448,6 +518,8 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 	if (file) {
 		error = file->f_op->mmap(file->f_inode, file, vma);
 		if (error) {
+			if (vma->vm_file)
+				put_file(vma->vm_file);
 			kfree(vma);
 			return error;
 		}

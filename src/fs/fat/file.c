@@ -219,6 +219,14 @@ static int fat_file_truncate(struct inode *inode, int size)
 		}
 	}
 
+	/* Keep the global file page cache consistent with the new file size.
+	 * Shrinks drop pages wholly beyond the new EOF; grows zero the partial
+	 * old-EOF page and drop pages that used to be past the end. */
+	if ((uint64_t)size < old_size)
+		filemap_invalidate_pages(inode, size);
+	else if ((uint64_t)size > old_size)
+		filemap_invalidate_pages(inode, old_size);
+
 	inode->i_size = size;
 	inode->i_nr_block = ((uint64_t)size + 511) / 512;
 	inode->i_mtime = inode->i_ctime = current_time();
@@ -339,4 +347,5 @@ struct inode_operations fat_file_iops = {
 struct file_operations fat_file_fops = {
 	.read = fat_file_read,
 	.write = fat_file_write,
+	.mmap = generic_file_mmap,
 };

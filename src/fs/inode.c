@@ -45,6 +45,10 @@ void inode_invalidate(struct super_block *sb, ino_t ino)
 	if ((i = find_inode(sb, ino))) {
 		clear_bit(I_Up2date, &i->i_state);
 		clear_bit(I_Dirty, &i->i_state);
+		/* Drop cached file-mapping pages when the inode contents are
+		 * invalidated.  The page cache does not own an inode reference,
+		 * so this must happen before the inode can be reused. */
+		filemap_invalidate_inode(i);
 	}
 	RELEASE_LOCK(&inode_lock);
 }
@@ -87,6 +91,9 @@ static void clear_inode(struct inode *i)
 	struct list_head i_list = i->i_list;
 	struct semaphore i_sem = i->i_sem;
 
+	/* Release any remaining file-mapping pages before the inode memory is
+	 * returned to the slab. */
+	filemap_invalidate_inode(i);
 	if (i->i_sb && i->i_sb->s_op && i->i_sb->s_op->clear_inode)
 		i->i_sb->s_op->clear_inode(i);
 	if (inode_hashed(i)) {

@@ -522,7 +522,7 @@ ENTRY(sys_call_table)
 	.long sys_getdents
 	.long sys_select /* SYS__newselect */
 	.long sys_not_exist /* SYS_flock */
-	.long sys_not_exist /* SYS_msync */
+	.long sys_msync
 	.long sys_readv
 	.long sys_writev
 	.long sys_getsid

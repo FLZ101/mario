@@ -1,0 +1,35 @@
+REQUIRES-HD:
+
+RUN: export PATH=/bin/toybox:/bin
+RUN: mkdir -p /mnt /tmp
+RUN: mount -t vfat /dev/hdc2 /mnt; echo mount-status:$?
+CHECK: mount-status:0
+
+RUN: python <<'PYEOF'
+import os, mmap
+path = '/mnt/mmap.bin'
+open(path, 'wb').write(b'0123456789abcdef')
+
+# MAP_PRIVATE reads file data and does not write through.
+fd = os.open(path, os.O_RDWR)
+m = mmap.mmap(fd, 16, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ | mmap.PROT_WRITE)
+assert m[:4] == b'0123'
+m[0:4] = b'priv'
+m.flush()
+os.close(fd)
+assert open(path, 'rb').read(4) == b'0123'
+
+# MAP_SHARED survives closing the descriptor and msync persists writes.
+fd = os.open(path, os.O_RDWR)
+m = mmap.mmap(fd, 16, flags=mmap.MAP_SHARED, prot=mmap.PROT_READ | mmap.PROT_WRITE)
+os.close(fd)
+m[0:4] = b'shar'
+m.flush()
+m.close()
+assert open(path, 'rb').read(4) == b'shar'
+print('vfat-mmap-ok')
+PYEOF
+CHECK: vfat-mmap-ok
+
+RUN: umount /mnt; echo umount-status:$?
+CHECK: umount-status:0
