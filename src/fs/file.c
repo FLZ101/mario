@@ -60,19 +60,29 @@ void release_file(struct file *f, int release)
 {
 	struct inode *i;
 
+	ACQUIRE_LOCK(&file_lock);
 	assert(f->f_count > 0);
 
 	if (f->f_count > 1) {
 		f->f_count--;
+		RELEASE_LOCK(&file_lock);
 		return;
 	}
 
+	/*
+	 * Keep f_count at 1 while the filesystem release method runs so another
+	 * CPU cannot observe a free slot and reuse this struct file.
+	 */
 	i = f->f_inode;
+	RELEASE_LOCK(&file_lock);
+
 	if (release && f->f_op && f->f_op->release && i)
 		f->f_op->release(i, f);
 
+	ACQUIRE_LOCK(&file_lock);
 	f->f_count--;
 	f->f_inode = NULL;
+	RELEASE_LOCK(&file_lock);
 
 	if (i)
 		iput(i);

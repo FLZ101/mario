@@ -50,6 +50,8 @@ extern int dup_mmap(struct task_struct *p);
 static int copy_mm(struct task_struct *p)
 {
 	*(p->mm) = *(current->mm);
+	/* The copied lock state is meaningless; start the new mm unlocked. */
+	INIT_LOCK(&p->mm->mm_lock);
 
 	if (copy_page_tables(p))
 		return -ENOMEM;

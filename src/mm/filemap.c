@@ -5,6 +5,7 @@
 #include <mm/mm.h>
 #include <mm/mman.h>
 #include <mm/uaccess.h>
+#include <lib/spinlock.h>
 
 #include <fs/fs.h>
 
@@ -22,6 +23,13 @@ struct filemap_page {
 };
 
 static LIST_HEAD(filemap_pages);
+
+/*
+ * Protects the global file-backed page cache.  Lookup, insertion, and
+ * invalidation all mutate the same list, so a plain irq_save would still let
+ * a page fault on one CPU race truncate on another once APs are online.
+ */
+static spinlock_t filemap_lock = SPINLOCK_UNLOCKED;
 
 static struct filemap_page *filemap_lookup(struct inode *inode,
 					   unsigned long index)
@@ -55,7 +63,9 @@ void filemap_invalidate_pages(struct inode *inode, unsigned long from)
 	struct filemap_page *entry;
 	unsigned long page_start;
 	unsigned long page_end;
+	unsigned long flags;
 
+	spin_lock_irqsave(&filemap_lock, flags);
 	for (pos = filemap_pages.next; pos != &filemap_pages; pos = next) {
 		next = pos->next;
 		entry = list_entry(pos, struct filemap_page, list);
@@ -71,6 +81,7 @@ void filemap_invalidate_pages(struct inode *inode, unsigned long from)
 			       PAGE_SIZE - (from - page_start));
 		}
 	}
+	spin_unlock_irqrestore(&filemap_lock, flags);
 }
 
 /* Release every cached page owned by @inode. */
@@ -78,13 +89,16 @@ void filemap_invalidate_inode(struct inode *inode)
 {
 	struct list_head *pos, *next;
 	struct filemap_page *entry;
+	unsigned long flags;
 
+	spin_lock_irqsave(&filemap_lock, flags);
 	for (pos = filemap_pages.next; pos != &filemap_pages; pos = next) {
 		next = pos->next;
 		entry = list_entry(pos, struct filemap_page, list);
 		if (entry->inode == inode)
 			filemap_free_entry(entry);
 	}
+	spin_unlock_irqrestore(&filemap_lock, flags);
 }
 
 /*
@@ -158,6 +172,7 @@ static unsigned long filemap_nopage(struct vm_area_struct *vma,
 	unsigned long bytes;
 	unsigned long file_size;
 	int ret;
+	unsigned long flags;
 
 	addr &= PAGE_MASK;
 	if (!file || !inode)
@@ -166,11 +181,14 @@ static unsigned long filemap_nopage(struct vm_area_struct *vma,
 	pos = vma->vm_offset + addr - vma->vm_start;
 	index = pos / PAGE_SIZE;
 
+	spin_lock_irqsave(&filemap_lock, flags);
 	entry = filemap_lookup(inode, index);
 	if (entry) {
 		ref_page(VIR_TO_PAGE(entry->page));
+		spin_unlock_irqrestore(&filemap_lock, flags);
 		return entry->page;
 	}
+	spin_unlock_irqrestore(&filemap_lock, flags);
 
 	page = get_zero_page();
 	if (!page)
@@ -199,6 +217,20 @@ static unsigned long filemap_nopage(struct vm_area_struct *vma,
 	entry = kmalloc(sizeof(*entry));
 	if (!entry)
 		return page;
+	spin_lock_irqsave(&filemap_lock, flags);
+	/*
+	 * Another mapping may have inserted this exact (inode, index) while the
+	 * file read above was running.  Reuse that cached page instead of
+	 * creating a duplicate entry.
+	 */
+	if (filemap_lookup(inode, index)) {
+		struct filemap_page *existing = filemap_lookup(inode, index);
+		ref_page(VIR_TO_PAGE(existing->page));
+		spin_unlock_irqrestore(&filemap_lock, flags);
+		put_page(page);
+		kfree(entry);
+		return existing->page;
+	}
 	entry->inode = inode;
 	entry->index = index;
 	entry->page = page;
@@ -206,6 +238,7 @@ static unsigned long filemap_nopage(struct vm_area_struct *vma,
 
 	/* One reference for the cache, one for the installing PTE. */
 	ref_page(VIR_TO_PAGE(page));
+	spin_unlock_irqrestore(&filemap_lock, flags);
 	return page;
 }
 
@@ -223,6 +256,7 @@ static int filemap_sync_pte(struct vm_area_struct *vma, unsigned long addr,
 	unsigned long page;
 	unsigned long pos;
 	int ret;
+	unsigned long flags;
 
 	pd = pde_offset(vma->vm_mm->pd, addr);
 	if (!__pe_present(pd))
@@ -241,8 +275,12 @@ static int filemap_sync_pte(struct vm_area_struct *vma, unsigned long addr,
 	 * still be present and dirty until unmap_page_range() drops it, but the
 	 * page no longer belongs to the file's current size.
 	 */
-	if (!filemap_lookup(file->f_inode, pos / PAGE_SIZE))
+	spin_lock_irqsave(&filemap_lock, flags);
+	if (!filemap_lookup(file->f_inode, pos / PAGE_SIZE)) {
+		spin_unlock_irqrestore(&filemap_lock, flags);
 		return 0;
+	}
+	spin_unlock_irqrestore(&filemap_lock, flags);
 
 	ret = filemap_write_page(file, pos, page, len);
 	if (ret != (int)len)

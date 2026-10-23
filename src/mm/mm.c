@@ -33,7 +33,9 @@ void print_mmap(struct mm_struct *mm)
 void merge_mmap(struct mm_struct *mm)
 {
 	struct vm_area_struct *p1, *p2;
+	unsigned long flags;
 
+	mm_lock(mm, &flags);
 	for (p1 = mm->mmap; p1 && (p2 = p1->vm_next);) {
 		if (p1->vm_end == p2->vm_start && p1->vm_flags == p2->vm_flags &&
 			!(p1->vm_flags & VM_SHARED) && !p1->vm_file && !p2->vm_file &&
@@ -45,6 +47,7 @@ void merge_mmap(struct mm_struct *mm)
 		}
 		p1 = p1->vm_next;
 	}
+	mm_unlock(mm, flags);
 }
 
 size_t get_vm_size(struct mm_struct *mm)
@@ -71,8 +74,9 @@ void verify_vm(struct mm_struct *mm)
 	}
 }
 
-// return first vma whose end > addr
-struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
+/* Return the first VMA whose end is above @addr without taking mm_lock. */
+static struct vm_area_struct *find_vma_nolock(struct mm_struct *mm,
+					       unsigned long addr)
 {
 	struct vm_area_struct *vma;
 
@@ -81,6 +85,18 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
 			return vma;
 	}
 	return NULL;
+}
+
+// return first vma whose end > addr
+struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
+{
+	struct vm_area_struct *vma;
+	unsigned long flags;
+
+	mm_lock(mm, &flags);
+	vma = find_vma_nolock(mm, addr);
+	mm_unlock(mm, flags);
+	return vma;
 }
 
 struct vm_area_struct *find_vma_intersection(struct mm_struct *mm,
@@ -97,7 +113,9 @@ struct vm_area_struct *find_vma_intersection(struct mm_struct *mm,
 void insert_vm_struct(struct mm_struct *mm, struct vm_area_struct *vma)
 {
 	struct vm_area_struct **p, *mpnt;
+	unsigned long flags;
 
+	mm_lock(mm, &flags);
 	p = &mm->mmap;
 	while ((mpnt = *p) != NULL) {
 		if (mpnt->vm_start > vma->vm_start) {
@@ -111,22 +129,30 @@ void insert_vm_struct(struct mm_struct *mm, struct vm_area_struct *vma)
 	*p = vma;
 
 	verify_vm(mm);
+	mm_unlock(mm, flags);
 }
 
 void remove_shared_vm_struct(struct vm_area_struct *vma)
 {
+	unsigned long flags;
+
+	mm_lock(vma->vm_mm, &flags);
 	vma->vm_next_share->vm_prev_share = vma->vm_prev_share;
 	vma->vm_prev_share->vm_next_share = vma->vm_next_share;
 	vma->vm_next_share = vma;
 	vma->vm_prev_share = vma;
+	mm_unlock(vma->vm_mm, flags);
 }
 
 void exit_mmap(struct task_struct *t)
 {
 	struct vm_area_struct *vma, *next;
+	unsigned long flags;
 
+	mm_lock(t->mm, &flags);
 	vma = t->mm->mmap;
 	t->mm->mmap = NULL;
+	mm_unlock(t->mm, flags);
 	while (vma) {
 		next = vma->vm_next;
 		if (vma->vm_ops && vma->vm_ops->close)
@@ -144,12 +170,15 @@ void exit_mmap(struct task_struct *t)
 int dup_mmap(struct task_struct *t)
 {
 	struct vm_area_struct *vma, *tmp, **p;
+	unsigned long flags;
 
+	mm_lock(current->mm, &flags);
 	p = &t->mm->mmap;
 	*p = NULL;
 	for (vma = current->mm->mmap; vma; vma = vma->vm_next) {
 		tmp = (struct vm_area_struct *)kmalloc(sizeof(struct vm_area_struct));
 		if (!tmp) {
+			mm_unlock(current->mm, flags);
 			exit_mmap(t);
 			return -ENOMEM;
 		}
@@ -173,6 +202,7 @@ int dup_mmap(struct task_struct *t)
 		*p = tmp;
 		p = &tmp->vm_next;
 	}
+	mm_unlock(current->mm, flags);
 	return 0;
 }
 
@@ -295,12 +325,14 @@ int unmap_page_range(unsigned long addr, unsigned long len)
 int do_munmap(unsigned long addr, unsigned long len)
 {
 	struct vm_area_struct *vma, *free, **p;
+	unsigned long flags;
 
 	if ((addr & ~PAGE_MASK) || addr > KERNEL_BASE || len > KERNEL_BASE - addr)
 		return -EINVAL;
 	if ((len = PAGE_ALIGN(len)) == 0)
 		return 0;
 
+	mm_lock(current->mm, &flags);
 	free = NULL;
 	for (vma = current->mm->mmap, p = &current->mm->mmap; vma; ) {
 		assert(vma == *p);
@@ -320,6 +352,7 @@ int do_munmap(unsigned long addr, unsigned long len)
 		free = vma;
 		vma = *p;
 	}
+	mm_unlock(current->mm, flags);
 	if (!free)
 		return 0;
 
@@ -398,6 +431,8 @@ int sys_msync(unsigned long addr, unsigned long len, int flags)
 static unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
 {
 	struct vm_area_struct *vma;
+	unsigned long flags;
+	unsigned long result = 0;
 
 	if (len > KERNEL_BASE)
 		return 0;
@@ -405,13 +440,16 @@ static unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
 		addr = KERNEL_BASE / 2;	/* Is it OK? */
 	addr = PAGE_ALIGN(addr);
 
+	mm_lock(current->mm, &flags);
 	for (vma = current->mm->mmap; ; vma = vma->vm_next) {
 		// addr is not in any previous vm area
 
 		if (KERNEL_BASE - len < addr)
-			return 0;
-		if (!vma)
-			return addr;
+			break;
+		if (!vma) {
+			result = addr;
+			break;
+		}
 		if (addr > vma->vm_end)
 			continue;
 		if (addr + len > vma->vm_start) {
@@ -420,9 +458,11 @@ static unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
 		}
 
 		// can be fit in the gap
-		return addr;
+		result = addr;
+		break;
 	}
-	return 0;
+	mm_unlock(current->mm, flags);
+	return result;
 }
 
 /*

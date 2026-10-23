@@ -5,6 +5,7 @@
 #include <mm/pagetable.h>
 
 #include <lib/list.h>
+#include <lib/spinlock.h>
 
 void paging_init(struct multiboot_info *m);
 
@@ -20,6 +21,12 @@ do { \
 
 struct vm_area_struct;
 struct mm_struct {
+	/*
+	 * Serializes VMA list/share-ring mutation.  Page-fault paths take this
+	 * only around list lookup, not across filesystem I/O, because a spinlock
+	 * would make interrupt-driven block completions deadlock.
+	 */
+	spinlock_t mm_lock;
 	pde_t *pd;
 	struct vm_area_struct *mmap;
 	struct vm_area_struct *mmap_cache;
@@ -27,6 +34,16 @@ struct mm_struct {
 	unsigned long start_brk, brk, start_stack;
 	unsigned long arg_start, arg_end, env_start, env_end;
 };
+
+static inline void mm_lock(struct mm_struct *mm, unsigned long *flags)
+{
+	spin_lock_irqsave(&mm->mm_lock, *flags);
+}
+
+static inline void mm_unlock(struct mm_struct *mm, unsigned long flags)
+{
+	spin_unlock_irqrestore(&mm->mm_lock, flags);
+}
 
 struct vm_operations_struct {
 	void (*open)(struct vm_area_struct *);

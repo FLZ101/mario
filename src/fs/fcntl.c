@@ -13,7 +13,9 @@ static int dupfd(unsigned int fd, unsigned int arg)
 	if (arg >= NR_OPEN)
 		return -EMFILE;
 	FD_CLR(arg, &current->files->close_on_exec);
-	(current->files->fd[arg] = current->files->fd[fd])->f_count++;
+	/* Take the new reference under file_lock before publishing the fd. */
+	fref(current->files->fd[fd]);
+	current->files->fd[arg] = current->files->fd[fd];
 	return arg;
 }
 
