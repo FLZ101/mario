@@ -4,6 +4,17 @@
 #define KERNEL_CS   0x10
 #define KERNEL_DS   0x18
 
+/*
+ * Selector for the per-CPU kernel data segment.  It is GDT index 9, RPL 0.
+ * User memory access uses %fs and user TLS uses %gs, so the kernel keeps the
+ * per-CPU base in %gs.  Entry code replaces %gs with this selector and the
+ * saved user selector is restored on return.
+ */
+#define KERNEL_PERCPU_DS 0x48
+
+/* Offset of cpu_info.current_task.  Keep in sync with struct cpu_info. */
+#define CPU_INFO_CURRENT_TASK 8
+
 #define USER_CS     0x23
 #define USER_DS     0x2b
 

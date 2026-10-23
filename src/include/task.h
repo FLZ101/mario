@@ -9,6 +9,7 @@
 #include <signal.h>
 #include <resource.h>
 #include <ldt.h>
+#include <smp.h>
 
 #include <mm/page_alloc.h>
 #include <mm/mm.h>
@@ -106,7 +107,9 @@ extern union task_union init_task_union;
 static inline struct task_struct *get_current(void)
 {
 	struct task_struct *current;
-	__asm__("andl %%esp, %0" : "=r"(current) : "0"(~8191UL));
+	__asm__ __volatile__("movl %%gs:%c1, %0"
+			     : "=r"(current)
+			     : "i"(CPU_INFO_CURRENT_TASK));
 	return current;
 }
 

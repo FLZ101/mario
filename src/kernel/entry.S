@@ -64,7 +64,9 @@ defer_sig = 56
 	pushl %ebx; \
 	movw $KERNEL_DS, %dx; \
 	movw %dx, %es; \
-	movw %dx, %ds
+	movw %dx, %ds; \
+	movw $KERNEL_PERCPU_DS, %dx; \
+	movw %dx, %gs
 
 /*
  * `addl $4, %esp;` is for error code, syscall number, etc
@@ -85,8 +87,7 @@ defer_sig = 56
 	iret
 
 #define GET_CURRENT(reg) \
-	movl $-8192, reg; \
-	andl %esp, reg
+	movl %gs:CPU_INFO_CURRENT_TASK, reg
 
 	.text
 
@@ -275,6 +276,8 @@ trap_common:
 	movw $KERNEL_DS, %ax
 	movw %ax, %es
 	movw %ax, %ds
+	movw $KERNEL_PERCPU_DS, %ax
+	movw %ax, %gs
 	call *%edi
 	addl $8, %esp
 	RESTORE_ALL

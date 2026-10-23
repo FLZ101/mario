@@ -137,6 +137,7 @@ gdt:
 	.quad 0x0000000000000000	/* TLS */
 	.quad 0x0000000000000000	/* TLS */
 	.quad 0x0000000000000000	/* TLS */
+	.quad 0x00cf92000000ffff	/* 0x48, per-CPU kernel data */
 gdt_end:
 
 gdtr:

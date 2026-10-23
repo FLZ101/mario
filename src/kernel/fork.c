@@ -39,8 +39,9 @@ void copy_thread(struct task_struct *p, struct trap_frame *tr)
 
 	p->thread.eip = (unsigned long)fork_ret;
 
-	save_segment(fs, p->thread.fs);
-	save_segment(gs, p->thread.gs);
+	/* Save the user selectors from the trap frame, not the kernel %gs. */
+	p->thread.fs = tr->fs;
+	p->thread.gs = tr->gs;
 }
 
 extern int copy_page_tables(struct task_struct *p);

@@ -325,20 +325,14 @@ static void flush_old_exec(struct exec *exe, struct trap_frame *tr)
 	// Clear TLS !!!
 	irq_save();
 	tr->gs = 0;
+	tr->fs = 0;
 	current->thread.gs = 0;
+	current->thread.fs = 0;
 	struct user_desc *ud = current->thread.user_descs;
 	for (int i = 0; i < NR_USER_DESC; ++i) {
 		ud[i] = (struct user_desc){0};
 	}
-	/*
-	 * Keep the live %gs register in sync with thread.gs.  If this task is
-	 * scheduled before the syscall return restores %gs from the trap frame,
-	 * _switch_to() would otherwise save the old TLS selector while the GDT
-	 * TLS entries have already been cleared, and reloading that selector
-	 * later faults with a general-protection exception.
-	 */
-	unsigned short zero = 0;
-	load_segment(gs, zero);
+	/* The live %gs register is the per-CPU base and must stay loaded. */
 	irq_restore();
 }
 
@@ -452,7 +446,11 @@ tail_1:
 static inline void start_thread(struct trap_frame *tr,
 	unsigned long eip, unsigned long esp)
 {
-	__asm__("movl %0,%%fs ; movl %0,%%gs": :"r" (0));
+	/* Reset user segment/TLS selectors in the frame that iret will restore. */
+	tr->fs = 0;
+	tr->gs = 0;
+	current->thread.fs = 0;
+	current->thread.gs = 0;
 	set_fs(USER_DS);
 	tr->cs = USER_CS;
 	tr->ds = tr->es = tr->ss = USER_DS;

@@ -66,6 +66,14 @@ void wake_up_process(struct task_struct *p)
 void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 {
 	/*
+	 * The inline switch already changed the kernel stack, but the per-CPU
+	 * current_task slot still points at the outgoing task.  Publish the new
+	 * task first so the assertion below (and any C code on this stack)
+	 * observes current == n, exactly as the old %esp-derived current did.
+	 */
+	bsp_cpu_info.current_task = n;
+
+	/*
 	 * `current` inside this function refers to the next task, since kernel
 	 * stack has been changed
 	 */
@@ -75,6 +83,11 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	struct thread_struct *next = &n->thread;
 
 	init_tss.esp0 = next->esp0;
+	/*
+	 * %fs is still the user segment used by get_user/put_user, so it must
+	 * follow the task across kernel context switches.  %gs is the per-CPU
+	 * segment and is deliberately not touched here.
+	 */
 	save_segment(fs, prev->fs);
 	load_segment(fs, next->fs);
 
@@ -87,8 +100,6 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 			fill_desc(gdt + GDT_ENTRY_TLS_MIN_IDX + idx, ud + idx);
 		}
 	}
-	save_segment(gs, prev->gs);
-	load_segment(gs, next->gs);
 }
 
 void switch_to(struct task_struct *next)

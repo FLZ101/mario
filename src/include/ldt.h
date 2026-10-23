@@ -44,6 +44,9 @@ static inline void zero_user_desc(struct user_desc *ud) {
      (info)->limit_in_pages == 0 && (info)->seg_not_present == 0 &&            \
      (info)->useable == 0 && (info)->entry_number == 0)
 
+/* Per-CPU kernel data descriptor, following the three TLS entries. */
+#define GDT_ENTRY_PERCPU 9
+
 /* 8 byte segment descriptor */
 struct desc_struct {
     uint16_t limit0;

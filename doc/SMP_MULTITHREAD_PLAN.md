@@ -165,18 +165,23 @@ Correctness checks:
 
 Commit: `mm, fs: serialize VMA and file-backed page-cache access`
 
-## Step 4: per-CPU data and %fs-based current
+## Step 4: per-CPU data and segment-based current
 
 Objective: remove the `%esp`-derived `current` assumption while still running
 only the BSP.  This is the last single-CPU-only step.
 
 Changes:
 
-- Add `src/include/percpu.h` with `DEFINE_PER_CPU`/`this_cpu` helpers.
-- Add `struct cpu_info` in `src/include/smp.h` containing `id`, `online`,
-  `current_task`, `runqueue`, `tss`, `gdt`, and `idle`.
-- Reserve a GDT selector for a per-CPU segment, set its base on BSP boot, and
-  change `get_current()` plus `entry.S:GET_CURRENT` to read through `%fs`.
+- Add `src/include/percpu.h` with a BSP `this_cpu_info()` accessor.  Later
+  steps expand this once APs have their own slots.
+- Add `struct cpu_info` in `src/include/smp.h`; this step keeps only `id`,
+  `online`, and `current_task`, with later steps adding the runqueue, TSS,
+  GDT, and idle fields as those subsystems move per-CPU.
+- Reserve a GDT selector for a per-CPU kernel-data segment, set its base on
+  BSP boot, and change `get_current()` plus `entry.S:GET_CURRENT` to read
+  through `%gs`.  `%fs` is already used by `get_user`/`put_user`, so `%gs` is
+  the kernel segment while a task's user TLS selector is preserved in its
+  trap frame and restored by `iret`.
 - Initialize the BSP `cpu_info` early in `mario()`.
 
 Comments required: explain the i386 segment setup and why `current` is not
@@ -191,9 +196,9 @@ Correctness checks:
   - `tests/shell/toybox.tty.test`
   - `tests/shell/oksh-0.test`
 - A TLS-using test (`tests/shell/toybox.readelf.test` or an existing VGA test)
-  still passes, proving context switches correctly save/restore `%fs`.
+  still passes, proving context switches preserve the user TLS selector.
 
-Commit: `x86: introduce per-CPU current through a %fs base`
+Commit: `x86: introduce per-CPU current through a %gs base`
 
 ## Step 5: CPU enumeration and AP boot
 

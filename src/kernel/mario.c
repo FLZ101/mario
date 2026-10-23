@@ -3,6 +3,7 @@
 #include <time.h>
 #include <misc.h>
 #include <irq.h>
+#include <smp.h>
 
 #define __KERNEL_SYSCALLS__
 #include <unistd.h>
@@ -65,6 +66,7 @@ void printk_init(struct multiboot_info *m);
 
 void mario(struct multiboot_info *m)
 {
+	percpu_init();
 	printk_init(m);
 	setup_memory_region(m);
 	paging_init(m);
