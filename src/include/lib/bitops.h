@@ -3,29 +3,31 @@
 
 #define ADDR (*(volatile long *)addr)
 
-// set bit
+/*
+ * Bit operations on shared memory must use a locked RMW.  A plain `bts`
+ * (like plain `incl`) can lose a set/clear from another CPU if both CPUs
+ * operate on the same word concurrently.
+ */
 static __inline__ void set_bit(int nr, volatile void *addr)
 {
 	__asm__ __volatile__(
-		"btsl %1, %0"
+		"lock btsl %1, %0"
 		:"+m"(ADDR)
 		:"Ir"(nr));
 }
 
-// clear bit
 static __inline__ void clear_bit(int nr, volatile void *addr)
 {
 	__asm__ __volatile__ (
-		"btrl %1, %0"
+		"lock btrl %1, %0"
 		:"+m"(ADDR)
 		:"Ir"(nr));
 }
 
-// toggle bit
 static __inline__ void change_bit(int nr, volatile void *addr)
 {
 	__asm__ __volatile__(
-		"btcl %1, %0"
+		"lock btcl %1, %0"
 		:"+m"(ADDR)
 		:"Ir"(nr));
 }
@@ -43,13 +45,13 @@ static __inline__ int test_bit(int nr, volatile void *addr)
 	return oldbit;
 }
 
-// set a bit and return its old value
+/* Test-and-set is atomic only with the lock prefix. */
 static __inline__ int test_and_set_bit(int nr, volatile void *addr)
 {
 	int oldbit;
 
 	__asm__ __volatile__(
-		"btsl %2, %1\n\t"
+		"lock btsl %2, %1\n\t"
 		"sbbl %0, %0"
 		:"=r"(oldbit), "+m"(ADDR)
 		:"Ir"(nr)
@@ -57,13 +59,13 @@ static __inline__ int test_and_set_bit(int nr, volatile void *addr)
 	return oldbit;
 }
 
-// clear a bit and return its old value
+/* Test-and-clear is atomic only with the lock prefix. */
 static __inline__ int test_and_clear_bit(int nr, volatile void *addr)
 {
 	int oldbit;
 
 	__asm__ __volatile__(
-		"btrl %2, %1\n\t"
+		"lock btrl %2, %1\n\t"
 		"sbbl %0, %0"
 		:"=r"(oldbit), "+m"(ADDR)
 		:"Ir"(nr)
@@ -71,13 +73,13 @@ static __inline__ int test_and_clear_bit(int nr, volatile void *addr)
 	return oldbit;
 }
 
-// toggle a bit and return its old value
+/* Test-and-toggle is atomic only with the lock prefix. */
 static __inline__ int test_and_change_bit(int nr, volatile void *addr)
 {
 	int oldbit;
 
 	__asm__ __volatile__(
-		"btcl %2, %1\n\t"
+		"lock btcl %2, %1\n\t"
 		"sbbl %0, %0"
 		:"=r"(oldbit), "+m"(ADDR)
 		:"Ir"(nr)
