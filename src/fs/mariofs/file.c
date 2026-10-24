@@ -261,8 +261,18 @@ int mario_file_write(struct inode *i, struct file *f, char *buf, int count)
 write_a_block:
 	if (!(bh = bread(i->i_dev, block)))
 		goto tail_2;
-	if (nr && --nr)
+	/*
+	 * Starting past EOF means @ref block is the current last block and @ref nr
+	 * counts how many new blocks must be allocated before the target block.
+	 * Consume one transition per allocation, including the first one; the
+	 * original `nr && --nr` skipped the first transition, so a write starting
+	 * exactly at a block boundary overwrote the last existing block and left
+	 * i_size > i_nr_block * n.
+	 */
+	if (nr > 0) {
+		nr--;
 		goto new_block;
+	}
 
 	write = n - start % n;
 
