@@ -10,6 +10,16 @@ extern void do_exit(long code);
 extern void print_mmap(struct mm_struct *mm);
 
 /*
+ * Serialises copy-on-write page faults that hit the same physical page.
+ * Without this, two CPUs can both see page->count == 2, both decrement it,
+ * and both allocate/copy a replacement.  The decrement/free race lets the
+ * original page return to the buddy allocator while one CPU is still copying
+ * from it, which corrupts private file-backed data pages when several
+ * processes exec the same binary at once.
+ */
+static spinlock_t cow_lock = SPINLOCK_UNLOCKED;
+
+/*
  * oom() prints a message (so that the user knows why the process died),
  * and gives the process an untrappable SIGKILL.
  */
@@ -27,6 +37,7 @@ void do_wp_page(struct vm_area_struct *vma, unsigned long addr,
 	pde_t *pd;
 	pte_t *pt;
 	unsigned long tmp, pg;
+	unsigned long flags;
 	struct page *page;
 
 	pd = pde_offset(vma->vm_mm->pd, addr);
@@ -46,15 +57,34 @@ void do_wp_page(struct vm_area_struct *vma, unsigned long addr,
 		set_pe_rw(pt);
 		return;
 	}
-	__put_page(page);
+
+	spin_lock_irqsave(&cow_lock, flags);
+
+	/* The page may have been copied by another CPU while we waited. */
+	if (atomic_read(&page->count) == 1) {
+		set_pe_rw(pt);
+		spin_unlock_irqrestore(&cow_lock, flags);
+		return;
+	}
+
 	tmp = get_zero_page();
 	if (!tmp) {
 		oom(current);
 		*pt = BAD_PAGE;
+		spin_unlock_irqrestore(&cow_lock, flags);
 		return;
 	}
+	/*
+	 * Copy the original page while this PTE still owns one reference to it.
+	 * A concurrent exit/unmap on another CPU may drop its own reference at
+	 * any time, but it cannot drop ours, so the source page cannot return to
+	 * the buddy allocator until after the copy completes.  Only then is this
+	 * PTE switched to the new page and its old reference released.
+	 */
 	memcpy((void *)tmp, (void *)pg, PAGE_SIZE);
 	*pt = mk_pte(tmp, vma->vm_page_prot);
+	__put_page(page);
+	spin_unlock_irqrestore(&cow_lock, flags);
 }
 
 static unsigned long get_one(struct vm_area_struct *mpnt, unsigned long addr)
