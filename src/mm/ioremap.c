@@ -5,12 +5,20 @@
 #include <mm/pagetable.h>
 #include <mm/mm.h>
 
+#include <lib/spinlock.h>
 #include <lib/stddef.h>
 
 #define IOREMAP_BASE	0xf0000000UL
 
 static unsigned long iomap_virt;
 static unsigned long iomap_size;
+/*
+ * ioremap() supports only one active mapping and mutates the shared swapper
+ * page table, so the lookup and installation must be atomic with respect to
+ * another CPU.  The lock also protects the iomap_* bookkeeping read by
+ * iounmap().
+ */
+static spinlock_t ioremap_lock = SPINLOCK_UNLOCKED;
 
 /*
  * MMIO mappings are not backed by normal RAM, so this is a small identity
@@ -24,11 +32,14 @@ void *ioremap(unsigned long phys, size_t size)
 	unsigned long end;
 	unsigned long page_phys;
 	unsigned long page_virt;
+	unsigned long flags;
 
 	if (!phys || !size)
 		return NULL;
+
+	spin_lock_irqsave(&ioremap_lock, flags);
 	if (iomap_virt)
-		return NULL;
+		goto out;
 
 	phys &= PAGE_MASK;
 	size = (size + PAGE_SIZE - 1) & PAGE_MASK;
@@ -58,15 +69,22 @@ void *ioremap(unsigned long phys, size_t size)
 	flush_tlb();
 	iomap_virt = virt;
 	iomap_size = end - virt;
+	spin_unlock_irqrestore(&ioremap_lock, flags);
 	return (void *)virt;
+
+out:
+	spin_unlock_irqrestore(&ioremap_lock, flags);
+	return NULL;
 }
 
 void iounmap(void *virt)
 {
 	unsigned long address = (unsigned long)virt;
+	unsigned long flags;
 
+	spin_lock_irqsave(&ioremap_lock, flags);
 	if (address != iomap_virt)
-		return;
+		goto out;
 
 	for (unsigned long page = address; page < address + iomap_size;
 	     page += PAGE_SIZE) {
@@ -83,4 +101,6 @@ void iounmap(void *virt)
 	flush_tlb();
 	iomap_virt = 0;
 	iomap_size = 0;
+out:
+	spin_unlock_irqrestore(&ioremap_lock, flags);
 }
