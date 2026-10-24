@@ -40,6 +40,12 @@ SMP ?= 1
 export SMP
 
 # Number of lit test cases run concurrently by shell-test and vga-test.
+# Keep this moderate: too many concurrent QEMU instances contend for host
+# disks, which can push ext2/vfat mount, read, write, and stress tests past
+# their timeout, and for host/display resources.  VGA-CHECK-SCREEN compares a
+# pixel-exact QEMU screendump with the expected frame; under CPU
+# oversubscription the guest may not finish drawing before the dump is taken,
+# so those assertions can fail transiently.
 JOBS ?= 4
 export JOBS
 
