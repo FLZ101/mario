@@ -207,7 +207,6 @@ void do_exit(long code)
 		kill_pg(current->pgrp, SIGCONT, 1);
 	}
 
-	notify_parent(current);
 	/*
 	 * Make init inherit all the child processes
 	 */

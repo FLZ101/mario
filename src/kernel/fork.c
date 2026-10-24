@@ -96,8 +96,6 @@ int do_fork(struct trap_frame *tr, int vfork)
 	p->pid = get_pid();
 	p->did_exec = 0;
 	p->did_vfork = 0;
-	/* A vfork child must not inherit the parent's one-shot signal delay. */
-	p->defer_sig = 0;
 	p->leader = 0;
 
 	p->cpu = current->cpu;
@@ -128,15 +126,23 @@ int do_fork(struct trap_frame *tr, int vfork)
 	SET_LINKS(p);
 
 	if (vfork) {
+		wait_queue_node_t node;
+
 		current->did_vfork = 1;
 		/*
-		 * Delay signal delivery for the first return to userspace after
-		 * vfork.  Otherwise a child that execs and exits immediately can
-		 * deliver SIGCHLD before the fork wrapper has stored the child pid.
+		 * Queue the parent before making the child runnable.  On SMP the
+		 * child can run on another CPU immediately, call exec/_exit, and
+		 * wake wait_chldexit before the parent is queued; that lost
+		 * wakeup would leave the parent sleeping forever.
 		 */
-		current->defer_sig = 1;
+		init_wait_queue_node(&node, current);
+		irq_save();
+		current->state = TASK_UNINTERRUPTIBLE;
+		in_wait_queue(&current->wait_chldexit, &node);
+		irq_restore();
 		wake_up_process(p);
-		sleep_on_uninterruptible(&current->wait_chldexit);
+		schedule();
+		out_wait_queue(&current->wait_chldexit, &node);
 	} else {
 		wake_up_process(p);
 	}

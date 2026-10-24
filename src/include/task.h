@@ -46,8 +46,6 @@ struct task_struct {
 	int exit_code, exit_signal;
 	pid_t pid, pgrp, session;
 	int leader, did_exec, did_vfork;
-	/* Skip signal delivery on the first userspace return after vfork. */
-	int defer_sig;
 
 	/* Logical CPU currently hosting this task and its allowed CPU mask. */
 	int cpu;

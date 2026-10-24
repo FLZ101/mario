@@ -8,6 +8,7 @@ Test files use a tiny subset of lit syntax:
     CHECK: hello
     CHECK-NOT: goodbye
     CHECK-REGEX: hello\s+world
+    REQUIRES-SMP: >=4
     RUN: wc -l <<'EOF'
     one
     two
@@ -53,6 +54,34 @@ BOOT_PROMPT = prompt_pattern("/ # ")
 PROMPT = prompt_pattern("MARIO_TEST_PROMPT> ")
 DEFAULT_TIMEOUT = 30
 
+
+def parse_smp_requirement(spec):
+    if not spec:
+        return (">=", 2, ">=2")
+    match = re.match(r"^\s*(>=|<=|!=|==|>|<|=)?\s*(\d+)\s*$", spec)
+    if not match:
+        raise ValueError(f"invalid REQUIRES-SMP value: {spec!r}")
+    op = match.group(1) or "=="
+    if op == "=":
+        op = "=="
+    return op, int(match.group(2)), spec.strip()
+
+
+def smp_requirement_matches(requirement, smp):
+    op, wanted, _spec = requirement
+    if op == ">=":
+        return smp >= wanted
+    if op == "<=":
+        return smp <= wanted
+    if op == "!=":
+        return smp != wanted
+    if op == ">":
+        return smp > wanted
+    if op == "<":
+        return smp < wanted
+    return smp == wanted
+
+
 HEREDOC = re.compile(r"<<-?\s*(?:'([^']+)'|\"([^\"]+)\"|([A-Za-z_][A-Za-z0-9_]*))")
 
 
@@ -93,7 +122,7 @@ class LitTest:
     def __init__(self, path):
         self.path = path
         self.requires_hd = False
-        self.requires_smp = 0
+        self.requires_smp = None
         self.runs = []
         self.actions = []
 
@@ -166,7 +195,7 @@ class LitTest:
                     self.requires_hd = True
                 elif body.startswith("REQUIRES-SMP:"):
                     spec = body[len("REQUIRES-SMP:") :].strip()
-                    self.requires_smp = int(spec) if spec else 2
+                    self.requires_smp = parse_smp_requirement(spec)
                 elif body.startswith("EXIT:"):
                     break
                 elif body.startswith("CHECK-REGEX:"):
@@ -403,8 +432,11 @@ def main():
         if test.requires_hd and missing_hd_images:
             print(f"SKIP: {name} [missing {', '.join(missing_hd_images)}]")
             continue
-        if test.requires_smp and args.smp < test.requires_smp:
-            print(f"SKIP: {name} [requires SMP >= {test.requires_smp}]")
+        if test.requires_smp is not None and not smp_requirement_matches(
+            test.requires_smp, args.smp
+        ):
+            _op, _wanted, spec = test.requires_smp
+            print(f"SKIP: {name} [requires SMP {spec}]")
             continue
         try:
             failures, text, report_start = run_lit_test(

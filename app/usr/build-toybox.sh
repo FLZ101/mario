@@ -21,6 +21,7 @@ export CROSS_COMPILE=
 # make menuconfig
 make defconfig
 cp ../toybox/.config .
+patch -p1 < ../toybox.patch
 make toybox -j1 # V=1
 PREFIX=$TOYBOX_INSTALL_DIR/bin make install_flat
 

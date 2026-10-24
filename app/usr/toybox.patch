@@ -1,0 +1,15 @@
+--- a/toys/other/timeout.c
++++ b/toys/other/timeout.c
+@@ -70,7 +70,12 @@ void timeout_main(void)
+   if (sigsetjmp(TT.sj, 1)) goto done;
+   xsignal_flags(SIGCHLD, handler, SA_NOCLDSTOP);
+
++  sigset_t set, old;
++  sigemptyset(&set);
++  sigaddset(&set, SIGCHLD);
++  sigprocmask(SIG_BLOCK, &set, &old);
+   TT.pid = xpopen_setup(toys.optargs+1, FLAG(i) ? TT.fds : 0, callback);
++  sigprocmask(SIG_SETMASK, &old, 0);
+   xsignal(SIGTTIN, SIG_IGN);
+   xsignal(SIGTTOU, SIG_IGN);
+   xsignal(SIGTSTP, SIG_IGN);

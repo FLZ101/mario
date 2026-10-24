@@ -47,7 +47,6 @@ state	= 0
 signal	= 12
 blocked	= 16
 need_resched = 20
-defer_sig = 56
 
 #define SAVE_ALL \
 	cld; \
@@ -161,13 +160,6 @@ ret_common:
 	call schedule
 	popl %ebx
 2:
-	/* Skip signal delivery on the first return to userspace after vfork. */
-	movl defer_sig(%ebx), %ecx
-	testl %ecx, %ecx
-	je 4f
-	movl $0, defer_sig(%ebx)
-	jmp 3f
-4:
 	movl blocked(%ebx), %ecx
 	movl %ecx, %edx
 	notl %ecx

@@ -16,6 +16,7 @@ Test files use a small subset of lit syntax:
     VGA-CHECK-SCREEN: /tmp/vga-rect.ppm
     VGA-CHECK-SCREEN: /tmp/vga-rect.ppm,1,12
     REQUIRES-HD:
+    REQUIRES-SMP: >=4
     EXIT:
 
 The serial console is the control channel.  Commands are sent there and the
@@ -69,6 +70,33 @@ BOOT_PROMPT = _prompt_pattern("/ # ")
 SERIAL_PROMPT = _prompt_pattern("MARIO_VGA_PROMPT> ")
 DEFAULT_TIMEOUT = 30
 DEFAULT_VGA_TIMEOUT = 5
+
+
+def parse_smp_requirement(spec):
+    if not spec:
+        return (">=", 2, ">=2")
+    match = re.match(r"^\s*(>=|<=|!=|==|>|<|=)?\s*(\d+)\s*$", spec)
+    if not match:
+        raise ValueError(f"invalid REQUIRES-SMP value: {spec!r}")
+    op = match.group(1) or "=="
+    if op == "=":
+        op = "=="
+    return op, int(match.group(2)), spec.strip()
+
+
+def smp_requirement_matches(requirement, smp):
+    op, wanted, _spec = requirement
+    if op == ">=":
+        return smp >= wanted
+    if op == "<=":
+        return smp <= wanted
+    if op == "!=":
+        return smp != wanted
+    if op == ">":
+        return smp > wanted
+    if op == "<":
+        return smp < wanted
+    return smp == wanted
 
 
 class PexpectTimeout(TimeoutError):
@@ -136,6 +164,7 @@ class VgaLitTest:
     def __init__(self, path):
         self.path = path
         self.requires_hd = False
+        self.requires_smp = None
         self.actions = []
 
     def parse(self):
@@ -207,6 +236,9 @@ class VgaLitTest:
                     self.actions.append(("set-timeout", seconds))
                 elif body.startswith("REQUIRES-HD:"):
                     self.requires_hd = True
+                elif body.startswith("REQUIRES-SMP:"):
+                    spec = body[len("REQUIRES-SMP:") :].strip()
+                    self.requires_smp = parse_smp_requirement(spec)
         return self
 
 
@@ -291,7 +323,7 @@ def require_files():
         sys.exit(2)
 
 
-def start_qemu(qemu, monitor_path, timeout=30, with_disk=False):
+def start_qemu(qemu, monitor_path, timeout=30, with_disk=False, smp=1):
     try:
         os.unlink(monitor_path)
     except FileNotFoundError:
@@ -299,12 +331,16 @@ def start_qemu(qemu, monitor_path, timeout=30, with_disk=False):
 
     cmd = [
         qemu,
+        "-smp",
+        str(smp),
         "-m",
         "256M",
         "-kernel",
         KERNEL,
         "-initrd",
         INITRD,
+        "-append",
+        f"mario.smp={smp}",
         "-display",
         "none",
         "-serial",
@@ -524,9 +560,9 @@ def parse_screen_check(value):
     return value.strip(), None
 
 
-def run_test(test, qemu, index):
+def run_test(test, qemu, index, smp=1):
     monitor_path = f"/tmp/mario-vga-lit-{os.getpid()}-{index}.sock"
-    child, monitor = start_qemu(qemu, monitor_path, with_disk=test.requires_hd)
+    child, monitor = start_qemu(qemu, monitor_path, with_disk=test.requires_hd, smp=smp)
     failures = []
     timeout = DEFAULT_TIMEOUT
     base_dir = os.path.dirname(test.path)
@@ -654,7 +690,15 @@ def main():
     parser.add_argument("--qemu", default=QEMU)
     parser.add_argument("--test", help="run only this test file")
     parser.add_argument("--list", action="store_true", help="list discovered tests")
+    parser.add_argument(
+        "--smp",
+        type=int,
+        default=1,
+        help="number of QEMU CPUs to expose (default: 1)",
+    )
     args = parser.parse_args()
+    if args.smp < 1:
+        parser.error("--smp must be at least 1")
 
     require_files()
     try:
@@ -691,8 +735,14 @@ def main():
         if test.requires_hd and missing_hd_images:
             print(f"SKIP: {name} [missing {', '.join(missing_hd_images)}]")
             continue
+        if test.requires_smp is not None and not smp_requirement_matches(
+            test.requires_smp, args.smp
+        ):
+            _op, _wanted, spec = test.requires_smp
+            print(f"SKIP: {name} [requires SMP {spec}]")
+            continue
         try:
-            failures, report_screen = run_test(test, args.qemu, index)
+            failures, report_screen = run_test(test, args.qemu, index, args.smp)
         except PexpectTimeout as exc:
             failed = True
             print(f"FAIL: {name}")

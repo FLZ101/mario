@@ -24,6 +24,8 @@ static spinlock_t runqueue_lock[NR_CPUS];
  */
 static spinlock_t scheduler_lock = SPINLOCK_UNLOCKED;
 
+extern void notify_parent(struct task_struct *p);
+
 /*
  * Global task-list lock used by SET_LINKS/REMOVE_LINKS in <sched.h>.  It is
  * deliberately separate from runqueue and wait-queue locks so process creation
@@ -196,6 +198,15 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	 * prev->thread, so another CPU may now be allowed to wake and run it.
 	 */
 	spin_unlock(&scheduler_lock);
+
+	/*
+	 * If the previous task has become a zombie, its parent must not be
+	 * woken while the task is still running.  Waiters scan the child state
+	 * and may reap/free the task immediately, so wake the parent only now
+	 * that the old task is safely parked and no longer executing.
+	 */
+	if (p->state == TASK_ZOMBIE)
+		notify_parent(p);
 }
 
 void switch_to(struct task_struct *next)

@@ -5,7 +5,6 @@ SHELL := /bin/bash
 SMP ?= 1
 
 .PHONY: all clean image run debug quick-run quick-debug \
-	smp2-run smp4-run smp2-debug smp4-debug \
 	tmux-run tmux-debug tmux-attach tmux-kill
 
 all: image
@@ -84,20 +83,6 @@ QUICK_QEMU_FLAGS := \
 	-display $(QEMU_DISPLAY) \
 	$(HD_FLAGS) \
 	-no-reboot -no-shutdown
-
-# Convenience targets for exercising the SMP bring-up work without changing
-# the default single-CPU command line used by the test suite.
-smp2-run: image
-	$(MAKE) quick-run SMP=2
-
-smp4-run: image
-	$(MAKE) quick-run SMP=4
-
-smp2-debug: image
-	$(MAKE) quick-debug SMP=2
-
-smp4-debug: image
-	$(MAKE) quick-debug SMP=4
 
 quick-run:
 	qemu-system-i386 $(QUICK_QEMU_FLAGS)

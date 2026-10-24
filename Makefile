@@ -34,6 +34,11 @@ OPTIMIZE := -O0
 endif
 export OPTIMIZE
 
+# Number of QEMU CPUs used by test and quick-run targets.  Keep the default
+# at one; SMP test cases opt in with REQUIRES-SMP and are skipped otherwise.
+SMP ?= 1
+export SMP
+
 CC	:= $(ROOT)/util/cc
 export CC
 LD	:= $(ROOT)/util/ld
@@ -79,10 +84,10 @@ $(VENV_STAMP): requirements.txt
 venv: $(VENV_STAMP)
 
 shell-test: venv kernel rd image
-	$(PYTHON) tests/lit_shell_test.py $(SHELL_TEST_CASES)
+	$(PYTHON) tests/lit_shell_test.py --smp $(SMP) $(SHELL_TEST_CASES)
 
 vga-test: venv kernel rd image
-	$(PYTHON) tests/lit_vga_test.py $(VGA_TEST_CASES)
+	$(PYTHON) tests/lit_vga_test.py --smp $(SMP) $(VGA_TEST_CASES)
 
 test: shell-test vga-test
 
