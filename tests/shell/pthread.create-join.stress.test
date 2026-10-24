@@ -1,0 +1,6 @@
+# Repeated pthread_create/pthread_join rounds under mutex contention.
+
+REQUIRES-SMP: >=8
+
+RUN: /bin/test/pthread_stress.exe create-join 6 8 5000
+CHECK: create-join-ok

@@ -11,7 +11,7 @@ VGA_TEST_CASES ?= tests/vga
 
 .PHONY: all kernel rd app libc image run debug \
 	quick-run quick-debug quick-run-gtk quick-debug-gtk \
-	test shell-test vga-test \
+	test test-all shell-test vga-test \
 	musl venv precommit setup \
 	compiler-rt
 
@@ -38,6 +38,10 @@ export OPTIMIZE
 # at one; SMP test cases opt in with REQUIRES-SMP and are skipped otherwise.
 SMP ?= 1
 export SMP
+
+# Number of lit test cases run concurrently by shell-test and vga-test.
+JOBS ?= 4
+export JOBS
 
 CC	:= $(ROOT)/util/cc
 export CC
@@ -84,12 +88,20 @@ $(VENV_STAMP): requirements.txt
 venv: $(VENV_STAMP)
 
 shell-test: venv kernel rd image
-	$(PYTHON) tests/lit_shell_test.py --smp $(SMP) $(SHELL_TEST_CASES)
+	$(PYTHON) tests/lit_shell_test.py --smp $(SMP) --jobs $(JOBS) $(SHELL_TEST_CASES)
 
 vga-test: venv kernel rd image
-	$(PYTHON) tests/lit_vga_test.py --smp $(SMP) $(VGA_TEST_CASES)
+	$(PYTHON) tests/lit_vga_test.py --smp $(SMP) --jobs $(JOBS) $(VGA_TEST_CASES)
 
 test: shell-test vga-test
+
+test-all:
+	$(MAKE) test SMP=1
+	$(MAKE) test SMP=2
+	$(MAKE) test SMP=4
+	$(MAKE) test SMP=8
+	$(MAKE) test SMP=16
+	$(MAKE) test SMP=32
 
 precommit: venv
 	$(PYTHON) -m pre_commit install

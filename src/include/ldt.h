@@ -25,6 +25,9 @@ struct user_desc {
 #endif
 };
 
+struct task_struct;
+int set_thread_area_task(struct task_struct *p, struct user_desc *u_info);
+
 static inline void zero_user_desc(struct user_desc *ud) {
     memset(ud, 0, sizeof(*ud));
 }

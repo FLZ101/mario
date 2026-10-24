@@ -119,12 +119,23 @@ static struct file *copy_fd(struct file *old_file)
 	if (inode) {
 		iref(inode);
 
-		/* Duplicated FIFO descriptors must keep the inode's endpoint counts accurate. */
+		/*
+		 * Duplicated pipe/FIFO descriptors must keep the inode's endpoint
+		 * counts accurate.  These counts are shared across CPUs and are
+		 * also touched by pipe_read_release()/pipe_write_release(), so
+		 * take the pipe lock here rather than doing an unlocked ++.  On
+		 * SMP an unlocked increment can race with a close and make a pipe
+		 * appear closed before its other endpoint has exited.
+		 */
 		if (S_ISFIFO(inode->i_mode)) {
+			struct pipe_inode_info *info = &inode->u.pipe_i;
+
+			ACQUIRE_LOCK(&info->lock);
 			if (new_file->f_mode & 1)
-				inode->u.pipe_i.n_reader++;
+				info->n_reader++;
 			if (new_file->f_mode & 2)
-				inode->u.pipe_i.n_writer++;
+				info->n_writer++;
+			RELEASE_LOCK(&info->lock);
 		}
 	}
 

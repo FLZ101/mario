@@ -1,6 +1,7 @@
 #include <sched.h>
 #include <signal.h>
 #include <misc.h>
+#include <futex.h>
 
 #include <syscall_trace.h>
 
@@ -185,10 +186,37 @@ void do_exit(long code)
 		hang("init exits with %d", code);
 	}
 
-	exit_mmap(current);
-	free_page_tables(current);
-	exit_files();
-	exit_fs();
+	/*
+	 * Publish thread death before releasing the address space.  For a
+	 * process leader this address may live in the process mm that
+	 * free_page_tables() is about to unmap, so writing it after page-table
+	 * teardown would fault on a no-longer-mapped user page.  For a non-leader
+	 * thread this is also the futex that wakes pthread_join(); the group
+	 * leader waits for those threads to reach TASK_ZOMBIE below before
+	 * tearing down the shared mm.
+	 */
+	if (current->clear_child_tid) {
+		put_fs_long(0, current->clear_child_tid);
+		futex_wake(current->clear_child_tid, 1);
+		current->clear_child_tid = NULL;
+	}
+
+	/*
+	 * CLONE_VM/FILES/FS tasks share these structures with their group
+	 * leader.  A non-leader thread exit must only drop its reference; the
+	 * final process exit is responsible for releasing the underlying pages,
+	 * descriptors, and filesystem state.
+	 */
+	if (current->clone_flags & CLONE_VM) {
+		atomic_dec(&current->mm->mm_users);
+	} else {
+		exit_mmap(current);
+		free_page_tables(current);
+	}
+	if (!(current->clone_flags & CLONE_FILES))
+		exit_files();
+	if (!(current->clone_flags & CLONE_FS))
+		exit_fs();
 
 	/*
 	 * Check to see if any process groups have become orphaned
@@ -238,6 +266,61 @@ void do_exit(long code)
 int sys_exit(int error_code)
 {
 	do_exit((error_code&0xff)<<8);
+	return 0;
+}
+
+/*
+ * exit_group(2) terminates every task in the current thread group.  Live
+ * workers are signalled and woken, then we wait until each has committed to
+ * exit so the leader does not tear down the shared mm while another thread
+ * is still running.  Zombie workers are left for do_exit()'s existing
+ * reparent-to-init logic so they are reaped only after their final context
+ * switch has safely parked them.
+ */
+int sys_exit_group(int error_code)
+{
+	long code = (error_code & 0xff) << 8;
+	struct task_struct *p, *next;
+
+	for (p = init_task.next_task; p != &init_task; p = next) {
+		next = p->next_task;
+		if (p == current || p->tgid != current->tgid)
+			continue;
+		if (p->state != TASK_ZOMBIE) {
+			send_sig(SIGKILL, p, 1);
+			if (p->state != TASK_RUNNING)
+				wake_up_process(p);
+		}
+	}
+
+	/*
+	 * Threads that have published their userspace death (pthread_join
+	 * returns) may still be running the tail of do_exit() on another CPU.
+	 * Tearing down the shared mm while one of those tasks is still between
+	 * "clear child tid" and the final schedule() would free user pages that
+	 * the thread may still fault on.  Wait until every other thread in this
+	 * group has committed to exit and has been parked by its final context
+	 * switch.  We do not reap them here: the leader's do_exit() reparents
+	 * those zombies to init, which can then safely reap the parked tasks.
+	 */
+	for (;;) {
+		struct task_struct *t;
+		int done = 1;
+
+		for_each_task(t) {
+			if (t == current || t->tgid != current->tgid)
+				continue;
+			if (t->state != TASK_ZOMBIE || !t->parked) {
+				done = 0;
+				break;
+			}
+		}
+		if (done)
+			break;
+		schedule_timeout(1);
+	}
+
+	do_exit(code);
 	return 0;
 }
 

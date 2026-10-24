@@ -6,6 +6,7 @@
 
 #include <lib/list.h>
 #include <lib/spinlock.h>
+#include <lib/atomic.h>
 
 void paging_init(struct multiboot_info *m);
 
@@ -27,6 +28,12 @@ struct mm_struct {
 	 * would make interrupt-driven block completions deadlock.
 	 */
 	spinlock_t mm_lock;
+	/*
+	 * Number of tasks sharing this address space.  CLONE_VM threads point at
+	 * the parent mm without copying page tables or VMAs; teardown of the
+	 * shared mm is therefore deferred until the owning process exits.
+	 */
+	atomic_t mm_users;
 	pde_t *pd;
 	struct vm_area_struct *mmap;
 	struct vm_area_struct *mmap_cache;

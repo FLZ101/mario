@@ -110,12 +110,16 @@ struct vm_area_struct *find_vma_intersection(struct mm_struct *mm,
 	return vma;
 }
 
-void insert_vm_struct(struct mm_struct *mm, struct vm_area_struct *vma)
+/*
+ * Insert @vma into @mm's sorted VMA list without taking mm_lock.  Used both by
+ * the public wrapper and by do_mmap() while it holds mm_lock across address
+ * allocation and insertion.
+ */
+static void insert_vm_struct_locked(struct mm_struct *mm,
+				     struct vm_area_struct *vma)
 {
 	struct vm_area_struct **p, *mpnt;
-	unsigned long flags;
 
-	mm_lock(mm, &flags);
 	p = &mm->mmap;
 	while ((mpnt = *p) != NULL) {
 		if (mpnt->vm_start > vma->vm_start) {
@@ -129,6 +133,14 @@ void insert_vm_struct(struct mm_struct *mm, struct vm_area_struct *vma)
 	*p = vma;
 
 	verify_vm(mm);
+}
+
+void insert_vm_struct(struct mm_struct *mm, struct vm_area_struct *vma)
+{
+	unsigned long flags;
+
+	mm_lock(mm, &flags);
+	insert_vm_struct_locked(mm, vma);
 	mm_unlock(mm, flags);
 }
 
@@ -428,10 +440,50 @@ int sys_msync(unsigned long addr, unsigned long len, int flags)
 	return 0;
 }
 
-static unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
+static unsigned long get_page_prot(unsigned long flags);
+
+/*
+ * Update the protection bits on already-present pages in [addr, addr+len).
+ * Pages not yet faulted in pick up the new VMA protection from do_no_page().
+ * This keeps PROT_NONE -> PROT_READ|PROT_WRITE transitions, as used by musl
+ * pthread_create's guard-page setup, effective immediately.
+ */
+static void protect_page_range(unsigned long addr, unsigned long len,
+			       unsigned long prot)
+{
+	unsigned long end = addr + len;
+	unsigned long attr = get_page_prot(prot & (VM_READ | VM_WRITE | VM_EXEC));
+	unsigned long rw_user = attr & (PG_RW | PG_USER);
+
+	while (addr < end) {
+		pde_t *pd = pde_offset(current->mm->pd, addr);
+		unsigned long pde_end = (addr + PGDIR_SIZE) & PGDIR_MASK;
+
+		if (pde_end > end)
+			pde_end = end;
+		if (__pe_present(pd)) {
+			pte_t *pt = pte_offset(__vir(*pd), addr);
+			unsigned long a;
+
+			for (a = addr; a < pde_end; a += PAGE_SIZE, pt++) {
+				if (__pe_present(pt) && !__pte_bad(pt))
+					*pt = (*pt & ~(PG_RW | PG_USER)) | rw_user;
+			}
+		}
+		addr = pde_end;
+	}
+	flush_tlb();
+}
+
+/*
+ * Return a free region at or above @addr.  Callers hold current->mm->mm_lock
+ * for the whole allocate-and-insert sequence so two threads cannot choose the
+ * same anonymous stack range and then collide in insert_vm_struct().
+ */
+static unsigned long get_unmapped_area_locked(unsigned long addr,
+					       unsigned long len)
 {
 	struct vm_area_struct *vma;
-	unsigned long flags;
 	unsigned long result = 0;
 
 	if (len > KERNEL_BASE)
@@ -440,7 +492,6 @@ static unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
 		addr = KERNEL_BASE / 2;	/* Is it OK? */
 	addr = PAGE_ALIGN(addr);
 
-	mm_lock(current->mm, &flags);
 	for (vma = current->mm->mmap; ; vma = vma->vm_next) {
 		// addr is not in any previous vm area
 
@@ -461,7 +512,6 @@ static unsigned long get_unmapped_area(unsigned long addr, unsigned long len)
 		result = addr;
 		break;
 	}
-	mm_unlock(current->mm, flags);
 	return result;
 }
 
@@ -475,6 +525,36 @@ static unsigned long get_page_prot(unsigned long flags)
 	if ((flags & VM_READ) || (flags & VM_EXEC))
 		return PG_PRESENT | PG_USER;
 	return PG_PRESENT;
+}
+
+static struct vm_area_struct *alloc_vma(unsigned long addr, unsigned long len,
+					unsigned long prot, unsigned long flags,
+					unsigned long off, struct file *file)
+{
+	struct vm_area_struct *vma;
+
+	vma = (struct vm_area_struct *)kmalloc(sizeof(*vma));
+	if (!vma)
+		return NULL;
+
+	vma->vm_mm = current->mm;
+	vma->vm_start = addr;
+	vma->vm_end = addr + len;
+	vma->vm_flags = prot & (VM_READ | VM_WRITE | VM_EXEC);
+	if (flags & VM_GROWSDOWN)
+		vma->vm_flags |= VM_GROWSDOWN;
+	if ((flags & MAP_TYPE) == MAP_SHARED)
+		vma->vm_flags |= VM_SHARED;
+
+	/* initialize the share ring */
+	vma->vm_next_share = vma->vm_prev_share = vma;
+
+	vma->vm_page_prot = get_page_prot(vma->vm_flags);
+	vma->vm_ops = NULL;
+	vma->vm_offset = file ? off : 0;
+	vma->vm_file = NULL;
+	vma->vm_inode = NULL;
+	return vma;
 }
 
 unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
@@ -500,10 +580,6 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 	if (flags & MAP_FIXED) {
 		if (addr & ~PAGE_MASK)
 			return -EINVAL;
-	} else {
-		addr = get_unmapped_area(addr, len);
-		if (!addr)
-			return -ENOMEM;
 	}
 
 	if (file) {
@@ -529,29 +605,48 @@ unsigned long do_mmap(unsigned long addr, unsigned long len, unsigned long prot,
 		return -EINVAL;
 	}
 
-	vma = (struct vm_area_struct *)kmalloc(sizeof(*vma));
+	if (!(flags & MAP_FIXED)) {
+		unsigned long mm_flags;
+
+		/*
+		 * Allocate and insert the VMA atomically with respect to other
+		 * CLONE_VM threads.  Otherwise two pthread_create calls can both
+		 * choose the same free gap, and the second insert_vm_struct() sees
+		 * an overlapping VMA and trips the sort-order assert.
+		 */
+		mm_lock(current->mm, &mm_flags);
+		addr = get_unmapped_area_locked(addr, len);
+		if (!addr) {
+			mm_unlock(current->mm, mm_flags);
+			return -ENOMEM;
+		}
+
+		vma = alloc_vma(addr, len, prot, flags, off, file);
+		if (!vma) {
+			mm_unlock(current->mm, mm_flags);
+			return -ENOMEM;
+		}
+
+		if (file) {
+			error = file->f_op->mmap(file->f_inode, file, vma);
+			if (error) {
+				if (vma->vm_file)
+					put_file(vma->vm_file);
+				kfree(vma);
+				mm_unlock(current->mm, mm_flags);
+				return error;
+			}
+		}
+
+		insert_vm_struct_locked(current->mm, vma);
+		mm_unlock(current->mm, mm_flags);
+		merge_mmap(current->mm);
+		return addr;
+	}
+
+	vma = alloc_vma(addr, len, prot, flags, off, file);
 	if (!vma)
 		return -ENOMEM;
-	vma->vm_mm = current->mm;
-	vma->vm_start = addr;
-	vma->vm_end = addr + len;
-	vma->vm_flags = prot & (VM_READ | VM_WRITE | VM_EXEC);
-	if (flags & VM_GROWSDOWN)
-		vma->vm_flags |= VM_GROWSDOWN;
-	if ((flags & MAP_TYPE) == MAP_SHARED)
-		vma->vm_flags |= VM_SHARED;
-
-	/* initialize the share ring */
-	vma->vm_next_share = vma->vm_prev_share = vma;
-
-	vma->vm_page_prot = get_page_prot(vma->vm_flags);
-	vma->vm_ops = NULL;
-	if (file)
-		vma->vm_offset = off;
-	else
-		vma->vm_offset = 0;
-	vma->vm_file = NULL;
-	vma->vm_inode = NULL;
 
 	do_munmap(addr, len);	/* Clear old maps */
 
@@ -631,5 +726,37 @@ unsigned long sys_brk(unsigned long brk)
 
 int sys_mprotect(void *addr, size_t len, int prot)
 {
+	unsigned long start = (unsigned long)addr;
+	unsigned long end;
+	struct vm_area_struct *vma;
+	unsigned long flags;
+	unsigned long vma_prot = prot & (VM_READ | VM_WRITE | VM_EXEC);
+
+	if (start > KERNEL_BASE || len > KERNEL_BASE - start)
+		return -EINVAL;
+	start &= PAGE_MASK;
+	len = PAGE_ALIGN(len);
+	if (!len)
+		return 0;
+	end = start + len;
+
+	/*
+	 * Update whole overlapping VMAs rather than splitting them.  That is
+	 * sufficient for musl's anonymous thread-stack mapping; the guard page
+	 * therefore also becomes writable in this minimal implementation.
+	 */
+	mm_lock(current->mm, &flags);
+	for (vma = current->mm->mmap; vma && vma->vm_start < end;
+	     vma = vma->vm_next) {
+		if (vma->vm_end <= start)
+			continue;
+		vma->vm_flags =
+			(vma->vm_flags & ~(VM_READ | VM_WRITE | VM_EXEC)) |
+			vma_prot;
+		vma->vm_page_prot = get_page_prot(vma->vm_flags);
+	}
+	mm_unlock(current->mm, flags);
+
+	protect_page_range(start, len, vma_prot);
 	return 0;
 }

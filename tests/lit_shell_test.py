@@ -26,6 +26,7 @@ import os
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     import pexpect
@@ -358,6 +359,60 @@ def run_lit_test(test, qemu, realtime=False, smp=1):
     return failures, captured_text(), report_start
 
 
+def skipped_reason(test, missing_hd_images, smp):
+    if test.requires_hd and missing_hd_images:
+        return f"missing {', '.join(missing_hd_images)}"
+    if test.requires_smp is not None and not smp_requirement_matches(
+        test.requires_smp, smp
+    ):
+        _op, _wanted, spec = test.requires_smp
+        return f"requires SMP {spec}"
+    return None
+
+
+def run_one(test, qemu, smp, realtime):
+    name = os.path.relpath(test.path, ROOT)
+    started = time.monotonic()
+    try:
+        failures, text, report_start = run_lit_test(
+            test, qemu, realtime=realtime, smp=smp
+        )
+    except PexpectTimeout as exc:
+        return name, started, None, exc, None, None
+    except Exception as exc:
+        return name, started, None, exc, None, None
+    return name, started, failures, None, text, report_start
+
+
+def report_one(name, started, failures, error, text, report_start, verbose):
+    elapsed = time.monotonic() - started
+    if error is not None:
+        print(f"FAIL: {name} [{elapsed:.2f}s]", flush=True)
+        print(error, flush=True)
+        return True
+
+    if failures:
+        print(f"FAIL: {name} [{elapsed:.2f}s]", flush=True)
+        for message in failures:
+            print(message, flush=True)
+        if not verbose and text is not None:
+            context = text[report_start:].lstrip("\n")
+            if context:
+                print("\noutput since last success:\n")
+                for line in context.splitlines():
+                    print(line)
+                print()
+            else:
+                print("(no output since last success)")
+        return True
+
+    if verbose:
+        print(f"== {name} ==", flush=True)
+        print()
+    print(f"PASS: {name} [{elapsed:.2f}s]", flush=True)
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -381,9 +436,18 @@ def main():
         action="store_true",
         help="stream QEMU output while the test runs",
     )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=1,
+        help="run up to N tests concurrently (default: 1)",
+    )
     args = parser.parse_args()
     if args.smp < 1:
         parser.error("--smp must be at least 1")
+    if args.jobs < 1:
+        parser.error("--jobs must be at least 1")
 
     require_files()
     test_paths = []
@@ -424,49 +488,30 @@ def main():
         ]
 
     failed = False
+    runnable = []
     for test in tests:
         name = os.path.relpath(test.path, ROOT)
-        started = time.monotonic()
-        if args.verbose:
-            print(f"== {name} ==", flush=True)
-        if test.requires_hd and missing_hd_images:
-            print(f"SKIP: {name} [missing {', '.join(missing_hd_images)}]")
+        reason = skipped_reason(test, missing_hd_images, args.smp)
+        if reason is not None:
+            print(f"SKIP: {name} [{reason}]", flush=True)
             continue
-        if test.requires_smp is not None and not smp_requirement_matches(
-            test.requires_smp, args.smp
-        ):
-            _op, _wanted, spec = test.requires_smp
-            print(f"SKIP: {name} [requires SMP {spec}]")
-            continue
-        try:
-            failures, text, report_start = run_lit_test(
-                test, args.qemu, args.verbose, args.smp
-            )
-        except PexpectTimeout as exc:
-            elapsed = time.monotonic() - started
-            failed = True
-            print(f"FAIL: {name} [{elapsed:.2f}s]")
-            print(exc)
-            continue
-        elapsed = time.monotonic() - started
-        if failures:
-            failed = True
-            print(f"FAIL: {name} [{elapsed:.2f}s]")
-            for message in failures:
-                print(message)
-            if not args.verbose:
-                context = text[report_start:].lstrip("\n")
-                if context:
-                    print("\noutput since last success:\n")
-                    for line in context.splitlines():
-                        print(line)
-                    print()
-                else:
-                    print("(no output since last success)")
-        else:
-            if args.verbose:
-                print()
-            print(f"PASS: {name} [{elapsed:.2f}s]")
+        runnable.append(test)
+
+    # Parallel QEMU output would interleave, so only stream in serial mode.
+    realtime = args.verbose and args.jobs == 1
+
+    def execute(test):
+        return run_one(test, args.qemu, args.smp, realtime)
+
+    if args.jobs == 1:
+        results = map(execute, runnable)
+        for result in results:
+            failed = report_one(*result, args.verbose) or failed
+    else:
+        with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            futures = [pool.submit(execute, test) for test in runnable]
+            for future in as_completed(futures):
+                failed = report_one(*future.result(), args.verbose) or failed
 
     if failed:
         sys.exit(1)

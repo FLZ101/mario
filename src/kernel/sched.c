@@ -205,8 +205,10 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	 * and may reap/free the task immediately, so wake the parent only now
 	 * that the old task is safely parked and no longer executing.
 	 */
-	if (p->state == TASK_ZOMBIE)
+	if (p->state == TASK_ZOMBIE) {
+		p->parked = 1;
 		notify_parent(p);
+	}
 }
 
 void switch_to(struct task_struct *next)

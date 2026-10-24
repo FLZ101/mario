@@ -3,7 +3,7 @@
 
 #include <mm/uaccess.h>
 
-int sys_set_thread_area(struct user_desc *u_info)
+int set_thread_area_task(struct task_struct *p, struct user_desc *u_info)
 {
 	struct user_desc info;
 	int err = verify_area(VERIFY_READ, (void *) u_info, sizeof (struct user_desc));
@@ -11,7 +11,7 @@ int sys_set_thread_area(struct user_desc *u_info)
 		return err;
 	memcpy_fromfs(&info, u_info, sizeof (struct user_desc));
 
-	struct user_desc *ud = current->thread.user_descs;
+	struct user_desc *ud = p->thread.user_descs;
 
 	int idx = info.entry_number;
 	int auto_idx = 0;
@@ -42,6 +42,38 @@ int sys_set_thread_area(struct user_desc *u_info)
 	}
 	idx -= GDT_ENTRY_TLS_MIN_IDX;
 
+	if (empty)
+		zero_user_desc(&ud[idx]);
+	else
+		ud[idx] = info;
+	return 0;
+}
+
+int sys_set_thread_area(struct user_desc *u_info)
+{
+	struct user_desc info;
+	int err = set_thread_area_task(current, u_info);
+	if (err)
+		return err;
+
+	/*
+	 * set_thread_area_task() only updates the task descriptor.  When the
+	 * task is already running it also needs the currently installed GDT
+	 * copy refreshed immediately; otherwise it would not take effect until
+	 * the next context switch.
+	 */
+	memcpy_fromfs(&info, u_info, sizeof (struct user_desc));
+	struct user_desc *ud = current->thread.user_descs;
+	int idx = info.entry_number;
+	if (idx == -1) {
+		for (idx = 0; idx < NR_USER_DESC; ++idx)
+			if (!user_desc_zero(ud + idx))
+				break;
+	}
+	if (idx < GDT_ENTRY_TLS_MIN_IDX || idx > GDT_ENTRY_TLS_MAX_IDX)
+		return -EINVAL;
+	idx -= GDT_ENTRY_TLS_MIN_IDX;
+
 	irq_save();
 
 	/*
@@ -53,7 +85,7 @@ int sys_set_thread_area(struct user_desc *u_info)
 	 */
 	struct desc_struct *tls_desc =
 		cpu_gdt(current->cpu) + GDT_ENTRY_TLS_MIN_IDX;
-	if (empty) {
+	if (user_desc_empty(&info)) {
 		zero_user_desc(&ud[idx]);
 		zero_desc(tls_desc + idx);
 	} else {
@@ -67,6 +99,9 @@ int sys_set_thread_area(struct user_desc *u_info)
 
 int sys_set_tid_address(int *tidptr)
 {
+	/* Threads must know where to clear the TID when they exit.  The actual
+	 * clear+wake happens in do_exit() using CLONE_CHILD_CLEARTID. */
+	current->clear_child_tid = tidptr;
 	return current->pid;
 }
 

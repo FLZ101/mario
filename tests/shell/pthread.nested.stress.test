@@ -1,0 +1,6 @@
+# pthread_create from non-leader threads (nested clones).
+
+REQUIRES-SMP: >=8
+
+RUN: /bin/test/pthread_stress.exe nested 6 4 3000
+CHECK: nested-ok

@@ -4,6 +4,7 @@
 #include <misc.h>
 #include <irq.h>
 #include <smp.h>
+#include <futex.h>
 
 #define __KERNEL_SYSCALLS__
 #include <unistd.h>
@@ -87,6 +88,7 @@ void mario(struct multiboot_info *m)
 	 * uninitialised runqueue.  It is also required before APs may schedule.
 	 */
 	sched_init_smp();
+	futex_init();
 
 	sti();
 	/* The PIT is already running, which lets the AP start-up path wait on

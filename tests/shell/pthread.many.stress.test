@@ -1,0 +1,6 @@
+# A wider thread pool exercises clone/futex under heavier scheduling load.
+
+REQUIRES-SMP: >=8
+
+RUN: /bin/test/pthread_stress.exe many 48 1500
+CHECK: many-ok

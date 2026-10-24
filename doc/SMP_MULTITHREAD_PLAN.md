@@ -305,28 +305,63 @@ pthread program.
 
 Changes:
 
-- Refactor `do_fork()` in `src/kernel/fork.c` to take `clone_flags` and a
-  child stack.
+- Refactor `do_fork()` in `src/kernel/fork.c` into
+  `do_clone(tr, clone_flags, child_stack, parent_tidptr, child_tidptr, tls)`.
 - Implement `sys_clone` with `CLONE_VM`, `CLONE_FILES`, `CLONE_FS`,
   `CLONE_SIGHAND`, `CLONE_THREAD`, `CLONE_PARENT_SETTID`,
   `CLONE_CHILD_SETTID`, `CLONE_CHILD_CLEARTID`, and `CLONE_SETTLS`.
 - Add TGID/TID handling in `struct task_struct`, `sys_getpid`, and
   `sys_gettid`.
 - Implement non-leader thread exit and thread-group-aware wait.
-- Implement `SYS_set_tid_address`.
-- Implement classic `SYS_futex` operations needed by pthreads:
-  `FUTEX_WAIT`, `FUTEX_WAKE`, `FUTEX_WAIT_BITSET`, `FUTEX_WAKE_BITSET`.
+- Publish `clear_child_tid` before page-table teardown; `free_page_tables()`
+  would otherwise unmap the userspace TID word and fault the exit path.
+- Implement `SYS_exit_group` by signalling live group members, waiting for
+  them to reach `TASK_ZOMBIE` and be parked by `_switch_to()`, and letting
+  the leader's `do_exit()` reparent those zombies to init rather than reaping
+  a task that is still switching off its kernel stack.
+- Implement a real `SYS_mprotect` so musl can turn the thread-stack guard
+  page from `PROT_NONE` back to readable/writable while setting up TLS.
+- Keep `SYS_set_tid_address`, but actually retain the clear-child-tid address
+  in the task so `CLONE_CHILD_CLEARTID` can be honored on thread exit.
+- Implement classic `SYS_futex` operations needed by musl i386 pthreads:
+  `FUTEX_WAIT`, `FUTEX_WAKE`, and `FUTEX_REQUEUE`; `FUTEX_PRIVATE` is
+  accepted as a hint but is not used as an address namespace in this first
+  implementation.  `FUTEX_CMP_REQUEUE`/`FUTEX_WAKE_OP` are optional for the
+  basic create/join/mutex test and are documented as unsupported until a
+  condition-variable stress test requires them.
 - Preserve `sys_fork`/`sys_vfork` as wrappers.
 
 Comments required: document thread-group ownership and which resources are
 shared versus copied for each `CLONE_*` flag.
 
+### Thread-group ownership rules
+
+- `pid` remains the kernel thread id (TID).  `sys_gettid()` continues to
+  return `current->pid`.
+- Add `tgid` to `struct task_struct`.  For a process leader `tgid == pid`.
+  For a `CLONE_THREAD` child `tgid = current->tgid`.
+- `sys_getpid()` returns `current->tgid`, so all threads in one process share
+  the same result from `getpid()`.
+- `CLONE_VM`: the child stores the same `mm_struct *` as the parent and
+  increments an `mm_users` refcount.  `do_fork`/`do_clone` only calls
+  `copy_mm()` when `CLONE_VM` is clear.  A non-leader `do_exit()` drops its
+  `mm` reference but must not run `exit_mmap()`/`free_page_tables()`.
+- `CLONE_FILES`: the child stores the same `files_struct *` as the parent;
+  `count` is incremented.  Non-leader thread exit must not call `exit_files()`.
+- `CLONE_FS`: the child stores the same `fs_struct *` as the parent;
+  `count` is incremented.  Non-leader thread exit must not call `exit_fs()`.
+- A thread-group leader exiting normally performs full process teardown only
+  after every other group member has committed to exit; `sys_exit_group()`
+  enforces that wait, while a single thread's `sys_exit()` must not tear down
+  the shared mm/files/fs.
+
 Correctness checks:
 
-- Add a small pthread test that creates several threads, shares a global
-  counter under a mutex, and joins them.
+- Add `app/test/musl/pthread/main.c`, built against musl, that creates several
+  threads, shares a global counter under `pthread_mutex_lock`, and joins them.
 - Verify `getpid()` is shared and `gettid()` is unique.
-- Run the threaded workload with `--smp 1`, `--smp 2`, and `--smp 4`.
+- Run the threaded workload with `--smp 8`, plus `--smp 4` and `--smp 1`
+  smoke checks for the underlying clone/futex path.
 - A non-leader thread exit does not terminate the process.
 - A detached/non-leader child is waitable without corrupting process exit.
 - Existing fork/vfork tests still pass.
@@ -342,10 +377,15 @@ Changes:
 
 - Add `tests/shell/smp.boot.test`, `tests/shell/smp.sched.test`,
   `tests/shell/affinity.test`, and `tests/shell/pthread.test`.
+- Add pthread stress tests covering repeated create/join rounds, detached
+  threads, nested pthread creation, and a wide 48-thread pool.
 - Teach the lit shell runner to skip `REQUIRES-SMP` tests when `--smp` is not
   supplied and to run them when `--smp N` is supplied with `N > 1`.
 - Run both `tests/shell` and `tests/vga` under `--smp 1` and `--smp 4` in CI
   style.
+- The pthread test is `REQUIRES-SMP: 8` when it exercises the all-CPU
+  scheduler, with a smaller `--smp 4` and `--smp 1` smoke check in the same
+  file.
 
 Correctness checks:
 

@@ -1,0 +1,6 @@
+# Detached workers must finish on their own and unmap their own stacks.
+
+REQUIRES-SMP: >=8
+
+RUN: /bin/test/pthread_stress.exe detached 12 4000
+CHECK: detached-ok

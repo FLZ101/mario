@@ -36,6 +36,7 @@ import socket
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     import pexpect
@@ -664,6 +665,48 @@ def run_test(test, qemu, index, smp=1):
     return failures, report_screen
 
 
+def skipped_reason(test, missing_hd_images, smp):
+    if test.requires_hd and missing_hd_images:
+        return f"missing {', '.join(missing_hd_images)}"
+    if test.requires_smp is not None and not smp_requirement_matches(
+        test.requires_smp, smp
+    ):
+        _op, _wanted, spec = test.requires_smp
+        return f"requires SMP {spec}"
+    return None
+
+
+def run_one(test, qemu, index, smp):
+    name = os.path.relpath(test.path, ROOT)
+    try:
+        failures, report_screen = run_test(test, qemu, index, smp)
+    except PexpectTimeout as exc:
+        return name, None, exc, None
+    except Exception as exc:
+        return name, None, exc, None
+    return name, failures, None, report_screen
+
+
+def report_one(name, failures, error, report_screen):
+    if error is not None:
+        print(f"FAIL: {name}", flush=True)
+        print(error, flush=True)
+        return True
+
+    if failures:
+        print(f"FAIL: {name}", flush=True)
+        for failure in failures:
+            print(failure, flush=True)
+        if report_screen:
+            print("\nVGA screen since last success:\n")
+            for row in report_screen:
+                print(row.rstrip())
+        return True
+
+    print(f"PASS: {name}", flush=True)
+    return False
+
+
 def discover_tests(paths, extension):
     test_paths = []
     for path in paths:
@@ -696,9 +739,18 @@ def main():
         default=1,
         help="number of QEMU CPUs to expose (default: 1)",
     )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=1,
+        help="run up to N tests concurrently (default: 1)",
+    )
     args = parser.parse_args()
     if args.smp < 1:
         parser.error("--smp must be at least 1")
+    if args.jobs < 1:
+        parser.error("--jobs must be at least 1")
 
     require_files()
     try:
@@ -730,35 +782,28 @@ def main():
         ]
 
     failed = False
+    runnable = []
     for index, test in enumerate(tests, 1):
         name = os.path.relpath(test.path, ROOT)
-        if test.requires_hd and missing_hd_images:
-            print(f"SKIP: {name} [missing {', '.join(missing_hd_images)}]")
+        reason = skipped_reason(test, missing_hd_images, args.smp)
+        if reason is not None:
+            print(f"SKIP: {name} [{reason}]", flush=True)
             continue
-        if test.requires_smp is not None and not smp_requirement_matches(
-            test.requires_smp, args.smp
-        ):
-            _op, _wanted, spec = test.requires_smp
-            print(f"SKIP: {name} [requires SMP {spec}]")
-            continue
-        try:
-            failures, report_screen = run_test(test, args.qemu, index, args.smp)
-        except PexpectTimeout as exc:
-            failed = True
-            print(f"FAIL: {name}")
-            print(exc)
-            continue
-        if failures:
-            failed = True
-            print(f"FAIL: {name}")
-            for failure in failures:
-                print(failure)
-            if report_screen:
-                print("\nVGA screen since last success:\n")
-                for row in report_screen:
-                    print(row.rstrip())
-        else:
-            print(f"PASS: {name}")
+        runnable.append((index, test))
+
+    def execute(item):
+        index, test = item
+        return run_one(test, args.qemu, index, args.smp)
+
+    if args.jobs == 1:
+        results = map(execute, runnable)
+        for result in results:
+            failed = report_one(*result) or failed
+    else:
+        with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            futures = [pool.submit(execute, item) for item in runnable]
+            for future in as_completed(futures):
+                failed = report_one(*future.result()) or failed
 
     if failed:
         sys.exit(1)

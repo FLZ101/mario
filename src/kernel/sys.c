@@ -79,7 +79,7 @@ int sys_setsid(void)
 
 int sys_getpid(void)
 {
-	return current->pid;
+	return current->tgid;
 }
 
 int sys_getppid(void)

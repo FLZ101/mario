@@ -116,6 +116,28 @@ ENTRY(sys_sigsuspend)
 	addl $8, %esp
 	ret
 
+/*
+ * clone needs the trap frame as well as the six normal syscall arguments.
+ * The first saved-register slot is the base of struct trap_frame; the next
+ * slots are the i386 clone ABI values from user registers.
+ */
+ENTRY(sys_clone)
+	leal 4(%esp), %eax
+	movl 0(%eax), %ebx	/* flags */
+	movl 4(%eax), %ecx	/* child stack */
+	movl 8(%eax), %edx	/* parent tidptr */
+	movl 12(%eax), %esi	/* TLS user_desc pointer */
+	movl 16(%eax), %edi	/* child tidptr */
+	pushl %edi
+	pushl %esi
+	pushl %edx
+	pushl %ecx
+	pushl %ebx
+	pushl %eax
+	call do_clone
+	addl $24, %esp
+	ret
+
 ENTRY(system_call)
 	pushl %eax	/* the system call number */
 	SAVE_ALL
@@ -530,7 +552,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_ipc */
 	.long sys_fsync
 	.long sys_sigreturn
-	.long sys_not_exist /* SYS_clone */
+	.long sys_clone /* SYS_clone */
 	.long sys_not_exist /* SYS_setdomainname */
 	.long sys_uname
 	.long sys_modify_ldt
@@ -650,7 +672,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_fremovexattr */
 	.long sys_not_exist /* SYS_tkill */
 	.long sys_not_exist /* SYS_sendfile64 */
-	.long sys_not_exist /* SYS_futex */
+	.long sys_futex /* SYS_futex */
 	.long sys_sched_setaffinity
 	.long sys_sched_getaffinity
 	.long sys_set_thread_area
@@ -662,7 +684,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_io_cancel */
 	.long sys_not_exist /* SYS_fadvise64 */
 	.long sys_not_exist
-	.long sys_exit /* SYS_exit_group */
+	.long sys_exit_group /* SYS_exit_group */
 	.long sys_not_exist /* SYS_lookup_dcookie */
 	.long sys_not_exist /* SYS_epoll_create */
 	.long sys_not_exist /* SYS_epoll_ctl */

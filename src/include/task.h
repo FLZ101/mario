@@ -45,7 +45,18 @@ struct task_struct {
 	long need_resched;
 	int exit_code, exit_signal;
 	pid_t pid, pgrp, session;
+	/* Process id visible to getpid().  Threads share this with their group
+	 * leader while each task keeps a unique pid/TID. */
+	pid_t tgid;
 	int leader, did_exec, did_vfork;
+	/* Flags supplied to clone(2).  Kept per task so do_exit() knows which
+	 * resources are shared and must not be torn down by a non-leader. */
+	unsigned long clone_flags;
+	/* CLONE_CHILD_CLEARTID address, cleared and woken on thread exit. */
+	int *clear_child_tid;
+	/* Set by _switch_to() only after a zombie's kernel stack is parked, so
+	 * another CPU can safely reap it. */
+	int parked;
 
 	/* Logical CPU currently hosting this task and its allowed CPU mask. */
 	int cpu;

@@ -1,0 +1,10 @@
+# musl pthread_create exercises CLONE_VM/CLONE_FILES/CLONE_FS/CLONE_THREAD
+# and classic futex wait/wake.  Use all eight QEMU CPUs so the clone children
+# spread across the per-CPU runqueues.
+
+REQUIRES-SMP: >=8
+
+RUN: /bin/test/pthread.exe
+CHECK-REGEX: main pid=\d+ tid=\d+
+CHECK: counter=160000
+CHECK: pthread-ok
