@@ -80,11 +80,17 @@ void mario(struct multiboot_info *m)
 	chrdev_init();
 	fs_init();
 
-	sti();
 	/*
-	 * Bring up APs before any user task exists.  The PIT is already running,
-	 * which lets the AP start-up path wait on jiffies for INIT/SIPI pacing.
+	 * Initialise the per-CPU scheduler state before interrupts are enabled.
+	 * The PIT starts ticking at time_init(); once sti() runs a timer IRQ can
+	 * call schedule() through ret_common, and that path must never observe an
+	 * uninitialised runqueue.  It is also required before APs may schedule.
 	 */
+	sched_init_smp();
+
+	sti();
+	/* The PIT is already running, which lets the AP start-up path wait on
+	 * jiffies for INIT/SIPI pacing. */
 	smp_init(m);
 	/* rdtsc needs a running PIT for a known time base. */
 	syscall_trace_calibrate();

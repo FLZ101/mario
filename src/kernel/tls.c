@@ -44,7 +44,15 @@ int sys_set_thread_area(struct user_desc *u_info)
 
 	irq_save();
 
-	struct desc_struct *tls_desc = gdt + GDT_ENTRY_TLS_MIN_IDX;
+	/*
+	 * Every CPU has its own GDT copy.  Update the descriptors in the GDT
+	 * that is actually installed on the CPU executing this syscall, not the
+	 * BSP's global table; otherwise a task running on an AP would install
+	 * its TLS selector against the BSP GDT and fault when %gs is loaded
+	 * from the stale AP GDT entry.
+	 */
+	struct desc_struct *tls_desc =
+		cpu_gdt(current->cpu) + GDT_ENTRY_TLS_MIN_IDX;
 	if (empty) {
 		zero_user_desc(&ud[idx]);
 		zero_desc(tls_desc + idx);

@@ -12,7 +12,17 @@
 #include <mm/mm.h>
 #include <syscall_trace.h>
 
-static LIST_HEAD(runqueue_head);
+static struct list_head runqueue_head[NR_CPUS];
+static spinlock_t runqueue_lock[NR_CPUS];
+/*
+ * One scheduler lock deliberately serialises all runqueue and task-state
+ * transitions in this SMP bring-up phase.  It is held across switch_to() and
+ * released by _switch_to() only after the old task's kernel stack has been
+ * switched away.  That closes the migration window where a task is no longer
+ * on its old runqueue but is still executing on that CPU, which could
+ * otherwise let another CPU start the same task on a second stack.
+ */
+static spinlock_t scheduler_lock = SPINLOCK_UNLOCKED;
 
 /*
  * Global task-list lock used by SET_LINKS/REMOVE_LINKS in <sched.h>.  It is
@@ -21,29 +31,30 @@ static LIST_HEAD(runqueue_head);
  */
 spinlock_t tasklist_lock = SPINLOCK_UNLOCKED;
 
+/* Initialize per-CPU runqueues before APs may enter schedule(). */
+void sched_init_smp(void)
+{
+	for (int cpu = 0; cpu < NR_CPUS; cpu++) {
+		INIT_LIST_HEAD(&runqueue_head[cpu]);
+		INIT_LOCK(&runqueue_lock[cpu]);
+	}
+	INIT_LOCK(&scheduler_lock);
+}
+
 void print_runqueue(void)
 {
 	struct list_head *tmp;
 	struct task_struct *p;
+	unsigned long flags;
 
-	irq_save();
-	list_for_each(tmp, &runqueue_head) {
-		p = list_entry(tmp, struct task_struct, run_list);
-		pr_debug("%d-", p->pid);
+	spin_lock_irqsave(&scheduler_lock, flags);
+	for (int cpu = 0; cpu < nr_cpu_ids; cpu++) {
+		list_for_each(tmp, &runqueue_head[cpu]) {
+			p = list_entry(tmp, struct task_struct, run_list);
+			pr_debug("cpu%d:%d-", cpu, p->pid);
+		}
 	}
-	irq_restore();
-}
-
-static void in_runqueue(struct task_struct *p)
-{
-	list_add(&p->run_list, &runqueue_head);
-}
-
-static void out_runqueue(struct task_struct *p)
-{
-	list_del(&p->run_list);
-	p->run_list.prev = NULL;
-	p->run_list.next = NULL;
+	spin_unlock_irqrestore(&scheduler_lock, flags);
 }
 
 static int task_on_runqueue(struct task_struct *p)
@@ -51,38 +62,113 @@ static int task_on_runqueue(struct task_struct *p)
 	return (p->run_list.next != NULL);
 }
 
+static void __enqueue_task(int cpu, struct task_struct *p)
+{
+	list_add_tail(&p->run_list, &runqueue_head[cpu]);
+}
+
+static void __dequeue_task(struct task_struct *p)
+{
+	list_del(&p->run_list);
+	p->run_list.prev = NULL;
+	p->run_list.next = NULL;
+}
+
+/*
+ * Pick the least-loaded online CPU allowed by the task's affinity mask.
+ * Migrating a task to a remote CPU is what makes the runqueues useful without
+ * an APIC timer: new work spreads across CPUs at fork/wakeup time.
+ */
+static int select_task_cpu(struct task_struct *p)
+{
+	unsigned long allowed = p->cpus_allowed & online_cpu_mask();
+	int best = -1;
+	int best_len = NR_CPUS + 1;
+
+	if (!allowed)
+		allowed = 1;
+
+	for (int cpu = 0; cpu < nr_cpu_ids; cpu++) {
+		int len = 0;
+		struct list_head *tmp;
+
+		if (!(allowed & (1UL << cpu)))
+			continue;
+
+		/* scheduler_lock is held by every caller of this helper. */
+		list_for_each(tmp, &runqueue_head[cpu])
+			len++;
+
+		if (len < best_len) {
+			best_len = len;
+			best = cpu;
+		}
+	}
+
+	if (best < 0)
+		best = p->cpu;
+	return best;
+}
+
 void wake_up_process(struct task_struct *p)
 {
+	unsigned long flags;
+	int target = -1;
+	int self;
+
 	if (!p)
 		return;
 
-	irq_save();
-	p->state = TASK_RUNNING;
-	if (!task_on_runqueue(p))
-		in_runqueue(p);
-	irq_restore();
+	self = current->cpu;
+
+	spin_lock_irqsave(&scheduler_lock, flags);
+	if (p->state != TASK_RUNNING) {
+		/* Mark it runnable first.  If it is already linked on a runqueue
+		 * (for example a task that set TASK_INTERRUPTIBLE but has not yet
+		 * reached schedule), leave it there; its CPU will continue it. */
+		p->state = TASK_RUNNING;
+		if (!task_on_runqueue(p)) {
+			target = select_task_cpu(p);
+			p->cpu = target;
+			__enqueue_task(target, p);
+		}
+	} else if (!task_on_runqueue(p)) {
+		/* A runnable task must always be either running on a CPU (and
+		 * still linked) or queued.  Repair the invariant if a transition
+		 * ever leaves it unlinked. */
+		target = p->cpu;
+		__enqueue_task(target, p);
+	}
+	spin_unlock_irqrestore(&scheduler_lock, flags);
+
+	/*
+	 * A remote CPU may be halted in its idle loop.  Kick it with a
+	 * reschedule IPI; a local wakeup only needs need_resched set.
+	 */
+	if (target >= 0 && target != self)
+		smp_send_reschedule(target);
+	else if (target == self)
+		current->need_resched = 1;
 }
 
 void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 {
-	/*
-	 * The inline switch already changed the kernel stack, but the per-CPU
-	 * current_task slot still points at the outgoing task.  Publish the new
-	 * task first so the assertion below (and any C code on this stack)
-	 * observes current == n, exactly as the old %esp-derived current did.
-	 */
-	bsp_cpu_info.current_task = n;
-
-	/*
-	 * `current` inside this function refers to the next task, since kernel
-	 * stack has been changed
-	 */
-	assert(current == n);
-
 	struct thread_struct *prev = &p->thread;
 	struct thread_struct *next = &n->thread;
+	struct tss_struct *tss;
 
-	init_tss.esp0 = next->esp0;
+	/*
+	 * The inline switch already changed the kernel stack.  Publish the new
+	 * task in the destination CPU's slot first so the assertion below (and
+	 * any C code on this stack) observes current == n.
+	 */
+	cpu_info[n->cpu].current_task = n;
+	assert(current == n);
+
+	/* Every CPU must update its own ring-0 stack pointer. */
+	tss = (n->cpu == 0) ? &init_tss : &ap_tss[n->cpu];
+	tss->esp0 = next->esp0;
+
 	/*
 	 * %fs is still the user segment used by get_user/put_user, so it must
 	 * follow the task across kernel context switches.  %gs is the per-CPU
@@ -91,15 +177,25 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	save_segment(fs, prev->fs);
 	load_segment(fs, next->fs);
 
-	// TLS
+	/*
+	 * AP GDTs are per-CPU copies.  Update TLS descriptors in the GDT that is
+	 * actually installed on this CPU, not always the BSP's global table.
+	 */
+	struct desc_struct *g = cpu_gdt(n->cpu);
 	struct user_desc *ud = n->thread.user_descs;
 	for (int idx = 0; idx < NR_USER_DESC; ++idx) {
-		if (user_desc_zero(ud + idx)) {
-			zero_desc(gdt + GDT_ENTRY_TLS_MIN_IDX + idx);
-		} else {
-			fill_desc(gdt + GDT_ENTRY_TLS_MIN_IDX + idx, ud + idx);
-		}
+		if (user_desc_zero(ud + idx))
+			zero_desc(g + GDT_ENTRY_TLS_MIN_IDX + idx);
+		else
+			fill_desc(g + GDT_ENTRY_TLS_MIN_IDX + idx, ud + idx);
 	}
+
+	/*
+	 * schedule() holds the scheduler lock across switch_to().  Only after
+	 * this point is the previous task's kernel stack safely parked in
+	 * prev->thread, so another CPU may now be allowed to wake and run it.
+	 */
+	spin_unlock(&scheduler_lock);
 }
 
 void switch_to(struct task_struct *next)
@@ -132,44 +228,122 @@ void switch_to(struct task_struct *next)
 
 void schedule(void)
 {
-	int c;
-	struct list_head *tmp;
+	int cpu = current->cpu;
+	struct list_head *rq = &runqueue_head[cpu];
+	struct task_struct *idle = smp_idle_task(cpu);
 	struct task_struct *p, *next;
+	struct list_head *tmp;
+	int c;
 
 	irq_save();
-	if (current->state != TASK_RUNNING && current != &init_task)
-		out_runqueue(current);
+	spin_lock(&scheduler_lock);
+	spin_lock(&tasklist_lock);
+
 	/*
-	 * init_task wouldn't handle signal
+	 * Resolve the outgoing task first.  If it slept but already has a
+	 * pending signal, keep it runnable (and therefore linked on this CPU's
+	 * runqueue); otherwise unlink it before choosing the next task.
+	 */
+	if (current->state != TASK_RUNNING && current != idle) {
+		if (current->state == TASK_INTERRUPTIBLE &&
+		    signal_pending(current))
+			current->state = TASK_RUNNING;
+		else if (task_on_runqueue(current))
+			__dequeue_task(current);
+	}
+
+	/*
+	 * Wake any fully sleeping interruptible task that has a signal pending.
+	 * scheduler_lock makes this safe against concurrent wake_up_process()
+	 * calls and against the same task being switched out on another CPU.
+	 * current is deliberately handled above rather than here.
 	 */
 	for_each_task(p) {
-		if ((p->state == TASK_INTERRUPTIBLE) && signal_pending(p))
-			wake_up_process(p);
+		if (p->state != TASK_INTERRUPTIBLE || !signal_pending(p))
+			continue;
+
+		p->state = TASK_RUNNING;
+		if (!task_on_runqueue(p)) {
+			int target = select_task_cpu(p);
+
+			p->cpu = target;
+			__enqueue_task(target, p);
+			if (target != cpu)
+				smp_send_reschedule(target);
+		}
 	}
 
 	c = -100;
-	next = &init_task;
-	list_for_each(tmp, &runqueue_head) {
+	next = idle;
+	list_for_each(tmp, rq) {
 		p = list_entry(tmp, struct task_struct, run_list);
-		if (p->counter > c)
-			c = p->counter, next = p;
+		if (p->counter > c) {
+			c = p->counter;
+			next = p;
+		}
 	}
 
-	if (c)
-		goto tail;
+	if (!c)
+		for_each_task(p)
+			p->counter = DEF_COUNTER;
 
-	for_each_task(p) {
-		p->counter = DEF_COUNTER;
-	}
+	spin_unlock(&tasklist_lock);
 
-tail:
 	current->need_resched = 0;
 	if (next != current) {
 		syscall_trace_context_switch_out();
+		/* _switch_to() releases scheduler_lock once current is parked. */
 		switch_to(next);
 		syscall_trace_context_switch_in();
 	} else {
+		spin_unlock(&scheduler_lock);
 		irq_restore();
+	}
+}
+
+int sched_set_cpus_allowed(struct task_struct *p, unsigned long mask)
+{
+	unsigned long allowed = mask & online_cpu_mask();
+	unsigned long flags;
+
+	if (!allowed)
+		return -EINVAL;
+
+	/*
+	 * Keep migration explicit and safe for this step: a running task cannot
+	 * be atomically moved off the CPU it is executing on without a
+	 * stop-machine style handoff.  Accept masks that include the current CPU,
+	 * and defer migration of sleeping tasks to their next wakeup.
+	 */
+	if (p == current && !(allowed & (1UL << p->cpu)))
+		return -EINVAL;
+
+	spin_lock_irqsave(&scheduler_lock, flags);
+	p->cpus_allowed = allowed;
+	if (!(allowed & (1UL << p->cpu)) && p->state != TASK_RUNNING) {
+		for (int cpu = 0; cpu < nr_cpu_ids; cpu++)
+			if (allowed & (1UL << cpu)) {
+				p->cpu = cpu;
+				break;
+			}
+	}
+	spin_unlock_irqrestore(&scheduler_lock, flags);
+	return 0;
+}
+
+void ap_cpu_idle(void)
+{
+	for (;;) {
+		if (current->need_resched) {
+			schedule();
+			continue;
+		}
+
+		/*
+		 * APs do not have the BSP PIT tick.  Halt with interrupts enabled
+		 * so a wakeup IPI can resume this CPU and set need_resched.
+		 */
+		__asm__ __volatile__("sti; hlt");
 	}
 }
 

@@ -204,10 +204,10 @@ found_task:
 		return error;
 	mask = get_fs_long(user_mask);
 
-	/* Only CPU 0 exists, so that is the only valid affinity mask. */
-	if (mask != 1)
+	/* Reject offline CPUs and completely empty masks. */
+	if (!mask || (mask & ~online_cpu_mask()))
 		return -EINVAL;
-	return 0;
+	return sched_set_cpus_allowed(p, mask);
 }
 
 int sys_sched_getaffinity(pid_t pid, size_t len, unsigned long *user_mask)
@@ -233,7 +233,8 @@ found_task:
 	if (error)
 		return error;
 
-	/* This kernel schedules on a single CPU, so only CPU 0 is ever legal. */
+	/* Report the task's own affinity mask rather than a hard-coded CPU 0. */
+	mask = p->cpus_allowed;
 	put_fs_long(mask, user_mask);
 	for (i = sizeof(mask); i < len; i++)
 		put_fs_byte(0, (char *)user_mask + i);

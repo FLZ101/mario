@@ -49,6 +49,10 @@ struct task_struct {
 	/* Skip signal delivery on the first userspace return after vfork. */
 	int defer_sig;
 
+	/* Logical CPU currently hosting this task and its allowed CPU mask. */
+	int cpu;
+	unsigned long cpus_allowed;
+
 	long it_real_value, it_prof_value, it_virt_value;
 	long it_real_incr, it_prof_incr, it_virt_incr;
 	struct timer_list real_timer;

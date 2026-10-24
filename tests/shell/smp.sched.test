@@ -1,0 +1,49 @@
+# Exercise the per-CPU scheduler and affinity syscalls under SMP=4.
+# Keep the compute work short: APs have no timer tick in this step, so
+# runnable tasks only migrate at fork/wakeup and finish by making syscalls.
+
+REQUIRES-SMP: 4
+
+RUN: export PATH=/bin:/bin/toybox:/bin/sbase
+RUN: mkdir -p /tmp
+
+# A newly forked task must inherit the full online CPU mask.
+RUN: python <<'PYEOF'
+import os
+mask = os.sched_getaffinity(0)
+print(len(mask))
+PYEOF
+CHECK: 4
+
+# Setting the same online mask must succeed, and adding an offline CPU
+# must be rejected instead of corrupting the task mask.
+RUN: python <<'PYEOF'
+import os
+mask = os.sched_getaffinity(0)
+os.sched_setaffinity(0, mask)
+try:
+    os.sched_setaffinity(0, mask | {4})
+except OSError:
+    print("offline-rejected")
+PYEOF
+CHECK: offline-rejected
+
+# Fork several independent compute jobs.  wake_up_process() spreads new
+# tasks across online CPUs; each child exits normally and the parent
+# reaps it without memory corruption.
+RUN: python <<'PYEOF'
+import os
+pids = []
+for i in range(4):
+    pid = os.fork()
+    if pid == 0:
+        s = 0
+        for j in range(100000):
+            s += j
+        os._exit(0)
+    pids.append(pid)
+for pid in pids:
+    os.waitpid(pid, 0)
+print("parallel-ok")
+PYEOF
+CHECK: parallel-ok

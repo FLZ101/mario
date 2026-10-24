@@ -4,5 +4,6 @@
 void set_intr_gate(unsigned int n, void *addr);
 void set_trap_gate(unsigned int n, void *addr);
 void set_system_gate(unsigned int n, void *addr);
+void load_idt(void);
 
 #endif	/* _IDT_H */

@@ -32,3 +32,21 @@ void set_system_gate(unsigned int n, void *addr)
 	_set_gate(n,15,3,addr);
 }
 
+void load_idt(void)
+{
+	struct {
+		uint16_t limit;
+		unsigned long base;
+	} __attribute__((gcc_struct, packed)) idtr = {
+		.limit = sizeof(idt) - 1,
+		.base = (unsigned long)idt,
+	};
+
+	/*
+	 * Tell the compiler the inline asm reads idtr.  Without the memory
+	 * clobber GCC may delete the two stores above at -O3 and make LIDT
+	 * load whatever bytes happen to be in the stack slot.
+	 */
+	__asm__ __volatile__("lidt (%0)" : : "r"(&idtr) : "memory");
+}
+

@@ -3,6 +3,7 @@
 
 #include <trap.h>
 #include <errno.h>
+#include <ldt.h>
 #include <signal.h>
 
 #include <mm/page_alloc.h>
@@ -322,15 +323,25 @@ static void flush_old_exec(struct exec *exe, struct trap_frame *tr)
 	FD_ZERO(&current->files->close_on_exec);
 	clear_page_tables(current);
 
-	// Clear TLS !!!
+	/*
+	 * Clear TLS in both the task descriptor and the GDT copy installed on
+	 * this CPU.  `_switch_to()` refreshes TLS descriptors when a task is
+	 * scheduled, but exec runs in the context of a task that is already on
+	 * this CPU.  If the AP-local GDT still held the previous image's TLS
+	 * descriptor, the new image's later set_thread_area() would load %gs
+	 * against that stale descriptor.
+	 */
 	irq_save();
 	tr->gs = 0;
 	tr->fs = 0;
 	current->thread.gs = 0;
 	current->thread.fs = 0;
 	struct user_desc *ud = current->thread.user_descs;
+	struct desc_struct *tls_desc =
+		cpu_gdt(current->cpu) + GDT_ENTRY_TLS_MIN_IDX;
 	for (int i = 0; i < NR_USER_DESC; ++i) {
 		ud[i] = (struct user_desc){0};
+		zero_desc(tls_desc + i);
 	}
 	/* The live %gs register is the per-CPU base and must stay loaded. */
 	irq_restore();

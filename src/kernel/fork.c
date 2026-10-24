@@ -74,6 +74,8 @@ int do_fork(struct trap_frame *tr, int vfork)
 		return -ENOMEM;
 	}
 	*p = *current;
+	/* The child must not inherit a transient scheduler-lock state. */
+	INIT_LOCK(&p->lock);
 	p->syscall_trace_start = 0;
 	p->syscall_trace_running = 0;
 	p->syscall_trace_last_tsc = 0;
@@ -98,6 +100,8 @@ int do_fork(struct trap_frame *tr, int vfork)
 	p->defer_sig = 0;
 	p->leader = 0;
 
+	p->cpu = current->cpu;
+	p->cpus_allowed = online_cpu_mask();
 	p->run_list.next = NULL;
 	p->run_list.prev = NULL;
 	p->p_pptr = current;

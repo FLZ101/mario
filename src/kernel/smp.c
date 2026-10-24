@@ -1,7 +1,9 @@
 #include <misc.h>
 #include <io.h>
+#include <idt.h>
 #include <ldt.h>
 #include <smp.h>
+#include <sched.h>
 #include <task.h>
 #include <time.h>
 #include <printk.h>
@@ -31,9 +33,17 @@
 #define APIC_BASE_VIRT		0xffc00000UL
 
 #define APIC_ID			0x020
+#define APIC_EOI		0x0b0
 #define APIC_SPURIOUS		0x0f0
 #define APIC_ICR_LOW		0x300
 #define APIC_ICR_HIGH		0x310
+
+/* ICR delivery status: set while the previous IPI has not been accepted. */
+#define APIC_DELIVERY_STATUS	(1 << 12)
+
+/* Vectors used for SMP IPIs.  Keep them above the PIC IRQ vector range. */
+#define IPI_RESCHEDULE_VECTOR	0xfb
+#define IPI_TLB_FLUSH_VECTOR	0xfc
 
 #define APIC_DEST_PHYSICAL	(0 << 11)
 #define APIC_DM_INIT		(5 << 8)
@@ -105,13 +115,20 @@ struct acpi_sdt_hdr {
 extern char smp_trampoline_start[];
 extern char smp_trampoline_end[];
 
+/* entry.S IPI trampolines. */
+extern void ipi_reschedule_entry(void);
+extern void ipi_tlb_flush_entry(void);
+extern void ap_reload_cs(void);
+
 /* Logical CPU index for each APIC ID, used by APs to find their cpu_info. */
 static int apicid_to_cpu[256];
 static int cpu_apic_id[NR_CPUS];
 static char ap_stacks[NR_CPUS][KSTACK_SIZE] __attribute__((aligned(PAGE_SIZE)));
 static struct desc_struct ap_gdt[NR_CPUS][GDT_ENTRY_PERCPU + 1];
+static struct task_struct idle_tasks[NR_CPUS];
 static volatile uint32_t *lapic;
 
+struct tss_struct ap_tss[NR_CPUS];
 int nr_cpu_ids;
 
 static inline void native_cpuid(unsigned int *eax, unsigned int *ebx,
@@ -509,6 +526,64 @@ static void apic_write(unsigned int reg, uint32_t value)
 	lapic[reg / 4] = value;
 }
 
+static void apic_eoi(void)
+{
+	apic_write(APIC_EOI, 0);
+}
+
+static void send_ipi(int cpu, unsigned int vector)
+{
+	if (cpu < 0 || cpu >= nr_cpu_ids || !cpu_info[cpu].online)
+		return;
+	if (cpu == current->cpu)
+		return;
+
+	/*
+	 * The local APIC has only one ICR.  If a previous IPI is still being
+	 * delivered, overwriting the ICR can silently drop it.  Wait for the
+	 * delivery-status bit to clear before composing the next message.
+	 */
+	while (apic_read(APIC_ICR_LOW) & APIC_DELIVERY_STATUS)
+		__asm__ __volatile__("pause");
+
+	/* Physical destination mode puts the APIC ID in the ICR high word. */
+	apic_write(APIC_ICR_HIGH, cpu_apic_id[cpu] << 24);
+	apic_write(APIC_ICR_LOW, vector | APIC_DEST_PHYSICAL);
+}
+
+void smp_send_reschedule(int cpu)
+{
+	send_ipi(cpu, IPI_RESCHEDULE_VECTOR);
+}
+
+void smp_send_tlb_flush(int cpu)
+{
+	send_ipi(cpu, IPI_TLB_FLUSH_VECTOR);
+}
+
+/* Called from entry.S for the reschedule and TLB-shootdown IPIs. */
+void do_reschedule_ipi(void)
+{
+	apic_eoi();
+	current->need_resched = 1;
+}
+
+void do_tlb_flush_ipi(void)
+{
+	apic_eoi();
+	flush_tlb();
+}
+
+struct desc_struct *cpu_gdt(int cpu)
+{
+	return cpu == 0 ? gdt : ap_gdt[cpu];
+}
+
+struct task_struct *smp_idle_task(int cpu)
+{
+	return cpu == 0 ? &init_task : &idle_tasks[cpu];
+}
+
 static int lapic_id(void)
 {
 	return apic_read(APIC_ID) >> 24;
@@ -548,9 +623,29 @@ static void ap_gdt_install(int cpu)
 		uint16_t limit;
 		unsigned long base;
 	} __attribute__((gcc_struct, packed)) gdtr;
+	struct desc_struct *tss_desc = &ap_gdt[cpu][1];
 	struct desc_struct *per_cpu_desc = &ap_gdt[cpu][GDT_ENTRY_PERCPU];
 
 	memcpy(ap_gdt[cpu], gdt, sizeof(ap_gdt[cpu]));
+
+	/*
+	 * Retarget the AP's TSS descriptor to its private TSS.  All CPUs share
+	 * selector 0x08, but the descriptor base must differ so interrupts do
+	 * not load the BSP's ring-0 stack pointer on an AP.
+	 */
+	tss_desc->limit0 = 0x67;
+	tss_desc->base0 = (unsigned long)&ap_tss[cpu] & 0xffff;
+	tss_desc->base1 = ((unsigned long)&ap_tss[cpu] >> 16) & 0xff;
+	tss_desc->type = 0x9;
+	tss_desc->s = 0;
+	tss_desc->dpl = 0;
+	tss_desc->p = 1;
+	tss_desc->limit1 = 0;
+	tss_desc->avl = 0;
+	tss_desc->l = 0;
+	tss_desc->d = 0;
+	tss_desc->g = 0;
+	tss_desc->base2 = ((unsigned long)&ap_tss[cpu] >> 24) & 0xff;
 
 	/*
 	 * Point the per-CPU descriptor at this AP's own cpu_info slot.  The
@@ -581,24 +676,51 @@ static void ap_gdt_install(int cpu)
 	load_segment(ss, kernel_ds);
 	load_segment(fs, kernel_ds);
 	load_segment(gs, per_cpu_ds);
+
+	/* The trampoline left CS as its temporary 0x08 code selector.  In this
+	 * final GDT 0x08 is the TSS, so switch to the real kernel code selector
+	 * before any interrupt return reloads CS from a saved frame. */
+	ap_reload_cs();
+
+	/* The IDT is shared, but IDTR is per CPU and must be loaded here. */
+	load_idt();
+	__asm__ __volatile__("ltr %0" : : "r"((unsigned short)0x08));
 }
 
 void smp_ap_entry(void)
 {
 	int apic_id = lapic_id();
 	int cpu = apicid_to_cpu[apic_id];
+	struct task_struct *idle = &idle_tasks[cpu];
 
 	ap_gdt_install(cpu);
+
+	memset(idle, 0, sizeof(*idle));
+	idle->state = TASK_RUNNING;
+	idle->cpu = cpu;
+	idle->cpus_allowed = 1UL << cpu;
+	idle->mm = init_task.mm;
+	idle->thread.fs = KERNEL_DS;
+	idle->thread.gs = KERNEL_DS;
+	idle->thread.esp0 = (unsigned long)ap_stacks[cpu] + KSTACK_SIZE;
+	idle->thread.esp = idle->thread.esp0;
+	idle->run_list.next = NULL;
+	idle->run_list.prev = NULL;
+
+	/* An AP's TSS supplies the ring-0 stack for its IPI handlers. */
+	memset(&ap_tss[cpu], 0, sizeof(ap_tss[cpu]));
+	ap_tss[cpu].esp0 = idle->thread.esp0;
+	ap_tss[cpu].ss0 = KERNEL_DS;
+
 	cpu_info[cpu].id = cpu;
-	cpu_info[cpu].current_task = &init_task;
+	cpu_info[cpu].current_task = idle;
 	cpu_info[cpu].online = 1;
 
-	/*
-	 * APs stay in their own halted idle loop until Step 6 gives them a
-	 * runqueue and scheduler.  Interrupts remain masked because the PIC
-	 * still delivers device IRQs only to the BSP.
-	 */
-	__asm__ __volatile__("cli; 1: hlt; jmp 1b");
+	/* Enable this CPU's local APIC so reschedule/TLB IPIs can be delivered. */
+	apic_write(APIC_SPURIOUS, apic_read(APIC_SPURIOUS) | 0x1ff);
+
+	/* APs now participate in the per-CPU scheduler. */
+	ap_cpu_idle();
 }
 
 static void copy_trampoline_and_patch(void)
@@ -716,6 +838,8 @@ void smp_init(struct multiboot_info *m)
 	lapic = (volatile uint32_t *)APIC_BASE_VIRT;
 	/* Enable the local APIC with the lowest-priority spurious vector. */
 	apic_write(APIC_SPURIOUS, apic_read(APIC_SPURIOUS) | 0x1ff);
+	set_intr_gate(IPI_RESCHEDULE_VECTOR, ipi_reschedule_entry);
+	set_intr_gate(IPI_TLB_FLUSH_VECTOR, ipi_tlb_flush_entry);
 	trampoline_map();
 	copy_trampoline_and_patch();
 	boot_aps(nr);

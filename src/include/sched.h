@@ -52,6 +52,9 @@ do { \
 #define for_each_task(p) \
 	for (p = &init_task; (p = p->next_task) != &init_task; )
 
+void sched_init_smp(void);
+void ap_cpu_idle(void);
+int sched_set_cpus_allowed(struct task_struct *p, unsigned long mask);
 void wake_up_process(struct task_struct *p);
 
 void schedule(void);

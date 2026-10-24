@@ -280,7 +280,16 @@ trap_common:
 	movw %ax, %gs
 	call *%edi
 	addl $8, %esp
-	RESTORE_ALL
+	/*
+	 * Route the exception return through ret_common so pending signals are
+	 * delivered and the scheduler runs before returning to user mode.  Mark
+	 * the frame as an exception first: ret_common/do_signal() treat a
+	 * non-negative error_code as a system-call number, but hardware
+	 * exception error codes (for example a page fault) are also positive.
+	 * -1 disables the syscall restart logic for exception frames.
+	 */
+	movl $-1, ERROR_CODE(%esp)
+	jmp ret_common
 
 /****************
  * IRQ handlers *
@@ -304,6 +313,34 @@ trap_common:
 
 ret_from_intr:
 	jmp ret_common
+
+/*
+ * SMP IPI handlers.  The local APIC EOI is issued by the C handler so that
+ * interrupt remains acknowledged even if ret_from_intr later reschedules.
+ */
+ENTRY(ipi_reschedule_entry)
+	pushl $-1
+	SAVE_ALL
+	call do_reschedule_ipi
+	jmp ret_from_intr
+
+ENTRY(ipi_tlb_flush_entry)
+	pushl $-1
+	SAVE_ALL
+	call do_tlb_flush_ipi
+	jmp ret_from_intr
+
+/*
+ * Reload CS after an AP installs the final kernel GDT.  The trampoline enters
+ * smp_ap_entry with CS = 0x08, which is the temporary trampoline code selector.
+ * In the final GDT selector 0x08 is the TSS, so every iret would try to load
+ * the TSS descriptor into CS and fault.  A long jump reloads CS with the real
+ * kernel code selector and makes the descriptor cache match the new GDT.
+ */
+ENTRY(ap_reload_cs)
+	ljmp $KERNEL_CS, $1f
+1:
+	ret
 
 irq0:
 	pushl $-1
