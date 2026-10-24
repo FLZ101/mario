@@ -259,6 +259,15 @@ void schedule(void)
 	 * current is deliberately handled above rather than here.
 	 */
 	for_each_task(p) {
+		/*
+		 * Never wake and enqueue the task that called schedule() from this
+		 * loop.  It is still executing on this CPU and will either be parked
+		 * below or relinked on this CPU by the re-check that follows.  Enqueueing
+		 * it here could place it on a remote runqueue while it is still running
+		 * locally, which would let two CPUs execute the same task concurrently.
+		 */
+		if (p == current)
+			continue;
 		if (p->state != TASK_INTERRUPTIBLE || !signal_pending(p))
 			continue;
 
@@ -271,6 +280,18 @@ void schedule(void)
 			if (target != cpu)
 				smp_send_reschedule(target);
 		}
+	}
+
+	/*
+	 * A signal can arrive for current after the outgoing-state check above but
+	 * before the runqueue scan.  Re-check current under scheduler_lock so an
+	 * interruptible sleeper with a newly pending signal stays runnable and is
+	 * relinked on this CPU, never on another CPU.
+	 */
+	if (current->state == TASK_INTERRUPTIBLE && signal_pending(current)) {
+		current->state = TASK_RUNNING;
+		if (!task_on_runqueue(current))
+			__enqueue_task(cpu, current);
 	}
 
 	c = -100;

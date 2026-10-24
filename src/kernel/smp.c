@@ -668,7 +668,14 @@ static void ap_gdt_install(int cpu)
 
 	gdtr.limit = sizeof(ap_gdt[cpu]) - 1;
 	gdtr.base = (unsigned long)ap_gdt[cpu];
-	__asm__ __volatile__("lgdt (%0)" : : "r"(&gdtr));
+	/*
+	 * The descriptor-table stores above are ordinary memory writes.  The
+	 * memory clobber prevents the compiler from moving those writes across
+	 * LGDT (or the segment loads below) at -O3; otherwise the AP can load a
+	 * partially initialised GDT and fault intermittently before it reaches
+	 * the idle loop.
+	 */
+	__asm__ __volatile__("lgdt (%0)" : : "r"(&gdtr) : "memory");
 	unsigned short kernel_ds = KERNEL_DS;
 	unsigned short per_cpu_ds = KERNEL_PERCPU_DS;
 	load_segment(ds, kernel_ds);
@@ -684,7 +691,9 @@ static void ap_gdt_install(int cpu)
 
 	/* The IDT is shared, but IDTR is per CPU and must be loaded here. */
 	load_idt();
-	__asm__ __volatile__("ltr %0" : : "r"((unsigned short)0x08));
+	/* LTR reads the TSS descriptor from the just-installed GDT, so it also
+	 * needs a memory clobber to keep the descriptor stores visible. */
+	__asm__ __volatile__("ltr %0" : : "r"((unsigned short)0x08) : "memory");
 }
 
 void smp_ap_entry(void)
