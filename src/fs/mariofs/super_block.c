@@ -15,6 +15,22 @@ extern struct file_operations chrdev_fops;
 
 #define MARIO_BLOCK_MAP_KMALLOC_MAX	1020
 
+/*
+ * Protects the lazily built per-inode block maps.  The map pointer itself is
+ * installed under this lock, while the potentially sleeping block reads used
+ * to build the map happen outside the lock.  Without this two CPUs can page
+ * fault in the same executable concurrently, both see a NULL map, and both
+ * install different maps into the same inode.
+ */
+static spinlock_t mario_block_map_lock = SPINLOCK_UNLOCKED;
+
+struct mario_block_map {
+	unsigned long *map;
+	unsigned long len;
+	unsigned long order;
+	unsigned long kmalloc_flag;
+};
+
 static unsigned long mario_block_map_order(unsigned long bytes)
 {
 	unsigned long pages = (bytes + PAGE_SIZE - 1) >> PAGE_SHIFT;
@@ -27,6 +43,9 @@ static unsigned long mario_block_map_order(unsigned long bytes)
 
 void mario_destroy_block_map(struct inode *inode)
 {
+	unsigned long flags;
+
+	spin_lock_irqsave(&mario_block_map_lock, flags);
 	if (MARIO_INODE_BLOCK_MAP(inode)) {
 		if (MARIO_INODE_BLOCK_MAP_KMALLOC(inode))
 			kfree(MARIO_INODE_BLOCK_MAP(inode));
@@ -39,17 +58,29 @@ void mario_destroy_block_map(struct inode *inode)
 	MARIO_INODE_BLOCK_MAP_LEN(inode) = 0;
 	MARIO_INODE_BLOCK_MAP_ORDER(inode) = 0;
 	MARIO_INODE_BLOCK_MAP_KMALLOC(inode) = 0;
+	spin_unlock_irqrestore(&mario_block_map_lock, flags);
 }
 
-static int mario_build_block_map(struct inode *inode)
+static void mario_free_block_map(struct mario_block_map *cand)
+{
+	if (cand->kmalloc_flag)
+		kfree(cand->map);
+	else
+		pages_free((unsigned long)cand->map, cand->order);
+}
+
+/*
+ * Build a complete block-number map for @inode without installing it.  The
+ * caller installs the result under mario_block_map_lock after checking that
+ * no other CPU has already installed an equivalent map.
+ */
+static int mario_alloc_block_map(struct inode *inode,
+				 struct mario_block_map *cand)
 {
 	unsigned long blocks, bytes, block, i;
 	unsigned long *map;
 	struct buffer_head *bh;
 	int next;
-
-	if (MARIO_INODE_BLOCK_MAP(inode))
-		return MARIO_INODE_BLOCK_MAP_LEN(inode);
 
 	blocks = inode->i_nr_block;
 	if (!blocks)
@@ -62,30 +93,30 @@ static int mario_build_block_map(struct inode *inode)
 		map = kmalloc(bytes);
 		if (!map)
 			return -ENOMEM;
-		MARIO_INODE_BLOCK_MAP_KMALLOC(inode) = 1;
-		MARIO_INODE_BLOCK_MAP_ORDER(inode) = 0;
+		cand->kmalloc_flag = 1;
+		cand->order = 0;
 	} else {
 		unsigned long order = mario_block_map_order(bytes);
 
 		map = (unsigned long *)pages_alloc(order);
 		if (!map)
 			return -ENOMEM;
-		MARIO_INODE_BLOCK_MAP_KMALLOC(inode) = 0;
-		MARIO_INODE_BLOCK_MAP_ORDER(inode) = order;
+		cand->kmalloc_flag = 0;
+		cand->order = order;
 	}
 
-	MARIO_INODE_BLOCK_MAP(inode) = map;
-	MARIO_INODE_BLOCK_MAP_LEN(inode) = 0;
+	cand->map = map;
 
 	block = inode->i_rdev;
 	for (i = 0; i < blocks; i++) {
 		map[i] = block;
-		MARIO_INODE_BLOCK_MAP_LEN(inode) = i + 1;
 		if (i + 1 == blocks)
 			break;
 
 		if (!(bh = bread(inode->i_dev, block))) {
-			mario_destroy_block_map(inode);
+			cand->len = i + 1;
+			mario_free_block_map(cand);
+			memset(cand, 0, sizeof(*cand));
 			return -EIO;
 		}
 		next = *(int *)(bh->b_data + inode->i_block_size - 4);
@@ -95,7 +126,8 @@ static int mario_build_block_map(struct inode *inode)
 		block = next;
 	}
 
-	return MARIO_INODE_BLOCK_MAP_LEN(inode);
+	cand->len = i + 1;
+	return cand->len;
 }
 
 static int mario_chain_nth_block(struct inode *inode, int n, int *block_nr)
@@ -129,8 +161,10 @@ static int mario_chain_nth_block(struct inode *inode, int n, int *block_nr)
  */
 int mario_nth_block(struct inode *inode, int n, int *block_nr)
 {
-	unsigned long idx;
-	int len;
+	unsigned long idx, flags;
+	unsigned long *map;
+	struct mario_block_map cand;
+	int len, ret;
 
 	*block_nr = 0;
 	if (n < 0)
@@ -139,21 +173,70 @@ int mario_nth_block(struct inode *inode, int n, int *block_nr)
 	if (!S_ISREG(inode->i_mode))
 		return mario_chain_nth_block(inode, n, block_nr);
 
-	len = mario_build_block_map(inode);
-	if (len < 0)
-		return len;
-	if (!len)
-		return 0;
+	for (;;) {
+		spin_lock_irqsave(&mario_block_map_lock, flags);
+		map = MARIO_INODE_BLOCK_MAP(inode);
+		if (map) {
+			len = MARIO_INODE_BLOCK_MAP_LEN(inode);
+			if (!len) {
+				spin_unlock_irqrestore(&mario_block_map_lock, flags);
+				return 0;
+			}
+			if (n == 0)
+				idx = len - 1;
+			else if (n > len) {
+				spin_unlock_irqrestore(&mario_block_map_lock, flags);
+				return len;
+			} else
+				idx = n - 1;
 
-	if (n == 0)
-		idx = len - 1;
-	else if (n > len)
-		return len;
-	else
-		idx = n - 1;
+			*block_nr = map[idx];
+			spin_unlock_irqrestore(&mario_block_map_lock, flags);
+			return n ? n : len;
+		}
+		spin_unlock_irqrestore(&mario_block_map_lock, flags);
 
-	*block_nr = MARIO_INODE_BLOCK_MAP(inode)[idx];
-	return n ? n : len;
+		/*
+		 * No map exists yet.  Build one outside the spinlock because the
+		 * block-chain walk calls bread(), which may sleep waiting for a
+		 * buffer.  After building, re-check and either install our map or
+		 * reuse the one another CPU installed while we were reading.
+		 */
+		memset(&cand, 0, sizeof(cand));
+		len = mario_alloc_block_map(inode, &cand);
+		if (len < 0)
+			return len;
+		if (!len)
+			return 0;
+
+		spin_lock_irqsave(&mario_block_map_lock, flags);
+		if (!MARIO_INODE_BLOCK_MAP(inode)) {
+			MARIO_INODE_BLOCK_MAP(inode) = cand.map;
+			MARIO_INODE_BLOCK_MAP_LEN(inode) = cand.len;
+			MARIO_INODE_BLOCK_MAP_ORDER(inode) = cand.order;
+			MARIO_INODE_BLOCK_MAP_KMALLOC(inode) =
+				cand.kmalloc_flag;
+			map = cand.map;
+			len = cand.len;
+		} else {
+			spin_unlock_irqrestore(&mario_block_map_lock, flags);
+			mario_free_block_map(&cand);
+			continue;
+		}
+
+		if (n == 0)
+			idx = len - 1;
+		else if (n > len) {
+			spin_unlock_irqrestore(&mario_block_map_lock, flags);
+			return len;
+		} else
+			idx = n - 1;
+
+		*block_nr = map[idx];
+		ret = n ? n : len;
+		spin_unlock_irqrestore(&mario_block_map_lock, flags);
+		return ret;
+	}
 }
 
 /*
