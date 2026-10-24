@@ -19,6 +19,7 @@ void syscall_trace_start(unsigned int nr);
 void syscall_trace_end(unsigned int nr);
 void syscall_trace_calibrate(void);
 void syscall_trace_reset(void);
+void syscall_trace_stat_get(unsigned int nr, struct syscall_trace_stat *dst);
 void syscall_trace_set_pid(pid_t pid);
 void syscall_trace_task_exit(struct task_struct *task);
 pid_t syscall_trace_get_pid(void);

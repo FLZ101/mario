@@ -148,14 +148,15 @@ static int debugfs_syscalls_content(char *buf, size_t size)
 		      "syscall name calls total_ms avg_ms max_ms\n");
 
 	for (nr = 0; nr < NR_SYSCALLS; nr++) {
-		struct syscall_trace_stat *stat = &syscall_trace[nr];
+		struct syscall_trace_stat stat;
 		uint64_t avg;
 		int len = 0;
 
-		if (!stat->calls)
+		syscall_trace_stat_get(nr, &stat);
+		if (!stat.calls)
 			continue;
 
-		avg = stat->cycles / stat->calls;
+		avg = stat.cycles / stat.calls;
 		len += sprintkn(line + len, sizeof(line) - len, "%u ", nr);
 		if (syscall_trace_name(nr))
 			len += sprintkn(line + len, sizeof(line) - len,
@@ -163,16 +164,16 @@ static int debugfs_syscalls_content(char *buf, size_t size)
 		else
 			len += sprintkn(line + len, sizeof(line) - len, "- ");
 		len += debugfs_sput_u64(line + len, sizeof(line) - len,
-					stat->calls);
+					stat.calls);
 		len += sprintkn(line + len, sizeof(line) - len, " ");
 		len += debugfs_sput_cycles_ms(line + len, sizeof(line) - len,
-					     stat->cycles, cycles_per_ms);
+					     stat.cycles, cycles_per_ms);
 		len += sprintkn(line + len, sizeof(line) - len, " ");
 		len += debugfs_sput_cycles_ms(line + len, sizeof(line) - len,
 					     avg, cycles_per_ms);
 		len += sprintkn(line + len, sizeof(line) - len, " ");
 		len += debugfs_sput_cycles_ms(line + len, sizeof(line) - len,
-					     stat->max_cycles, cycles_per_ms);
+					     stat.max_cycles, cycles_per_ms);
 		len += sprintkn(line + len, sizeof(line) - len, "\n");
 
 		if ((size_t)n + (size_t)len >= size)

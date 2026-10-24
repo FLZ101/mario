@@ -9,6 +9,11 @@
 
 struct syscall_trace_stat syscall_trace[NR_SYSCALLS];
 static pid_t trace_pid;
+/*
+ * Guards the global per-syscall statistics.  Updates happen on every traced
+ * syscall return, while debugfs can read them from another CPU.
+ */
+static spinlock_t syscall_trace_lock = SPINLOCK_UNLOCKED;
 
 /*
  * Wall-clock profile state.  tsc_per_ms calibrates raw rdtsc cycles, while
@@ -520,6 +525,7 @@ void syscall_trace_end(unsigned int nr)
 {
 	uint64_t now, delta;
 	struct syscall_trace_stat *stat;
+	unsigned long flags;
 
 	if (nr >= NR_SYSCALLS)
 		return;
@@ -535,10 +541,12 @@ void syscall_trace_end(unsigned int nr)
 	current->syscall_trace_last_tsc = 0;
 	stat = &syscall_trace[nr];
 
+	spin_lock_irqsave(&syscall_trace_lock, flags);
 	stat->calls++;
 	stat->cycles += delta;
 	if (delta > stat->max_cycles)
 		stat->max_cycles = delta;
+	spin_unlock_irqrestore(&syscall_trace_lock, flags);
 }
 
 /*
@@ -564,8 +572,24 @@ void syscall_trace_calibrate(void)
 /* Reset both the per-syscall counters and the wall-clock interval start. */
 void syscall_trace_reset(void)
 {
+	unsigned long flags;
+
+	spin_lock_irqsave(&syscall_trace_lock, flags);
 	memset(syscall_trace, 0, sizeof(syscall_trace));
+	spin_unlock_irqrestore(&syscall_trace_lock, flags);
 	trace_reset_tsc = syscall_trace_tsc();
+}
+
+void syscall_trace_stat_get(unsigned int nr, struct syscall_trace_stat *dst)
+{
+	unsigned long flags;
+
+	if (nr >= NR_SYSCALLS || !dst)
+		return;
+
+	spin_lock_irqsave(&syscall_trace_lock, flags);
+	*dst = syscall_trace[nr];
+	spin_unlock_irqrestore(&syscall_trace_lock, flags);
 }
 
 static struct task_struct *syscall_trace_find_task(pid_t pid)
@@ -690,11 +714,14 @@ unsigned long syscall_trace_total_ms(void)
 {
 	uint64_t total = 0;
 	unsigned int nr;
+	unsigned long flags;
 
 	if (!tsc_per_ms)
 		return 0;
+	spin_lock_irqsave(&syscall_trace_lock, flags);
 	for (nr = 0; nr < NR_SYSCALLS; nr++)
 		total += syscall_trace[nr].cycles;
+	spin_unlock_irqrestore(&syscall_trace_lock, flags);
 	return (unsigned long)(total / tsc_per_ms);
 }
 
