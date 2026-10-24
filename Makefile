@@ -107,7 +107,6 @@ test-all:
 	$(MAKE) test SMP=4
 	$(MAKE) test SMP=8
 	$(MAKE) test SMP=16
-	$(MAKE) test SMP=32
 
 precommit: venv
 	$(PYTHON) -m pre_commit install

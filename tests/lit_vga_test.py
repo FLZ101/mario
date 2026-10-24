@@ -678,23 +678,25 @@ def skipped_reason(test, missing_hd_images, smp):
 
 def run_one(test, qemu, index, smp):
     name = os.path.relpath(test.path, ROOT)
+    started = time.monotonic()
     try:
         failures, report_screen = run_test(test, qemu, index, smp)
     except PexpectTimeout as exc:
-        return name, None, exc, None
+        return name, started, None, exc, None
     except Exception as exc:
-        return name, None, exc, None
-    return name, failures, None, report_screen
+        return name, started, None, exc, None
+    return name, started, failures, None, report_screen
 
 
-def report_one(name, failures, error, report_screen):
+def report_one(name, started, failures, error, report_screen):
+    elapsed = time.monotonic() - started
     if error is not None:
-        print(f"FAIL: {name}", flush=True)
+        print(f"FAIL: {name} [{elapsed:.2f}s]", flush=True)
         print(error, flush=True)
         return True
 
     if failures:
-        print(f"FAIL: {name}", flush=True)
+        print(f"FAIL: {name} [{elapsed:.2f}s]", flush=True)
         for failure in failures:
             print(failure, flush=True)
         if report_screen:
@@ -703,7 +705,7 @@ def report_one(name, failures, error, report_screen):
                 print(row.rstrip())
         return True
 
-    print(f"PASS: {name}", flush=True)
+    print(f"PASS: {name} [{elapsed:.2f}s]", flush=True)
     return False
 
 
