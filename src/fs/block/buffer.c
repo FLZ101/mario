@@ -81,13 +81,11 @@ static struct buffer_head *find_buffer(dev_t dev, unsigned long sector)
 struct buffer_head *get_buffer(dev_t dev, unsigned long sector)
 {
 	int size;
-	int new;	/* the buffer is new? */
 	struct buffer_head *bh;
 
 	if (get_sector_size(dev, &size) || size != 512)
 		return NULL;
 
-	new = 0;
 try:
 	ACQUIRE_LOCK(&buffer_lock);
 	if ((bh = find_buffer(dev, sector)))
@@ -102,17 +100,21 @@ try:
 	bh->b_count++;
 	bh->b_dev = dev;
 	bh->b_sector = sector;
-	new = 1;
+	/*
+	 * A newly recycled buffer still has the previous sector's state and
+	 * data.  Clear both while holding buffer_lock, before publishing the new
+	 * (dev, sector) pair.  Otherwise another CPU can find_buffer() the new
+	 * sector and, if it wins the b_sem first, see the stale Up2date bit and
+	 * return the old sector's bytes for this block.
+	 */
+	clear_dirty(bh);
+	clear_up2date(bh);
 
 tail:
 	list_del(&bh->b_lru);
 	list_add_tail(&bh->b_lru, &lru);
 	RELEASE_LOCK(&buffer_lock);
 	down(&bh->b_sem);
-	if (new) {
-		clear_dirty(bh);
-		clear_up2date(bh);
-	}
 	return bh;
 }
 
@@ -169,14 +171,35 @@ int brelse(struct buffer_head *bh)
 
 	ACQUIRE_LOCK(&buffer_lock);
 	if (!--bh->b_count) {
+		/*
+		 * The final user is releasing this buffer, so it must be flushed
+		 * before the slot can be recycled.  bsync() may block on block-device
+		 * I/O and therefore cannot run under buffer_lock.  Keep a temporary
+		 * reference while flushing so get_buffer() cannot choose this same
+		 * buffer for a different (dev, sector) pair until the flush is done.
+		 * Without this, another CPU could change b_dev/b_sector while
+		 * bsync() was still using them, writing stale data to a freshly
+		 * recycled buffer.
+		 */
+		bh->b_count = 1;
 		sync = 1;
-		into_lru_list(bh);
 	}
 	RELEASE_LOCK(&buffer_lock);
 
 	if (sync) {
 		res = bsync(bh);
-		wake_up_all(&buffer_wait);
+
+		/*
+		 * Drop the temporary flush reference.  If another lookup for the old
+		 * sector arrived while we were flushing it now owns the buffer, so
+		 * leave the buffer busy; otherwise it becomes reusable.
+		 */
+		ACQUIRE_LOCK(&buffer_lock);
+		if (!--bh->b_count) {
+			into_lru_list(bh);
+			wake_up_all(&buffer_wait);
+		}
+		RELEASE_LOCK(&buffer_lock);
 	}
 
 	up(&bh->b_sem);
