@@ -36,7 +36,8 @@ int sys_sigaltstack(const stack_t *ss, stack_t *old)
 
 int sys_sigprocmask(int how, sigset_t *set, sigset_t *oset)
 {
-	sigset_t new_set, old_set = current->blocked;
+	sigset_t new_set = 0, old_set = current->blocked;
+	unsigned long flags;
 	int error;
 
 	if (set) {
@@ -44,6 +45,16 @@ int sys_sigprocmask(int how, sigset_t *set, sigset_t *oset)
 		if (error)
 			return error;
 		new_set = get_fs_long((unsigned long *) set) & _BLOCKABLE;
+	}
+	if (oset) {
+		error = verify_area(VERIFY_WRITE, oset, sizeof(sigset_t));
+		if (error)
+			return error;
+	}
+
+	spin_lock_irqsave(&current->lock, flags);
+	old_set = current->blocked;
+	if (set) {
 		switch (how) {
 		case SIG_BLOCK:
 			current->blocked |= new_set;
@@ -55,25 +66,32 @@ int sys_sigprocmask(int how, sigset_t *set, sigset_t *oset)
 			current->blocked = new_set;
 			break;
 		default:
+			spin_unlock_irqrestore(&current->lock, flags);
 			return -EINVAL;
 		}
 	}
-	if (oset) {
-		error = verify_area(VERIFY_WRITE, oset, sizeof(sigset_t));
-		if (error)
-			return error;
+	if (oset)
 		put_fs_long(old_set, (unsigned long *)oset);
-	}
+	spin_unlock_irqrestore(&current->lock, flags);
 	return 0;
 }
 
 int sys_sigpending(sigset_t *set)
 {
 	int error;
+	unsigned long flags;
+	sigset_t pending;
+
 	error = verify_area(VERIFY_WRITE, set, sizeof(sigset_t));
-	if (!error)
-		put_fs_long(current->blocked & current->signal, (unsigned long *)set);
-	return error;
+	if (error)
+		return error;
+
+	spin_lock_irqsave(&current->lock, flags);
+	pending = current->blocked & current->signal;
+	spin_unlock_irqrestore(&current->lock, flags);
+
+	put_fs_long(pending, (unsigned long *)set);
+	return 0;
 }
 
 /*
@@ -113,6 +131,8 @@ unsigned long sys_signal(int signum, void (*handler)(int))
 {
 	int err;
 	struct sigaction tmp;
+	unsigned long flags;
+	unsigned long old_handler;
 
 	if (signum < 1 || signum > 32)
 		return -EINVAL;
@@ -127,15 +147,19 @@ unsigned long sys_signal(int signum, void (*handler)(int))
 	tmp.sa_mask = 0;
 	tmp.sa_flags = SA_ONESHOT | SA_NOMASK;
 	tmp.sa_restorer = NULL;
-	handler = current->sigaction[signum-1].sa_handler;
+	spin_lock_irqsave(&current->lock, flags);
+	old_handler = (unsigned long)current->sigaction[signum-1].sa_handler;
 	current->sigaction[signum-1] = tmp;
 	check_pending(signum);
-	return (unsigned long)handler;
+	spin_unlock_irqrestore(&current->lock, flags);
+	return old_handler;
 }
 
 int sys_sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
 {
 	struct sigaction new_sa, *p;
+	unsigned long flags;
+	struct sigaction old_sa;
 
 	if (signum < 1 || signum > 32)
 		return -EINVAL;
@@ -166,12 +190,18 @@ int sys_sigaction(int signum, const struct sigaction *act, struct sigaction *old
 		int err = verify_area(VERIFY_WRITE, oldact, sizeof(*oldact));
 		if (err)
 			return err;
-		memcpy_tofs(oldact, p, sizeof(struct sigaction));
 	}
+	spin_lock_irqsave(&current->lock, flags);
+	if (oldact)
+		old_sa = *p;
 	if (act) {
 		*p = new_sa;
 		check_pending(signum);
 	}
+	spin_unlock_irqrestore(&current->lock, flags);
+
+	if (oldact)
+		memcpy_tofs(oldact, &old_sa, sizeof(old_sa));
 	return 0;
 }
 
@@ -183,10 +213,13 @@ int do_sigreturn(struct trap_frame *tr)
 #define COPY(x) tr->x = context.x
 
 	struct sigcontext_struct context;
+	unsigned long flags;
 	if (verify_area(VERIFY_READ, (void *)tr->esp, sizeof(context)))
 		goto badframe;
 	memcpy_fromfs(&context,(void *)tr->esp, sizeof(context));
+	spin_lock_irqsave(&current->lock, flags);
 	current->blocked = context.old_mask & _BLOCKABLE;
+	spin_unlock_irqrestore(&current->lock, flags);
 	COPY(ds);
 	COPY(es);
 	COPY(fs);
@@ -270,15 +303,32 @@ void setup_frame(struct sigaction *sa, unsigned long **fp, unsigned long eip,
  */
 int do_signal(struct trap_frame *tr, unsigned long old_mask)
 {
-	unsigned long m = ~current->blocked;
+	unsigned long m;
 	unsigned long to_handle = 0;
 	unsigned long *frame = NULL;
 	unsigned long eip;
 	unsigned long signr;
 	struct sigaction *sa;
+	unsigned long flags;
 
-	while ((signr = current->signal & m)) {
-		// get & clear lowest signal no
+	/*
+	 * Lock current around each pending-signal read-modify-write.  Blocking
+	 * calls below (child reap, parent notification, schedule(), exit) must
+	 * happen after dropping the lock because those paths take tasklist or
+	 * scheduler locks.
+	 */
+	for (;;) {
+		int stop_notify = 0;
+
+		spin_lock_irqsave(&current->lock, flags);
+		m = ~current->blocked;
+		signr = current->signal & m;
+		if (!signr) {
+			spin_unlock_irqrestore(&current->lock, flags);
+			break;
+		}
+
+		/* get & clear lowest signal no */
 		__asm__ __volatile__ (
 				"bsf %1, %1\n\t"
 				"btrl %1, %0"
@@ -288,6 +338,7 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 		signr++;
 
 		if (sa->sa_handler == SIG_IGN) {
+			spin_unlock_irqrestore(&current->lock, flags);
 			if (signr != SIGCHLD)
 				continue;
 			/* check for SIGCHLD: it's special */
@@ -296,10 +347,13 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 			continue;
 		}
 		if (sa->sa_handler == SIG_DFL) {
-			if (current->pid == 1)
+			if (current->pid == 1) {
+				spin_unlock_irqrestore(&current->lock, flags);
 				continue;
+			}
 			switch (signr) {
 			case SIGCONT: case SIGCHLD: case SIGWINCH:
+				spin_unlock_irqrestore(&current->lock, flags);
 				continue;
 
 			case SIGSTOP: case SIGTSTP: case SIGTTIN: case SIGTTOU:
@@ -307,6 +361,9 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 				current->exit_code = signr;
 				if (!(current->p_pptr->sigaction[SIGCHLD-1].sa_flags &
 						SA_NOCLDSTOP))
+					stop_notify = 1;
+				spin_unlock_irqrestore(&current->lock, flags);
+				if (stop_notify)
 					notify_parent(current);
 				schedule();
 				continue;
@@ -316,6 +373,7 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 				/* no break */
 			default:
 				current->signal |= _S(signr & 0x7f);
+				spin_unlock_irqrestore(&current->lock, flags);
 				do_exit(signr);
 			}
 		}
@@ -329,6 +387,7 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 		}
 		to_handle |= 1 << (signr-1);
 		m &= ~sa->sa_mask;
+		spin_unlock_irqrestore(&current->lock, flags);
 	}
 
 	if (tr->error_code >= 0) {
@@ -355,16 +414,17 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 			continue;
 		setup_frame(sa, &frame, eip, tr, signr, old_mask);
 		eip = (unsigned long)sa->sa_handler;
+		spin_lock_irqsave(&current->lock, flags);
 		if (sa->sa_flags & SA_ONESHOT)
 			sa->sa_handler = SIG_DFL;
+		current->blocked |= sa->sa_mask;
+		spin_unlock_irqrestore(&current->lock, flags);
+		old_mask |= sa->sa_mask;
 
 		/* force a supervisor-mode page-in of the signal handler to reduce races */
 		__asm__("testb $0,%%fs:%0": :"m" (*(char *) eip));
 		tr->cs = USER_CS; tr->ss = USER_DS;
 		tr->ds = USER_DS; tr->es = USER_DS;
-
-		current->blocked |= sa->sa_mask;
-		old_mask |= sa->sa_mask;
 	}
 	tr->esp = (unsigned long) frame;
 	tr->eip = eip;		/* "return" to the first handler */
@@ -375,9 +435,12 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 int do_sigsuspend(sigset_t *mask, struct trap_frame *tr)
 {
 	sigset_t old_mask;
+	unsigned long flags;
 
+	spin_lock_irqsave(&current->lock, flags);
 	old_mask = current->blocked;
 	current->blocked = *mask & _BLOCKABLE;
+	spin_unlock_irqrestore(&current->lock, flags);
 	tr->eax = -EINTR;
 	while (1) {
 		current->state = TASK_INTERRUPTIBLE;

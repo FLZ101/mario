@@ -86,12 +86,18 @@ static int proc_name_is(char *name, int len, char *want)
 static struct task_struct *proc_find_task(pid_t pid)
 {
 	struct task_struct *p;
+	struct task_struct *ret = NULL;
+	unsigned long flags;
 
+	spin_lock_irqsave(&tasklist_lock, flags);
 	for_each_task(p) {
-		if (p->pid == pid)
-			return p;
+		if (p->pid == pid) {
+			ret = p;
+			break;
+		}
 	}
-	return NULL;
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return ret;
 }
 
 static int proc_parse_pid(char *name, int len, pid_t *pid)
@@ -755,15 +761,23 @@ static int proc_root_entry(int index, char *name, size_t size, ino_t *ino,
 		return 0;
 	default:
 		index -= 6;
+		{
+			unsigned long flags;
+			int ret = -ENOENT;
+
+			spin_lock_irqsave(&tasklist_lock, flags);
 		for_each_task(task) {
 			if (index-- == 0) {
 				sprintkn(name, size, "%d", task->pid);
 				*ino = proc_pid_ino(task->pid);
 				*type = DT_DIR;
-				return 0;
+				ret = 0;
+				break;
 			}
 		}
-		return -ENOENT;
+			spin_unlock_irqrestore(&tasklist_lock, flags);
+			return ret;
+		}
 	}
 }
 

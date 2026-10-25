@@ -12,15 +12,21 @@
 int sys_getpgid(pid_t pid)
 {
 	struct task_struct * p;
+	unsigned long flags;
+	int pgrp = -ESRCH;
 
 	if (!pid)
 		return current->pgrp;
 
+	spin_lock_irqsave(&tasklist_lock, flags);
 	for_each_task(p) {
-		if (p->pid == pid)
-			return p->pgrp;
+		if (p->pid == pid) {
+			pgrp = p->pgrp;
+			break;
+		}
 	}
-	return -ESRCH;
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return pgrp;
 }
 
 int sys_getsid(void)
@@ -31,6 +37,9 @@ int sys_getsid(void)
 int sys_setpgid(pid_t pid, pid_t pgid)
 {
 	struct task_struct *p;
+	unsigned long flags;
+	int ret = -ESRCH;
+	int found = 0;
 
 	if (!pid)
 		pid = current->pid;
@@ -38,34 +47,52 @@ int sys_setpgid(pid_t pid, pid_t pgid)
 		pgid = pid;
 	if (pgid < 0)
 		return -EINVAL;
-	for_each_task(p) {
-		if (p->pid == pid)
-			goto found_task;
-	}
-	return -ESRCH;
 
-found_task:
+	spin_lock_irqsave(&tasklist_lock, flags);
+	for_each_task(p) {
+		if (p->pid == pid) {
+			found = 1;
+			break;
+		}
+	}
+	if (!found)
+		goto out;
+
 	if (p->p_pptr == current) {
 		if (p->session != current->session)
-			return -EPERM;
+			goto eperm;
 		if (p->did_exec)
-			return -EACCES;
+			goto eacces;
 	} else if (p != current)
-		return -ESRCH;
+		goto out;
 	if (p->leader)
-		return -EPERM;
+		goto eperm;
 	if (pgid != pid) {
 		struct task_struct * tmp;
+		int found = 0;
+
 		for_each_task (tmp) {
-			if (tmp->pgrp == pgid && tmp->session == current->session)
-				goto ok_pgid;
+			if (tmp->pgrp == pgid && tmp->session == current->session) {
+				found = 1;
+				break;
+			}
 		}
-		return -EPERM;
+		if (!found)
+			goto eperm;
 	}
 
-ok_pgid:
 	p->pgrp = pgid;
-	return 0;
+	ret = 0;
+	goto out;
+
+eperm:
+	ret = -EPERM;
+	goto out;
+eacces:
+	ret = -EACCES;
+out:
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return ret;
 }
 
 int sys_setsid(void)
@@ -90,6 +117,8 @@ int sys_getppid(void)
 int sys_getpriority(int which, int who)
 {
 	struct task_struct *p;
+	unsigned long flags;
+	unsigned long pflags;
 	int found = 0;
 	int best = 0;
 
@@ -97,12 +126,17 @@ int sys_getpriority(int which, int who)
 	    which != PRIO_USER)
 		return -EINVAL;
 
+	spin_lock_irqsave(&tasklist_lock, flags);
 	if (which == PRIO_PROCESS) {
 		if (!who)
 			who = current->pid;
 		for_each_task(p) {
 			if (p->pid == who) {
-				int prio = NZERO - p->priority;
+				int prio;
+
+				spin_lock_irqsave(&p->lock, pflags);
+				prio = NZERO - p->priority;
+				spin_unlock_irqrestore(&p->lock, pflags);
 				if (prio > best)
 					best = prio;
 				found = 1;
@@ -113,7 +147,11 @@ int sys_getpriority(int which, int who)
 			who = current->pgrp;
 		for_each_task(p) {
 			if (p->pgrp == who) {
-				int prio = NZERO - p->priority;
+				int prio;
+
+				spin_lock_irqsave(&p->lock, pflags);
+				prio = NZERO - p->priority;
+				spin_unlock_irqrestore(&p->lock, pflags);
 				if (prio > best)
 					best = prio;
 				found = 1;
@@ -121,21 +159,34 @@ int sys_getpriority(int which, int who)
 		}
 	} else {
 		if (who)
-			return -ESRCH;
+			goto esrch;
 		for_each_task(p) {
-			int prio = NZERO - p->priority;
+			int prio;
+
+			spin_lock_irqsave(&p->lock, pflags);
+			prio = NZERO - p->priority;
+			spin_unlock_irqrestore(&p->lock, pflags);
 			if (prio > best)
 				best = prio;
 			found = 1;
 		}
 	}
 
-	return found ? best : -ESRCH;
+	if (!found)
+		goto esrch;
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return best;
+
+esrch:
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return -ESRCH;
 }
 
 int sys_setpriority(int which, int who, int prio)
 {
 	struct task_struct *p;
+	unsigned long flags;
+	unsigned long pflags;
 	int found = 0;
 
 	if (which != PRIO_PROCESS && which != PRIO_PGRP &&
@@ -144,12 +195,15 @@ int sys_setpriority(int which, int who, int prio)
 	if (prio < PRIO_MIN || prio > PRIO_MAX)
 		prio = prio < PRIO_MIN ? PRIO_MIN : PRIO_MAX;
 
+	spin_lock_irqsave(&tasklist_lock, flags);
 	if (which == PRIO_PROCESS) {
 		if (!who)
 			who = current->pid;
 		for_each_task(p) {
 			if (p->pid == who) {
+				spin_lock_irqsave(&p->lock, pflags);
 				p->priority = prio;
+				spin_unlock_irqrestore(&p->lock, pflags);
 				found = 1;
 			}
 		}
@@ -158,22 +212,31 @@ int sys_setpriority(int which, int who, int prio)
 			who = current->pgrp;
 		for_each_task(p) {
 			if (p->pgrp == who) {
+				spin_lock_irqsave(&p->lock, pflags);
 				p->priority = prio;
+				spin_unlock_irqrestore(&p->lock, pflags);
 				found = 1;
 			}
 		}
 	} else {
 		if (who)
-			return -ESRCH;
+			goto esrch;
 		for_each_task(p) {
+			spin_lock_irqsave(&p->lock, pflags);
 			p->priority = prio;
+			spin_unlock_irqrestore(&p->lock, pflags);
 			found = 1;
 		}
 	}
 
 	if (!found)
-		return -ESRCH;
+		goto esrch;
+	spin_unlock_irqrestore(&tasklist_lock, flags);
 	return 0;
+
+esrch:
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return -ESRCH;
 }
 
 int sys_gettid(void)
@@ -184,57 +247,86 @@ int sys_gettid(void)
 int sys_sched_setaffinity(pid_t pid, size_t len, unsigned long *user_mask)
 {
 	struct task_struct *p;
+	unsigned long flags;
 	unsigned long mask;
 	int error;
+	int found = 0;
 
 	if (len < sizeof(mask))
 		return -EINVAL;
 
 	if (!pid)
 		pid = current->pid;
-	for_each_task(p) {
-		if (p->pid == pid)
-			goto found_task;
-	}
-	return -ESRCH;
 
-found_task:
+	spin_lock_irqsave(&tasklist_lock, flags);
+	for_each_task(p) {
+		if (p->pid == pid) {
+			found = 1;
+			break;
+		}
+	}
+	if (!found)
+		goto esrch;
+
 	error = verify_area(VERIFY_READ, user_mask, sizeof(mask));
 	if (error)
-		return error;
+		goto out;
 	mask = get_fs_long(user_mask);
 
 	/* Reject offline CPUs and completely empty masks. */
-	if (!mask || (mask & ~online_cpu_mask()))
-		return -EINVAL;
-	return sched_set_cpus_allowed(p, mask);
+	if (!mask || (mask & ~online_cpu_mask())) {
+		error = -EINVAL;
+		goto out;
+	}
+	error = sched_set_cpus_allowed(p, mask);
+	goto out;
+
+esrch:
+	error = -ESRCH;
+out:
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return error;
 }
 
 int sys_sched_getaffinity(pid_t pid, size_t len, unsigned long *user_mask)
 {
 	struct task_struct *p;
+	unsigned long flags;
+	unsigned long pflags;
 	unsigned long mask = 1;
 	size_t i;
 	int error;
+	int found = 0;
 
 	if (len < sizeof(mask))
 		return -EINVAL;
 
 	if (!pid)
 		pid = current->pid;
-	for_each_task(p) {
-		if (p->pid == pid)
-			goto found_task;
-	}
-	return -ESRCH;
 
-found_task:
+	spin_lock_irqsave(&tasklist_lock, flags);
+	for_each_task(p) {
+		if (p->pid == pid) {
+			found = 1;
+			break;
+		}
+	}
+	if (!found) {
+		spin_unlock_irqrestore(&tasklist_lock, flags);
+		return -ESRCH;
+	}
+
+	/* Snapshot cpus_allowed before dropping the task-list lock. */
+	spin_lock_irqsave(&p->lock, pflags);
+	mask = p->cpus_allowed;
+	spin_unlock_irqrestore(&p->lock, pflags);
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+
 	error = verify_area(VERIFY_WRITE, user_mask, len);
 	if (error)
 		return error;
 
 	/* Report the task's own affinity mask rather than a hard-coded CPU 0. */
-	mask = p->cpus_allowed;
 	put_fs_long(mask, user_mask);
 	for (i = sizeof(mask); i < len; i++)
 		put_fs_byte(0, (char *)user_mask + i);

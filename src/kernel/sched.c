@@ -247,16 +247,24 @@ void schedule(void)
 	struct task_struct *p, *next;
 	struct list_head *tmp;
 	int c;
+	int current_woke = 0;
 
 	irq_save();
-	spin_lock(&scheduler_lock);
+	/*
+	 * tasklist_lock is ordered before scheduler_lock so syscalls that find a
+	 * task under tasklist_lock can safely update its scheduling state (for
+	 * example sched_setaffinity()).  The scheduler still drops tasklist_lock
+	 * before switch_to(), which releases scheduler_lock.
+	 */
 	spin_lock(&tasklist_lock);
+	spin_lock(&scheduler_lock);
 
 	/*
 	 * Resolve the outgoing task first.  If it slept but already has a
 	 * pending signal, keep it runnable (and therefore linked on this CPU's
 	 * runqueue); otherwise unlink it before choosing the next task.
 	 */
+	spin_lock(&current->lock);
 	if (current->state != TASK_RUNNING && current != idle) {
 		if (current->state == TASK_INTERRUPTIBLE &&
 		    signal_pending(current))
@@ -264,6 +272,7 @@ void schedule(void)
 		else if (task_on_runqueue(current))
 			__dequeue_task(current);
 	}
+	spin_unlock(&current->lock);
 
 	/*
 	 * Wake any fully sleeping interruptible task that has a signal pending.
@@ -281,10 +290,16 @@ void schedule(void)
 		 */
 		if (p == current)
 			continue;
-		if (p->state != TASK_INTERRUPTIBLE || !signal_pending(p))
+		if (p->state != TASK_INTERRUPTIBLE)
 			continue;
 
+		spin_lock(&p->lock);
+		if (p->state != TASK_INTERRUPTIBLE || !signal_pending(p)) {
+			spin_unlock(&p->lock);
+			continue;
+		}
 		p->state = TASK_RUNNING;
+		spin_unlock(&p->lock);
 		if (!task_on_runqueue(p)) {
 			int target = select_task_cpu(p);
 
@@ -301,11 +316,14 @@ void schedule(void)
 	 * interruptible sleeper with a newly pending signal stays runnable and is
 	 * relinked on this CPU, never on another CPU.
 	 */
+	spin_lock(&current->lock);
 	if (current->state == TASK_INTERRUPTIBLE && signal_pending(current)) {
 		current->state = TASK_RUNNING;
-		if (!task_on_runqueue(current))
-			__enqueue_task(cpu, current);
+		current_woke = 1;
 	}
+	spin_unlock(&current->lock);
+	if (current_woke && !task_on_runqueue(current))
+		__enqueue_task(cpu, current);
 
 	c = -100;
 	next = idle;
@@ -353,6 +371,7 @@ int sched_set_cpus_allowed(struct task_struct *p, unsigned long mask)
 		return -EINVAL;
 
 	spin_lock_irqsave(&scheduler_lock, flags);
+	spin_lock(&p->lock);
 	p->cpus_allowed = allowed;
 	if (!(allowed & (1UL << p->cpu)) && p->state != TASK_RUNNING) {
 		for (int cpu = 0; cpu < nr_cpu_ids; cpu++)
@@ -361,6 +380,7 @@ int sched_set_cpus_allowed(struct task_struct *p, unsigned long mask)
 				break;
 			}
 	}
+	spin_unlock(&p->lock);
 	spin_unlock_irqrestore(&scheduler_lock, flags);
 	return 0;
 }

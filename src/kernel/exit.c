@@ -17,13 +17,23 @@ extern void exit_fs(void);
 
 int send_sig(unsigned long sig, struct task_struct *p, int priv)
 {
+	unsigned long flags;
+	int ret = 0;
+
 	if (!p || sig > 32)
 		return -EINVAL;
 	if (!sig)
 		return 0;
 
+	/*
+	 * p->lock serialises signal-pending/action and stop-state updates with
+	 * do_signal() and the scheduling wake-up scan.  Callers normally already
+	 * hold tasklist_lock, but trap and timer code can call this directly, so
+	 * the task lock is IRQ-safe.
+	 */
+	spin_lock_irqsave(&p->lock, flags);
 	if (p->state == TASK_ZOMBIE)
-		return 0;
+		goto out;
 	if ((sig == SIGKILL) || (sig == SIGCONT)) {
 		if (p->state == TASK_STOPPED)
 			p->state = TASK_RUNNING;
@@ -40,13 +50,15 @@ int send_sig(unsigned long sig, struct task_struct *p, int priv)
 
 	/* don't bother with ignored signals (but SIGCHLD is special) */
 	if (sa->sa_handler == SIG_IGN && sig != SIGCHLD)
-		return 0;
+		goto out;
 	/* some signals are ignored by default.. (but SIGCONT already did its deed) */
 	if ((sa->sa_handler == SIG_DFL) &&
 	    (sig == SIGCONT || sig == SIGCHLD || sig == SIGWINCH))
-		return 0;
+		goto out;
 	p->signal |= mask;
-	return 0;
+out:
+	spin_unlock_irqrestore(&p->lock, flags);
+	return ret;
 }
 
 /*
@@ -56,11 +68,13 @@ int send_sig(unsigned long sig, struct task_struct *p, int priv)
 int kill_pg(int pgrp, int sig, int priv)
 {
 	struct task_struct *p;
+	unsigned long flags;
 	int err, res = -ESRCH;
 	int cnt = 0;
 
 	if (sig < 0 || sig > 32 || pgrp <= 0)
 		return -EINVAL;
+	spin_lock_irqsave(&tasklist_lock, flags);
 	for_each_task(p) {
 		if (p->pgrp == pgrp) {
 			if ((err = send_sig(sig, p, priv)) != 0)
@@ -69,6 +83,7 @@ int kill_pg(int pgrp, int sig, int priv)
 				cnt++;
 		}
 	}
+	spin_unlock_irqrestore(&tasklist_lock, flags);
 	return cnt ? 0 : res;
 }
 
@@ -80,11 +95,13 @@ int kill_pg(int pgrp, int sig, int priv)
 int kill_sl(int session, int sig, int priv)
 {
 	struct task_struct *p;
+	unsigned long flags;
 	int err, res = -ESRCH;
 	int cnt = 0;
 
 	if (sig < 0 || sig > 32 || session <= 0)
 		return -EINVAL;
+	spin_lock_irqsave(&tasklist_lock, flags);
 	for_each_task(p) {
 		if (p->session == session && p->leader) {
 			if ((err = send_sig(sig, p, priv)) != 0)
@@ -93,20 +110,27 @@ int kill_sl(int session, int sig, int priv)
 				cnt++;
 		}
 	}
+	spin_unlock_irqrestore(&tasklist_lock, flags);
 	return cnt ? 0 : res;
 }
 
 int kill_proc(int pid, int sig, int priv)
 {
 	struct task_struct *p;
+	unsigned long flags;
+	int ret = -ESRCH;
 
 	if (sig < 0 || sig > 32)
 		return -EINVAL;
+	spin_lock_irqsave(&tasklist_lock, flags);
 	for_each_task(p) {
-		if (p->pid == pid)
-			return send_sig(sig, p, priv);
+		if (p->pid == pid) {
+			ret = send_sig(sig, p, priv);
+			break;
+		}
 	}
-	return -ESRCH;
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return ret;
 }
 
 int sys_kill(int pid, int sig)
@@ -117,6 +141,9 @@ int sys_kill(int pid, int sig)
 		return kill_pg(current->pgrp, sig, 0);
 	if (pid == -1) {
 		struct task_struct *p;
+		unsigned long flags;
+
+		spin_lock_irqsave(&tasklist_lock, flags);
 		for_each_task(p) {
 			if (p->pid > 1 && p != current) {
 				cnt++;
@@ -124,6 +151,7 @@ int sys_kill(int pid, int sig)
 					res = err;
 			}
 		}
+		spin_unlock_irqrestore(&tasklist_lock, flags);
 		return cnt ? res : -ESRCH;
 	}
 	if (pid < 0)
@@ -138,30 +166,42 @@ int sys_kill(int pid, int sig)
 int is_orphaned_pgrp(int pgrp)
 {
 	struct task_struct *p;
+	unsigned long flags;
+	int ret = 1;
 
+	spin_lock_irqsave(&tasklist_lock, flags);
 	for_each_task(p) {
 		if ((p->pgrp != pgrp) ||
 				(p->state == TASK_ZOMBIE) ||
 					(p->p_pptr->pid == 1))
 			continue;
 		if ((p->p_pptr->pgrp != pgrp) &&
-				(p->p_pptr->session == p->session))
-			return 0;
+				(p->p_pptr->session == p->session)) {
+			ret = 0;
+			break;
+		}
 	}
-	return 1;
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return ret;
 }
 
 static int has_stopped_jobs(int pgrp)
 {
 	struct task_struct * p;
+	unsigned long flags;
+	int ret = 0;
 
+	spin_lock_irqsave(&tasklist_lock, flags);
 	for_each_task(p) {
 		if (p->pgrp != pgrp)
 			continue;
-		if (p->state == TASK_STOPPED)
-			return 1;
+		if (p->state == TASK_STOPPED) {
+			ret = 1;
+			break;
+		}
 	}
-	return 0;
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return ret;
 }
 
 void notify_parent(struct task_struct *p)
@@ -281,7 +321,9 @@ int sys_exit_group(int error_code)
 {
 	long code = (error_code & 0xff) << 8;
 	struct task_struct *p, *next;
+	unsigned long flags;
 
+	spin_lock_irqsave(&tasklist_lock, flags);
 	for (p = init_task.next_task; p != &init_task; p = next) {
 		next = p->next_task;
 		if (p == current || p->tgid != current->tgid)
@@ -292,6 +334,7 @@ int sys_exit_group(int error_code)
 				wake_up_process(p);
 		}
 	}
+	spin_unlock_irqrestore(&tasklist_lock, flags);
 
 	/*
 	 * Threads that have published their userspace death (pthread_join
@@ -307,6 +350,7 @@ int sys_exit_group(int error_code)
 		struct task_struct *t;
 		int done = 1;
 
+		spin_lock_irqsave(&tasklist_lock, flags);
 		for_each_task(t) {
 			if (t == current || t->tgid != current->tgid)
 				continue;
@@ -315,6 +359,7 @@ int sys_exit_group(int error_code)
 				break;
 			}
 		}
+		spin_unlock_irqrestore(&tasklist_lock, flags);
 		if (done)
 			break;
 		schedule_timeout(1);
