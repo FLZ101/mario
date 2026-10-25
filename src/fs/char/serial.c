@@ -110,6 +110,7 @@ void serial_init()
         ring_buffer_init(&tty->read_buf);
 
         init_wait_queue(&tty->wait_read);
+        INIT_LOCK(&tty->lock);
 
         tty->termios = default_termios;
         tty->winsize.ws_col = 80;

@@ -27,6 +27,8 @@ struct tty_struct {
 
 	struct ring_buffer read_buf;
 	wait_queue_t wait_read;
+	/* Serialises read_buf and termios between reader context and IRQ input. */
+	spinlock_t lock;
 
 	int count;
 	int initialized;

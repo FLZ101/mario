@@ -5,6 +5,7 @@
 #include <lib/string.h>
 #include <lib/stddef.h>
 #include <lib/ctype.h>
+#include <lib/spinlock.h>
 
 #include <io.h>
 
@@ -12,6 +13,8 @@ static struct console console_table[NUM_CONSOLE];
 static struct tty_struct console_tty_table[NUM_CONSOLE];
 
 static volatile int fg_console = 0;
+/* Serialises foreground switches and direct VGA-memory updates. */
+static spinlock_t console_lock = SPINLOCK_UNLOCKED;
 
 struct tty_struct *get_fg_tty()
 {
@@ -1281,8 +1284,11 @@ void console_put_char(struct tty_struct *tty, unsigned char c)
 {
 	dev_t minor = MINOR(tty->dev);
 	struct console *con = &console_table[minor - tty->driver->minor];
+	unsigned long flags;
 
+	spin_lock_irqsave(&console_lock, flags);
 	console_write_char(con, c);
+	spin_unlock_irqrestore(&console_lock, flags);
 }
 
 struct tty_driver console_driver = {
@@ -1294,12 +1300,16 @@ struct tty_driver console_driver = {
 
 void switch_fg_console(int i)
 {
-	irq_save();
+	unsigned long flags;
+
+	spin_lock_irqsave(&console_lock, flags);
 
 	assert(0 <= i && i < NUM_CONSOLE);
 
-	if (i == fg_console)
+	if (i == fg_console) {
+		spin_unlock_irqrestore(&console_lock, flags);
 		return;
+	}
 
 	struct console *con = &console_table[i];
 	fg_console = i;
@@ -1319,13 +1329,17 @@ void switch_fg_console(int i)
 	con->esc_buf_p = 0;
 	con->state = NORMAL;
 
-	irq_restore();
+	spin_unlock_irqrestore(&console_lock, flags);
 }
 
 void console_sync(struct console *con)
 {
+	unsigned long flags;
+
+	spin_lock_irqsave(&console_lock, flags);
 	memcpy(con->mem, VIDEO_MEM, SCREEN_BUF_BYTE_SIZE);
 	get_cursor(&con->pos_y, &con->pos_x);
+	spin_unlock_irqrestore(&console_lock, flags);
 }
 
 void console_soft_reset(struct console *con)
@@ -1375,6 +1389,7 @@ void console_init()
 		ring_buffer_init(&tty->read_buf);
 
 		init_wait_queue(&tty->wait_read);
+		INIT_LOCK(&tty->lock);
 
 		tty->termios = default_termios;
 		tty->winsize.ws_col = N_COL;

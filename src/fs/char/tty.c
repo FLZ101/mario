@@ -30,7 +30,13 @@ struct termios default_termios = {
 
 void tty_put_c(struct tty_struct *tty, unsigned char c)
 {
-	tcflag_t c_oflag = tty->termios.c_oflag;
+	unsigned long flags;
+	tcflag_t c_oflag;
+
+	spin_lock_irqsave(&tty->lock, flags);
+	c_oflag = tty->termios.c_oflag;
+	spin_unlock_irqrestore(&tty->lock, flags);
+
 	if (c_oflag & OPOST) {
 		if (c == '\n') {
 			if (c_oflag & ONLCR) {
@@ -51,17 +57,25 @@ void tty_put_s(struct tty_struct *tty, char *s)
 
 void tty_receive_c(struct tty_struct *tty, unsigned char c)
 {
-	if (!tty->count)
+	unsigned long flags;
+	cc_t c_cc[NCCS];
+	tcflag_t c_iflag, c_lflag;
+
+	spin_lock_irqsave(&tty->lock, flags);
+	if (!tty->count) {
+		spin_unlock_irqrestore(&tty->lock, flags);
 		return;
+	}
 
 	struct ring_buffer *rb = &tty->read_buf;
 	int popped = -1;
 
 	int wake = 0;
 
-	tcflag_t c_iflag = tty->termios.c_iflag;
-	tcflag_t c_lflag = tty->termios.c_lflag;
-	cc_t *c_cc = tty->termios.c_cc;
+	c_iflag = tty->termios.c_iflag;
+	c_lflag = tty->termios.c_lflag;
+	memcpy(c_cc, tty->termios.c_cc, sizeof(c_cc));
+	spin_unlock_irqrestore(&tty->lock, flags);
 
 	if (c_lflag & ISIG) {
 		if (c == c_cc[VINTR]) {
@@ -87,7 +101,9 @@ void tty_receive_c(struct tty_struct *tty, unsigned char c)
 
 	if (c_lflag & ICANON) {
 		if (c == c_cc[VERASE]) {
+			spin_lock_irqsave(&tty->lock, flags);
 			popped = ring_buffer_pop(rb);
+			spin_unlock_irqrestore(&tty->lock, flags);
 			goto tail_1;
 		}
 
@@ -98,7 +114,9 @@ void tty_receive_c(struct tty_struct *tty, unsigned char c)
 		wake = 1;
 	}
 
+	spin_lock_irqsave(&tty->lock, flags);
 	ring_buffer_write(rb, &c, 1, 0);
+	spin_unlock_irqrestore(&tty->lock, flags);
 tail_1:
 	if (c_lflag & ECHO) {
 		if (c == c_cc[VERASE] && c_lflag & ECHOE) {
@@ -227,6 +245,7 @@ int get_n_read(struct tty_struct *tty)
 	tcflag_t c_lflag = tty->termios.c_lflag;
 	cc_t *c_cc = tty->termios.c_cc;
 
+	/* Caller must hold tty->lock. */
 	if (c_lflag & ICANON)
 		return get_n_canon_read(rb, c_cc);
 	else
@@ -236,6 +255,8 @@ int get_n_read(struct tty_struct *tty)
 int tty_read(struct inode *i, struct file *f, char *buf, int count)
 {
 	struct tty_struct *tty = (struct tty_struct *)f->private_data;
+	unsigned long flags;
+	cc_t eof;
 	if (!tty)
 		return -EIO;
 
@@ -247,14 +268,15 @@ int tty_read(struct inode *i, struct file *f, char *buf, int count)
 	}
 
 	struct ring_buffer *rb = &tty->read_buf;
-	cc_t *c_cc = tty->termios.c_cc;
 
 try:
 	if (current->signal & ~current->blocked)
 		return -ERESTARTSYS;
 
+	spin_lock_irqsave(&tty->lock, flags);
 	int n = get_n_read(tty);
 	if (!n) {
+		spin_unlock_irqrestore(&tty->lock, flags);
 		if (f->f_flags & O_NONBLOCK)
 			return -EAGAIN;
 		sleep_on(&tty->wait_read, TASK_INTERRUPTIBLE, NULL);
@@ -264,23 +286,32 @@ try:
 	n = MIN(n, count);
 
 	int m = ring_buffer_read(rb, buf, n, 1);
+	eof = tty->termios.c_cc[VEOF];
+	spin_unlock_irqrestore(&tty->lock, flags);
 	assert(n == m);
 
 	// Except in the case of EOF, the line delimiter is included in the buffer returned by read(2).
-	if (buf[n-1] == c_cc[VEOF])
+	if (buf[n-1] == eof)
 		--n;
 	return n;
 }
 
 static int tty_check(struct tty_struct *tty)
 {
+	unsigned long flags;
+	int stop = 0;
+
 	if (!tty)
 		return -EIO;
 
 	/* Stop a background writer only when the tty has TOSTOP enabled. */
+	spin_lock_irqsave(&tty->lock, flags);
 	if (current->tty == tty &&
 	    (tty->termios.c_lflag & TOSTOP) &&
-	    current->pgrp != tty->pgrp) {
+	    current->pgrp != tty->pgrp)
+		stop = 1;
+	spin_unlock_irqrestore(&tty->lock, flags);
+	if (stop) {
 		kill_pg(current->pgrp, SIGTTOU, 1);
 		return -ERESTARTSYS;
 	}
@@ -309,31 +340,40 @@ static int tty_lseek(struct inode *i, struct file *f, off_t offset, int orig)
 static int set_termios(struct tty_struct * tty, unsigned long arg, int opt)
 {
 	struct termios tmp_termios;
+	unsigned long flags;
 	int err = verify_area(VERIFY_READ, (void *) arg, sizeof(struct termios));
 	if (err)
 		return err;
 	memcpy_fromfs(&tmp_termios, (struct termios *) arg, sizeof (struct termios));
 
-	cli();
+	spin_lock_irqsave(&tty->lock, flags);
 	tty->termios = tmp_termios;
-	sti();
+	spin_unlock_irqrestore(&tty->lock, flags);
 	return 0;
 }
 
 int session_of_pgrp(int pgrp)
 {
 	struct task_struct *p;
+	unsigned long flags;
 	int fallback;
 
 	fallback = -1;
+	spin_lock_irqsave(&tasklist_lock, flags);
 	for_each_task(p) {
  		if (p->session <= 0)
  			continue;
 		if (p->pgrp == pgrp)
-			return p->session;
+			goto found;
 		if (p->pid == pgrp)
 			fallback = p->session;
 	}
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return fallback;
+
+found:
+	fallback = p->session;
+	spin_unlock_irqrestore(&tasklist_lock, flags);
 	return fallback;
 }
 
@@ -355,11 +395,19 @@ static int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned
 
 	switch (cmd) {
 		case TCGETS:
+		{
+			struct termios tmp;
+			unsigned long flags;
+
 			err = verify_area(VERIFY_WRITE, (void *) arg, sizeof (struct termios));
 			if (err)
 				return err;
-			memcpy_tofs((struct termios *) arg, &tty->termios, sizeof (struct termios));
+			spin_lock_irqsave(&tty->lock, flags);
+			tmp = tty->termios;
+			spin_unlock_irqrestore(&tty->lock, flags);
+			memcpy_tofs((struct termios *) arg, &tmp, sizeof (tmp));
 			return 0;
+		}
 		case TCSETSF: // Allow the output buffer to drain, discard pending input
 		case TCSETSW: // Allow the output buffer to drain
 		case TCSETS:
@@ -433,7 +481,13 @@ static int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned
 				return 0;
 			case TCIFLUSH:
 			case TCIOFLUSH:
-				ring_buffer_clear(&tty->read_buf);
+				{
+					unsigned long flags;
+
+					spin_lock_irqsave(&tty->lock, flags);
+					ring_buffer_clear(&tty->read_buf);
+					spin_unlock_irqrestore(&tty->lock, flags);
+				}
 				return 0;
 			}
 	}
@@ -443,6 +497,7 @@ static int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned
 static void tty_release(struct inode *i, struct file *f)
 {
 	struct tty_struct *tty = (struct tty_struct *)f->private_data;
+	unsigned long flags;
 	if (!tty)
 		return;
 
@@ -450,7 +505,9 @@ static void tty_release(struct inode *i, struct file *f)
 	if (--tty->count)
 		return;
 
+	spin_lock_irqsave(&tty->lock, flags);
 	ring_buffer_clear(&tty->read_buf);
+	spin_unlock_irqrestore(&tty->lock, flags);
 }
 
 static int tty_poll(struct file *f, struct poll_context *ctx)
@@ -467,8 +524,16 @@ static int tty_poll(struct file *f, struct poll_context *ctx)
 		return POLLHUP;
 
 	short mask = POLLOUT;
-	if (get_n_read(tty) > 0)
-		mask |= POLLIN;
+	{
+		unsigned long flags;
+		int readable;
+
+		spin_lock_irqsave(&tty->lock, flags);
+		readable = get_n_read(tty) > 0;
+		spin_unlock_irqrestore(&tty->lock, flags);
+		if (readable)
+			mask |= POLLIN;
+	}
 	return mask;
 }
 
