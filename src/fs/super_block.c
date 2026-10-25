@@ -231,7 +231,15 @@ int sys_mount(char *dev_name, char *dir_name, char *type,
 			goto out;
 		}
 	}
+	/*
+	 * sb_sem makes mount/umount table mutation mutually exclusive.  It must
+	 * not be taken in get_mount_super(): a mount of debugfs may call
+	 * sysfs_lookup(), which itself walks the mount table, so acquiring the
+	 * semaphore recursively would deadlock.
+	 */
+	down(&sb_sem);
 	error = do_mount(dev, dir_name, fs_type, dir_copy, mountflags);
+	up(&sb_sem);
 out:
 	putname(dir_copy);
 	return error;
@@ -274,44 +282,46 @@ int sys_umount(char *name)
 	if (error)
 		return error;
 
+	down(&sb_sem);
 	error = namei(name, &inode, 0);
 	if (error)
-		goto out;
+		goto out_sem;
 	if (S_ISBLK(inode->i_mode)) {
 		dev_t dev = inode->i_rdev;
 
 		iput(inode);
 		if (MAJOR(dev) >= MAX_BLKDEV) {
 			error = -ENXIO;
-			goto out;
+			goto out_sem;
 		}
 		if (dev == ROOT_DEV) {
 			error = 0;
-			goto out;
+			goto out_sem;
 		}
 		sb = get_super(dev);
 		if (!sb || !sb->s_covered) {
 			error = -EINVAL;
-			goto out;
+			goto out_sem;
 		}
 	} else if (S_ISDIR(inode->i_mode)) {
 		// If inode->i_sb is not mounted or inode is not the root
 		if (!inode->i_sb->s_covered || inode->i_sb->s_mounted != inode) {
 			iput(inode);
 			error = -EINVAL;
-			goto out;
+			goto out_sem;
 		}
 		sb = inode->i_sb;
 		iput(inode);
 	} else {
 		iput(inode);
 		error = -EINVAL;
-		goto out;
+		goto out_sem;
 	}
 	error = do_umount_sb(sb);
 	if (!error)
 		pr_info("umount %s\n", name_copy);
-out:
+out_sem:
+	up(&sb_sem);
 	putname(name_copy);
 	return error;
 }
