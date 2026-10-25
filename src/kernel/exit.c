@@ -65,16 +65,14 @@ out:
  * kill_pg() sends a signal to a process group: this is what the tty
  * control characters do (^C, ^Z etc)
  */
-int kill_pg(int pgrp, int sig, int priv)
+static int __kill_pg(int pgrp, int sig, int priv)
 {
 	struct task_struct *p;
-	unsigned long flags;
 	int err, res = -ESRCH;
 	int cnt = 0;
 
 	if (sig < 0 || sig > 32 || pgrp <= 0)
 		return -EINVAL;
-	spin_lock_irqsave(&tasklist_lock, flags);
 	for_each_task(p) {
 		if (p->pgrp == pgrp) {
 			if ((err = send_sig(sig, p, priv)) != 0)
@@ -83,8 +81,18 @@ int kill_pg(int pgrp, int sig, int priv)
 				cnt++;
 		}
 	}
-	spin_unlock_irqrestore(&tasklist_lock, flags);
 	return cnt ? 0 : res;
+}
+
+int kill_pg(int pgrp, int sig, int priv)
+{
+	unsigned long flags;
+	int res;
+
+	spin_lock_irqsave(&tasklist_lock, flags);
+	res = __kill_pg(pgrp, sig, priv);
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return res;
 }
 
 /*
@@ -163,13 +171,11 @@ int sys_kill(int pid, int sig)
  * Orphaned process groups are not to be affected by terminal-generated stop signals.
  * Newly orphaned process groups are to receive a SIGHUP and a SIGCONT.
  */
-int is_orphaned_pgrp(int pgrp)
+static int __is_orphaned_pgrp(int pgrp)
 {
 	struct task_struct *p;
-	unsigned long flags;
 	int ret = 1;
 
-	spin_lock_irqsave(&tasklist_lock, flags);
 	for_each_task(p) {
 		if ((p->pgrp != pgrp) ||
 				(p->state == TASK_ZOMBIE) ||
@@ -181,17 +187,25 @@ int is_orphaned_pgrp(int pgrp)
 			break;
 		}
 	}
+	return ret;
+}
+
+int is_orphaned_pgrp(int pgrp)
+{
+	unsigned long flags;
+	int ret;
+
+	spin_lock_irqsave(&tasklist_lock, flags);
+	ret = __is_orphaned_pgrp(pgrp);
 	spin_unlock_irqrestore(&tasklist_lock, flags);
 	return ret;
 }
 
-static int has_stopped_jobs(int pgrp)
+static int __has_stopped_jobs(int pgrp)
 {
 	struct task_struct * p;
-	unsigned long flags;
 	int ret = 0;
 
-	spin_lock_irqsave(&tasklist_lock, flags);
 	for_each_task(p) {
 		if (p->pgrp != pgrp)
 			continue;
@@ -200,6 +214,16 @@ static int has_stopped_jobs(int pgrp)
 			break;
 		}
 	}
+	return ret;
+}
+
+static int has_stopped_jobs(int pgrp)
+{
+	unsigned long flags;
+	int ret;
+
+	spin_lock_irqsave(&tasklist_lock, flags);
+	ret = __has_stopped_jobs(pgrp);
 	spin_unlock_irqrestore(&tasklist_lock, flags);
 	return ret;
 }
@@ -215,6 +239,7 @@ void notify_parent(struct task_struct *p)
 void do_exit(long code)
 {
 	struct task_struct *p;
+	unsigned long flags;
 
 	/*
 	 * init_task doesn't exit
@@ -278,24 +303,34 @@ void do_exit(long code)
 	/*
 	 * Make init inherit all the child processes
 	 */
+	/*
+	 * The child/sibling links are shared with init (the new parent) and,
+	 * for CLONE_THREAD parents, several group members can exit on
+	 * different CPUs at the same time.  Hold tasklist_lock while moving
+	 * children to init and use the locked traversal/signal helpers below
+	 * so those calls do not try to take tasklist_lock again.
+	 */
+	spin_lock_irqsave(&tasklist_lock, flags);
 	while ((p = current->p_cptr) != NULL) {
 		current->p_cptr = p->p_osptr;
 		p->p_ysptr = NULL;
 		p->p_pptr = init_task.next_task;	/* init process */
 		p->p_osptr = p->p_pptr->p_cptr;
-		p->p_osptr->p_ysptr = p;
+		if (p->p_osptr)
+			p->p_osptr->p_ysptr = p;
 		p->p_pptr->p_cptr = p;
 		if (p->state == TASK_ZOMBIE)
 			notify_parent(p);
 
 		if ((p->pgrp != current->pgrp) &&
 				(p->session == current->session) &&
-					is_orphaned_pgrp(p->pgrp) &&
-						has_stopped_jobs(p->pgrp)) {
-			kill_pg(p->pgrp, SIGHUP, 1);
-			kill_pg(p->pgrp, SIGCONT, 1);
+					__is_orphaned_pgrp(p->pgrp) &&
+						__has_stopped_jobs(p->pgrp)) {
+			__kill_pg(p->pgrp, SIGHUP, 1);
+			__kill_pg(p->pgrp, SIGCONT, 1);
 		}
 	}
+	spin_unlock_irqrestore(&tasklist_lock, flags);
 	/* Preserve trace CPU counters before the task can be reaped/freed. */
 	syscall_trace_task_exit(current);
 	current->state = TASK_ZOMBIE;
