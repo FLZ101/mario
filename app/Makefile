@@ -1,8 +1,6 @@
 SUBDIRS	:= $(patsubst %/main.c,%, $(wildcard example/*/main.c))
 SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/*/main.c))
-ifeq ($(_LIBC),musl)
-  SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/musl/*/main.c))
-endif
+SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/musl/*/main.c))
 
 SHELL := /bin/bash
 
@@ -28,12 +26,8 @@ check:
 	@$(CC) --mario-verify
 	@$(LD) --mario-verify
 
-ifeq ($(_LIBC),musl)
 usr:
 	$(MAKE) COMPILE_COMMANDS_JSON= -C usr
-else
-usr:
-endif
 
 clean-usr:
 	$(MAKE) -C usr clean

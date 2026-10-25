@@ -9,13 +9,13 @@ VENV_STAMP := $(ROOT)/.venv/.stamp
 SHELL_TEST_CASES ?= tests/shell
 VGA_TEST_CASES ?= tests/vga
 
-.PHONY: all kernel rd app libc image run debug \
+.PHONY: all kernel rd app image run debug \
 	quick-run quick-debug quick-run-gtk quick-debug-gtk \
 	test test-all shell-test vga-test \
 	musl venv precommit setup \
 	compiler-rt
 
-.PHONY: clean clean-kernel clean-rd clean-app-example clean-app-usr clean-libc clean-image \
+.PHONY: clean clean-kernel clean-rd clean-app-example clean-app-usr clean-image \
 	clean-musl clean-compiler-rt
 
 all: kernel rd
@@ -54,19 +54,10 @@ export CC
 LD	:= $(ROOT)/util/ld
 export LD
 
-_LIBC	:= musl
-# _LIBC	:= libc
-export _LIBC
-
 COMPILER_RT_MK := $(ROOT)/compiler-rt/compiler-rt.mk
 
-ifeq ($(_LIBC), libc)
-  APP_CC	:= $(ROOT)/util/mario-libc-cc
-  APP_LD	:= $(ROOT)/util/mario-libc-ld
-else
-  APP_CC	:= $(ROOT)/util/mario-musl-cc
-  APP_LD	:= $(ROOT)/util/mario-musl-ld
-endif
+APP_CC	:= $(ROOT)/util/mario-musl-cc
+APP_LD	:= $(ROOT)/util/mario-musl-ld
 
 kernel: compiler-rt
 	$(MAKE) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld -C src
@@ -74,14 +65,11 @@ kernel: compiler-rt
 rd: app
 	$(MAKE) -C rd
 
-app: $(_LIBC)
+app: musl
 	$(MAKE) CC=$(APP_CC) LD=$(APP_LD) -C app
 
 compiler-rt:
 	$(MAKE) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld -f $(COMPILER_RT_MK)
-
-libc: compiler-rt
-	$(MAKE) CC=$(ROOT)/util/mario-cc -C libc
 
 musl: compiler-rt
 	$(MAKE) CC=$(ROOT)/util/mario-cc COMPILE_COMMANDS_JSON= -C musl
@@ -136,7 +124,7 @@ quick-debug-gtk: image
 
 clean-all: clean clean-musl clean-app-usr
 
-clean: clean-kernel clean-rd clean-app-example clean-libc clean-image clean-compiler-rt
+clean: clean-kernel clean-rd clean-app-example clean-image clean-compiler-rt
 	$(RM) $(COMPILE_COMMANDS_JSON)
 
 clean-kernel:
@@ -150,9 +138,6 @@ clean-app-example:
 
 clean-app-usr:
 	$(MAKE) clean-usr -C app
-
-clean-libc:
-	$(MAKE) clean -C libc
 
 clean-musl:
 	$(MAKE) clean -C musl

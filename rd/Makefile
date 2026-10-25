@@ -11,6 +11,7 @@ rdx: rd0 rd1 rd2
 CFLAGS := -Wall -ggdb -Werror
 
 TOOLS	:= rd-make.exe rd-explorer.exe
+PYTHON3	?= python3
 
 rd-make.exe: tools/rd-make.c tools/mariofs.h
 	@$(CC) --mario-verify
@@ -20,8 +21,8 @@ rd-explorer.exe: tools/rd-explorer.c tools/mariofs.h
 	@$(CC) --mario-verify
 	$(CC) -o $@ $(CFLAGS) $<
 
-rd0: $(shell ./make-rd0.sh --deps)
-	_LIBC=$(_LIBC) ./make-rd0.sh
+rd0: $(TOOLS) device_list $(shell $(PYTHON3) make-rd0.py --deps)
+	$(PYTHON3) make-rd0.py
 
 rd1_files := $(shell find _ramdisk1 -type f)
 rd1: $(TOOLS) $(rd1_files)
