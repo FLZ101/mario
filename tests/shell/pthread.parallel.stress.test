@@ -1,0 +1,9 @@
+# Independent workers run concurrently for a fixed interval, then the
+# creator verifies that every worker made forward progress.
+
+REQUIRES-SMP: >=8
+
+TIMEOUT: 60
+
+RUN: /bin/test/pthread_stress.exe parallel 8 4000
+CHECK: parallel-ok

@@ -1,0 +1,9 @@
+# The same parallel-run path with more workers than vCPUs, so several
+# threads contend for runqueues while all remain runnable.
+
+REQUIRES-SMP: >=8
+
+TIMEOUT: 60
+
+RUN: /bin/test/pthread_stress.exe parallel 32 4000
+CHECK: parallel-ok

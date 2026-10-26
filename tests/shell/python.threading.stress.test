@@ -1,0 +1,80 @@
+# Stress the Python threading layer with repeated create/join rounds and
+# a longer producer/consumer run.  All synchronization goes through Lock,
+# Condition, and futex wait/wake paths.
+
+REQUIRES-SMP: >=8
+
+TIMEOUT: 90
+
+RUN: export PATH=/bin:/bin/toybox:/bin/sbase
+RUN: mkdir -p /tmp
+
+RUN: python <<'PYEOF'
+import threading
+
+shared_lock = threading.Lock()
+
+def run_round():
+    state = [0]
+
+    def worker():
+        for _ in range(300):
+            with shared_lock:
+                state[0] += 1
+
+    threads = [threading.Thread(target=worker) for _ in range(16)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return state[0] == 16 * 300
+
+for _ in range(4):
+    if not run_round():
+        raise SystemExit(1)
+
+print("python-stress-create-join-ok")
+PYEOF
+CHECK: python-stress-create-join-ok
+
+RUN: python <<'PYEOF'
+import threading
+
+condition = threading.Condition()
+items = []
+done = False
+received = []
+
+def producer():
+    global done
+    for value in range(64):
+        with condition:
+            items.append(value)
+            condition.notify()
+    with condition:
+        done = True
+        condition.notify_all()
+
+def consumer():
+    while True:
+        with condition:
+            while not items and not done:
+                condition.wait()
+            if items:
+                received.append(items.pop(0))
+                continue
+            if done and not items:
+                return
+
+producer_thread = threading.Thread(target=producer)
+consumer_thread = threading.Thread(target=consumer)
+producer_thread.start()
+consumer_thread.start()
+producer_thread.join()
+consumer_thread.join()
+
+print("stress-cond-match:", received == list(range(64)))
+print("python-stress-cond-ok")
+PYEOF
+CHECK: stress-cond-match: True
+CHECK: python-stress-cond-ok

@@ -1,0 +1,138 @@
+# Cover the main Python threading primitives through musl pthread/futex:
+# thread creation/join, Lock, Condition, and Event.
+
+REQUIRES-SMP: >=8
+
+TIMEOUT: 90
+
+RUN: export PATH=/bin:/bin/toybox:/bin/sbase
+RUN: mkdir -p /tmp
+
+# Independent thread results, joined by the creator.
+RUN: python <<'PYEOF'
+import threading
+
+results = [None] * 8
+result_lock = threading.Lock()
+
+def worker(index):
+    total = sum(range(2000)) + index
+    with result_lock:
+        results[index] = total
+
+threads = [
+    threading.Thread(target=worker, args=(index,))
+    for index in range(8)
+]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+
+expected = [sum(range(2000)) + index for index in range(8)]
+print("join-match:", results == expected)
+print("python-join-ok")
+PYEOF
+CHECK: join-match: True
+CHECK: python-join-ok
+
+# Contended Lock: every increment is serialized.
+RUN: python <<'PYEOF'
+import threading
+
+counter = 0
+counter_lock = threading.Lock()
+
+def bump(rounds):
+    global counter
+    for _ in range(rounds):
+        with counter_lock:
+            counter += 1
+
+threads = [
+    threading.Thread(target=bump, args=(5000,))
+    for _ in range(8)
+]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+
+print("counter:", counter)
+print("python-lock-ok")
+PYEOF
+CHECK: counter: 40000
+CHECK: python-lock-ok
+
+# Condition variable producer/consumer: wait/notify preserves item order.
+RUN: python <<'PYEOF'
+import threading
+
+condition = threading.Condition()
+items = []
+done = False
+received = []
+
+def producer():
+    global done
+    for value in range(8):
+        with condition:
+            items.append(value)
+            condition.notify()
+    with condition:
+        done = True
+        condition.notify_all()
+
+def consumer():
+    while True:
+        with condition:
+            while not items and not done:
+                condition.wait()
+            if items:
+                received.append(items.pop(0))
+                continue
+            if done and not items:
+                return
+
+producer_thread = threading.Thread(target=producer)
+consumer_thread = threading.Thread(target=consumer)
+producer_thread.start()
+consumer_thread.start()
+producer_thread.join()
+consumer_thread.join()
+
+print("cond-received:", received == list(range(8)))
+print("python-cond-ok")
+PYEOF
+CHECK: cond-received: True
+CHECK: python-cond-ok
+
+# Event waiters all proceed only after set().
+RUN: python <<'PYEOF'
+import threading
+
+event = threading.Event()
+seen = []
+seen_lock = threading.Lock()
+
+def worker(index):
+    event.wait()
+    with seen_lock:
+        seen.append(index)
+
+threads = [
+    threading.Thread(target=worker, args=(index,))
+    for index in range(8)
+]
+for thread in threads:
+    thread.start()
+
+event.set()
+for thread in threads:
+    thread.join()
+
+print("event-match:", sorted(seen) == list(range(8)))
+print("python-event-ok")
+PYEOF
+CHECK: event-match: True
+CHECK: python-event-ok

@@ -287,7 +287,6 @@ Initial automatic hook points:
 | Hook | Location | Level |
 |---|---|---|
 | Init executable cannot start | `src/kernel/mario.c` `init()` | existing `hang()` becomes `pr_crit` |
-| Fork succeeds | `src/kernel/fork.c` `do_fork()` | `pr_task_debug("fork -> %d%s\n", child, vfork ? " (vfork)" : "")` |
 | Fork resource allocation fails | `src/kernel/fork.c` failure paths | `pr_task_err("fork failed: no memory\n")` |
 | Kernel-mode fatal trap | `src/kernel/trap.c` `die_if_kernel()` | `pr_crit("Oops: %s err=%d pid=%d\n", str, err, current->pid)` |
 | Mount succeeds | `src/fs/super_block.c` `do_mount()` | `pr_info("mount dev=%x dir=%s type=%s\n", dev, dir, type)` |

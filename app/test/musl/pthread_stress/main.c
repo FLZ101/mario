@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 /*
@@ -211,6 +212,102 @@ static int run_many(int argc, char **argv)
 	return 0;
 }
 
+/*
+ * Keep a pool of independent workers busy for a short wall-clock interval.
+ * Unlike the counter modes above, each thread mostly touches only its own
+ * progress slot, so the test exercises genuinely concurrent pthread activity
+ * rather than a mutex serializing almost all useful work.
+ */
+static pthread_mutex_t parallel_lock = PTHREAD_MUTEX_INITIALIZER;
+static volatile int parallel_ready;
+static volatile int parallel_start;
+static volatile int parallel_stop;
+static unsigned long parallel_work[64];
+static unsigned long parallel_rounds[64];
+
+/*
+ * Keep each worker in userspace for a meaningful number of iterations before
+ * calling into the kernel.  usleep(0) is used as a cheap voluntary yield: it
+ * still goes through nanosleep/schedule_timeout(0), so AP-only runqueues can
+ * make progress without adding an actual sleep to the measured workload.
+ */
+#define PARALLEL_COMPUTE_ROUNDS 200000
+
+static void *parallel_worker(void *arg)
+{
+	int id = (int)(long)arg;
+	unsigned long local = 0;
+	int i;
+
+	pthread_mutex_lock(&parallel_lock);
+	parallel_ready++;
+	pthread_mutex_unlock(&parallel_lock);
+
+	while (!parallel_start)
+		usleep(100);
+
+	while (!parallel_stop) {
+		for (i = 0; i < PARALLEL_COMPUTE_ROUNDS; i++)
+			local = local * 33 + (unsigned long)i;
+		parallel_work[id] = local;
+		parallel_rounds[id]++;
+		usleep(0);
+	}
+	return 0;
+}
+
+static int run_parallel(int argc, char **argv)
+{
+	int threads = arg_int(argc, argv, 2, 8);
+	int duration_ms = arg_int(argc, argv, 3, 2000);
+	long duration_us = (long)duration_ms * 1000;
+	pthread_t tids[64];
+	int i;
+
+	if (threads > 64)
+		threads = 64;
+	if (duration_us > 10000000)
+		duration_us = 10000000;
+
+	parallel_ready = 0;
+	parallel_start = 0;
+	parallel_stop = 0;
+	memset(parallel_work, 0, sizeof(parallel_work));
+	memset(parallel_rounds, 0, sizeof(parallel_rounds));
+
+	for (i = 0; i < threads; i++) {
+		if (pthread_create(&tids[i], 0, parallel_worker,
+				   (void *)(long)i))
+			return 1;
+	}
+
+	while (1) {
+		int ready;
+
+		pthread_mutex_lock(&parallel_lock);
+		ready = parallel_ready;
+		pthread_mutex_unlock(&parallel_lock);
+		if (ready == threads)
+			break;
+		usleep(1000);
+	}
+
+	parallel_start = 1;
+	usleep((useconds_t)duration_us);
+	parallel_stop = 1;
+
+	for (i = 0; i < threads; i++)
+		if (pthread_join(tids[i], 0))
+			return 1;
+
+	for (i = 0; i < threads; i++)
+		if (parallel_rounds[i] == 0)
+			return 1;
+
+	puts("parallel-ok");
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	const char *mode = argc > 1 ? argv[1] : "create-join";
@@ -223,6 +320,8 @@ int main(int argc, char **argv)
 		return run_nested(argc, argv);
 	if (!strcmp(mode, "many"))
 		return run_many(argc, argv);
+	if (!strcmp(mode, "parallel"))
+		return run_parallel(argc, argv);
 	fprintf(stderr, "unknown pthread stress mode: %s\n", mode);
 	return 2;
 }
