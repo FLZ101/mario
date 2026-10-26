@@ -156,8 +156,6 @@ int do_fork(struct trap_frame *tr, int vfork)
 		wake_up_process(p);
 	}
 	current->did_vfork = 0;
-	pr_task_debug("fork -> %d%s\n", p->pid,
-		      vfork ? " (vfork)" : "");
 	return p->pid;
 fail_4:
 	kfree(p->files);

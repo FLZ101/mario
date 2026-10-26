@@ -231,6 +231,8 @@ void print_entry(struct mario_dir_entry *entry)
 	if (entry->mode == MODE_LNK) {
 		printf(" -> ");
 		print_file(entry);
+	} else if (entry->mode == MODE_DIR) {
+		printf("/");
 	}
 	putchar('\n');
 }

@@ -17,10 +17,8 @@ RD_DIR = Path(__file__).resolve().parent
 
 def build_rd0() -> None:
     staging = RD_DIR / "ramdisk0"
-    seed = RD_DIR / "_ramdisk0"
 
     shutil.rmtree(staging, ignore_errors=True)
-    shutil.copytree(seed, staging, symlinks=True)
 
     copy_files.copy_rootfs_files(staging)
 
@@ -30,7 +28,7 @@ def build_rd0() -> None:
             "--dir=ramdisk0",
             "--rd=rd0",
             "--device-list=device_list",
-            "--nr-block=81920",
+            "--nr-block=163840",
         ],
         cwd=RD_DIR,
         check=True,

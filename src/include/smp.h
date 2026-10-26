@@ -11,7 +11,6 @@
  * on CPU_INFO_CURRENT_TASK being 8 for the BSP before AP support lands.
  */
 struct task_struct;
-struct multiboot_info;
 
 /*
  * Keep the first three fields in this order: percpu_init(), entry.S, and
@@ -35,7 +34,7 @@ extern struct tss_struct ap_tss[NR_CPUS];
 struct desc_struct;
 
 void percpu_init(void);
-void smp_init(struct multiboot_info *m);
+void smp_init(void);
 void smp_ap_entry(void);
 void smp_send_reschedule(int cpu);
 void smp_send_tlb_flush(int cpu);

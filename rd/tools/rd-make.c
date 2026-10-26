@@ -19,7 +19,7 @@
  */
 
 /* maximum rd size in Bytes */
-#define MAX_RD_SIZE	(64*1024*1024)
+#define MAX_RD_SIZE	(128*1024*1024)
 
 /* supported block size */
 uint32_t blksz[] = {512, 0};

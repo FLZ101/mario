@@ -93,7 +93,7 @@ void mario(struct multiboot_info *m)
 	sti();
 	/* The PIT is already running, which lets the AP start-up path wait on
 	 * jiffies for INIT/SIPI pacing. */
-	smp_init(m);
+	smp_init();
 	/* rdtsc needs a running PIT for a known time base. */
 	syscall_trace_calibrate();
 	kernel_thread(init, NULL);

@@ -130,8 +130,6 @@ int main(int argc, char *argv[], char *envp[])
     if (2 != dup(0))
         exit(EXIT_FAILURE);
 
-    PrintFile("/etc/welcome.txt");
-
     if (0 != mount("proc", "/proc", "proc", 0, NULL)) {
         perror("mount proc");
         exit(EXIT_FAILURE);

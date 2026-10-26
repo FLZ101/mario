@@ -7,8 +7,6 @@
 #include <task.h>
 #include <time.h>
 #include <printk.h>
-#include <multiboot.h>
-
 #include <lib/string.h>
 
 #include <mm/mm.h>
@@ -31,6 +29,8 @@
  * instead of sharing the single active ioremap slot with the AHCI driver.
  */
 #define APIC_BASE_VIRT		0xffc00000UL
+/* Temporary mapping for the ACPI tables above the E820-visible RAM top. */
+#define ACPI_BASE_VIRT		0xffb00000UL
 
 #define APIC_ID			0x020
 #define APIC_EOI		0x0b0
@@ -51,42 +51,7 @@
 #define APIC_LEVEL_TRIGGER	(1 << 15)
 #define APIC_ASSERT		(1 << 14)
 
-struct mp_floating {
-	char signature[4];
-	uint32_t phys_addr;
-	uint8_t length;
-	uint8_t spec_rev;
-	uint8_t checksum;
-	uint8_t feature[5];
-} __attribute__((gcc_struct, packed));
-
-struct mp_config_table {
-	char signature[4];
-	uint16_t base_table_length;
-	uint8_t spec_rev;
-	uint8_t checksum;
-	char oem_id[8];
-	char product_id[12];
-	uint32_t oem_table_ptr;
-	uint16_t oem_table_size;
-	uint16_t entry_count;
-	uint32_t lapic_addr;
-	uint16_t extended_table_length;
-	uint8_t extended_checksum;
-	uint8_t reserved;
-} __attribute__((gcc_struct, packed));
-
-struct mpc_cpu {
-	uint8_t type;
-	uint8_t apic_id;
-	uint8_t apic_version;
-	uint8_t cpu_flags;
-	uint32_t cpu_signature;
-	uint32_t feature_flags;
-	uint32_t reserved[2];
-} __attribute__((gcc_struct, packed));
-
-/* ACPI RSDP/XSDT/MADT structures for the QEMU direct-kernel boot path. */
+/* ACPI RSDP/XSDT/MADT structures. */
 struct acpi_rsdp {
 	char signature[8];
 	uint8_t checksum;
@@ -147,38 +112,7 @@ static int boot_cpu_apic_id(void)
 	return (ebx >> 24) & 0xff;
 }
 
-/*
- * QEMU's Multiboot loader has no firmware MP/ACPI tables.  Accept the CPU
- * count through the Multiboot command line (`mario.smp=N`) so the same QEMU
- * targets used by the test harness can exercise AP bring-up.
- */
-static int cmdline_smp_count(struct multiboot_info *m)
-{
-	char *p;
-	int count = 0;
-
-	if (!(m->flags & MB_FLAG_CMDLINE) || !m->cmdline)
-		return 0;
-
-	p = (char *)__vir(m->cmdline);
-	while (*p) {
-		while (*p == ' ')
-			p++;
-		if (!strncmp(p, "mario.smp=", 10)) {
-			p += 10;
-			while ('0' <= *p && *p <= '9')
-				count = count * 10 + (*p++ - '0');
-			if (count > NR_CPUS)
-				count = NR_CPUS;
-			return count;
-		}
-		while (*p && *p != ' ')
-			p++;
-	}
-	return 0;
-}
-
-static unsigned char mp_checksum(const void *start, int len)
+static unsigned char acpi_checksum(const void *start, int len)
 {
 	const unsigned char *p = start;
 	unsigned char sum = 0;
@@ -188,227 +122,123 @@ static unsigned char mp_checksum(const void *start, int len)
 	return sum;
 }
 
-static int mp_floating_valid(const struct mp_floating *mpf)
+static int acpi_rsdp_valid(const struct acpi_rsdp *rsdp)
 {
-	if (mpf->signature[0] != '_' || mpf->signature[1] != 'M' ||
-	    mpf->signature[2] != 'P' || mpf->signature[3] != '_')
+	if (memcmp(rsdp->signature, "RSD PTR ", 8))
 		return 0;
-	/*
-	 * The MP spec stores this as a count of 16-byte paragraphs, so a
-	 * valid floating pointer always reports length 1.
-	 */
-	if (mpf->length != 1)
+	if (acpi_checksum(rsdp, 20) != 0)
 		return 0;
-	return mp_checksum(mpf, mpf->length) == 0;
+	if (rsdp->revision >= 2 &&
+	    acpi_checksum(rsdp, sizeof(*rsdp)) != 0)
+		return 0;
+	return 1;
 }
 
-/*
- * Find the Intel MP floating-pointer structure.  Spec-compliant BIOSes put it
- * in the first KiB of the EBDA or in the last 64KiB of conventional memory.
- * QEMU/SeaBIOS uses the latter path for the PC machine type.
- */
-static struct mp_floating *find_mp_floating(void)
+static struct acpi_rsdp *acpi_find_rsdp(void)
 {
 	uint16_t ebda_seg = *(uint16_t *)__vir(0x40e);
 	unsigned long ebda = ((unsigned long)ebda_seg) << 4;
-	unsigned long start;
 
 	if (0x400 <= ebda && ebda < 0xa0000) {
 		for (unsigned long p = ebda; p < ebda + 1024; p += 16) {
-			struct mp_floating *mpf = (struct mp_floating *)__vir(p);
-			if (mp_floating_valid(mpf))
-				return mpf;
+			struct acpi_rsdp *rsdp = (struct acpi_rsdp *)__vir(p);
+
+			if (acpi_rsdp_valid(rsdp))
+				return rsdp;
 		}
 	}
 
-	for (start = 0xf0000; start < 0x100000; start += 16) {
-		struct mp_floating *mpf = (struct mp_floating *)__vir(start);
-		if (mp_floating_valid(mpf))
-			return mpf;
+	for (unsigned long p = 0xe0000; p < 0x100000; p += 16) {
+		struct acpi_rsdp *rsdp = (struct acpi_rsdp *)__vir(p);
+
+		if (acpi_rsdp_valid(rsdp))
+			return rsdp;
 	}
 
 	return NULL;
 }
 
-/*
- * Parse the MP configuration table and record every enabled processor APIC
- * ID.  Processors are not started here; enumeration only.
- */
-static int parse_mp_config(struct mp_floating *mpf)
+static uint64_t acpi_rsdp_address(void)
 {
-	struct mp_config_table *mpc =
-		(struct mp_config_table *)__vir(mpf->phys_addr);
-	int nr = 0;
-	uint8_t *p;
+	struct acpi_rsdp *rsdp = acpi_find_rsdp();
 
-	if (mpc->signature[0] != 'P' || mpc->signature[1] != 'C' ||
-	    mpc->signature[2] != 'M' || mpc->signature[3] != 'P')
-		return 0;
-	if (mp_checksum(mpc, mpc->base_table_length) != 0)
-		return 0;
-
-	p = (uint8_t *)(mpc + 1);
-	for (int i = 0; i < mpc->entry_count; i++) {
-		uint8_t type = p[0];
-
-		if (type == 0) {
-			struct mpc_cpu *cpu = (struct mpc_cpu *)p;
-
-			if (cpu->cpu_flags & 1) {
-				if (nr >= NR_CPUS)
-					break;
-				cpu_apic_id[nr] = cpu->apic_id;
-				nr++;
-			}
-			p += sizeof(struct mpc_cpu);
-		} else {
-			/*
-			 * Bus, IO-APIC, and interrupt entries are all fixed
-			 * 8-byte records in MP 1.1/1.4.
-			 */
-			p += 8;
-		}
-	}
-
-	return nr;
-}
-
-static unsigned long mp_lapic_addr(struct mp_config_table *mpc)
-{
-	return mpc->lapic_addr ? mpc->lapic_addr : 0xfee00000UL;
-}
-
-/*
- * QEMU's Multiboot loader does not populate the MP table or the legacy low
- * RSDP area.  Its firmware configuration interface is the only source for the
- * ACPI RSDP in that boot path, so query it directly before falling back to a
- * single-CPU configuration.
- */
-#define FW_CFG_SELECT		0x510
-#define FW_CFG_DATA		0x511
-#define FW_CFG_FILE_DIR		0x0019
-
-static uint16_t fw_cfg_read_be16(void)
-{
-	uint16_t hi = inb(FW_CFG_DATA);
-	uint16_t lo = inb(FW_CFG_DATA);
-
-	return (hi << 8) | lo;
-}
-
-static uint32_t fw_cfg_read_be32(void)
-{
-	uint32_t b0 = inb(FW_CFG_DATA);
-	uint32_t b1 = inb(FW_CFG_DATA);
-	uint32_t b2 = inb(FW_CFG_DATA);
-	uint32_t b3 = inb(FW_CFG_DATA);
-
-	return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
-}
-
-static void fw_cfg_select(uint16_t key)
-{
-	outb(FW_CFG_SELECT, key >> 8);
-	outb(FW_CFG_SELECT, key & 0xff);
-}
-
-static uint16_t fw_cfg_find_file(const char *name)
-{
-	uint32_t count;
-
-	fw_cfg_select(FW_CFG_FILE_DIR);
-	count = fw_cfg_read_be32();
-	for (uint32_t i = 0; i < count; i++) {
-		uint32_t size = fw_cfg_read_be32();
-		uint16_t select = fw_cfg_read_be16();
-		uint16_t reserved = fw_cfg_read_be16();
-		char file_name[64];
-		int n = 0;
-
-		(void)size;
-		(void)reserved;
-		do {
-			file_name[n] = inb(FW_CFG_DATA);
-		} while (file_name[n++] && n < (int)sizeof(file_name));
-
-		if (!strcmp(name, file_name))
-			return select;
-	}
-	return 0;
-}
-
-static uint64_t fw_cfg_acpi_rsdp(void)
-{
-	uint16_t select = fw_cfg_find_file("etc/acpi/rsdp");
-	uint64_t addr = 0;
-
-	if (!select)
-		return 0;
-
-	fw_cfg_select(select);
-	for (int i = 0; i < 8; i++)
-		addr |= (uint64_t)inb(FW_CFG_DATA) << (8 * i);
-	return addr;
-}
-
-static int acpi_rsdp_valid(const struct acpi_rsdp *rsdp)
-{
-	if (memcmp(rsdp->signature, "RSD PTR ", 8))
-		return 0;
-	if (mp_checksum(rsdp, 20) != 0)
-		return 0;
-	if (rsdp->revision >= 2 &&
-	    mp_checksum(rsdp, sizeof(*rsdp)) != 0)
-		return 0;
-	return 1;
+	return rsdp ? __phy(rsdp) : 0;
 }
 
 static int acpi_table_valid(const struct acpi_sdt_hdr *hdr, const char *sig)
 {
 	if (memcmp(hdr->signature, sig, 4))
 		return 0;
-	return mp_checksum(hdr, hdr->length) == 0;
+	return acpi_checksum(hdr, hdr->length) == 0;
+}
+
+/*
+ * Map one physical page at a fixed kernel address.  ACPI tables often live
+ * above the E820 RAM range reported to Multiboot (QEMU places the RSDT just
+ * past the usable-memory top), so they are not covered by the direct map.
+ */
+static void *acpi_map_page(unsigned long phys)
+{
+	unsigned long virt = ACPI_BASE_VIRT;
+	pde_t *pde = pde_offset(swapper_pg_dir, virt);
+	pte_t *pt;
+
+	if (!__pe_present(pde)) {
+		pt = (pte_t *)alloc_pt();
+		if (!pt)
+			return NULL;
+		set_pde(pde, mk_pde(pt, _PDE));
+	} else {
+		pt = pte_offset(__vir(*pde), virt);
+	}
+
+	set_pte(pte_offset(pt, virt),
+		__mk_pte(phys & PAGE_MASK, PG_PRESENT));
+	flush_tlb();
+	return (void *)(virt + (phys & ~PAGE_MASK));
 }
 
 static struct acpi_sdt_hdr *acpi_find_table(const char *sig)
 {
-	uint64_t rsdp_phys = fw_cfg_acpi_rsdp();
+	uint64_t rsdp_phys = acpi_rsdp_address();
 	struct acpi_rsdp *rsdp;
+	struct acpi_sdt_hdr *root;
+	uint64_t entries[64];
+	int nr;
 
 	if (!rsdp_phys)
 		return NULL;
-	rsdp = (struct acpi_rsdp *)__vir(rsdp_phys);
+	rsdp = acpi_map_page(rsdp_phys);
+	if (!rsdp)
+		return NULL;
 	if (!acpi_rsdp_valid(rsdp))
 		return NULL;
 
 	if (rsdp->revision >= 2 && rsdp->xsdt_address) {
-		struct acpi_sdt_hdr *xsdt =
-			(struct acpi_sdt_hdr *)__vir(rsdp->xsdt_address);
-		int nr = (xsdt->length - sizeof(*xsdt)) / 8;
-		uint64_t *entry = (uint64_t *)(xsdt + 1);
-
-		if (!acpi_table_valid(xsdt, "XSDT"))
+		root = acpi_map_page(rsdp->xsdt_address);
+		if (!root || !acpi_table_valid(root, "XSDT"))
 			return NULL;
-		for (int i = 0; i < nr; i++) {
-			struct acpi_sdt_hdr *hdr =
-				(struct acpi_sdt_hdr *)__vir(entry[i]);
-			if (acpi_table_valid(hdr, sig))
-				return hdr;
-		}
+		nr = (root->length - sizeof(*root)) / 8;
+		if (nr > (int)(sizeof(entries) / sizeof(entries[0])))
+			nr = sizeof(entries) / sizeof(entries[0]);
+		for (int i = 0; i < nr; i++)
+			entries[i] = ((uint64_t *)(root + 1))[i];
 	} else {
-		struct acpi_sdt_hdr *rsdt =
-			(struct acpi_sdt_hdr *)__vir(rsdp->rsdt_address);
-		int nr = (rsdt->length - sizeof(*rsdt)) / 4;
-		uint32_t *entry = (uint32_t *)(rsdt + 1);
-
-		if (!acpi_table_valid(rsdt, "RSDT"))
+		root = acpi_map_page(rsdp->rsdt_address);
+		if (!root || !acpi_table_valid(root, "RSDT"))
 			return NULL;
-		for (int i = 0; i < nr; i++) {
-			struct acpi_sdt_hdr *hdr =
-				(struct acpi_sdt_hdr *)__vir(entry[i]);
-			if (acpi_table_valid(hdr, sig))
-				return hdr;
-		}
+		nr = (root->length - sizeof(*root)) / 4;
+		if (nr > (int)(sizeof(entries) / sizeof(entries[0])))
+			nr = sizeof(entries) / sizeof(entries[0]);
+		for (int i = 0; i < nr; i++)
+			entries[i] = ((uint32_t *)(root + 1))[i];
+	}
+
+	for (int i = 0; i < nr; i++) {
+		struct acpi_sdt_hdr *hdr = acpi_map_page(entries[i]);
+
+		if (hdr && acpi_table_valid(hdr, sig))
+			return hdr;
 	}
 
 	return NULL;
@@ -784,39 +614,17 @@ static void boot_aps(int nr)
 			nr_cpu_ids++;
 }
 
-void smp_init(struct multiboot_info *m)
+void smp_init(void)
 {
-	struct mp_floating *mpf = find_mp_floating();
 	struct acpi_sdt_hdr *madt = NULL;
-	struct multiboot_info *mbi =
-		(struct multiboot_info *)__vir((unsigned long)m);
 	unsigned long lapic_addr = 0xfee00000UL;
 	int nr = 0, bsp, logical = 1;
-	int cmdline_nr = cmdline_smp_count(mbi);
 
-	if (cmdline_nr > 0) {
-		/* QEMU's APIC IDs are contiguous and start at zero. */
-		for (int cpu = 0; cpu < cmdline_nr; cpu++)
-			cpu_apic_id[cpu] = cpu;
-		nr = cmdline_nr;
-	} else if (mpf) {
-		nr = parse_mp_config(mpf);
-		lapic_addr = mp_lapic_addr(
-			(struct mp_config_table *)__vir(mpf->phys_addr));
+	madt = acpi_find_table("APIC");
+	if (madt) {
+		nr = acpi_madt_parse(madt);
+		lapic_addr = acpi_madt_lapic(madt);
 	}
-
-	/*
-	 * QEMU's -kernel path does not create an MP table, so fall back to the
-	 * ACPI MADT obtained through QEMU's firmware configuration interface.
-	 */
-	if (nr <= 1) {
-		madt = acpi_find_table("APIC");
-		if (madt) {
-			nr = acpi_madt_parse(madt);
-			lapic_addr = acpi_madt_lapic(madt);
-		}
-	}
-
 	if (nr <= 1) {
 		pr_info("cpu 0 online\n");
 		nr_cpu_ids = 1;
@@ -829,8 +637,8 @@ void smp_init(struct multiboot_info *m)
 	cpu_apic_id[0] = bsp;
 
 	/*
-	 * The MP table may list processors in any order.  Rebuild a logical
-	 * order with the BSP first and only the remaining enabled CPUs after it.
+	 * The MADT may list processors in any order.  Rebuild a logical order
+	 * with the BSP first and only the remaining enabled CPUs after it.
 	 */
 	for (int i = 0; i < nr && logical < NR_CPUS; i++) {
 		int apic_id = cpu_apic_id[i];

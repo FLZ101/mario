@@ -234,8 +234,6 @@ def start_qemu(qemu, realtime=False, with_disk=False, smp=1):
         KERNEL,
         "-initrd",
         INITRD,
-        "-append",
-        f"mario.smp={smp}",
         "-display",
         "none",
         "-serial",

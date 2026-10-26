@@ -71,6 +71,8 @@ def _copy_src(src_path: Path, dst_path: Path) -> None:
     if src_path.is_symlink():
         _copy_symlink(src_path, dst_path)
     elif src_path.is_dir():
+        if src_path.name == "__pycache__":
+            return
         _copy_tree(src_path, dst_path)
     else:
         _copy_file(src_path, dst_path)
@@ -121,7 +123,19 @@ def copy_files(
         if src_dst is None:
             raise ValueError("src_dst is required when printing deps")
         for src in src_dst:
-            print(_resolve_src(src, src_root_dir))
+            src_path = _resolve_src(src, src_root_dir)
+            src_text = os.fspath(src_path)
+            if src_path.is_dir():
+                if src_path.name == "__pycache__":
+                    continue
+                for path in sorted(src_path.rglob("*")):
+                    if path.is_file() or path.is_symlink():
+                        print(path)
+            elif glob.has_magic(src_text):
+                for match in sorted(glob.glob(src_text, recursive=True)):
+                    print(match)
+            else:
+                print(src_path)
         return 0
 
     if dst_root_dir is None or src_dst is None:
@@ -150,8 +164,10 @@ def copy_rootfs_files(
     print_deps: bool = False,
 ) -> int:
     files = {
+        "rd/_ramdisk0": ".",
         "app/example/*/*.exe": "bin/example",
         "app/test/*/*.exe": "bin/test",
+        "app/test/musl/*/*.exe": "bin/test",
         "rd/tools/rd-make.c": "root/work/rd-make.c",
         "app/usr/ncurses-6.6-install/share/terminfo/a/ansi": "usr/share/terminfo/a/ansi",
         "app/usr/ncurses-6.6-install/share/terminfo/l/linux": "usr/share/terminfo/l/linux",
@@ -173,7 +189,6 @@ def copy_rootfs_files(
         "app/usr/Python-3.13.13-install-mario/bin/python3.13": "usr/python/bin/python3.13",
         "app/usr/Python-3.13.13-install-mario/lib/python3.13": "usr/python/lib/python3.13",
     }
-    files["app/test/musl/*/*.exe"] = "bin/test"
 
     if print_deps:
         return copy_files(
@@ -188,38 +203,27 @@ def copy_rootfs_files(
 
     root = Path(dst_root_dir)
     for rel in (
-        "bin/example",
-        "bin/test",
         "mnt",
         "proc",
-        "root/work",
-        "sys/kernel/debug",
-        "usr/share/terminfo",
-        "usr/python/bin",
-        "usr/python/lib",
+        "sys",
     ):
         (root / rel).mkdir(parents=True, exist_ok=True)
 
     copied = copy_files(root, files, src_root_dir=ROOT)
 
     _remove_path(root / "bin" / "vimtutor")
+    _remove_path(root / "bin" / "ncursesw_g6-config")
+
     _force_symlink("vim", root / "bin" / "vi")
     _strip_path(root / "usr" / "python" / "bin" / "python3.13")
     _force_symlink("/usr/python/bin/python3", root / "bin" / "python")
 
-    for pycache in (root / "usr" / "python").rglob("__pycache__"):
-        if pycache.is_dir():
-            shutil.rmtree(pycache)
-
     toybox = root / "bin" / "toybox" / "toybox"
     if toybox.exists():
         toybox.chmod(0o755)
-    ncurses_config = root / "bin" / "ncursesw_g6-config"
-    if ncurses_config.exists():
-        ncurses_config.chmod(0o644)
 
     for exe in sorted((root / "bin").rglob("*")):
-        if exe.is_file() and not exe.is_symlink() and os.access(exe, os.X_OK):
+        if exe.is_file() and not exe.is_symlink():
             _strip_path(exe)
 
     return copied
