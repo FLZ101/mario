@@ -104,6 +104,22 @@ static int statfs64_from_inode(struct inode *inode, struct statfs64 *buf)
 		buf->f_flags = 0;
 		return 0;
 	}
+	if (sb->s_magic == EXT2_SUPER_MAGIC) {
+		memset(buf, 0, sizeof(*buf));
+		buf->f_type = sb->s_magic;
+		buf->f_bsize = EXT2_BLOCK_SIZE(sb);
+		buf->f_blocks = EXT2_SB(sb).blocks_count;
+		buf->f_bfree = EXT2_SB(sb).free_blocks_count;
+		buf->f_bavail = EXT2_SB(sb).free_blocks_count;
+		buf->f_files = EXT2_SB(sb).inodes_count;
+		buf->f_ffree = EXT2_SB(sb).free_inodes_count;
+		buf->f_fsid.__val[0] = sb->s_dev;
+		buf->f_fsid.__val[1] = 0;
+		buf->f_namelen = EXT2_NAME_LEN;
+		buf->f_frsize = EXT2_BLOCK_SIZE(sb);
+		buf->f_flags = 0;
+		return 0;
+	}
 	if (sb->s_magic != MARIO_MAGIC)
 		return -ENOSYS;
 

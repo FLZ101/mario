@@ -1,8 +1,26 @@
 # df now relies on statvfs(), which musl maps to SYS_statfs64.  The kernel
-# fills mariofs block/free counts from the ramdisk superblock.
+# fills mariofs block/free counts from the ramdisk superblock.  Also exercise
+# the real ext2 and FAT32 filesystems on the generated hard-disk images.
+REQUIRES-HD:
+TIMEOUT: 60
 
 RUN: export PATH=/bin/toybox:/bin
 RUN: df; echo df-status:$?
 CHECK: df-status:0
 CHECK: Filesystem
 CHECK-REGEX: mariofs\s+[0-9]+\s+[0-9]+\s+[0-9]+\s+[0-9]+%\s+/
+
+RUN: mkdir -p /mnt/ext2 /mnt/fat32
+RUN: mount -t ext2 /dev/hdc3 /mnt/ext2; echo ext2-mount-status:$?
+CHECK: ext2-mount-status:0
+RUN: mount -t vfat /dev/hdc1 /mnt/fat32; echo fat32-mount-status:$?
+CHECK: fat32-mount-status:0
+
+# Check the complete non-root df rows, not just echoed mount command text.
+RUN: df; echo all-df-status:$?
+CHECK: all-df-status:0
+CHECK-REGEX: /dev/hdc3\s+[0-9]+\s+[0-9]+\s+[0-9]+\s+[0-9]+%\s+/mnt/ext2
+CHECK-REGEX: /dev/hdc1\s+[0-9]+\s+[0-9]+\s+[0-9]+\s+[0-9]+%\s+/mnt/fat32
+
+RUN: umount /mnt/ext2 /mnt/fat32; echo umount-status:$?
+CHECK: umount-status:0
