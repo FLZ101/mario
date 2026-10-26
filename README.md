@@ -45,7 +45,7 @@ A simple Linux clone for x86.
 ```
 $ sudo dnf install make gcc binutils nasm qemu-system-x86 gdb dosfstools e2fsprogs mtools
 
-$ sudo dnf install wget
+$ sudo dnf install wget patch
 
 $ sudo dnf install autoconf automake libtool
 
