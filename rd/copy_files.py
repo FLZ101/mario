@@ -11,6 +11,8 @@ import os
 import shutil
 import glob
 import subprocess
+import stat
+
 from pathlib import Path
 from typing import Mapping
 
@@ -40,6 +42,26 @@ def _copy_symlink(src: Path, dst: Path) -> None:
     os.symlink(target, dst)
 
 
+def _is_elf(path):
+    with open(path, "rb") as f:
+        return f.read(4) == b"\x7fELF"
+
+def _make_writable(path):
+    mode = os.stat(path).st_mode
+
+    # Check whether the owner write permission is missing
+    if not mode & stat.S_IWUSR:
+        os.chmod(path, mode | stat.S_IWUSR)
+        return True  # Changed to writable
+
+    return False  # Already writable
+
+def _strip_path(path: Path) -> None:
+    if _is_elf(path):
+        _make_writable(path)
+        subprocess.run(["strip", "--strip-all", str(path)], check=False)
+
+
 def _copy_file(src: Path, dst: Path) -> None:
     if dst.exists() and dst.is_dir():
         dst = dst / src.name
@@ -47,6 +69,8 @@ def _copy_file(src: Path, dst: Path) -> None:
     if not _needs_update(src, dst):
         return
     shutil.copy2(src, dst)
+
+    _strip_path(dst)
 
 
 def _copy_tree(src: Path, dst: Path) -> None:
@@ -88,10 +112,6 @@ def _remove_path(path: Path) -> None:
 def _force_symlink(target: str, link: Path) -> None:
     _remove_path(link)
     os.symlink(target, link)
-
-
-def _strip_path(path: Path) -> None:
-    subprocess.run(["strip", "--strip-all", str(path)], check=False)
 
 
 def _resolve_src(src: str, src_root_dir: str | Path | None) -> Path:
@@ -165,26 +185,29 @@ def copy_rootfs_files(
 ) -> int:
     files = {
         "rd/_ramdisk0": ".",
-        "app/example/*/*.exe": "bin/example",
-        "app/test/*/*.exe": "bin/test",
-        "app/test/musl/*/*.exe": "bin/test",
+        "app/system/*/*.exe": "sbin",
+        "app/usr/oksh-7.8-install/bin/oksh": "bin/oksh",
+        "app/usr/toybox-0.8.9-install/bin/*": "bin/toybox",
         "rd/tools/rd-make.c": "root/work/rd-make.c",
+
+        "app/usr/sbase-install/bin/*": "usr/bin/sbase",
+        "app/usr/ubase-install/bin/*": "usr/bin/ubase",
+        "app/example/*/*.exe": "usr/bin/example",
+        "app/test/*/*.exe": "usr/bin/test",
+        "app/test/musl/*/*.exe": "usr/bin/test",
         "app/usr/ncurses-6.6-install/share/terminfo/a/ansi": "usr/share/terminfo/a/ansi",
         "app/usr/ncurses-6.6-install/share/terminfo/l/linux": "usr/share/terminfo/l/linux",
         "app/usr/ncurses-6.6-install/share/terminfo/v/vt100": "usr/share/terminfo/v/vt100",
         "app/usr/ncurses-6.6-install/share/terminfo/v/vt102": "usr/share/terminfo/v/vt102",
         "app/usr/ncurses-6.6-install/share/terminfo/x/xterm": "usr/share/terminfo/x/xterm",
-        "app/usr/ncurses-6.6-install/bin/*": "bin",
-        "app/usr/oksh-7.8-install/bin/oksh": "bin/oksh",
-        "app/usr/ncurses/*.exe": "bin/ncurses",
-        "app/usr/toybox-0.8.9-install/bin/*": "bin/toybox",
-        "app/usr/sbase-install/bin/*": "bin/sbase",
-        "app/usr/ubase-install/bin/*": "bin/ubase",
-        "app/usr/vim-9.2.0428-install/bin/*": "bin",
+        "app/usr/ncurses-6.6-install/bin/*": "usr/bin",
+        "app/usr/ncurses/*.exe": "usr/bin/ncurses",
+        "app/usr/ncurses/guide/*.exe": "usr/bin/ncurses/guide",
+        "app/usr/vim-9.2.0428-install/bin/*": "usr/bin",
         "app/usr/vim-9.2.0428-install/share/vim": "usr/share/vim",
-        "app/usr/nano-9.0-install/bin/*": "bin",
+        "app/usr/nano-9.0-install/bin/*": "usr/bin",
         "app/usr/nano-9.0-install/share/nano": "usr/share/nano",
-        "app/usr/less-692-install/bin/*": "bin",
+        "app/usr/less-692-install/bin/*": "usr/bin",
         "app/usr/Python-3.13.13-install-mario/bin/python3": "usr/python/bin/python3",
         "app/usr/Python-3.13.13-install-mario/bin/python3.13": "usr/python/bin/python3.13",
         "app/usr/Python-3.13.13-install-mario/lib/python3.13": "usr/python/lib/python3.13",
@@ -211,19 +234,10 @@ def copy_rootfs_files(
 
     copied = copy_files(root, files, src_root_dir=ROOT)
 
-    _remove_path(root / "bin" / "vimtutor")
-    _remove_path(root / "bin" / "ncursesw_g6-config")
+    _remove_path(root / "usr" / "bin" / "vimtutor")
+    _remove_path(root / "usr" / "bin" / "ncursesw_g6-config")
 
-    _force_symlink("vim", root / "bin" / "vi")
-    _strip_path(root / "usr" / "python" / "bin" / "python3.13")
-    _force_symlink("/usr/python/bin/python3", root / "bin" / "python")
-
-    toybox = root / "bin" / "toybox" / "toybox"
-    if toybox.exists():
-        toybox.chmod(0o755)
-
-    for exe in sorted((root / "bin").rglob("*")):
-        if exe.is_file() and not exe.is_symlink():
-            _strip_path(exe)
+    _force_symlink("vim", root / "usr" / "bin" / "vi")
+    _force_symlink("/usr/python/bin/python3", root / "usr" / "bin" / "python")
 
     return copied

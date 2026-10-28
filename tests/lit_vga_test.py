@@ -15,7 +15,6 @@ Test files use a small subset of lit syntax:
     VGA-DUMP-SCREEN: /tmp/vga-rect.ppm,1,12
     VGA-CHECK-SCREEN: /tmp/vga-rect.ppm
     VGA-CHECK-SCREEN: /tmp/vga-rect.ppm,1,12
-    REQUIRES-HD:
     REQUIRES-SMP: >=4
     EXIT:
 
@@ -55,7 +54,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QEMU = os.environ.get("QEMU", "qemu-system-i386")
 KERNEL = os.path.join(ROOT, "src", "kernel", "kernel.exe")
 INITRD = os.path.join(ROOT, "rd", "rdx")
-HD1_IMAGE = os.path.join(ROOT, "qemu", "hd.img")
+HD1_IMAGE = os.path.join(ROOT, "qemu", "hd1.img")
 HD2_IMAGE = os.path.join(ROOT, "qemu", "hd2.img")
 HD3_IMAGE = os.path.join(ROOT, "qemu", "hd3.img")
 
@@ -164,7 +163,6 @@ VGA_KEYMAP = {
 class VgaLitTest:
     def __init__(self, path):
         self.path = path
-        self.requires_hd = False
         self.requires_smp = None
         self.actions = []
 
@@ -235,8 +233,6 @@ class VgaLitTest:
                     if seconds <= 0:
                         raise ValueError(f"{self.path}: TIMEOUT must be positive")
                     self.actions.append(("set-timeout", seconds))
-                elif body.startswith("REQUIRES-HD:"):
-                    self.requires_hd = True
                 elif body.startswith("REQUIRES-SMP:"):
                     spec = body[len("REQUIRES-SMP:") :].strip()
                     self.requires_smp = parse_smp_requirement(spec)
@@ -324,7 +320,7 @@ def require_files():
         sys.exit(2)
 
 
-def start_qemu(qemu, monitor_path, timeout=30, with_disk=False, smp=1):
+def start_qemu(qemu, monitor_path, timeout=30, smp=1):
     try:
         os.unlink(monitor_path)
     except FileNotFoundError:
@@ -349,24 +345,23 @@ def start_qemu(qemu, monitor_path, timeout=30, with_disk=False, smp=1):
         "-no-reboot",
         "-no-shutdown",
     ]
-    if with_disk:
-        cmd += [
-            "-snapshot",
-            "-drive",
-            f"id=mario-test-hd1,file={HD1_IMAGE},format=raw,if=none",
-            "-drive",
-            f"id=mario-test-hd2,file={HD2_IMAGE},format=raw,if=none",
-            "-drive",
-            f"id=mario-test-hd3,file={HD3_IMAGE},format=raw,if=none",
-            "-device",
-            "ahci,id=mario-test-ahci",
-            "-device",
-            "ide-hd,drive=mario-test-hd1,bus=mario-test-ahci.0",
-            "-device",
-            "ide-hd,drive=mario-test-hd2,bus=mario-test-ahci.1",
-            "-device",
-            "ide-hd,drive=mario-test-hd3,bus=mario-test-ahci.2",
-        ]
+    cmd += [
+        "-snapshot",
+        "-drive",
+        f"id=mario-test-hd1,file={HD1_IMAGE},format=raw,if=none",
+        "-drive",
+        f"id=mario-test-hd2,file={HD2_IMAGE},format=raw,if=none",
+        "-drive",
+        f"id=mario-test-hd3,file={HD3_IMAGE},format=raw,if=none",
+        "-device",
+        "ahci,id=mario-test-ahci",
+        "-device",
+        "ide-hd,drive=mario-test-hd1,bus=mario-test-ahci.0",
+        "-device",
+        "ide-hd,drive=mario-test-hd2,bus=mario-test-ahci.1",
+        "-device",
+        "ide-hd,drive=mario-test-hd3,bus=mario-test-ahci.2",
+    ]
     child = pexpect.spawn(" ".join(cmd), encoding="latin-1", timeout=timeout)
     _pexpect_expect(child, BOOT_PROMPT, timeout, "wait for boot prompt")
     child.sendline("PS1='MARIO_VGA_PROMPT> '")
@@ -561,7 +556,7 @@ def parse_screen_check(value):
 
 def run_test(test, qemu, index, smp=1):
     monitor_path = f"/tmp/mario-vga-lit-{os.getpid()}-{index}.sock"
-    child, monitor = start_qemu(qemu, monitor_path, with_disk=test.requires_hd, smp=smp)
+    child, monitor = start_qemu(qemu, monitor_path, smp=smp)
     failures = []
     timeout = DEFAULT_TIMEOUT
     base_dir = os.path.dirname(test.path)
@@ -664,7 +659,7 @@ def run_test(test, qemu, index, smp=1):
 
 
 def skipped_reason(test, missing_hd_images, smp):
-    if test.requires_hd and missing_hd_images:
+    if missing_hd_images:
         return f"missing {', '.join(missing_hd_images)}"
     if test.requires_smp is not None and not smp_requirement_matches(
         test.requires_smp, smp
@@ -773,13 +768,11 @@ def main():
         print(f"No .test files found in: {' '.join(args.paths)}", file=sys.stderr)
         sys.exit(2)
 
-    missing_hd_images = []
-    if any(test.requires_hd for test in tests):
-        missing_hd_images = [
-            path
-            for path in (HD1_IMAGE, HD2_IMAGE, HD3_IMAGE)
-            if not os.path.exists(path)
-        ]
+    missing_hd_images = [
+        path
+        for path in (HD1_IMAGE, HD2_IMAGE, HD3_IMAGE)
+        if not os.path.exists(path)
+    ]
 
     failed = False
     runnable = []

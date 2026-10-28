@@ -84,6 +84,12 @@
 #define ATA_FIS_TYPE_H2D	0x27
 
 #define AHCI_TIMEOUT		10000000U
+/*
+ * Port initialization and empty-port probing must not wait for a full
+ * command timeout.  PxSSTS device presence settles quickly, so this keeps
+ * QEMU's six implemented ports from stalling boot on the three empty ones.
+ */
+#define AHCI_DETECT_TIMEOUT	1000000U
 
 #define HD_SECTOR_SIZE		512
 #define HD_MAX_PARTITIONS	16
@@ -129,7 +135,17 @@ struct ahci_port {
 	unsigned long memory;	/* page holding command header/FIS/table */
 	struct hba_command_header *command_header;
 	struct hba_command_table *command_table;
-	struct semaphore done;
+	/*
+	 * AHCI command completion uses a direct waiter instead of a semaphore.
+	 * irq_ahci() runs with interrupts disabled in the interrupt context; if
+	 * it called up() while this process held the matching semaphore lock,
+	 * the interrupt handler could spin on that lock forever.  waiter and
+	 * wait_lock keep the one-waiter wakeup IRQ-safe.
+	 */
+	struct task_struct *waiter;
+	spinlock_t wait_lock;
+	/* Serializes all command submission through this port's one table. */
+	struct semaphore cmd_lock;
 	volatile int complete;
 	volatile int error;
 	int initialized;
@@ -170,14 +186,22 @@ static int wait_clear(volatile uint32_t *reg, uint32_t bits)
 	return -ETIMEDOUT;
 }
 
-static int wait_set(volatile uint32_t *reg, uint32_t bits)
+static int wait_set_timeout(volatile uint32_t *reg, uint32_t bits,
+			     unsigned int timeout_limit)
 {
 	unsigned int timeout;
 
-	for (timeout = 0; timeout < AHCI_TIMEOUT; timeout++)
+	/* Poll a register until all requested bits are set or the limit expires. */
+	for (timeout = 0; timeout < timeout_limit; timeout++)
 		if ((readl(reg) & bits) == bits)
 			return 0;
 	return -ETIMEDOUT;
+}
+
+static int wait_set(volatile uint32_t *reg, uint32_t bits)
+{
+	/* Keep the existing call sites using the default command timeout. */
+	return wait_set_timeout(reg, bits, AHCI_TIMEOUT);
 }
 
 static void hba_write(unsigned int offset, uint32_t value)
@@ -267,8 +291,33 @@ static int ahci_wait_poll(struct ahci_port *port)
 }
 
 /*
+ * Wait until irq_ahci() marks this port complete or errored.  The loop is
+ * required because the interrupt may arrive in the tiny window after
+ * wait_lock is released but before schedule() parks the task.  In that case
+ * wake_up_process() turns the task RUNNING again, schedule() may not switch
+ * away, and only the repeated completion check prevents a spurious return.
+ */
+static void ahci_wait_for_completion(struct ahci_port *port)
+{
+	unsigned long flags;
+
+	for (;;) {
+		spin_lock_irqsave(&port->wait_lock, flags);
+		if (port->complete || port->error) {
+			spin_unlock_irqrestore(&port->wait_lock, flags);
+			break;
+		}
+
+		current->state = TASK_UNINTERRUPTIBLE;
+		spin_unlock_irqrestore(&port->wait_lock, flags);
+		schedule();
+	}
+}
+
+/*
  * Fill the selected port's command table and issue it.  Polling is used
- * before interrupts are enabled; the normal path blocks on port->done.
+ * before interrupts are enabled; the normal path blocks until irq_ahci()
+ * signals the registered waiter.
  */
 static int ahci_issue_command(struct ahci_port *port, uint8_t command,
 			      uint64_t lba, uint16_t sector_count, char *buf,
@@ -277,10 +326,22 @@ static int ahci_issue_command(struct ahci_port *port, uint8_t command,
 	struct hba_command_table *table = port->command_table;
 	struct hba_prdt_entry *prdt = table->prdt;
 	uint32_t flags;
+	unsigned long wait_flags;
 	int prdtl;
+	int error = 0;
 
-	if (wait_clear(&port->port_regs[AHCI_PxCI / 4], 1))
-		return -ETIMEDOUT;
+	/*
+	 * Each port has only one command header/table and one completion
+	 * waiter.  Serialize callers so concurrent filesystem threads cannot
+	 * overwrite an in-flight command, which would leave the matching
+	 * waiter blocked indefinitely.
+	 */
+	down(&port->cmd_lock);
+
+	if (wait_clear(&port->port_regs[AHCI_PxCI / 4], 1)) {
+		error = -ETIMEDOUT;
+		goto out_unlock;
+	}
 
 	memset(table, 0, sizeof(*table));
 	fill_command_fis(command, lba, sector_count, table->cfis);
@@ -301,21 +362,35 @@ static int ahci_issue_command(struct ahci_port *port, uint8_t command,
 	port->command_header->ctba = __phy((unsigned long)table);
 	port->command_header->ctbau = 0;
 
-	sema_init(&port->done, 0);
+	/* Publish the waiter and clear completion state before the command bit
+	 * is set.  irq_ahci() reads these under wait_lock after PxCI. */
+	spin_lock_irqsave(&port->wait_lock, wait_flags);
+	port->waiter = current;
 	port->complete = 0;
 	port->error = 0;
+	spin_unlock_irqrestore(&port->wait_lock, wait_flags);
 	port_write(port, AHCI_PxIS, 0xffffffffU);
 
 	__asm__ __volatile__("" ::: "memory");
 	port_write(port, AHCI_PxCI, 1);
 
-	if (poll)
-		return ahci_wait_poll(port);
+	if (poll) {
+		error = ahci_wait_poll(port);
+		spin_lock_irqsave(&port->wait_lock, wait_flags);
+		port->waiter = NULL;
+		spin_unlock_irqrestore(&port->wait_lock, wait_flags);
+	} else {
+		ahci_wait_for_completion(port);
+		spin_lock_irqsave(&port->wait_lock, wait_flags);
+		port->waiter = NULL;
+		spin_unlock_irqrestore(&port->wait_lock, wait_flags);
+		if (port->error)
+			error = -EIO;
+	}
 
-	down(&port->done);
-	if (port->error)
-		return -EIO;
-	return 0;
+out_unlock:
+	up(&port->cmd_lock);
+	return error;
 }
 
 /*
@@ -326,7 +401,9 @@ static int ahci_issue_command(struct ahci_port *port, uint8_t command,
 void irq_ahci(void)
 {
 	uint32_t is;
+	struct task_struct *waiters[HD_MAX_DISKS];
 	unsigned int i;
+	unsigned int nr_waiters = 0;
 
 	if (!hba)
 		return;
@@ -338,6 +415,8 @@ void irq_ahci(void)
 	for (i = 0; i < nr_ahci_disks; i++) {
 		struct hd_disk *disk = &hd_disks[i];
 		struct ahci_port *port = disk->port;
+		struct task_struct *waiter;
+		unsigned long wait_flags;
 		uint32_t pis;
 
 		if (!disk->present || !port->initialized)
@@ -346,18 +425,33 @@ void irq_ahci(void)
 			continue;
 
 		pis = port_read(port, AHCI_PxIS);
+
+		/* Update completion state and read the registered waiter under the
+		 * same lock that the issuing task uses when publishing or clearing
+		 * them.  This makes the one-waiter wakeup safe on SMP as well. */
+		spin_lock_irqsave(&port->wait_lock, wait_flags);
 		if (pis & AHCI_PxIS_TFES)
 			port->error = 1;
 		if (pis & AHCI_PxIS_DHRS)
 			port->complete = 1;
+		if (port->complete || port->error)
+			waiter = port->waiter;
+		else
+			waiter = NULL;
+		spin_unlock_irqrestore(&port->wait_lock, wait_flags);
+
 		if (pis)
 			port_write(port, AHCI_PxIS, pis);
 
-		if (port->complete || port->error)
-			up(&port->done);
+		if (waiter)
+			waiters[nr_waiters++] = waiter;
 	}
 
 	hba_write(AHCI_IS, is);
+
+	/* Wake waiters only after the global interrupt status is cleared. */
+	for (i = 0; i < nr_waiters; i++)
+		wake_up_process(waiters[i]);
 }
 
 static int ahci_read_sectors(struct ahci_port *port, uint64_t lba,
@@ -441,6 +535,7 @@ static int ahci_port_init(struct ahci_port *port, unsigned int port_number)
 	port->port = port_number;
 	port->port_regs =
 		hba + (AHCI_PX_OFFSET + port_number * AHCI_PX_STRIDE) / 4;
+	INIT_LOCK(&port->wait_lock);
 
 	cmd = port_read(port, AHCI_PxCMD);
 	cmd &= ~(AHCI_PxCMD_ST | AHCI_PxCMD_FRE);
@@ -473,13 +568,22 @@ static int ahci_port_init(struct ahci_port *port, unsigned int port_number)
 	if (wait_set(&port->port_regs[AHCI_PxCMD / 4], AHCI_PxCMD_CR))
 		return -ETIMEDOUT;
 
-	if (wait_set(&port->port_regs[AHCI_PxSSTS / 4],
-		     AHCI_PxSSTS_DET_PRESENT) < 0)
+	/*
+	 * Empty AHCI ports are normal (QEMU exposes six implemented ports
+	 * even when only some have drives).  Device detection is fast, so
+	 * use a short poll here rather than the full command timeout;
+	 * otherwise every empty port stalls boot for seconds.
+	 */
+	if (wait_set_timeout(&port->port_regs[AHCI_PxSSTS / 4],
+			      AHCI_PxSSTS_DET_PRESENT,
+			      AHCI_DETECT_TIMEOUT) < 0)
 		return -ENODEV;
 	if ((port_read(port, AHCI_PxSSTS) & AHCI_PxSSTS_DET_MASK) !=
 	    AHCI_PxSSTS_DET_PRESENT)
 		return -ENODEV;
 
+	/* The port is ready to accept serialized commands after this point. */
+	init_MUTEX(&port->cmd_lock);
 	port->initialized = 1;
 	return 0;
 }

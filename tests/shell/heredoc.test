@@ -1,4 +1,4 @@
-RUN: export PATH=/bin:/bin/toybox:/bin/sbase
+RUN: export PATH=/bin:/bin/toybox:/usr/bin/sbase
 RUN: mkdir -p /tmp
 
 RUN: wc -l <<'EOF'

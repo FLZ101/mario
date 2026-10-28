@@ -1,6 +1,5 @@
 # Exercise every blkid output and selection mode against the GPT ext2/vfat
 # test partitions, plus the no-argument /proc/partitions scan.
-REQUIRES-HD:
 TIMEOUT: 60
 
 RUN: export PATH=/bin/toybox:/bin
@@ -31,7 +30,7 @@ RUN: blkid /dev/hdc3 /dev/hdc4
 CHECK-REGEX: /dev/hdc3: UUID="[0-9a-f-]+" TYPE="ext2"
 CHECK-REGEX: /dev/hdc4: UUID="[0-9a-f-]+" TYPE="ext2"
 
-RUN: /bin/sbase/dd if=/dev/hdc3 of=/root/blkid-head.img bs=512 count=8 2>/dev/null; blkid - < /root/blkid-head.img
+RUN: /usr/bin/sbase/dd if=/dev/hdc3 of=/root/blkid-head.img bs=512 count=8 2>/dev/null; blkid - < /root/blkid-head.img
 CHECK-REGEX: -: UUID="[0-9a-f-]+" TYPE="ext2"
 
 RUN: uuid=$(blkid -o value -s UUID /dev/hdc1) ; blkid -U $uuid; echo uuid-lookup-status:$?

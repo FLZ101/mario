@@ -4,7 +4,7 @@
 TIMEOUT: 60
 
 RUN: mkdir -p /tmp
-RUN: /bin/test/mm.exe
+RUN: /usr/bin/test/mm.exe
 CHECK: private-ok
 CHECK: shared-ok
 CHECK: past-eof-ok

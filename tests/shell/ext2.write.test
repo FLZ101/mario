@@ -1,5 +1,3 @@
-REQUIRES-HD:
-
 RUN: export PATH=/bin/toybox:/bin
 
 RUN: mount -t ext2 /dev/hdc3 /mnt; echo mount-status:$?

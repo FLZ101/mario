@@ -1,4 +1,4 @@
-RUN: export PATH=/bin:/bin/toybox:/bin/sbase
+RUN: export PATH=/bin:/bin/toybox:/usr/bin/sbase
 
 # Basic execution and quoting.
 RUN: echo the quick brown fox

@@ -17,10 +17,17 @@ RD_DIR = Path(__file__).resolve().parent
 
 def build_rd0() -> None:
     staging = RD_DIR / "ramdisk0"
-
     shutil.rmtree(staging, ignore_errors=True)
 
     copy_files.copy_rootfs_files(staging)
+
+    usr = RD_DIR / "ramdisk0_usr"
+    shutil.rmtree(usr, ignore_errors=True)
+    os.rename(staging / "usr", usr)
+
+    # init mounts the separately built ramdisk0_usr image at /usr, so the
+    # root ramdisk still needs an empty mountpoint for that directory.
+    (staging / "usr").mkdir(parents=True, exist_ok=True)
 
     subprocess.run(
         [
@@ -28,7 +35,7 @@ def build_rd0() -> None:
             "--dir=ramdisk0",
             "--rd=rd0",
             "--device-list=device_list",
-            "--nr-block=163840",
+            "--nr-block=5120",
         ],
         cwd=RD_DIR,
         check=True,

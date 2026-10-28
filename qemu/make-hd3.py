@@ -7,7 +7,7 @@ import mkdisk
 
 disk = mkdisk.Disk(
     name="hd3",
-    size_mib=320,
+    size_mib=320+512,
     label="gpt",
     partitions=[
         mkdisk.Partition(
@@ -37,6 +37,13 @@ disk = mkdisk.Disk(
             "ext2",
             type_id=mkdisk.GPT_TYPE_GUIDS["linux-filesystem"],
             content=((Path("hd3/p4"), "/"),),
+        ),
+        mkdisk.Partition(
+            5,
+            512,
+            "ext2",
+            type_id=mkdisk.GPT_TYPE_GUIDS["linux-filesystem"],
+            content=((Path("../rd/ramdisk0_usr"), "/"),),
         ),
     ],
 )

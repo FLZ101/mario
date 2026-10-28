@@ -2,5 +2,5 @@
 
 REQUIRES-SMP: >=8
 
-RUN: /bin/test/pthread_stress.exe nested 6 4 3000
+RUN: /usr/bin/test/pthread_stress.exe nested 6 4 3000
 CHECK: nested-ok

@@ -1,11 +1,9 @@
 # Cover the main Python threading primitives through musl pthread/futex:
 # thread creation/join, Lock, Condition, and Event.
 
-REQUIRES-SMP: >=8
-
 TIMEOUT: 90
 
-RUN: export PATH=/bin:/bin/toybox:/bin/sbase
+RUN: export PATH=/bin:/bin/toybox:/usr/bin:/usr/bin/sbase
 RUN: mkdir -p /tmp
 
 # Independent thread results, joined by the creator.

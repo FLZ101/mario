@@ -1,7 +1,6 @@
 # df now relies on statvfs(), which musl maps to SYS_statfs64.  The kernel
 # fills mariofs block/free counts from the ramdisk superblock.  Also exercise
 # the real ext2 and FAT32 filesystems on the generated hard-disk images.
-REQUIRES-HD:
 TIMEOUT: 60
 
 RUN: export PATH=/bin/toybox:/bin

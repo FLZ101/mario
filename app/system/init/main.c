@@ -58,7 +58,7 @@ static void spawn_getty(struct getty *gty) {
 
     pid_t pid = fork();
     if (pid == 0) {
-        execl("/bin/example/getty.exe", "getty", gty->device, NULL);
+        execl("/sbin/getty.exe", "getty", gty->device, NULL);
         Exit();
     } else if (pid > 0) {
         gty->pid = pid;
@@ -140,6 +140,10 @@ int main(int argc, char *argv[], char *envp[])
     }
     if (0 != mount("debugfs", "/sys/kernel/debug", "debugfs", 0, NULL)) {
         perror("mount debugfs");
+        exit(EXIT_FAILURE);
+    }
+    if (0 != mount("/dev/hdc5", "/usr", "ext2", 0, NULL)) {
+        perror("mount /dev/hdc5");
         exit(EXIT_FAILURE);
     }
 

@@ -1,4 +1,4 @@
-RUN: export PATH=/bin/sbase:/bin
+RUN: export PATH=/usr/bin/sbase:/bin
 RUN: cd /root
 RUN: rm -rf mkfifo-test
 RUN: mkdir mkfifo-test

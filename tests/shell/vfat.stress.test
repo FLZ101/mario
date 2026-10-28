@@ -1,7 +1,6 @@
-REQUIRES-HD:
 TIMEOUT: 120
 
-RUN: export PATH=/bin/toybox:/bin
+RUN: export PATH=/bin/toybox:/bin:/usr/bin
 
 RUN: mount -t vfat /dev/hdc2 /mnt; echo mount-status:$?
 CHECK: mount-status:0

@@ -2,5 +2,5 @@
 
 REQUIRES-SMP: >=8
 
-RUN: /bin/test/pthread_stress.exe many 48 1500
+RUN: /usr/bin/test/pthread_stress.exe many 48 1500
 CHECK: many-ok

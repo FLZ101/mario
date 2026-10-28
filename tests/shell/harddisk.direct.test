@@ -1,6 +1,4 @@
-REQUIRES-HD:
-
-RUN: export PATH=/bin/sbase:/bin/toybox:/bin
+RUN: export PATH=/usr/bin/sbase:/bin/toybox:/bin
 RUN: mkdir -p /tmp
 
 RUN: /bin/oksh - <<'EOF'

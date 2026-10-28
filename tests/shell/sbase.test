@@ -1,4 +1,4 @@
-RUN: export PATH=/bin/sbase:/bin
+RUN: export PATH=/usr/bin/sbase:/bin
 
 # Prepare a clean workspace.
 RUN: cd /root
@@ -10,7 +10,7 @@ CHECK: /root/sbase-test
 
 # Confirm the sbase tools are being selected.
 RUN: which cat
-CHECK: /bin/sbase/cat
+CHECK: /usr/bin/sbase/cat
 
 # Create some files to work with.
 RUN: echo hello > a.txt
@@ -169,7 +169,7 @@ RUN: chgrp root a.txt; echo chgrp-ok
 CHECK: chgrp-ok
 RUN: chown root a.txt; echo chown-ok
 CHECK: chown-ok
-RUN: chroot / /bin/sbase/pwd
+RUN: chroot / /usr/bin/sbase/pwd
 CHECK: /
 RUN: cols </dev/null; echo cols-ok
 CHECK: cols-ok
@@ -182,7 +182,7 @@ RUN: date +%Y
 CHECK-REGEX: 20[0-9]{2}
 RUN: du a.txt
 CHECK-REGEX: [0-9]+\s+a\.txt
-RUN: env PATH=/bin/sbase:/bin true; echo env-ok
+RUN: env PATH=/usr/bin/sbase:/bin true; echo env-ok
 CHECK: env-ok
 RUN: expr 1 + 1
 CHECK: 2
@@ -212,7 +212,7 @@ CHECK: nohup-ok
 RUN: pathchk /root/sbase-test/a.txt; echo pathchk-ok
 CHECK: pathchk-ok
 RUN: printenv PATH
-CHECK: /bin/sbase:/bin
+CHECK: /usr/bin/sbase:/bin
 RUN: renice -n 5 -p $$; echo renice-status:$?
 CHECK: renice-status:0
 RUN: renice -n -5 -p $$; echo renice-reset:$?

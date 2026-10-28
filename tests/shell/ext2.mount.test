@@ -1,4 +1,3 @@
-REQUIRES-HD:
 # First mount reads the ext2 superblock through AHCI.  Keep this above the
 # default 30s timeout so high-parallel lit runs with shared host disks do not
 # time out waiting for QEMU's AHCI I/O.

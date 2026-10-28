@@ -42,7 +42,7 @@ static char *envp_init[MAX_INIT_ENVS+2] = { "HOME=/root", NULL, };
 void init(void *arg)
 {
 	// pid of init.exe is 1
-	execve("/bin/example/init.exe", argv_init, envp_init);
+	execve("/sbin/init.exe", argv_init, envp_init);
 	hang("Fail to start init.exe: %d", errno);
 }
 

@@ -3,6 +3,6 @@
 
 REQUIRES-SMP: 4
 
-RUN: export PATH=/bin:/bin/toybox:/bin/sbase
+RUN: export PATH=/bin:/bin/toybox:/usr/bin/sbase
 RUN: grep -c '^processor' /proc/cpuinfo
 CHECK: 4

@@ -1,5 +1,3 @@
-REQUIRES-HD:
-
 # Writable FAT32 smoke test.  The test runner uses -snapshot for HD tests, so
 # the checked-in image is not modified.
 
@@ -24,9 +22,9 @@ CHECK: hello
 CHECK: read-status:0
 
 RUN: /bin/oksh - <<'EOF'
-/bin/sbase/dd if=/dev/urandom of=/tmp/fat.pattern bs=4096 count=8 >/dev/null 2>&1
-/bin/sbase/dd if=/tmp/fat.pattern of=/mnt/big.bin >/dev/null 2>&1
-/bin/sbase/dd if=/mnt/big.bin of=/tmp/fat.back >/dev/null 2>&1
+/usr/bin/sbase/dd if=/dev/urandom of=/tmp/fat.pattern bs=4096 count=8 >/dev/null 2>&1
+/usr/bin/sbase/dd if=/tmp/fat.pattern of=/mnt/big.bin >/dev/null 2>&1
+/usr/bin/sbase/dd if=/mnt/big.bin of=/tmp/fat.back >/dev/null 2>&1
 status=mismatch
 if cmp /tmp/fat.pattern /tmp/fat.back; then
 	status=ok
@@ -46,7 +44,7 @@ RUN: echo abcdefghijklmnopqrstuvwxyz > /mnt/trunc.txt; truncate -s 5 /mnt/trunc.
 CHECK: abcde
 CHECK: truncate-status:0
 
-RUN: truncate -s 4096 /mnt/zero.bin; /bin/sbase/dd if=/dev/zero of=/tmp/zero.pat bs=4096 count=1 >/dev/null 2>&1; cmp /mnt/zero.bin /tmp/zero.pat; echo zero-status:$?
+RUN: truncate -s 4096 /mnt/zero.bin; /usr/bin/sbase/dd if=/dev/zero of=/tmp/zero.pat bs=4096 count=1 >/dev/null 2>&1; cmp /mnt/zero.bin /tmp/zero.pat; echo zero-status:$?
 CHECK: zero-status:0
 
 RUN: mkdir /mnt/wrdir; echo mkdir-status:$?

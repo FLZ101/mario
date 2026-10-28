@@ -4,7 +4,7 @@
 
 REQUIRES-SMP: >=8
 
-RUN: /bin/test/pthread.exe
+RUN: /usr/bin/test/pthread.exe
 CHECK-REGEX: main pid=\d+ tid=\d+
 CHECK: counter=160000
 CHECK: pthread-ok

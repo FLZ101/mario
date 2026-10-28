@@ -1,7 +1,5 @@
 # ext2 mmap stress coverage.  The stages are separate Python processes so
-REQUIRES-HD:
-
-RUN: export PATH=/bin/toybox:/bin
+RUN: export PATH=/bin/toybox:/bin:/usr/bin
 RUN: mkdir -p /mnt
 RUN: mount -t ext2 /dev/hdc3 /mnt; echo mount-status:$?
 CHECK: mount-status:0

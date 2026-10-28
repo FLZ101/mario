@@ -49,6 +49,7 @@ QEMU_DISPLAY	:=curses
 endif
 
 HD_FLAGS := \
+	-snapshot \
 	-drive id=disk1,file=hd1.img,format=raw,if=none \
 	-drive id=disk2,file=hd2.img,format=raw,if=none \
 	-drive id=disk3,file=hd3.img,format=raw,if=none \

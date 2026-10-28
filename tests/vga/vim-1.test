@@ -1,6 +1,7 @@
 VGA-SEND-KEY: f2
 VGA-CHECK: / #
 VGA-SEND: vim /etc/welcome.txt
+SLEEP: 5
 VGA-CHECK: _______
 VGA-SEND: :vsplit
 VGA-SEND: :split

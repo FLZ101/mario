@@ -1,4 +1,4 @@
-RUN: export PATH=/bin/sbase:/bin
+RUN: export PATH=/usr/bin/sbase:/bin
 RUN: cd /root
 RUN: rm -rf mknod-test
 RUN: mkdir mknod-test

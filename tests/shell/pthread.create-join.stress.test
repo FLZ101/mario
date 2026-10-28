@@ -2,5 +2,5 @@
 
 REQUIRES-SMP: >=8
 
-RUN: /bin/test/pthread_stress.exe create-join 6 8 5000
+RUN: /usr/bin/test/pthread_stress.exe create-join 6 8 5000
 CHECK: create-join-ok

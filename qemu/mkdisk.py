@@ -1,33 +1,36 @@
 #!/usr/bin/env python3
-"""Rootless raw-disk builder shared by make-hd1/2/3.
+"""Shared raw-disk builder used by make-hd1/2/3.
 
-The images are assembled without losetup or mount(8).  The builder:
+The image is assembled with Linux loop devices:
 
-  1. creates an empty image,
-  2. writes the partition table with sfdisk, letting sfdisk choose the
-     sector offsets,
-  3. reads those offsets back from ``sfdisk --json``,
-  4. creates one standalone filesystem image per partition and populates it
-     with mtools (FAT) or debugfs (ext2/3/4),
-  5. splices each filesystem into the final image at the offset sfdisk chose.
+  1. create an empty image,
+  2. write the partition table with sfdisk,
+  3. attach the image as a partitioned loop device,
+  4. create one filesystem on each data partition,
+  5. mount each partition and copy its contents into it, and
+  6. optionally overlay grldr.mbr while preserving the partition table.
 
-No sector offsets are hardcoded; they always come from the partition table
-that sfdisk wrote.
+Using ``losetup --partscan`` means we do not hardcode partition byte
+offsets.  The kernel derives the /dev/loopNpM nodes from the partition
+table that sfdisk wrote.
+
+``--deps`` is handled before any loop or mount operation, so dependency
+scanning remains safe to run on ordinary hosts.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
-import re
+import os
+import shutil
 import subprocess
+import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 SECTOR_SIZE = 512
-# sfdisk aligns partitions to 1 MiB by default; it also inserts this many
-# sectors between consecutive logical partitions (the EBR / link sectors).
 ALIGN_SECTORS = 2048
 
 EXTENDED_TYPE = "5"
@@ -54,7 +57,7 @@ class Partition:
     """One partition of a disk image.
 
     ``fstype`` is None for the DOS extended container.  ``size_mib`` is
-    None for that container as well; the builder computes its size from the
+    None for that container as well; sfdisk computes its size from the
     logical partitions when needed.
     """
 
@@ -83,14 +86,30 @@ class Disk:
 
 
 def _run(cmd, check=True, **kwargs):
+    """Run a command, returning the completed process."""
     return subprocess.run(cmd, check=check, **kwargs)
 
 
-def _quiet(cmd):
-    return _run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+def _quiet(cmd, check=True):
+    """Run a command and capture its stdout/stderr as text."""
+    return _run(
+        cmd,
+        check=check,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def _root_cmd(cmd):
+    """Prefix commands that require root with sudo unless already root."""
+    if os.geteuid() == 0:
+        return cmd
+    return ["sudo", *cmd]
 
 
 def _size_sectors(partition):
+    """Return the number of 512-byte sectors in a data partition."""
     return partition.size_mib * (1024 * 1024 // SECTOR_SIZE)
 
 
@@ -103,7 +122,7 @@ def _is_logical(p):
 
 
 def partition_script(disk):
-    """Build the sfdisk script from the disk spec (no sector math here)."""
+    """Build the sfdisk script from the disk spec."""
     lines = ["label: " + disk.label, "unit: sectors"]
 
     extended_indexes = [i for i, p in enumerate(disk.partitions) if p.fstype is None]
@@ -135,162 +154,109 @@ def partition_script(disk):
     return "\n".join(lines) + "\n"
 
 
-def read_layout(image):
-    """Read sfdisk's chosen offsets for every data partition."""
-    result = _quiet(["sfdisk", "-J", str(image)])
-    table = json.loads(result.stdout)
-    layout = {}
-    for entry in table["partitiontable"]["partitions"]:
-        match = re.search(r"(\d+)$", entry["node"])
-        number = int(match.group(1))
-        layout[number] = {
-            "start": int(entry["start"]),
-            "size": int(entry["size"]),
-        }
-    return layout
+def _create_empty_image(image: Path, size_bytes: int) -> None:
+    """Create (or replace) the raw image as a sparse file."""
+    with open(image, "wb") as stream:
+        stream.truncate(size_bytes)
 
 
-def make_fs(fstype, image):
+def _attach_loop(image: Path) -> str:
+    """Attach ``image`` to a fresh partitioned loop device."""
+    result = _quiet(
+        _root_cmd(["losetup", "--partscan", "--find", "--show", str(image)])
+    )
+    loop = result.stdout.strip()
+    if not loop:
+        raise RuntimeError("losetup did not report a loop device")
+    return loop
+
+
+def _wait_for_partition_devices(loop: str, partitions) -> None:
+    """Wait for the kernel to create the loopNpM device nodes."""
+    missing = ["%sp%d" % (loop, p.number) for p in partitions]
+    deadline = time.monotonic() + 10
+    while missing and time.monotonic() < deadline:
+        missing = [device for device in missing if not Path(device).exists()]
+        if missing:
+            time.sleep(0.05)
+    if missing:
+        raise RuntimeError("loop partition devices did not appear: " + ", ".join(missing))
+
+
+def _make_filesystem(fstype: str, device: str) -> None:
     if fstype == "fat32":
-        _quiet(["mkfs.vfat", "-F", "32", str(image)])
+        _quiet(_root_cmd(["mkfs.vfat", "-F", "32", device]))
     elif fstype == "ext2":
-        _quiet(["mkfs.ext2", "-q", "-F", str(image)])
+        _quiet(_root_cmd(["mkfs.ext2", "-q", "-F", device]))
     elif fstype == "ext4":
-        _quiet(["mkfs.ext4", "-q", "-F", str(image)])
+        _quiet(_root_cmd(["mkfs.ext4", "-q", "-F", device]))
     else:
         raise ValueError("unknown filesystem: " + fstype)
 
 
-def _fat_mkdirs(image, parts):
-    current = ""
-    for part in parts:
-        current += "/" + part
-        _run(
-            ["mmd", "-i", str(image), "::" + current],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-        )
+def _copy_entry(fstype: str, source: Path, dest_root: Path) -> None:
+    """Copy a file or directory into ``dest_root`` using cp(1)."""
+    dest = str(dest_root) + "/"
+
+    if source.is_dir():
+        # ``source/.`` copies the contents of the directory, rather than
+        # creating ``dest_root/source.name``.
+        if fstype == "fat32":
+            _quiet(["cp", "-r", str(source) + "/.", dest])
+        else:
+            _quiet(["cp", "-a", str(source) + "/.", dest])
+    else:
+        if fstype == "fat32":
+            _quiet(["cp", str(source), dest])
+        else:
+            _quiet(["cp", "-a", str(source), dest])
 
 
-def _fat_target(dest):
-    dest = dest.rstrip("/")
-    return "::" + (dest + "/" if dest else "/")
-
-
-def populate_fat(image, content):
+def _populate_filesystem(fstype: str, content: tuple, mountpoint: Path) -> None:
+    """Copy all content entries into a mounted filesystem."""
     for source, dest in content:
         source = Path(source)
-        if source.is_dir():
-            for path in sorted(source.rglob("*")):
-                if not path.is_file():
-                    continue
-                rel = path.relative_to(source)
-                parent = str(rel.parent)
-                if parent != ".":
-                    _fat_mkdirs(image, rel.parent.parts)
-                    target = _fat_target(dest + "/" + parent)
-                else:
-                    target = _fat_target(dest)
-                _quiet(["mcopy", "-i", str(image), str(path), target])
-        else:
-            _quiet(["mcopy", "-i", str(image), str(source), _fat_target(dest)])
+        dest_root = mountpoint / dest.strip("/")
+        dest_root.mkdir(parents=True, exist_ok=True)
+
+        _copy_entry(fstype, source, dest_root)
 
 
-def _ext_mkdirs(image, parts):
-    current = ""
-    for part in parts:
-        current += "/" + part
-        _run(
-            ["debugfs", "-w", "-R", "mkdir " + current, str(image)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-        )
+def _umount_quiet(mountpoint: Path) -> None:
+    """Unmount a mountpoint if possible, without masking other errors."""
+    _run(_root_cmd(["umount", str(mountpoint)]), check=False)
 
 
-def populate_ext(image, content):
-    for source, dest in content:
-        source = Path(source)
-        dest = dest.rstrip("/")
-        if source.is_dir():
-            for path in sorted(source.rglob("*")):
-                if not path.is_file():
-                    continue
-                rel = path.relative_to(source)
-                parent = str(rel.parent)
-                if parent != ".":
-                    _ext_mkdirs(image, rel.parent.parts)
-                _quiet(
-                    [
-                        "debugfs",
-                        "-w",
-                        "-R",
-                        "write %s %s/%s" % (path, dest, rel),
-                        str(image),
-                    ]
-                )
-        else:
-            _quiet(
-                [
-                    "debugfs",
-                    "-w",
-                    "-R",
-                    "write %s %s/%s" % (source, dest, source.name),
-                    str(image),
-                ]
-            )
+def _detach_loop_quiet(loop: str) -> None:
+    _run(_root_cmd(["losetup", "-d", loop]), check=False)
 
 
-def _dd_zero(image, bs, count):
-    _quiet(
-        [
-            "dd",
-            "if=/dev/zero",
-            "of=" + str(image),
-            "bs=" + bs,
-            "count=" + str(count),
-            "status=none",
-        ]
-    )
+def install_mbr_bootcode(image: Path, grldr_mbr: Path) -> None:
+    """Overlay the real MBR partition table onto grldr.mbr.
+
+    grldr.mbr supplies the first 440 bytes of boot code; the remaining bytes
+    (disk signature, partition table and boot signature) must come from the
+    image that sfdisk created.
+    """
+    with open(image, "rb") as stream:
+        image_mbr = bytearray(stream.read(512))
+
+    boot_code = bytearray(grldr_mbr.read_bytes())
+    if len(boot_code) < 512:
+        boot_code.extend(b"\x00" * (512 - len(boot_code)))
+
+    # Keep the complete grldr.mbr image.  It is normally 16 sectors: sector 0
+    # contains the MBR boot code and sectors 1-15 contain the helper code
+    # that finds and loads GRLDR.  Only the partition table needs to be
+    # replaced from the image.
+    boot_code[440:512] = image_mbr[440:512]
+    with open(image, "r+b") as stream:
+        stream.seek(0)
+        stream.write(boot_code)
 
 
-def _dd_splice(src, dst, seek):
-    _quiet(
-        [
-            "dd",
-            "if=" + str(src),
-            "of=" + str(dst),
-            "bs=512",
-            "seek=" + str(seek),
-            "conv=notrunc",
-            "status=none",
-        ]
-    )
-
-
-def install_mbr_bootcode(image, grldr_mbr, tmp):
-    """Overlay the real partition table onto grldr.mbr and write it to MBR."""
-    _quiet(["cp", str(grldr_mbr), str(tmp)])
-    _quiet(
-        [
-            "dd",
-            "if=" + str(image),
-            "of=" + str(tmp),
-            "bs=1",
-            "skip=440",
-            "seek=440",
-            "count=72",
-            "conv=notrunc",
-            "status=none",
-        ]
-    )
-    _quiet(["dd", "if=" + str(tmp), "of=" + str(image), "conv=notrunc", "status=none"])
-
-
-def expand_deps(disk):
+def expand_deps(disk: Disk):
+    """Return every host file that ``disk`` copies into the image."""
     files = set()
     for partition in disk.partitions:
         for source, _ in partition.content:
@@ -304,54 +270,91 @@ def expand_deps(disk):
     return files
 
 
-def build(disk):
+def build(disk: Disk) -> None:
     here = Path.cwd()
     image = here / (disk.name + ".img")
     tmp = here / "tmp"
     tmp.mkdir(exist_ok=True)
 
-    print("Create %s.img ..." % disk.name, flush=True)
-    _dd_zero(image, "1M", disk.size_mib)
+    data_partitions = [p for p in disk.partitions if p.fstype is not None]
+    loop = None
+    mount_root = None
 
-    print("Partition %s.img ..." % disk.name, flush=True)
-    _run(
-        ["sfdisk", str(image)],
-        input=partition_script(disk),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    try:
+        print("Create %s.img ..." % disk.name, flush=True)
+        _create_empty_image(image, disk.size_mib * 1024 * 1024)
 
-    layout = read_layout(image)
-    data = [p for p in disk.partitions if p.fstype is not None]
+        print("Partition %s.img ..." % disk.name, flush=True)
+        _run(
+            ["sfdisk", str(image)],
+            input=partition_script(disk),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
-    print("Format partitions of %s.img ..." % disk.name, flush=True)
-    fs_images = {}
-    for p in data:
-        fs = tmp / ("%s.p%d.%s" % (disk.name, p.number, p.fstype))
-        _dd_zero(fs, "512", layout[p.number]["size"])
-        make_fs(p.fstype, fs)
-        fs_images[p.number] = fs
+        print("Attach loop device ...", flush=True)
+        loop = _attach_loop(image)
+        print("  %s" % loop, flush=True)
+        _wait_for_partition_devices(loop, data_partitions)
 
-    print("Populate %s.img ..." % disk.name, flush=True)
-    for p in data:
-        if p.fstype == "fat32":
-            populate_fat(fs_images[p.number], p.content)
-        else:
-            populate_ext(fs_images[p.number], p.content)
+        mount_root = Path(tempfile.mkdtemp(prefix=disk.name + ".", dir=tmp))
 
-    print("Assemble %s.img ..." % disk.name, flush=True)
-    for p in data:
-        _dd_splice(fs_images[p.number], image, layout[p.number]["start"])
+        print("Format partitions of %s.img ..." % disk.name, flush=True)
+        for partition in data_partitions:
+            device = "%sp%d" % (loop, partition.number)
+            print("  format %s as %s" % (device, partition.fstype), flush=True)
+            _make_filesystem(partition.fstype, device)
+
+        print("Populate %s.img ..." % disk.name, flush=True)
+        for partition in data_partitions:
+            device = "%sp%d" % (loop, partition.number)
+            mountpoint = mount_root / ("p%d" % partition.number)
+            mountpoint.mkdir(parents=True, exist_ok=True)
+            print("  mount %s" % device, flush=True)
+            if partition.fstype == "fat32":
+                _quiet(
+                    _root_cmd(
+                        [
+                            "mount",
+                            "-o",
+                            "uid=%d,gid=%d" % (os.getuid(), os.getgid()),
+                            device,
+                            str(mountpoint),
+                        ]
+                    )
+                )
+            else:
+                _quiet(_root_cmd(["mount", device, str(mountpoint)]))
+                # Make the ext root directory writable by the current user so
+                # the unprivileged cp commands can populate it.
+                _quiet(
+                    _root_cmd(
+                        [
+                            "chown",
+                            "%d:%d" % (os.getuid(), os.getgid()),
+                            str(mountpoint),
+                        ]
+                    )
+                )
+            try:
+                _populate_filesystem(partition.fstype, partition.content, mountpoint)
+            finally:
+                _umount_quiet(mountpoint)
+    finally:
+        if loop is not None:
+            _detach_loop_quiet(loop)
+        if mount_root is not None:
+            shutil.rmtree(mount_root, ignore_errors=True)
 
     if disk.boot_mbr is not None:
         print("Install boot code into %s.img ..." % disk.name, flush=True)
-        install_mbr_bootcode(image, disk.boot_mbr, tmp / "grldr.mbr")
+        install_mbr_bootcode(image, disk.boot_mbr)
 
     _run(["sfdisk", "-l", str(image)])
 
 
-def main(disk):
+def main(disk: Disk) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--deps", action="store_true")
     args = parser.parse_args()

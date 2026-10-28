@@ -5,5 +5,5 @@ REQUIRES-SMP: >=8
 
 TIMEOUT: 60
 
-RUN: /bin/test/pthread_stress.exe parallel 32 4000
+RUN: /usr/bin/test/pthread_stress.exe parallel 32 4000
 CHECK: parallel-ok

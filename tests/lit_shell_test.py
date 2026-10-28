@@ -13,7 +13,6 @@ Test files use a tiny subset of lit syntax:
     one
     two
     EOF
-    REQUIRES-HD:
     EXIT:
 
 Run:
@@ -122,7 +121,6 @@ def _pexpect_expect(child, pattern, timeout, description):
 class LitTest:
     def __init__(self, path):
         self.path = path
-        self.requires_hd = False
         self.requires_smp = None
         self.runs = []
         self.actions = []
@@ -192,8 +190,6 @@ class LitTest:
                     self.actions.append(("push-prompt", prompt))
                 elif body.startswith("POP-PROMPT:"):
                     self.actions.append(("pop-prompt", None))
-                elif body.startswith("REQUIRES-HD:"):
-                    self.requires_hd = True
                 elif body.startswith("REQUIRES-SMP:"):
                     spec = body[len("REQUIRES-SMP:") :].strip()
                     self.requires_smp = parse_smp_requirement(spec)
@@ -223,7 +219,7 @@ def require_files():
         sys.exit(2)
 
 
-def start_qemu(qemu, realtime=False, with_disk=False, smp=1):
+def start_qemu(qemu, realtime=False, smp=1):
     cmd = [
         qemu,
         "-smp",
@@ -241,24 +237,23 @@ def start_qemu(qemu, realtime=False, with_disk=False, smp=1):
         "-no-reboot",
         "-no-shutdown",
     ]
-    if with_disk:
-        cmd += [
-            "-snapshot",
-            "-drive",
-            f"id=mario-test-hd1,file={HD1_IMAGE},format=raw,if=none",
-            "-drive",
-            f"id=mario-test-hd2,file={HD2_IMAGE},format=raw,if=none",
-            "-drive",
-            f"id=mario-test-hd3,file={HD3_IMAGE},format=raw,if=none",
-            "-device",
-            "ahci,id=mario-test-ahci",
-            "-device",
-            "ide-hd,drive=mario-test-hd1,bus=mario-test-ahci.0",
-            "-device",
-            "ide-hd,drive=mario-test-hd2,bus=mario-test-ahci.1",
-            "-device",
-            "ide-hd,drive=mario-test-hd3,bus=mario-test-ahci.2",
-        ]
+    cmd += [
+        "-snapshot",
+        "-drive",
+        f"id=mario-test-hd1,file={HD1_IMAGE},format=raw,if=none",
+        "-drive",
+        f"id=mario-test-hd2,file={HD2_IMAGE},format=raw,if=none",
+        "-drive",
+        f"id=mario-test-hd3,file={HD3_IMAGE},format=raw,if=none",
+        "-device",
+        "ahci,id=mario-test-ahci",
+        "-device",
+        "ide-hd,drive=mario-test-hd1,bus=mario-test-ahci.0",
+        "-device",
+        "ide-hd,drive=mario-test-hd2,bus=mario-test-ahci.1",
+        "-device",
+        "ide-hd,drive=mario-test-hd3,bus=mario-test-ahci.2",
+    ]
 
     child = pexpect.spawn(" ".join(cmd), encoding="latin-1", timeout=30)
     if realtime:
@@ -272,7 +267,7 @@ def start_qemu(qemu, realtime=False, with_disk=False, smp=1):
 def run_lit_test(test, qemu, realtime=False, smp=1):
     # Start a fresh QEMU for this test so an SMP configuration from one case
     # cannot leak into the next case.
-    child = start_qemu(qemu, realtime, test.requires_hd, smp)
+    child = start_qemu(qemu, realtime, smp)
     output = []
     prompts = [PROMPT]
     timeout = DEFAULT_TIMEOUT
@@ -358,7 +353,7 @@ def run_lit_test(test, qemu, realtime=False, smp=1):
 
 
 def skipped_reason(test, missing_hd_images, smp):
-    if test.requires_hd and missing_hd_images:
+    if missing_hd_images:
         return f"missing {', '.join(missing_hd_images)}"
     if test.requires_smp is not None and not smp_requirement_matches(
         test.requires_smp, smp
@@ -477,13 +472,11 @@ def main():
         print(f"No .test files found in: {' '.join(args.paths)}", file=sys.stderr)
         sys.exit(2)
 
-    missing_hd_images = []
-    if any(test.requires_hd for test in tests):
-        missing_hd_images = [
-            path
-            for path in (HD1_IMAGE, HD2_IMAGE, HD3_IMAGE)
-            if not os.path.exists(path)
-        ]
+    missing_hd_images = [
+        path
+        for path in (HD1_IMAGE, HD2_IMAGE, HD3_IMAGE)
+        if not os.path.exists(path)
+    ]
 
     failed = False
     runnable = []

@@ -1,5 +1,3 @@
-REQUIRES-HD:
-
 # Read-only FAT32 smoke test.  The generated hard-disk images contain both
 # boot/update partitions and dedicated FAT32 data partitions.
 
