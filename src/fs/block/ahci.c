@@ -92,6 +92,9 @@
 #define AHCI_DETECT_TIMEOUT	1000000U
 
 #define HD_SECTOR_SIZE		512
+#define AHCI_PRDT_MAX_BYTES	(1U << 22)
+#define AHCI_MAX_SECTORS_PER_COMMAND \
+	(AHCI_PRDT_MAX_BYTES / HD_SECTOR_SIZE)
 #define HD_MAX_PARTITIONS	16
 #define HD_MINORS_PER_DISK	(HD_MAX_PARTITIONS + 1)
 #define HD_MAX_DISKS		6	/* /dev/hda through /dev/hdf */
@@ -163,6 +166,91 @@ static volatile uint32_t *hba;		/* ABAR mapped into kernel space */
 static struct ahci_port ahci_ports[HD_MAX_DISKS];
 static struct hd_disk hd_disks[HD_MAX_DISKS];
 static unsigned int nr_ahci_disks;
+static struct ahci_profile ahci_profile;
+static spinlock_t ahci_profile_lock = SPINLOCK_UNLOCKED;
+
+static uint64_t ahci_read_tsc(void)
+{
+	uint32_t lo, hi;
+
+	__asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
+	return ((uint64_t)hi << 32) | lo;
+}
+
+static enum ahci_profile_command ahci_profile_command_type(uint8_t command)
+{
+	switch (command) {
+	case ATA_CMD_READ_EXT:
+		return AHCI_PROFILE_COMMAND_READ;
+	case ATA_CMD_WRITE_EXT:
+		return AHCI_PROFILE_COMMAND_WRITE;
+	case ATA_CMD_IDENTIFY:
+		return AHCI_PROFILE_COMMAND_IDENTIFY;
+	case ATA_CMD_FLUSH_EXT:
+		return AHCI_PROFILE_COMMAND_FLUSH;
+	default:
+		return AHCI_PROFILE_COMMAND_OTHER;
+	}
+}
+
+static enum ahci_profile_size ahci_profile_size_type(uint16_t sectors)
+{
+	if (!sectors)
+		return AHCI_PROFILE_SIZE_NONE;
+	if (sectors == 1)
+		return AHCI_PROFILE_SIZE_1_SECTOR;
+	if (sectors <= 8)
+		return AHCI_PROFILE_SIZE_2_TO_8_SECTORS;
+	if (sectors <= 64)
+		return AHCI_PROFILE_SIZE_9_TO_64_SECTORS;
+	return AHCI_PROFILE_SIZE_OVER_64_SECTORS;
+}
+
+static void ahci_profile_counter_account(struct ahci_profile_counter *counter,
+					 uint16_t sectors, uint64_t wait_cycles)
+{
+	counter->commands++;
+	counter->sectors += sectors;
+	counter->wait_cycles += wait_cycles;
+}
+
+static void ahci_profile_account(uint8_t command, uint16_t sectors,
+				 uint64_t wait_cycles)
+{
+	enum ahci_profile_command command_type;
+	enum ahci_profile_size size_type;
+	unsigned long flags;
+
+	command_type = ahci_profile_command_type(command);
+	size_type = ahci_profile_size_type(sectors);
+	spin_lock_irqsave(&ahci_profile_lock, flags);
+	ahci_profile_counter_account(&ahci_profile.total, sectors, wait_cycles);
+	ahci_profile_counter_account(&ahci_profile.command[command_type], sectors,
+				     wait_cycles);
+	ahci_profile_counter_account(&ahci_profile.size[size_type], sectors,
+				     wait_cycles);
+	spin_unlock_irqrestore(&ahci_profile_lock, flags);
+}
+
+void ahci_profile_reset(void)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&ahci_profile_lock, flags);
+	memset(&ahci_profile, 0, sizeof(ahci_profile));
+	spin_unlock_irqrestore(&ahci_profile_lock, flags);
+}
+
+void ahci_profile_get(struct ahci_profile *profile)
+{
+	unsigned long flags;
+
+	if (!profile)
+		return;
+	spin_lock_irqsave(&ahci_profile_lock, flags);
+	*profile = ahci_profile;
+	spin_unlock_irqrestore(&ahci_profile_lock, flags);
+}
 
 /*
  * MBR/EBR fields are little-endian even though the rest of this kernel does
@@ -327,6 +415,7 @@ static int ahci_issue_command(struct ahci_port *port, uint8_t command,
 	struct hba_prdt_entry *prdt = table->prdt;
 	uint32_t flags;
 	unsigned long wait_flags;
+	uint64_t start_tsc;
 	int prdtl;
 	int error = 0;
 
@@ -347,10 +436,11 @@ static int ahci_issue_command(struct ahci_port *port, uint8_t command,
 	fill_command_fis(command, lba, sector_count, table->cfis);
 	prdtl = 0;
 	if (buf) {
-		/* Transfer one 512-byte sector and request a completion interrupt. */
+		/* Transfer the contiguous request and request a completion interrupt. */
 		prdt->dba = __phy((unsigned long)buf);
 		prdt->dbau = 0;
-		prdt->dbc = (HD_SECTOR_SIZE - 1) | (1U << 31);
+		prdt->dbc = (uint32_t)sector_count * HD_SECTOR_SIZE - 1;
+		prdt->dbc |= 1U << 31;
 		prdtl = 1;
 	}
 
@@ -372,6 +462,7 @@ static int ahci_issue_command(struct ahci_port *port, uint8_t command,
 	port_write(port, AHCI_PxIS, 0xffffffffU);
 
 	__asm__ __volatile__("" ::: "memory");
+	start_tsc = ahci_read_tsc();
 	port_write(port, AHCI_PxCI, 1);
 
 	if (poll) {
@@ -387,6 +478,7 @@ static int ahci_issue_command(struct ahci_port *port, uint8_t command,
 		if (port->error)
 			error = -EIO;
 	}
+	ahci_profile_account(command, sector_count, ahci_read_tsc() - start_tsc);
 
 out_unlock:
 	up(&port->cmd_lock);
@@ -454,34 +546,35 @@ void irq_ahci(void)
 		wake_up_process(waiters[i]);
 }
 
-static int ahci_read_sectors(struct ahci_port *port, uint64_t lba,
-			     unsigned long nr, char *buf)
+static int ahci_transfer_sectors(struct ahci_port *port, uint8_t command,
+					 uint64_t lba, unsigned long nr, char *buf,
+					 int write, int poll)
 {
-	unsigned long i;
+	while (nr) {
+		unsigned long count = MIN(nr,
+				(unsigned long)AHCI_MAX_SECTORS_PER_COMMAND);
+		int error = ahci_issue_command(port, command, lba,
+					       (uint16_t)count, buf, write, poll);
 
-	for (i = 0; i < nr; i++) {
-		int error = ahci_issue_command(port, ATA_CMD_READ_EXT, lba + i,
-					       1, buf + i * HD_SECTOR_SIZE,
-					       0, 0);
 		if (error)
 			return error;
+		lba += count;
+		buf += count * HD_SECTOR_SIZE;
+		nr -= count;
 	}
 	return 0;
+}
+
+static int ahci_read_sectors(struct ahci_port *port, uint64_t lba,
+				     unsigned long nr, char *buf)
+{
+	return ahci_transfer_sectors(port, ATA_CMD_READ_EXT, lba, nr, buf, 0, 0);
 }
 
 static int ahci_write_sectors(struct ahci_port *port, uint64_t lba,
 			      unsigned long nr, char *buf)
 {
-	unsigned long i;
-
-	for (i = 0; i < nr; i++) {
-		int error = ahci_issue_command(port, ATA_CMD_WRITE_EXT, lba + i,
-					       1, buf + i * HD_SECTOR_SIZE,
-					       1, 0);
-		if (error)
-			return error;
-	}
-	return 0;
+	return ahci_transfer_sectors(port, ATA_CMD_WRITE_EXT, lba, nr, buf, 1, 0);
 }
 
 static int ahci_flush(struct ahci_port *port)

@@ -1,6 +1,7 @@
 #include <fs/fs.h>
 #include <fs/debugfs.h>
 #include <fs/dirent.h>
+#include <fs/ahci.h>
 
 #include <syscall_trace.h>
 
@@ -11,8 +12,10 @@
 #define DEBUGFS_INO_ROOT	1UL
 #define DEBUGFS_INO_SYSCALLS	4UL
 #define DEBUGFS_INO_TRACE_PID	5UL
+#define DEBUGFS_INO_AHCI	6UL
 
 #define DEBUGFS_SYSCALLS_BUF	8192
+#define DEBUGFS_AHCI_BUF	1024
 
 static struct file_operations debugfs_dir_fops;
 
@@ -27,7 +30,8 @@ static int debugfs_name_is(char *name, int len, char *want)
 
 static mode_t debugfs_inode_mode(unsigned long ino)
 {
-	if (ino == DEBUGFS_INO_SYSCALLS || ino == DEBUGFS_INO_TRACE_PID)
+	if (ino == DEBUGFS_INO_SYSCALLS || ino == DEBUGFS_INO_TRACE_PID ||
+	    ino == DEBUGFS_INO_AHCI)
 		return S_IFREG | 0644;
 	return S_IFDIR | 0555;
 }
@@ -192,6 +196,53 @@ static int debugfs_trace_pid_content(char *buf, size_t size)
 	return sprintkn(buf, size, "%d\n", syscall_trace_get_pid());
 }
 
+static int debugfs_ahci_counter_content(char *buf, size_t size, char *name,
+					struct ahci_profile_counter *counter,
+					uint64_t cycles_per_ms)
+{
+	int n = 0;
+
+	n += sprintkn(buf + n, size - n, "%s commands ", name);
+	n += debugfs_sput_u64(buf + n, size - n, counter->commands);
+	n += sprintkn(buf + n, size - n, " sectors ");
+	n += debugfs_sput_u64(buf + n, size - n, counter->sectors);
+	n += sprintkn(buf + n, size - n, " wait_ms ");
+	n += debugfs_sput_cycles_ms(buf + n, size - n, counter->wait_cycles,
+				     cycles_per_ms);
+	n += sprintkn(buf + n, size - n, "\n");
+	return n;
+}
+
+static int debugfs_ahci_content(char *buf, size_t size)
+{
+	static char *command_names[AHCI_PROFILE_COMMAND_COUNT] = {
+		"read", "write", "identify", "flush", "other",
+	};
+	static char *size_names[AHCI_PROFILE_SIZE_COUNT] = {
+		"no_data", "1_sector", "2_to_8_sectors", "9_to_64_sectors",
+		"over_64_sectors",
+	};
+	struct ahci_profile profile;
+	uint64_t cycles_per_ms = syscall_trace_cycles_per_ms();
+	int index;
+	int n = 0;
+
+	ahci_profile_get(&profile);
+	n += debugfs_ahci_counter_content(buf + n, size - n, "total",
+					&profile.total, cycles_per_ms);
+	n += sprintkn(buf + n, size - n, "by_command\n");
+	for (index = 0; index < AHCI_PROFILE_COMMAND_COUNT; index++)
+		n += debugfs_ahci_counter_content(buf + n, size - n,
+						command_names[index],
+						&profile.command[index], cycles_per_ms);
+	n += sprintkn(buf + n, size - n, "by_size\n");
+	for (index = 0; index < AHCI_PROFILE_SIZE_COUNT; index++)
+		n += debugfs_ahci_counter_content(buf + n, size - n,
+						size_names[index],
+						&profile.size[index], cycles_per_ms);
+	return n;
+}
+
 static int debugfs_parse_pid(char *buf, int len, pid_t *pid)
 {
 	int n = 0;
@@ -238,6 +289,18 @@ static int debugfs_file_read(struct inode *inode, struct file *file,
 		file->f_pos += count;
 		return count;
 	}
+	if (inode->i_ino == DEBUGFS_INO_AHCI) {
+		char tmp[DEBUGFS_AHCI_BUF];
+
+		size = debugfs_ahci_content(tmp, sizeof(tmp));
+		if (file->f_pos >= size)
+			return 0;
+		if (count > size - file->f_pos)
+			count = size - file->f_pos;
+		memcpy_tofs(buf, tmp + file->f_pos, count);
+		file->f_pos += count;
+		return count;
+	}
 
 	if (inode->i_ino != DEBUGFS_INO_SYSCALLS)
 		return -EINVAL;
@@ -270,6 +333,10 @@ static int debugfs_file_write(struct inode *inode, struct file *file,
 
 	if (inode->i_ino == DEBUGFS_INO_SYSCALLS) {
 		syscall_trace_reset();
+		return count;
+	}
+	if (inode->i_ino == DEBUGFS_INO_AHCI) {
+		ahci_profile_reset();
 		return count;
 	}
 	if (inode->i_ino == DEBUGFS_INO_TRACE_PID) {
@@ -308,6 +375,8 @@ static struct inode *debugfs_make_file(unsigned long ino)
 		size = DEBUGFS_SYSCALLS_BUF;
 	else if (ino == DEBUGFS_INO_TRACE_PID)
 		size = 16;
+	else if (ino == DEBUGFS_INO_AHCI)
+		size = DEBUGFS_AHCI_BUF;
 	return debugfs_alloc_inode(ino, size, NULL, &debugfs_file_fops);
 }
 
@@ -321,6 +390,8 @@ static int debugfs_lookup_child(unsigned long dir_ino, char *name, int len,
 			*res = debugfs_make_file(DEBUGFS_INO_SYSCALLS);
 		else if (debugfs_name_is(name, len, "trace_pid"))
 			*res = debugfs_make_file(DEBUGFS_INO_TRACE_PID);
+		else if (debugfs_name_is(name, len, "ahci"))
+			*res = debugfs_make_file(DEBUGFS_INO_AHCI);
 		return *res ? 0 : -ENOENT;
 	}
 
@@ -339,7 +410,8 @@ static int debugfs_parent(unsigned long dir_ino, struct inode **res)
 		return 0;
 	}
 
-	if (dir_ino == DEBUGFS_INO_SYSCALLS || dir_ino == DEBUGFS_INO_TRACE_PID) {
+	if (dir_ino == DEBUGFS_INO_SYSCALLS || dir_ino == DEBUGFS_INO_TRACE_PID ||
+	    dir_ino == DEBUGFS_INO_AHCI) {
 		*res = debugfs_make_dir(DEBUGFS_INO_ROOT);
 		return *res ? 0 : -ENOMEM;
 	}
@@ -392,6 +464,11 @@ static int debugfs_get_entry(unsigned long dir_ino, int index, char *name,
 		case 1:
 			sprintkn(name, size, "%s", "trace_pid");
 			*ino = DEBUGFS_INO_TRACE_PID;
+			*type = DT_REG;
+			return 0;
+		case 2:
+			sprintkn(name, size, "%s", "ahci");
+			*ino = DEBUGFS_INO_AHCI;
 			*type = DT_REG;
 			return 0;
 		default:
