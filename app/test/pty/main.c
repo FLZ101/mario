@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <pty.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
@@ -142,6 +143,36 @@ int main(void)
 	assert(!memcmp(buf, "x\r\n", 3));
 	assert(close(slave) == 0);
 	assert(close(master) == 0);
+	{
+		char shell_output[2048];
+		int status;
+		int length = 0;
+		pid_t pid = forkpty(&master, NULL, NULL, NULL);
+
+		assert(pid >= 0);
+		if (!pid) {
+			execl("/bin/oksh", "oksh", "-c", "echo pty-shell", NULL);
+			_exit(127);
+		}
+		for (;;) {
+			int n = read(master, shell_output + length,
+					 sizeof(shell_output) - length - 1);
+
+			if (n > 0) {
+				length += n;
+				continue;
+			}
+			assert(n == -1);
+			assert(errno == EIO);
+			break;
+		}
+		shell_output[length] = 0;
+		assert(strstr(shell_output, "pty-shell\r\n"));
+		assert(waitpid(pid, &status, 0) == pid);
+		assert(WIFEXITED(status));
+		assert(WEXITSTATUS(status) == 0);
+		assert(close(master) == 0);
+	}
 
 	puts("pty-ok");
 	return 0;

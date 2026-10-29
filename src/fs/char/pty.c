@@ -354,6 +354,10 @@ static void pty_release(struct inode *i, struct file *f)
 		assert(pty->tty.count > 0);
 		pty->tty.count--;
 		spin_unlock(&pty->tty.lock);
+		if (!pty->slave_open) {
+			wake_up_interruptible(&pty->master_read_wait);
+			wake_up_interruptible(&pty->tty.wait_input);
+		}
 		if (!pty->master_open && !pty->slave_open)
 			reusable = 1;
 		spin_unlock_irqrestore(&pty->lock, flags);
