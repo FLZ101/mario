@@ -534,7 +534,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_statfs */
 	.long sys_not_exist /* SYS_fstatfs */
 	.long sys_not_exist /* SYS_ioperm */
-	.long sys_not_exist /* SYS_socketcall */
+	.long sys_socketcall
 	.long sys_syslog /* SYS_syslog */
 	.long sys_setitimer
 	.long sys_getitimer
@@ -792,7 +792,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_bpf */
 	.long sys_execveat
 	.long sys_not_exist /* SYS_socket */
-	.long sys_not_exist /* SYS_socketpair */
+	.long sys_socketpair
 	.long sys_not_exist /* SYS_bind */
 	.long sys_not_exist /* SYS_connect */
 	.long sys_not_exist /* SYS_listen */

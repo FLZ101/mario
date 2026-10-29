@@ -138,6 +138,18 @@ struct inode *get_pipe_inode(void)
 	return i;
 }
 
+struct inode *get_socket_inode(void)
+{
+	struct inode *i;
+
+	if (!(i = get_empty_inode()))
+		return NULL;
+	set_bit(I_Socket, &i->i_state);
+	i->i_mode = S_IFSOCK;
+	i->i_block_size = PAGE_SIZE;
+	return i;
+}
+
 static struct inode *find_inode(struct super_block *sb, int ino)
 {
 	struct list_head *pos;

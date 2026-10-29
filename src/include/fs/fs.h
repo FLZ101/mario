@@ -142,17 +142,20 @@ struct inode {
 #define I_Up2date	1
 #define I_Pipe		2
 #define I_Hash		3
+#define I_Socket	4
 
 #define inode_dirty(i)		test_bit(I_Dirty, &(i)->i_state)
 #define inode_up2date(i)	test_bit(I_Up2date, &(i)->i_state)
 #define inode_pipe(i)		test_bit(I_Pipe, &(i)->i_state)
 #define inode_hashed(i)		test_bit(I_Hash, &(i)->i_state)
+#define inode_socket(i)		test_bit(I_Socket, &(i)->i_state)
 
 void inode_init(void);
 void inode_invalidate(struct super_block *sb, ino_t ino);
 int inode_is_busy(struct super_block *sb, ino_t ino);
 struct inode *get_empty_inode(void);
 struct inode *get_pipe_inode(void);
+struct inode *get_socket_inode(void);
 struct inode *iget(struct super_block *, int);
 void iput(struct inode *);
 void iref(struct inode *);
