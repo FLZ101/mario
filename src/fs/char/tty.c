@@ -41,6 +41,7 @@ int tty_init_struct(struct tty_struct *tty, dev_t dev,
 	if ((err = ring_buffer_init(&tty->read_buf)))
 		return err;
 	init_wait_queue(&tty->wait_read);
+	init_wait_queue(&tty->wait_input);
 	init_wait_queue(&tty->wait_write);
 	INIT_LOCK(&tty->lock);
 	tty->termios = default_termios;
@@ -88,7 +89,7 @@ void tty_put_s(struct tty_struct *tty, char *s)
 }
 
 
-void tty_receive_c(struct tty_struct *tty, unsigned char c)
+int tty_receive_c(struct tty_struct *tty, unsigned char c)
 {
 	unsigned long flags;
 	cc_t c_cc[NCCS];
@@ -97,7 +98,7 @@ void tty_receive_c(struct tty_struct *tty, unsigned char c)
 	spin_lock_irqsave(&tty->lock, flags);
 	if (!tty->count) {
 		spin_unlock_irqrestore(&tty->lock, flags);
-		return;
+		return -EIO;
 	}
 
 	struct ring_buffer *rb = &tty->read_buf;
@@ -148,6 +149,10 @@ void tty_receive_c(struct tty_struct *tty, unsigned char c)
 	}
 
 	spin_lock_irqsave(&tty->lock, flags);
+	if (ring_buffer_full(rb)) {
+		spin_unlock_irqrestore(&tty->lock, flags);
+		return -EAGAIN;
+	}
 	ring_buffer_write(rb, &c, 1, 0);
 	spin_unlock_irqrestore(&tty->lock, flags);
 tail_1:
@@ -178,6 +183,7 @@ tail_1:
 tail_2:
 	if (wake)
 		wake_up_interruptible(&tty->wait_read);
+	return 0;
 }
 
 void tty_receive_s(struct tty_struct *tty, char *s)
@@ -367,6 +373,7 @@ try:
 	int m = ring_buffer_read(rb, buf, n, 1);
 	eof = tty->termios.c_cc[VEOF];
 	spin_unlock_irqrestore(&tty->lock, flags);
+	wake_up_interruptible(&tty->wait_input);
 	assert(n == m);
 
 	// Except in the case of EOF, the line delimiter is included in the buffer returned by read(2).

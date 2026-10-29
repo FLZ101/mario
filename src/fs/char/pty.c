@@ -193,8 +193,22 @@ static int pty_master_write(struct inode *i, struct file *f, char *buf, int coun
 {
 	struct pty_pair *pty = f->private_data;
 
-	for (int i = 0; i < count; i++)
-		tty_receive_c(&pty->tty, get_fs_byte(buf + i));
+	for (int i = 0; i < count; i++) {
+		int err;
+
+		for (;;) {
+			err = tty_receive_c(&pty->tty, get_fs_byte(buf + i));
+			if (err != -EAGAIN)
+				break;
+			if (f->f_flags & O_NONBLOCK)
+				return i ? i : -EAGAIN;
+			if (current->signal & ~current->blocked)
+				return i ? i : -ERESTARTSYS;
+			sleep_on(&pty->tty.wait_input, TASK_INTERRUPTIBLE, NULL);
+		}
+		if (err)
+			return i ? i : err;
+	}
 	return count;
 }
 

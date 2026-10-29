@@ -37,6 +37,7 @@ struct tty_struct {
 
 	struct ring_buffer read_buf;
 	wait_queue_t wait_read;
+	wait_queue_t wait_input;
 	wait_queue_t wait_write;
 	/* Serialises read_buf and termios between reader context and IRQ input. */
 	spinlock_t lock;
@@ -54,7 +55,7 @@ int tty_init_struct(struct tty_struct *tty, dev_t dev,
 int tty_output_char(struct tty_struct *tty, unsigned char c, char output[2]);
 int tty_put_c(struct tty_struct *tty, unsigned char c);
 void tty_put_s(struct tty_struct *tty, char *s);
-void tty_receive_c(struct tty_struct *tty, unsigned char c);
+int tty_receive_c(struct tty_struct *tty, unsigned char c);
 void tty_receive_s(struct tty_struct *tty, char *s);
 int tty_read(struct inode *i, struct file *f, char *buf, int count);
 int tty_write(struct inode *i, struct file *f, char *buf, int count);
