@@ -825,10 +825,8 @@ int sys_recvmsg(int fd, struct socket_msghdr *user_msg, int flags)
 		if (!iov.len)
 			continue;
 		err = sys_read(fd, iov.base, iov.len);
-		if (err < 0) {
-			pr_err("recvmsg read fd=%d err=%d\n", fd, err);
+		if (err < 0)
 			return total ? total : err;
-		}
 		total += err;
 		if ((unsigned int)err < iov.len)
 			break;
