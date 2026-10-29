@@ -63,8 +63,8 @@ void print_hlp_msg(void)
 		"For example the following line\n\trd0 2 1 0\ndefines a block "
 		"device file /dev/rd0, of which the major device number "
 		"is 1 and the minor device number is 0. "
-		"NAME must be shorter than %d and the program doesn't check "
-		"that. Currently supported "
+		"NAME must be shorter than %d. A NAME without a slash creates "
+		"a device directly in /dev; pts/N creates /dev/pts/N. Currently supported "
 		"modes by mariofs is MODE_BLK (2) and MODE_CHR (3). For "
 		"complete list of devices currently supported by mario, see "
 		"doc/devices.txt in source code directory of mario\n\n",
@@ -155,11 +155,37 @@ void parse_opt(int argc, char *argv[])
 }
 
 /* the maximum number of device files */
-#define MAX_DEV	128
+#define MAX_DEV	1024
 
 struct mario_dir_entry devs[MAX_DEV + 1];
 
 #define MKDEV(major, minor) ((((major) << 8) | (minor)) & 0x0000ffffUL)
+
+static int is_pts_device(const char *name)
+{
+	return !strncmp(name, "pts/", 4);
+}
+
+static void validate_device_name(const char *name)
+{
+	const char *minor;
+
+	if (!strcmp(name, ".") || !strcmp(name, "..") ||
+		!strcmp(name, "pts")) {
+		printf("Error:\tinvalid device name %s\n", name);
+		exit(-1);
+	}
+
+	if (!strchr(name, '/'))
+		return;
+
+	minor = name + 4;
+	if (!is_pts_device(name) || !minor[0] || strchr(minor, '/') ||
+		!strcmp(minor, ".") || !strcmp(minor, "..")) {
+		printf("Error:\tinvalid device path %s\n", name);
+		exit(-1);
+	}
+}
 
 void parse_device_list(void)
 {
@@ -182,7 +208,7 @@ void parse_device_list(void)
 		uint32_t major, minor;
 
 		char t;
-		c = fscanf(file, "%s %c %u %u", devs[i].name, &t, &major, &minor);
+		c = fscanf(file, "%29s %c %u %u", devs[i].name, &t, &major, &minor);
 		/* end of file? */
 		if (EOF == c)
 			break;
@@ -200,6 +226,7 @@ void parse_device_list(void)
 			printf("Error:\t%d is not valid device file mode\n", t);
 			exit(-1);
 		}
+		validate_device_name(devs[i].name);
 
 		devs[i].mode = t == 'B' ? MODE_BLK : MODE_CHR;
 		devs[i].data = MKDEV(major, minor);
@@ -572,13 +599,39 @@ void copy_dir(char *dirname, uint32_t dent_offset, uint32_t parent_dent_offset)
 	}
 }
 
+static uint32_t find_directory_entry(uint32_t block, const char *name)
+{
+	int i;
+	int n = MAX_USED / sizeof(struct mario_dir_entry);
+	struct mario_dir_entry entry;
+
+	while (block) {
+		for (i = 0; i < n; i++) {
+			uint32_t dent = block * block_size + i * sizeof(entry);
+
+			read_dir_entry(dent, &entry);
+			if (!entry.name[0])
+				return 0;
+			if (!strcmp(entry.name, name))
+				return dent;
+		}
+		fseek(rd_file, block * block_size + MAX_USED, SEEK_SET);
+		fread(&block, sizeof(block), 1, rd_file);
+	}
+
+	return 0;
+}
+
 /* Add device files into rd */
 void add_devices(void)
 {
 	int i, n;
+	int has_pts = 0;
 	uint32_t tmp;
 	uint32_t dent;
 	uint32_t offset;
+	uint32_t dev_data;
+	uint32_t pts_dent;
 	struct mario_dir_entry entry;
 
 	if (!device_list)
@@ -620,9 +673,12 @@ add_dev:
 	entry.data = blocks;
 	entry.size = 0;
 	entry.blocks = 0;
+	entry.atime = 0;
+	entry.mtime = 0;
 	strcpy(entry.name, "dev");
 	fseek(rd_file, dent, SEEK_SET);
 	fwrite(&entry, sizeof(entry), 1, rd_file);
+	dev_data = entry.data;
 
 	/* add . and .. into /dev/ */
 	new_block();
@@ -638,8 +694,50 @@ add_dev:
 
 	/* add device into /dev/ */
 	for (i = 0; i < MAX_DEV && devs[i].data; i++) {
+		if (is_pts_device(devs[i].name)) {
+			has_pts = 1;
+			continue;
+		}
 		printf("Add /dev/%s\n", devs[i].name);
 		pour_data(&devs[i], sizeof(struct mario_dir_entry), 1);
+	}
+	if (has_pts) {
+		memset(&entry, 0, sizeof(entry));
+		entry.mode = MODE_DIR;
+		entry.flags = 7;
+		strcpy(entry.name, "pts");
+		pour_data(&entry, sizeof(entry), 1);
+	}
+	end_pour();
+
+	if (!has_pts)
+		return;
+
+	pts_dent = find_directory_entry(dev_data, "pts");
+	if (!pts_dent) {
+		printf("Error:\tfailed to create /dev/pts\n");
+		exit(-1);
+	}
+
+	new_block();
+	fseek(rd_file, 0, SEEK_END);
+	update_mario_dir_entry(pts_dent, blocks);
+
+	entry.data = pts_dent;
+	strcpy(entry.name, ".");
+	pour_data(&entry, sizeof(entry), 1);
+
+	entry.data = dent;
+	strcpy(entry.name, "..");
+	pour_data(&entry, sizeof(entry), 1);
+
+	for (i = 0; i < MAX_DEV && devs[i].data; i++) {
+		if (!is_pts_device(devs[i].name))
+			continue;
+		entry = devs[i];
+		strcpy(entry.name, devs[i].name + 4);
+		printf("Add /dev/pts/%s\n", entry.name);
+		pour_data(&entry, sizeof(entry), 1);
 	}
 	end_pour();
 }
