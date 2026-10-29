@@ -14,7 +14,7 @@ struct tty_driver {
 
 	struct tty_struct *tty_table;
 	struct file_operations *fops;
-	void (*put_char)(struct tty_struct *tty, unsigned char c);
+	int (*write)(struct tty_struct *tty, const char *buf, int count);
 };
 
 void register_tty_driver(struct tty_driver *);
@@ -33,6 +33,7 @@ struct tty_struct {
 
 	struct ring_buffer read_buf;
 	wait_queue_t wait_read;
+	wait_queue_t wait_write;
 	/* Serialises read_buf and termios between reader context and IRQ input. */
 	spinlock_t lock;
 
@@ -42,6 +43,12 @@ struct tty_struct {
 
 extern struct termios default_termios;
 
+int tty_init_struct(struct tty_struct *tty, dev_t dev,
+			    struct tty_driver *driver, unsigned int rows,
+			    unsigned int cols);
+int tty_output_char(struct tty_struct *tty, unsigned char c, char output[2]);
+int tty_put_c(struct tty_struct *tty, unsigned char c);
+void tty_put_s(struct tty_struct *tty, char *s);
 void tty_receive_c(struct tty_struct *tty, unsigned char c);
 void tty_receive_s(struct tty_struct *tty, char *s);
 

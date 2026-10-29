@@ -28,23 +28,55 @@ struct termios default_termios = {
 	 }
 };
 
-void tty_put_c(struct tty_struct *tty, unsigned char c)
+int tty_init_struct(struct tty_struct *tty, dev_t dev,
+			    struct tty_driver *driver, unsigned int rows,
+			    unsigned int cols)
+{
+	int err;
+
+	memset(tty, 0, sizeof(*tty));
+	tty->dev = dev;
+	tty->driver = driver;
+	if ((err = ring_buffer_init(&tty->read_buf)))
+		return err;
+	init_wait_queue(&tty->wait_read);
+	init_wait_queue(&tty->wait_write);
+	INIT_LOCK(&tty->lock);
+	tty->termios = default_termios;
+	tty->winsize.ws_col = cols;
+	tty->winsize.ws_row = rows;
+	return 0;
+}
+
+int tty_output_char(struct tty_struct *tty, unsigned char c, char output[2])
 {
 	unsigned long flags;
 	tcflag_t c_oflag;
+	int count = 0;
 
 	spin_lock_irqsave(&tty->lock, flags);
 	c_oflag = tty->termios.c_oflag;
 	spin_unlock_irqrestore(&tty->lock, flags);
 
 	if (c_oflag & OPOST) {
-		if (c == '\n') {
-			if (c_oflag & ONLCR) {
-				tty->driver->put_char(tty, '\r');
-			}
-		}
+		if (c == '\n' && (c_oflag & ONLCR))
+			output[count++] = '\r';
 	}
-	tty->driver->put_char(tty, c);
+	output[count++] = c;
+	return count;
+}
+
+int tty_put_c(struct tty_struct *tty, unsigned char c)
+{
+	char output[2];
+	int count;
+	int written;
+
+	count = tty_output_char(tty, c, output);
+	written = tty->driver->write(tty, output, count);
+	if (written < 0)
+		return written;
+	return written == count ? 0 : -EAGAIN;
 }
 
 void tty_put_s(struct tty_struct *tty, char *s)
@@ -342,8 +374,28 @@ int tty_write(struct inode *i, struct file *f, char *buf, int count)
 		return err;
 
 	for (int i = 0; i < count; ++i) {
+		char output[2];
 		unsigned char c = get_fs_byte(buf + i);
-		tty_put_c(tty, c);
+		int output_count = tty_output_char(tty, c, output);
+		int output_done = 0;
+
+		while (output_done < output_count) {
+			int n = tty->driver->write(tty, output + output_done,
+						   output_count - output_done);
+
+			if (n < 0)
+				return i ? i : n;
+			if (n > output_count - output_done)
+				hang("tty output driver wrote too much");
+			output_done += n;
+			if (output_done == output_count)
+				break;
+			if (f->f_flags & O_NONBLOCK)
+				return i ? i : -EAGAIN;
+			if (!output_done && (current->signal & ~current->blocked))
+				return i ? i : -ERESTARTSYS;
+			sleep_on(&tty->wait_write, TASK_INTERRUPTIBLE, NULL);
+		}
 	}
 	return count;
 }

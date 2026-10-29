@@ -1280,15 +1280,17 @@ void console_write_char(struct console *con, unsigned char c)
 	con->pending_wrap = 0;
 }
 
-void console_put_char(struct tty_struct *tty, unsigned char c)
+static int console_write(struct tty_struct *tty, const char *buf, int count)
 {
 	dev_t minor = MINOR(tty->dev);
 	struct console *con = &console_table[minor - tty->driver->minor];
 	unsigned long flags;
 
 	spin_lock_irqsave(&console_lock, flags);
-	console_write_char(con, c);
+	for (int i = 0; i < count; i++)
+		console_write_char(con, buf[i]);
 	spin_unlock_irqrestore(&console_lock, flags);
+	return count;
 }
 
 struct tty_driver console_driver = {
@@ -1297,7 +1299,7 @@ struct tty_driver console_driver = {
 	.n = NUM_CONSOLE,
 	.tty_table = console_tty_table,
 	.fops = &tty_fops,
-	.put_char = console_put_char,
+	.write = console_write,
 };
 
 void switch_fg_console(int i)
@@ -1384,20 +1386,9 @@ void console_init()
 		con = &console_table[i];
 		console_reset(con);
 
-		tty->dev = MKDEV(TTY_MAJOR, TTY_MINOR_1 + i);
-		tty->driver = &console_driver;
-		tty->pgrp = 0;
-		tty->session = 0;
-		ring_buffer_init(&tty->read_buf);
-
-		init_wait_queue(&tty->wait_read);
-		INIT_LOCK(&tty->lock);
-
-		tty->termios = default_termios;
-		tty->winsize.ws_col = N_COL;
-		tty->winsize.ws_row = N_ROW;
-
-		tty->count = 0;
+		if (tty_init_struct(tty, MKDEV(TTY_MAJOR, TTY_MINOR_1 + i),
+				    &console_driver, N_ROW, N_COL))
+			hang("failed to initialize console tty");
 		tty->initialized = 1;
 	}
 

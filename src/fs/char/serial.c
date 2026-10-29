@@ -76,11 +76,14 @@ int uart_init(unsigned short port)
     return 0;
 }
 
-static void serial_put_char(struct tty_struct *tty, unsigned char c)
+static int serial_write(struct tty_struct *tty, const char *buf, int count)
 {
     dev_t minor = MINOR(tty->dev);
     struct serial *ser = &serial_table[minor - tty->driver->minor];
-    uart_poll_write(ser->port, c);
+
+    for (int i = 0; i < count; i++)
+        uart_poll_write(ser->port, buf[i]);
+    return count;
 }
 
 struct tty_driver serial_driver = {
@@ -89,7 +92,7 @@ struct tty_driver serial_driver = {
     .n = NUM_SERIAL,
     .tty_table = serial_tty_table,
     .fops = &tty_fops,
-    .put_char = serial_put_char,
+    .write = serial_write,
 };
 
 void serial_init()
@@ -105,20 +108,9 @@ void serial_init()
         struct serial *ser = &serial_table[i];
         struct tty_struct *tty = &serial_tty_table[i];
 
-        tty->dev = MKDEV(TTY_MAJOR, SERIAL_MINOR_0 + i);
-        tty->driver = &serial_driver;
-        tty->pgrp = 0;
-        tty->session = 0;
-        ring_buffer_init(&tty->read_buf);
-
-        init_wait_queue(&tty->wait_read);
-        INIT_LOCK(&tty->lock);
-
-        tty->termios = default_termios;
-        tty->winsize.ws_col = 80;
-        tty->winsize.ws_row = 24;
-        tty->count = 0;
-        tty->initialized = 0;
+        if (tty_init_struct(tty, MKDEV(TTY_MAJOR, SERIAL_MINOR_0 + i),
+                            &serial_driver, 24, 80))
+            hang("failed to initialize serial tty");
 
         if (uart_init(ser->port))
             continue;
