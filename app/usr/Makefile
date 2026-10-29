@@ -39,6 +39,8 @@ ncurses/%.exe: ncurses/%.c
 		-lncurses
 
 include vim.mk
+include libevent.mk
+include tmux.mk
 include nano.mk
 include less.mk
 
