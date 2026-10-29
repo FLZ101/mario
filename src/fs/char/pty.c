@@ -169,6 +169,7 @@ static int pty_master_read(struct inode *i, struct file *f, char *buf, int count
 	struct pty_pair *pty = f->private_data;
 	unsigned long flags;
 	int n;
+	int slave_open;
 
 	for (;;) {
 		spin_lock_irqsave(&pty->lock, flags);
@@ -178,8 +179,9 @@ static int pty_master_read(struct inode *i, struct file *f, char *buf, int count
 			spin_unlock_irqrestore(&pty->lock, flags);
 			return n;
 		}
+		slave_open = pty->slave_open;
 		spin_unlock_irqrestore(&pty->lock, flags);
-		if (!pty->slave_open)
+		if (!slave_open)
 			return -EIO;
 		if (f->f_flags & O_NONBLOCK)
 			return -EAGAIN;
