@@ -24,6 +24,8 @@ struct file *get_empty_file(void)
 			res->f_pos = 0;
 			res->f_count = 1;
 			res->f_inode = NULL;
+			res->f_op = NULL;
+			res->private_data = NULL;
 			break;
 		}
 	RELEASE_LOCK(&file_lock);
@@ -47,6 +49,8 @@ int get_two_empty_files(struct file *res[2])
 			res[j]->f_pos = 0;
 			res[j]->f_count = 1;
 			res[j]->f_inode = NULL;
+			res[j]->f_op = NULL;
+			res[j]->private_data = NULL;
 		}
 	}
 	RELEASE_LOCK(&file_lock);

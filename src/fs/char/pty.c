@@ -79,6 +79,37 @@ static int pty_bind_slave(struct tty_struct *tty, struct file *f)
 	return 0;
 }
 
+static int pty_dup_open(struct file *f)
+{
+	struct pty_pair *pty;
+	unsigned long flags;
+
+	if (f->f_mode & FMODE_PTY_MASTER) {
+		pty = f->private_data;
+		spin_lock_irqsave(&pty->lock, flags);
+		if (pty->state != PTY_ALLOCATED || !pty->master_open) {
+			spin_unlock_irqrestore(&pty->lock, flags);
+			return -EIO;
+		}
+		pty->master_open++;
+		spin_unlock_irqrestore(&pty->lock, flags);
+		return 0;
+	}
+
+	pty = tty_to_pty(f->private_data);
+	spin_lock_irqsave(&pty->lock, flags);
+	if (pty->state != PTY_ALLOCATED) {
+		spin_unlock_irqrestore(&pty->lock, flags);
+		return -EIO;
+	}
+	pty->slave_open++;
+	spin_lock(&pty->tty.lock);
+	pty->tty.count++;
+	spin_unlock(&pty->tty.lock);
+	spin_unlock_irqrestore(&pty->lock, flags);
+	return 0;
+}
+
 static int pty_master_open(struct file *f)
 {
 	struct pty_pair *pty = NULL;
@@ -120,6 +151,8 @@ static int pty_open(struct inode *i, struct file *f)
 	unsigned int minor = MINOR(i->i_rdev);
 	struct tty_struct *tty;
 
+	if (f->private_data)
+		return pty_dup_open(f);
 	if (minor == PTMX_MINOR)
 		return pty_master_open(f);
 	if (minor >= NR_PTYS)
@@ -243,15 +276,18 @@ static void pty_release(struct inode *i, struct file *f)
 	if (f->f_mode & FMODE_PTY_MASTER) {
 		pty = f->private_data;
 		spin_lock_irqsave(&pty->lock, flags);
-		pty->master_open = 0;
-		spin_lock(&pty->tty.lock);
-		assert(pty->tty.count > 0);
-		pty->tty.count--;
-		spin_unlock(&pty->tty.lock);
-		wake_up_interruptible(&pty->tty.wait_read);
-		wake_up_interruptible(&pty->tty.wait_write);
-		if (!pty->slave_open)
-			reusable = 1;
+		assert(pty->master_open > 0);
+		pty->master_open--;
+		if (!pty->master_open) {
+			spin_lock(&pty->tty.lock);
+			assert(pty->tty.count > 0);
+			pty->tty.count--;
+			spin_unlock(&pty->tty.lock);
+			wake_up_interruptible(&pty->tty.wait_read);
+			wake_up_interruptible(&pty->tty.wait_write);
+			if (!pty->slave_open)
+				reusable = 1;
+		}
 		spin_unlock_irqrestore(&pty->lock, flags);
 	} else {
 		pty = tty_to_pty(f->private_data);

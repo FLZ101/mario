@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 int main(void)
@@ -28,6 +29,9 @@ int main(void)
 	assert(ioctl(master, TIOCSPTLCK, &locked) == 0);
 	slave = open(path, O_RDWR);
 	assert(slave >= 0);
+	if (!fork())
+		_exit(0);
+	assert(wait(NULL) > 0);
 
 	assert(write(master, "ping\n", 5) == 5);
 	assert(read(slave, buf, 5) == 5);
