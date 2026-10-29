@@ -24,6 +24,10 @@ int main(void)
 	assert(pfd.revents & POLLIN);
 	assert(read(fd[0], buf, 4) == 4);
 	assert(!__builtin_memcmp(buf, "pong", 4));
+	assert(shutdown(fd[1], SHUT_WR) == 0);
+	assert(read(fd[0], buf, 1) == 0);
+	assert(write(fd[1], "x", 1) == -1);
+	assert(errno == EPIPE);
 	assert(close(fd[1]) == 0);
 	assert(read(fd[0], buf, 1) == 0);
 	assert(write(fd[0], "x", 1) == -1);

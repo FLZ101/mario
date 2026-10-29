@@ -7,6 +7,7 @@
 #define SYS_RECV 10
 #define SYS_SENDTO 11
 #define SYS_RECVFROM 12
+#define SYS_SHUTDOWN 13
 
 extern int sys_read(unsigned int fd, char *buf, unsigned int count);
 extern int sys_write(unsigned int fd, char *buf, unsigned int count);
@@ -19,6 +20,8 @@ struct unix_socket {
 	wait_queue_t wait_read;
 	wait_queue_t wait_write;
 	int opens;
+	int read_shutdown;
+	int write_shutdown;
 };
 
 struct unix_socket_pair {
@@ -51,7 +54,7 @@ static int socket_read(struct inode *i, struct file *f, char *buf, int count)
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return n;
 		}
-		if (!peer->opens) {
+		if (!peer->opens || peer->write_shutdown) {
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return 0;
 		}
@@ -73,7 +76,7 @@ static int socket_write(struct inode *i, struct file *f, char *buf, int count)
 
 	for (;;) {
 		spin_lock_irqsave(&socket->pair->lock, flags);
-		if (!peer->opens) {
+		if (socket->write_shutdown || !peer->opens || peer->read_shutdown) {
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			send_sig(SIGPIPE, current, 0);
 			return -EPIPE;
@@ -110,9 +113,10 @@ static int socket_poll(struct file *f, struct poll_context *ctx)
 	spin_lock_irqsave(&socket->pair->lock, flags);
 	if (!ring_buffer_empty(&socket->receive))
 		mask |= POLLIN;
-	if (ring_buffer_space(&peer->receive) && peer->opens)
+	if (!socket->write_shutdown && !peer->read_shutdown &&
+	    ring_buffer_space(&peer->receive) && peer->opens)
 		mask |= POLLOUT;
-	if (!peer->opens)
+	if (!peer->opens || peer->write_shutdown)
 		mask |= POLLHUP;
 	spin_unlock_irqrestore(&socket->pair->lock, flags);
 	return mask;
@@ -228,10 +232,40 @@ int sys_socketpair(int domain, int type, int protocol, int *fd)
 	return err;
 }
 
+int sys_shutdown(int fd, int how)
+{
+	struct file *file;
+	struct unix_socket *socket;
+	struct unix_socket *peer;
+	unsigned long flags;
+
+	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
+		return -EBADF;
+	if (file->f_op != &socket_fops)
+		return -ENOTSOCK;
+	if (how < SHUT_RD || how > SHUT_RDWR)
+		return -EINVAL;
+	socket = socket_endpoint(file);
+	peer = socket_peer(socket);
+	spin_lock_irqsave(&socket->pair->lock, flags);
+	if (how != SHUT_WR) {
+		socket->read_shutdown = 1;
+		ring_buffer_clear(&socket->receive);
+		wake_up_interruptible(&socket->wait_read);
+		wake_up_interruptible(&socket->wait_write);
+	}
+	if (how != SHUT_RD) {
+		socket->write_shutdown = 1;
+		wake_up_interruptible(&peer->wait_read);
+	}
+	spin_unlock_irqrestore(&socket->pair->lock, flags);
+	return 0;
+}
+
 int sys_socketcall(int call, unsigned long *args)
 {
 	if (call != SYS_SOCKETPAIR && call != SYS_SEND && call != SYS_RECV &&
-	    call != SYS_SENDTO && call != SYS_RECVFROM)
+	    call != SYS_SENDTO && call != SYS_RECVFROM && call != SYS_SHUTDOWN)
 		return -ENOSYS;
 	if (verify_area(VERIFY_READ, args, 4 * sizeof(unsigned long)))
 		return -EFAULT;
@@ -251,6 +285,9 @@ int sys_socketcall(int call, unsigned long *args)
 		return sys_read(get_fs_long((int *)&args[0]),
 				(char *)get_fs_long((int *)&args[1]),
 				get_fs_long((int *)&args[2]));
+	case SYS_SHUTDOWN:
+		return sys_shutdown(get_fs_long((int *)&args[0]),
+				    get_fs_long((int *)&args[1]));
 	}
 	return -ENOSYS;
 }
