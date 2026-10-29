@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -38,6 +39,10 @@ int main(void)
 		tty = open("/dev/tty", O_RDWR);
 		assert(tty >= 0);
 		assert(write(tty, "ctty\n", 5) == 5);
+		assert(signal(SIGHUP, SIG_IGN) != SIG_ERR);
+		assert(ioctl(slave, TIOCNOTTY) == 0);
+		assert(open("/dev/tty", O_RDWR) == -1);
+		assert(errno == ENXIO);
 		_exit(0);
 	}
 	assert(wait(NULL) > 0);

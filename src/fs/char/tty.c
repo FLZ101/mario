@@ -269,6 +269,35 @@ void tty_try_set_controlling(struct tty_struct *tty, int noctty)
 		tty_set_controlling(tty);
 }
 
+void tty_detach_session(struct tty_struct *tty, pid_t session)
+{
+	struct task_struct *task;
+	unsigned long flags;
+	pid_t pgrp;
+
+	spin_lock_irqsave(&tty->lock, flags);
+	if (tty->session != session) {
+		spin_unlock_irqrestore(&tty->lock, flags);
+		return;
+	}
+	pgrp = tty->pgrp;
+	tty->session = 0;
+	tty->pgrp = 0;
+	spin_unlock_irqrestore(&tty->lock, flags);
+
+	spin_lock_irqsave(&tasklist_lock, flags);
+	for_each_task(task) {
+		if (task->session == session && task->tty == tty)
+			task->tty = NULL;
+	}
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+
+	if (pgrp > 0) {
+		kill_pg(pgrp, SIGHUP, 1);
+		kill_pg(pgrp, SIGCONT, 1);
+	}
+}
+
 int tty_open(struct inode *i, struct file *f)
 {
 	int noctty = f->f_flags & O_NOCTTY;
@@ -523,23 +552,39 @@ int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long a
 		case TCSETS:
 			return set_termios(tty, arg, opt);
 		case TIOCGWINSZ:
+		{
+			struct winsize ws;
+			unsigned long flags;
+
 			err = verify_area(VERIFY_WRITE, (void *) arg, sizeof (struct winsize));
 			if (err)
 				return err;
-			memcpy_tofs((struct winsize *) arg, &tty->winsize, sizeof (struct winsize));
+			spin_lock_irqsave(&tty->lock, flags);
+			ws = tty->winsize;
+			spin_unlock_irqrestore(&tty->lock, flags);
+			memcpy_tofs((struct winsize *) arg, &ws, sizeof(ws));
 			return 0;
+		}
 		case TIOCSWINSZ: {
+			unsigned long flags;
+			pid_t pgrp = 0;
+			int changed;
+
 			err = verify_area(VERIFY_READ, (void *) arg, sizeof (struct winsize));
 			if (err)
 				return err;
 
 			struct winsize ws;
 			memcpy_fromfs(&ws, (struct winsize *) arg, sizeof (struct winsize));
-			if (memcmp(&ws, &tty->winsize, sizeof(struct winsize))) {
+			spin_lock_irqsave(&tty->lock, flags);
+			changed = memcmp(&ws, &tty->winsize, sizeof(ws));
+			if (changed) {
 				tty->winsize = ws;
-				if (tty->pgrp > 0)
-					kill_pg(tty->pgrp, SIGWINCH, 1);
+				pgrp = tty->pgrp;
 			}
+			spin_unlock_irqrestore(&tty->lock, flags);
+			if (pgrp > 0)
+				kill_pg(pgrp, SIGWINCH, 1);
 			return 0;
 		}
 		case TIOCSTI:
@@ -556,40 +601,71 @@ int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long a
 		case TIOCNOTTY:
 			if (current->tty != tty)
 				return -ENOTTY;
-			current->tty = NULL;
-			if (tty->session == current->session) {
-				tty->session = 0;
-				tty->pgrp = 0;
-			}
+			tty_detach_session(tty, current->session);
 			return 0;
 		case TIOCGPGRP:
+		{
+			pid_t pgrp;
+			unsigned long flags;
+
 			if (current->tty != tty)
 				return -ENOTTY;
 			err = verify_area(VERIFY_WRITE, (void *) arg, sizeof (pid_t));
 			if (err)
 				return err;
-			put_fs_long(tty->pgrp, (pid_t *) arg);
+			spin_lock_irqsave(&tty->lock, flags);
+			pgrp = tty->pgrp;
+			spin_unlock_irqrestore(&tty->lock, flags);
+			put_fs_long(pgrp, (pid_t *) arg);
 			return 0;
+		}
 		case TIOCSPGRP:
+		{
+			unsigned long flags;
+			pid_t session;
+			pid_t pgrp;
+
 			if (!current->tty ||
-			    (current->tty != tty) ||
-			    (tty->session != current->session))
+			    current->tty != tty)
 				return -ENOTTY;
-			pid_t pgrp = get_fs_long((pid_t *) arg);
+			err = verify_area(VERIFY_READ, (void *)arg, sizeof(pgrp));
+			if (err)
+				return err;
+			spin_lock_irqsave(&tty->lock, flags);
+			session = tty->session;
+			spin_unlock_irqrestore(&tty->lock, flags);
+			if (session != current->session)
+				return -ENOTTY;
+			pgrp = get_fs_long((pid_t *) arg);
 			if (pgrp < 0)
 				return -EINVAL;
-			if (session_of_pgrp(pgrp) != current->session)
+			if (session_of_pgrp(pgrp) != session)
 				return -EPERM;
+			spin_lock_irqsave(&tty->lock, flags);
+			if (tty->session != session) {
+				spin_unlock_irqrestore(&tty->lock, flags);
+				return -ENOTTY;
+			}
 			tty->pgrp = pgrp;
+			spin_unlock_irqrestore(&tty->lock, flags);
 			return 0;
+		}
 		case TIOCGSID:
+		{
+			pid_t session;
+			unsigned long flags;
+
 			if (current->tty != tty)
 				return -ENOTTY;
 			err = verify_area(VERIFY_WRITE, (void *) arg, sizeof (pid_t));
 			if (err)
 				return err;
-			put_fs_long(tty->session, (pid_t *) arg);
+			spin_lock_irqsave(&tty->lock, flags);
+			session = tty->session;
+			spin_unlock_irqrestore(&tty->lock, flags);
+			put_fs_long(session, (pid_t *) arg);
 			return 0;
+		}
 		case TCFLSH:
 			switch (arg) {
 			case TCOFLUSH:

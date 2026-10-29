@@ -1,5 +1,6 @@
 #include <sched.h>
 #include <signal.h>
+#include <fs/tty/tty.h>
 #include <misc.h>
 #include <futex.h>
 
@@ -265,6 +266,9 @@ void do_exit(long code)
 		futex_wake(current->clear_child_tid, 1);
 		current->clear_child_tid = NULL;
 	}
+
+	if (current->leader && current->tty)
+		tty_detach_session(current->tty, current->session);
 
 	/*
 	 * CLONE_VM/FILES/FS tasks share these structures with their group

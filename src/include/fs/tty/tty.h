@@ -24,6 +24,7 @@ int get_tty(dev_t dev, struct tty_struct **tty);
 int tty_bind_file(struct tty_struct *tty, struct file *f);
 int tty_set_controlling(struct tty_struct *tty);
 void tty_try_set_controlling(struct tty_struct *tty, int noctty);
+void tty_detach_session(struct tty_struct *tty, pid_t session);
 
 extern struct file_operations tty_fops;
 
