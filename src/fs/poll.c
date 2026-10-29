@@ -1,27 +1,79 @@
 #include <fs/fs.h>
 #include <mm/kmalloc.h>
 
-static void qproc(struct file *f, wait_queue_t *q, struct poll_context *ctx)
+static void count_qproc(struct file *f, wait_queue_t *q, struct poll_context *ctx)
 {
-    assert(ctx->n < MAX_POLL_ENTRIES);
-    ctx->entries[ctx->n++] = (struct poll_entry) { .f = f, .q = q };
+    (void) f;
+    (void) q;
+
+    if (ctx->n == (unsigned int)-1) {
+        ctx->error = -ENOMEM;
+        return;
+    }
+    ctx->n++;
+}
+
+static void collect_qproc(struct file *f, wait_queue_t *q,
+                          struct poll_context *ctx)
+{
+    struct poll_entry *entry;
+
+    if (ctx->n == ctx->max) {
+        ctx->error = -ENOMEM;
+        return;
+    }
+
+    entry = &ctx->entries[ctx->n++];
+    entry->f = f;
+    entry->q = q;
+    init_wait_queue_node(&entry->node, current);
 }
 
 #define FD_IGNORE -1001
 
-int poll_fds(struct poll_context *ctx, struct pollfd *fds, unsigned int nfds)
+static void poll_get_files(struct file **files, struct pollfd *fds,
+                           unsigned int nfds)
+{
+    unsigned int i;
+
+    for (i = 0; i < nfds; i++) {
+        int fd = fds[i].fd;
+        struct file *f;
+
+        files[i] = NULL;
+        if (fd == FD_IGNORE || fd < 0 || fd >= NR_OPEN)
+            continue;
+        f = current->files->fd[fd];
+        if (!f)
+            continue;
+        fref(f);
+        files[i] = f;
+    }
+}
+
+static void poll_put_files(struct file **files, unsigned int nfds)
+{
+    unsigned int i;
+
+    for (i = 0; i < nfds; i++)
+        if (files[i])
+            release_file(files[i], 1);
+}
+
+static int poll_fds(struct poll_context *ctx, struct pollfd *fds,
+                    struct file **files, unsigned int nfds)
 {
     int n_done = 0;
     for (unsigned int i = 0; i < nfds; ++i) {
-        unsigned int fd = fds[i].fd;
+        int fd = fds[i].fd;
         short events = fds[i].events;
         short *revents = &fds[i].revents;
 
         if (FD_IGNORE == fd)
             continue;
 
-        struct file *f;
-        if (fd >= NR_OPEN || !(f = current->files->fd[fd])) {
+        struct file *f = files[i];
+        if (fd < 0 || fd >= NR_OPEN || !f) {
             *revents = POLLNVAL;
             ++n_done;
             continue;
@@ -43,39 +95,81 @@ int poll_fds(struct poll_context *ctx, struct pollfd *fds, unsigned int nfds)
 
 int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
 {
-    struct poll_context ctx = { .qproc = qproc };
+    struct poll_context ctx = { .qproc = count_qproc };
+    struct file **files;
+    struct poll_entry *entries = NULL;
+    int n_done;
 
-    int n_done = poll_fds(&ctx, fds, nfds);
-    if (n_done > 0 || !timeout)
-        return n_done;
+    if (nfds > (unsigned int)-1 / sizeof(*files))
+        return -ENOMEM;
 
-    wait_queue_node_t node;
-    init_wait_queue_node(&node, current);
+    files = kmalloc(nfds * sizeof(*files));
+    if (!files)
+        return -ENOMEM;
+    poll_get_files(files, fds, nfds);
 
-    int n_wait = 0;
-    for (unsigned int i = 0; i < ctx.n; ++i) {
-        if (ctx.entries[i].q) {
-            in_wait_queue(ctx.entries[i].q, &node);
-            ++n_wait;
-        }
+    n_done = poll_fds(&ctx, fds, files, nfds);
+    if (ctx.error) {
+        n_done = ctx.error;
+        goto out;
     }
-    if (!n_wait)
-        return 0;
+    if (n_done > 0 || !timeout)
+        goto out;
+
+    if (!ctx.n)
+        goto out;
+    if (ctx.n > (unsigned int)-1 / sizeof(*entries)) {
+        n_done = -ENOMEM;
+        goto out;
+    }
+    entries = kmalloc(ctx.n * sizeof(*entries));
+    if (!entries) {
+        n_done = -ENOMEM;
+        goto out;
+    }
+
+    ctx.entries = entries;
+    ctx.max = ctx.n;
+    ctx.n = 0;
+    ctx.error = 0;
+    ctx.qproc = collect_qproc;
+    n_done = poll_fds(&ctx, fds, files, nfds);
+    if (ctx.error) {
+        n_done = ctx.error;
+        goto out;
+    }
+    if (n_done > 0 || !ctx.n)
+        goto out;
+
+    current->state = TASK_INTERRUPTIBLE;
+    for (unsigned int i = 0; i < ctx.n; ++i) {
+        in_wait_queue(ctx.entries[i].q, &ctx.entries[i].node);
+    }
+
+    ctx.qproc = NULL;
+    n_done = poll_fds(&ctx, fds, files, nfds);
+    if (n_done > 0 || current->state != TASK_INTERRUPTIBLE)
+        goto detach;
 
     if (timeout < 0) {
-        current->state = TASK_INTERRUPTIBLE;
         schedule();
     } else {
         schedule_timeout((timeout * HZ + 999) / 1000);
     }
 
+    n_done = poll_fds(&ctx, fds, files, nfds);
+
+detach:
+    current->state = TASK_RUNNING;
     for (unsigned int i = 0; i < ctx.n; ++i) {
-        if (ctx.entries[i].q)
-            out_wait_queue(ctx.entries[i].q, &node);
+        out_wait_queue(ctx.entries[i].q, &ctx.entries[i].node);
     }
 
-    ctx.qproc = NULL;
-    n_done = poll_fds(&ctx, fds, nfds);
+out:
+    if (entries)
+        kfree(entries);
+    poll_put_files(files, nfds);
+    kfree(files);
     return n_done;
 }
 

@@ -41,14 +41,15 @@ struct pollfd {
 struct poll_entry {
 	struct file *f;
 	wait_queue_t *q;
+	wait_queue_node_t node;
 };
-
-#define MAX_POLL_ENTRIES 32
 
 struct poll_context {
 	void (*qproc)(struct file *, wait_queue_t *, struct poll_context *);
-	struct poll_entry entries[MAX_POLL_ENTRIES];
-	int n;
+	struct poll_entry *entries;
+	unsigned int n;
+	unsigned int max;
+	int error;
 };
 
 // Basically register the @q to sleep on later
