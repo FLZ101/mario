@@ -51,6 +51,7 @@ struct mario_dir_entry {
 #define MODE_IFO 0010000
 #define MODE_LNK 0120000
 #define MODE_SOCK 0140000
+#define MODE_TYPE(mode) ((mode) & 0170000)
 
 #define MARIO_ZERO_ENTRY	0xfefefefe
 

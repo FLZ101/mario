@@ -303,7 +303,7 @@ tail:
 	return ret;
 }
 
-int mario_mkdir(struct inode *dir, char *name, int len)
+int mario_mkdir(struct inode *dir, char *name, int len, int mode)
 {
 	int block, ret = 0;
 	struct mario_dir_entry entry, *pe;
@@ -325,7 +325,7 @@ int mario_mkdir(struct inode *dir, char *name, int len)
 		goto tail_1;
 
 	entry.data = block;
-	entry.mode = MODE_DIR;
+	entry.mode = MODE_DIR | (mode & 0777);
 	entry.size = 0;
 	entry.blocks = 0;
 	strncpy(entry.name, name, len);
@@ -337,12 +337,12 @@ int mario_mkdir(struct inode *dir, char *name, int len)
 	}
 	pe = (struct mario_dir_entry *)bh->b_data;
 	pe[0].data = 0; // inode number. To be set
-	pe[0].mode = MODE_DIR;
+	pe[0].mode = MODE_DIR | (mode & 0777);
 	pe[0].size = 0;
 	pe[0].blocks = 0;
 	strcpy(pe[0].name, ".");
 	pe[1].data = dir->i_ino; // inode number
-	pe[1].mode = MODE_DIR;
+	pe[1].mode = MODE_DIR | (mode & 0777);
 	pe[1].size = 0;
 	pe[1].blocks = 0;
 	strcpy(pe[1].name, "..");

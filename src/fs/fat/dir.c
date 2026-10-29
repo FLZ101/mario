@@ -1446,7 +1446,7 @@ static int fat_create(struct inode *dir, char *name, int len,
 	return 0;
 }
 
-static int fat_mkdir(struct inode *dir, char *name, int len)
+static int fat_mkdir(struct inode *dir, char *name, int len, int mode)
 {
 	uint8_t dot_name[11];
 	uint8_t dotdot_name[11];
@@ -1457,6 +1457,8 @@ static int fat_mkdir(struct inode *dir, char *name, int len)
 	unsigned long ino;
 	struct inode *inode;
 	int error = 0;
+
+	(void)mode;
 
 	if (FAT_SB(dir->i_sb).readonly) {
 		iput(dir);

@@ -328,7 +328,7 @@ void make_begin(void)
 	sb.magic = MARIO_MAGIC;
 	sb.time_base = time(NULL);
 
-	sb.root.mode = MODE_DIR;
+	sb.root.mode = MODE_DIR | 0755;
 	sb.root.flags = 7;
 	sb.root.size = 0;
 	sb.root.blocks = 0;
@@ -370,17 +370,17 @@ void pass1(void)
 
 		lstat(entry->d_name, &st); // Do not follow symlinks
 		if (S_ISDIR(st.st_mode)) {
-			tmp.mode = MODE_DIR;
+			tmp.mode = MODE_DIR | (st.st_mode & 0777);
 			tmp.size = 0;
 			tmp.blocks = 0;
 
 		} else if (S_ISREG(st.st_mode)) {
-			tmp.mode = MODE_REG;
+			tmp.mode = MODE_REG | (st.st_mode & 0777);
 			tmp.size = st.st_size;
 			tmp.blocks = (tmp.size + MAX_USED - 1) / MAX_USED;
 
 		} else if (S_ISLNK(st.st_mode)) {
-			tmp.mode = MODE_LNK;
+			tmp.mode = MODE_LNK | (st.st_mode & 0777);
 			tmp.size = st.st_size;
 			tmp.blocks = (tmp.size + MAX_USED - 1) / MAX_USED;
 		} else {
@@ -534,16 +534,16 @@ scan_a_new_block:
 		/* end of this directory */
 		if (!entry.name[0])
 			return;
-		if (entry.mode == MODE_REG) {
+		if (MODE_TYPE(entry.mode) == MODE_REG) {
 			if (entry.size)	/* not empty */
 				copy_file(entry.name, dent);
 			else
 				update_mario_dir_entry(dent, MARIO_ZERO_ENTRY);
 
-		} else if (entry.mode == MODE_LNK) {
+		} else if (MODE_TYPE(entry.mode) == MODE_LNK) {
 			copy_symlink(entry.name, dent);
 
-		} else if (entry.mode == MODE_DIR) {
+		} else if (MODE_TYPE(entry.mode) == MODE_DIR) {
 			if (!strcmp(".", entry.name)) {
 				update_mario_dir_entry(dent, dent_offset);
 			} else if (!strcmp("..", entry.name)) {
@@ -668,7 +668,7 @@ scan_a_new_block:
 add_dev:
 	/* add dev/ into / */
 	printf("Add /dev/\n");
-	entry.mode = MODE_DIR;
+	entry.mode = MODE_DIR | 0755;
 	entry.flags = 7;
 	entry.data = blocks;
 	entry.size = 0;
@@ -703,7 +703,7 @@ add_dev:
 	}
 	if (has_pts) {
 		memset(&entry, 0, sizeof(entry));
-		entry.mode = MODE_DIR;
+		entry.mode = MODE_DIR | 0755;
 		entry.flags = 7;
 		strcpy(entry.name, "pts");
 		pour_data(&entry, sizeof(entry), 1);

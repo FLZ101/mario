@@ -408,7 +408,7 @@ int sys_rmdir(char *pathname)
 	return error;
 }
 
-static int do_mkdir(char *name, struct inode *base)
+static int do_mkdir(char *name, struct inode *base, int mode)
 {
 	char *basename;
 	int namelen, error;
@@ -425,7 +425,7 @@ static int do_mkdir(char *name, struct inode *base)
 		iput(dir);
 		return -EPERM;
 	}
-	return dir->i_op->mkdir(dir, basename, namelen);
+	return dir->i_op->mkdir(dir, basename, namelen, mode);
 }
 
 int sys_mkdirat(int dirfd, char *pathname, int mode)
@@ -440,14 +440,14 @@ int sys_mkdirat(int dirfd, char *pathname, int mode)
 
 	error = get_base_inode(dirfd, 0, &base);
 	if (!error)
-		error = do_mkdir(tmp, base);
+		error = do_mkdir(tmp, base, mode);
 	putname(tmp);
 	return error;
 }
 
-int sys_mkdir(char *pathname)
+int sys_mkdir(char *pathname, int mode)
 {
-	return sys_mkdirat(AT_FDCWD, pathname, 0);
+	return sys_mkdirat(AT_FDCWD, pathname, mode);
 }
 
 int do_unlinkat(int dirfd, char *name)

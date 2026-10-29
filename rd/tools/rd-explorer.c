@@ -114,7 +114,7 @@ void cd(void)
 		printf("No such file or directory\n");
 		return;
 	}
-	if (entry.mode != MODE_DIR) {
+	if (MODE_TYPE(entry.mode) != MODE_DIR) {
 		printf("Not a directory\n");
 		return;
 	}
@@ -176,7 +176,7 @@ void cat(void)
 		printf("No such file or directory\n");
 		return;
 	}
-	if (entry.mode != MODE_REG) {
+	if (MODE_TYPE(entry.mode) != MODE_REG) {
 		printf("Not a regular file\n");
 		return;
 	}
@@ -218,7 +218,7 @@ void print_entry(struct mario_dir_entry *entry)
 	}
 	printf("%s   ", s);
 	printf("%-8u   ", entry->data);
-	if (entry->mode == MODE_REG)
+	if (MODE_TYPE(entry->mode) == MODE_REG)
 		printf("%-8u   ", entry->size);
 	else
 		printf("%-8u   ", 0);
@@ -228,10 +228,10 @@ void print_entry(struct mario_dir_entry *entry)
 
 	printf("%s", entry->name);
 
-	if (entry->mode == MODE_LNK) {
+	if (MODE_TYPE(entry->mode) == MODE_LNK) {
 		printf(" -> ");
 		print_file(entry);
-	} else if (entry->mode == MODE_DIR) {
+	} else if (MODE_TYPE(entry->mode) == MODE_DIR) {
 		printf("/");
 	}
 	putchar('\n');

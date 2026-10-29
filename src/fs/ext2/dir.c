@@ -602,7 +602,7 @@ static int ext2_link(struct inode *old_inode, struct inode *dir, char *name,
 	return error;
 }
 
-static int ext2_mkdir(struct inode *dir, char *name, int len)
+static int ext2_mkdir(struct inode *dir, char *name, int len, int mode)
 {
 	uint32_t block;
 	uint32_t offset;
@@ -631,7 +631,7 @@ static int ext2_mkdir(struct inode *dir, char *name, int len)
 		return error;
 	}
 
-	error = ext2_alloc_inode(dir->i_sb, MODE_DIR, &ino);
+	error = ext2_alloc_inode(dir->i_sb, MODE_DIR | (mode & 0777), &ino);
 	if (error) {
 		up(&dir->i_sem);
 		iput(dir);
