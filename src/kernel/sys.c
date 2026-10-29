@@ -99,6 +99,7 @@ int sys_setsid(void)
 {
 	if (current->leader)
 		return -EPERM;
+	current->tty = NULL;
 	current->leader = 1;
 	current->session = current->pgrp = current->pid;
 	return current->pgrp;

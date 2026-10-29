@@ -76,6 +76,7 @@ static int pty_bind_slave(struct tty_struct *tty, struct file *f)
 
 	f->f_op = tty->driver->fops;
 	f->private_data = tty;
+	tty_try_set_controlling(tty, f->f_flags & O_NOCTTY);
 	return 0;
 }
 

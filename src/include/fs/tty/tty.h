@@ -22,6 +22,8 @@ struct tty_driver {
 void register_tty_driver(struct tty_driver *);
 int get_tty(dev_t dev, struct tty_struct **tty);
 int tty_bind_file(struct tty_struct *tty, struct file *f);
+int tty_set_controlling(struct tty_struct *tty);
+void tty_try_set_controlling(struct tty_struct *tty, int noctty);
 
 extern struct file_operations tty_fops;
 

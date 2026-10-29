@@ -236,6 +236,33 @@ int tty_bind_file(struct tty_struct *tty, struct file *f)
 	return 0;
 }
 
+int tty_set_controlling(struct tty_struct *tty)
+{
+	unsigned long flags;
+
+	if (!current->leader)
+		return -EPERM;
+	if (current->tty && current->tty != tty)
+		return -EPERM;
+
+	spin_lock_irqsave(&tty->lock, flags);
+	if (tty->session && tty->session != current->session) {
+		spin_unlock_irqrestore(&tty->lock, flags);
+		return -EPERM;
+	}
+	current->tty = tty;
+	tty->session = current->session;
+	tty->pgrp = current->pgrp;
+	spin_unlock_irqrestore(&tty->lock, flags);
+	return 0;
+}
+
+void tty_try_set_controlling(struct tty_struct *tty, int noctty)
+{
+	if (!noctty && current->leader && !current->tty && !tty->session)
+		tty_set_controlling(tty);
+}
+
 int tty_open(struct inode *i, struct file *f)
 {
 	int noctty = f->f_flags & O_NOCTTY;
@@ -262,14 +289,7 @@ int tty_open(struct inode *i, struct file *f)
 	if (err)
 		return err;
 
-	if (!noctty &&
-	    current->leader &&
-	    !current->tty &&
-	    !tty->session) {
-		current->tty = tty;
-		tty->session = current->session;
-		tty->pgrp = current->pgrp;
-	}
+	tty_try_set_controlling(tty, noctty);
 	return 0;
 }
 
@@ -517,11 +537,16 @@ int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long a
 			tty_receive_c(tty, ch);
 			return 0;
 		case TIOCSCTTY:
-			if (current->leader && (current->session == tty->session))
-				return 0;
-			return -EINVAL;
+			return tty_set_controlling(tty);
 		case TIOCNOTTY:
-			return -EINVAL;
+			if (current->tty != tty)
+				return -ENOTTY;
+			current->tty = NULL;
+			if (tty->session == current->session) {
+				tty->session = 0;
+				tty->pgrp = 0;
+			}
+			return 0;
 		case TIOCGPGRP:
 			if (current->tty != tty)
 				return -ENOTTY;

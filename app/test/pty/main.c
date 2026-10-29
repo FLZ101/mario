@@ -27,11 +27,21 @@ int main(void)
 	assert(errno == EIO);
 
 	assert(ioctl(master, TIOCSPTLCK, &locked) == 0);
-	slave = open(path, O_RDWR);
+	slave = open(path, O_RDWR | O_NOCTTY);
 	assert(slave >= 0);
-	if (!fork())
+	if (!fork()) {
+		int tty;
+
+		assert(setsid() > 0);
+		assert(ioctl(slave, TIOCSCTTY, 0) == 0);
+		tty = open("/dev/tty", O_RDWR);
+		assert(tty >= 0);
+		assert(write(tty, "ctty\n", 5) == 5);
 		_exit(0);
+	}
 	assert(wait(NULL) > 0);
+	assert(read(master, buf, 6) == 6);
+	assert(!memcmp(buf, "ctty\r\n", 6));
 
 	assert(write(master, "ping\n", 5) == 5);
 	assert(read(slave, buf, 5) == 5);
