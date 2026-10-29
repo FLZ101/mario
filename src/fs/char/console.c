@@ -1292,9 +1292,11 @@ void console_put_char(struct tty_struct *tty, unsigned char c)
 }
 
 struct tty_driver console_driver = {
+	.major = TTY_MAJOR,
 	.minor = TTY_MINOR_1,
 	.n = NUM_CONSOLE,
 	.tty_table = console_tty_table,
+	.fops = &tty_fops,
 	.put_char = console_put_char,
 };
 

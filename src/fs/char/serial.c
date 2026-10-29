@@ -84,9 +84,11 @@ static void serial_put_char(struct tty_struct *tty, unsigned char c)
 }
 
 struct tty_driver serial_driver = {
+    .major = TTY_MAJOR,
     .minor = SERIAL_MINOR_0,
     .n = NUM_SERIAL,
     .tty_table = serial_tty_table,
+    .fops = &tty_fops,
     .put_char = serial_put_char,
 };
 

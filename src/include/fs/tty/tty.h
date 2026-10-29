@@ -8,14 +8,20 @@
 struct tty_driver {
 	struct tty_driver *next;
 
+	dev_t major;
 	dev_t minor; // minor of the first device
 	dev_t n; // max number of devices
 
 	struct tty_struct *tty_table;
+	struct file_operations *fops;
 	void (*put_char)(struct tty_struct *tty, unsigned char c);
 };
 
 void register_tty_driver(struct tty_driver *);
+int get_tty(dev_t dev, struct tty_struct **tty);
+int tty_bind_file(struct tty_struct *tty, struct file *f);
+
+extern struct file_operations tty_fops;
 
 struct tty_struct {
 	dev_t dev;

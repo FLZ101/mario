@@ -165,15 +165,36 @@ void register_tty_driver(struct tty_driver *driver)
 	tty_drivers = driver;
 }
 
-int get_tty(dev_t minor, struct tty_struct **tty)
+int get_tty(dev_t dev, struct tty_struct **tty)
 {
+	dev_t major = MAJOR(dev);
+	dev_t minor = MINOR(dev);
+
 	for (struct tty_driver *p = tty_drivers; p; p = p->next) {
-		if (p->minor <= minor && minor < p->minor + p->n) {
+		if (p->major == major &&
+		    p->minor <= minor && minor < p->minor + p->n) {
 			*tty = &p->tty_table[minor - p->minor];
 			return 0;
 		}
 	}
 	return -EINVAL;
+}
+
+int tty_bind_file(struct tty_struct *tty, struct file *f)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&tty->lock, flags);
+	if (!tty->initialized) {
+		spin_unlock_irqrestore(&tty->lock, flags);
+		return -EINVAL;
+	}
+	++tty->count;
+	spin_unlock_irqrestore(&tty->lock, flags);
+
+	f->f_op = tty->driver->fops;
+	f->private_data = tty;
+	return 0;
 }
 
 int tty_open(struct inode *i, struct file *f)
@@ -193,19 +214,14 @@ int tty_open(struct inode *i, struct file *f)
 		dev = MKDEV(TTY_MAJOR, TTY_MINOR_1);
 		noctty = 1;
 	}
-	minor = MINOR(dev);
-
 	struct tty_struct *tty = NULL;
-	int err = get_tty(minor, &tty);
+	int err = get_tty(dev, &tty);
 	if (err)
 		return err;
 
-	// the device is not successfully initialized
-	if (!tty->initialized)
-		return -EINVAL;
-
-	f->private_data = tty;
-	++tty->count;
+	err = tty_bind_file(tty, f);
+	if (err)
+		return err;
 
 	if (!noctty &&
 	    current->leader &&
@@ -501,12 +517,10 @@ static void tty_release(struct inode *i, struct file *f)
 	if (!tty)
 		return;
 
-	assert(tty->count > 0);
-	if (--tty->count)
-		return;
-
 	spin_lock_irqsave(&tty->lock, flags);
-	ring_buffer_clear(&tty->read_buf);
+	assert(tty->count > 0);
+	if (!--tty->count)
+		ring_buffer_clear(&tty->read_buf);
 	spin_unlock_irqrestore(&tty->lock, flags);
 }
 
