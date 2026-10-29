@@ -139,6 +139,7 @@ static int pty_master_open(struct file *f)
 	pty->tty.session = 0;
 	pty->tty.pgrp = 0;
 	pty->tty.count = 1;
+	pty->tty.hung_up = 0;
 	spin_unlock(&pty->tty.lock);
 	spin_unlock_irqrestore(&pty->lock, flags);
 
@@ -178,6 +179,8 @@ static int pty_master_read(struct inode *i, struct file *f, char *buf, int count
 			return n;
 		}
 		spin_unlock_irqrestore(&pty->lock, flags);
+		if (!pty->slave_open)
+			return -EIO;
 		if (f->f_flags & O_NONBLOCK)
 			return -EAGAIN;
 		if (current->signal & ~current->blocked)
@@ -235,6 +238,8 @@ static int pty_master_poll(struct file *f, struct poll_context *ctx)
 	spin_lock_irqsave(&pty->lock, flags);
 	if (!ring_buffer_empty(&pty->output))
 		mask |= POLLIN;
+	else if (!pty->slave_open)
+		mask |= POLLERR | POLLHUP;
 	spin_unlock_irqrestore(&pty->lock, flags);
 	return mask;
 }
@@ -273,6 +278,7 @@ static void pty_release(struct inode *i, struct file *f)
 	struct pty_pair *pty;
 	unsigned long flags;
 	int reusable = 0;
+	pid_t pgrp = 0;
 
 	if (f->f_mode & FMODE_PTY_MASTER) {
 		pty = f->private_data;
@@ -283,6 +289,9 @@ static void pty_release(struct inode *i, struct file *f)
 			spin_lock(&pty->tty.lock);
 			assert(pty->tty.count > 0);
 			pty->tty.count--;
+			pty->tty.hung_up = 1;
+			ring_buffer_clear(&pty->tty.read_buf);
+			pgrp = pty->tty.pgrp;
 			spin_unlock(&pty->tty.lock);
 			wake_up_interruptible(&pty->tty.wait_read);
 			wake_up_interruptible(&pty->tty.wait_write);
@@ -302,6 +311,10 @@ static void pty_release(struct inode *i, struct file *f)
 		if (!pty->master_open && !pty->slave_open)
 			reusable = 1;
 		spin_unlock_irqrestore(&pty->lock, flags);
+	}
+	if (pgrp > 0) {
+		kill_pg(pgrp, SIGHUP, 1);
+		kill_pg(pgrp, SIGCONT, 1);
 	}
 
 	if (reusable) {

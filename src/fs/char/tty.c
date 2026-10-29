@@ -351,6 +351,10 @@ try:
 	spin_lock_irqsave(&tty->lock, flags);
 	int n = get_n_read(tty);
 	if (!n) {
+		if (tty->hung_up) {
+			spin_unlock_irqrestore(&tty->lock, flags);
+			return 0;
+		}
 		spin_unlock_irqrestore(&tty->lock, flags);
 		if (f->f_flags & O_NONBLOCK)
 			return -EAGAIN;
@@ -381,6 +385,10 @@ static int tty_check(struct tty_struct *tty)
 
 	/* Stop a background writer only when the tty has TOSTOP enabled. */
 	spin_lock_irqsave(&tty->lock, flags);
+	if (tty->hung_up) {
+		spin_unlock_irqrestore(&tty->lock, flags);
+		return -EIO;
+	}
 	if (current->tty == tty &&
 	    (tty->termios.c_lflag & TOSTOP) &&
 	    current->pgrp != tty->pgrp)
@@ -627,6 +635,10 @@ int tty_poll(struct file *f, struct poll_context *ctx)
 		int readable;
 
 		spin_lock_irqsave(&tty->lock, flags);
+	if (tty->hung_up) {
+		spin_unlock_irqrestore(&tty->lock, flags);
+		return POLLIN | POLLHUP;
+	}
 		readable = get_n_read(tty) > 0;
 		spin_unlock_irqrestore(&tty->lock, flags);
 		if (readable)

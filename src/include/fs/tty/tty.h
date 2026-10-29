@@ -43,6 +43,7 @@ struct tty_struct {
 
 	int count;
 	int initialized;
+	int hung_up;
 };
 
 extern struct termios default_termios;
