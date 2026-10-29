@@ -3,10 +3,10 @@
 ## Goal
 
 Turn Mario from a fixed 80x25 VGA text console into a small but usable
-graphical desktop system. The display starts at the highest practical VBE
-linear framebuffer mode (1920x1080x32 is the primary target), while the
-existing text virtual consoles and serial consoles remain available as
-fallbacks.
+graphical desktop system. The first automated framebuffer target is
+1024x768x32; 1920x1080x32 is the later interactive target when supported by
+the bootloader and display. The existing text virtual consoles and serial
+consoles remain available as fallbacks.
 
 The GUI is not X11 and not Wayland. It is a purpose-built userspace GUI stack
 on top of three small kernel services:
@@ -63,6 +63,75 @@ Measurable checks, in order of difficulty:
   covers Latin, box-drawing, and common symbols; complex scripts are deferred.
 - No persistent desktop settings database. Initial configuration is compiled
   in or read from simple text files.
+
+## Decisions, Constraints, and Exit Gates
+
+This plan has two intentionally separate deliverables. They must not be
+combined into one untestable graphics rewrite:
+
+1. **Framebuffer platform:** boot reliably in a known VBE mode, preserve the
+   text consoles, expose a safe framebuffer/input ABI, and prove pixels with
+   automated screenshots.
+2. **Desktop platform:** use that ABI to run a compositor, terminal, and
+   applications. A desktop feature never changes the framebuffer ABI without
+   a versioned ioctl or protocol change.
+
+The following decisions are fixed for the first implementation:
+
+- The primary automated-QEMU mode is **1024x768x32 XRGB**. It fits comfortably
+  in the current 256 MiB QEMU configuration (one scanout plus two full-size
+  32-bit compositor buffers use about 9 MiB), is easy to screenshot, and is
+  widely supported by QEMU's standard VGA device. 1920x1080x32 remains an
+  interactive target once the mode-selection path is proven; it is not a
+  requirement for the first green test.
+- The bootloader selects the VBE mode. The protected-mode kernel only consumes
+  the Multiboot framebuffer record; it never executes VBE BIOS calls or walks
+  a real-mode VBE mode list.
+- `/dev/fb0` is a single-scanout device. It has no kernel compositing,
+  page-flipping, or mode-setting in the first release. All composition occurs
+  in userspace into one back buffer, followed by a damaged-rectangle copy to
+  the scanout.
+- A single `mario-desktop` process owns `/dev/fb0` and raw input in the first GUI
+  milestone. The window manager, panel, terminal, and demonstration apps may
+  initially be modules in that process. Unix-domain GUI clients are a later,
+  separately testable phase.
+- Text VTs remain authoritative for kernel diagnostics and recovery. GUI mode
+  is optional. Any graphics initialization, allocation, or userspace-launch
+  failure returns to a usable text VT and serial console.
+
+No phase may start until its entry conditions are met, and it is complete only
+when its listed test gate passes. In particular, do not start PTYs, FreeType,
+or a multi-process protocol before the framebuffer platform has a stable,
+screenshot-tested ABI.
+
+### Compatibility Matrix
+
+| Boot/display environment | Required behavior |
+| --- | --- |
+| QEMU `-vga std`, Multiboot framebuffer available | Start in requested 1024x768x32 when supplied; otherwise accept the loader-selected supported direct-color mode. |
+| QEMU `-vga std`, valid framebuffer but non-32-bpp | Expose the true format through `/dev/fb0`; compositor converts from internal XRGB8888. |
+| Custom `boot.asm` path without VBE handoff | Keep the current VGA text console; do not create `/dev/fb0`. |
+| Invalid Multiboot framebuffer fields, unsupported memory model, or impossible mapping | Log one concise reason to serial/text console and continue in text mode. |
+| GUI process exits, crashes, or cannot allocate its back buffer | Restore the prior text VT, release raw input, and leave `/dev/fb0` available for a later restart. |
+
+### Required Ownership and Concurrency Rules
+
+- Kernel framebuffer metadata is immutable after successful early
+  initialization. It is copied from Multiboot memory before that memory can be
+  reclaimed.
+- `/dev/fb0` permits multiple read-only opens for diagnostics but exactly one
+  writer or writable-mmap owner. `O_WRONLY`, `O_RDWR`, and writable mappings
+  fail with `-EBUSY` while the compositor owns the device. A later
+  capability/seat model may relax this rule; it is not part of phase 0.
+- The compositor is the only process that writes scanout pixels in GUI mode.
+  Clients never receive a direct `/dev/fb0` descriptor.
+- Raw input is routed to exactly one foreground consumer: the selected text
+  VT or `mario-desktop`. The kernel retains F1-F6/F8 handling before routing the
+  remaining key event, so a wedged desktop cannot trap the user in graphics
+  mode.
+- No kernel framebuffer path may take a tty, task, or filesystem lock while
+  holding the framebuffer metadata lock. Pixel copies run without that lock
+  after validating the immutable range.
 
 ## Open Source Library Policy
 
@@ -191,6 +260,12 @@ can later pass file descriptors with `SCM_RIGHTS` if needed.
 
 ### 1. Request a Multiboot Video Mode
 
+**Ownership boundary:** the Multiboot producer (GRUB/QEMU loader or the
+future real-mode custom bootloader) chooses and sets a VBE mode. The kernel
+does not enumerate VBE modes: BIOS interfaces are unavailable and inappropriate
+after entering protected mode. The kernel validates the resulting Multiboot
+framebuffer record and either maps it or stays in text mode.
+
 In `src/include/multiboot.h`:
 
 - Add `MB_FLAG_VIDEO` as an alias for the existing `MB_FLAG_VBE`.
@@ -220,10 +295,12 @@ In `src/kernel/start.S`:
   `0x00010003 | 0x00000400`). Keep `MB_CHECK` as `-(MB_MAGIC + MB_FLAGS)` so
   the header checksum updates automatically.
 - Append the preferred-mode words after the existing address fields:
-  mode type `0`, width `1920`, height `1080`, depth `32`.
+  mode type `0`, width `1024`, height `768`, depth `32`. A later interactive
+  build setting may request 1920x1080 once the baseline screenshot test is
+  stable.
 
 The preferred mode is a request. For "always use the highest supported mode",
-the bootloader must enumerate VBE modes before protected mode:
+the *custom bootloader* must enumerate VBE modes before protected mode:
 
 1. Call VBE Function `00h` and verify the `"VESA"` signature.
 2. Read the protected-mode `VideoModePtr`.
@@ -234,13 +311,18 @@ the bootloader must enumerate VBE modes before protected mode:
 6. Sort by resolution, then depth, then linear-framebuffer preference.
 7. Set the selected mode with VBE Function `02h`, using `0x4000` for linear
    mode.
-8. Store the selected `ModeInfoBlock` in the Multiboot VBE area.
+8. Populate a standards-compliant Multiboot framebuffer/VBE handoff record
+   before entering the kernel. Do not invent a private pointer into bootloader
+   memory that the kernel cannot validate after paging changes.
 
 Fallback selection rule:
 
-- If `1920x1080x32` is not available, select the highest-resolution graphics
-  mode with a linear framebuffer. Tie-break in this order: resolution, then
-  bpp (`32`, `24`, `16`), then bytes per scanline.
+- For the first QEMU test image, request `1024x768x32`. Once the raw
+  framebuffer test passes, the interactive configuration may request
+  `1920x1080x32`.
+- If the requested mode is not available, select the highest-resolution
+  graphics mode with a linear framebuffer. Tie-break in this order:
+  resolution, then bpp (`32`, `24`, `16`), then bytes per scanline.
 - The kernel and `/dev/fb0` must always report the mode that was actually
   selected. No VGA golden image may hardcode `1920x1080`; tests read
   `FBIOGET_VSCREENINFO` and normalize the expected image accordingly.
@@ -248,9 +330,10 @@ Fallback selection rule:
   offsets; `libmario-ui` performs the conversion on every flush.
 
 For QEMU's built-in Multiboot loader, the preferred-mode header is sufficient
-for testing. For the custom `src/boot/boot.asm`, VBE enumeration is a later
-bootloader milestone. Until then, the custom loader path retains the existing
-text fallback.
+for the first test image. For the custom `src/boot/boot.asm`, VBE enumeration
+is a later bootloader milestone. Until then, the custom-loader path retains
+the existing text fallback. This is a deliberate compatibility split, not a
+partial kernel implementation.
 
 EDID/DDC is out of scope. This plan selects the highest VBE BIOS mode rather
 than the monitor's native physical mode.
@@ -290,6 +373,26 @@ Lifecycle:
 4. If VBE data is absent or invalid, leave `fb_info.enabled == 0` and continue
    with text mode.
 
+Validation and mapping rules:
+
+- Accept only direct-color/packed-pixel framebuffer records with nonzero base,
+  width, height, stride, and bpp. Reject text-mode, planar, banked-only, and
+  palette-only records in phase 0.
+- Compute `size = stride * height` with checked 64-bit arithmetic. Reject a
+  size of zero, a size above the reserved framebuffer virtual-window capacity,
+  or an address range that wraps `phys_base + size`.
+- Page-align the physical start downward and the end upward. Keep both the
+  original `phys_base` and the page-aligned map base so `/dev/fb0` offsets are
+  relative to the first visible pixel, not the mapping padding.
+- Map the range uncached or write-combining when the paging implementation can
+  express that safely. Until then, use the existing i386 uncached device-map
+  convention and document the slower full-copy behavior; never map the MMIO
+  range as normal reclaimable RAM.
+- Reserve a named `FB_VIRT_BASE`/`FB_VIRT_LIMIT` range in one header. No other
+  `ioremap`-style consumer may allocate from it ad hoc.
+- `fb_early_init()` must be idempotent. The init path logs the selected mode
+  once and never attempts a late fallback mode switch.
+
 The early-copy/late-map split is required because `paging_init()` currently
 unmaps the low 16 MiB after `ramdisk_setup()`.
 
@@ -311,9 +414,25 @@ Initial operations:
 - `release`: no-op.
 - `ioctl`: implement `FBIOGET_VSCREENINFO`, `FBIOGET_FSCREENINFO`, and return
   `-EINVAL` for `FBIOPUT_VSCREENINFO` until mode switching is supported.
-- `mmap`: deferred until physical-device VMA support exists.
+- `mmap`: phase 0 may defer this until physical-device VMA support exists;
+  phase 1 adds a bounded `MAP_SHARED` mapping only for the exclusive writer.
 
 Use `verify_area()` and `memcpy_tofs()`/`memcpy_fromfs()` for all user copies.
+
+File and mmap semantics:
+
+- `read` and `write` clamp at `fb.size`; they return a short count at the end
+  and never wrap file position. Negative seeks and seeks past `fb.size` fail
+  with `-EINVAL`.
+- Writable `mmap` validates `vm_pgoff`, page-aligns its requested range, and
+  rejects mappings extending beyond the page-rounded visible framebuffer
+  allocation. It maps framebuffer PFNs directly; it does not use anonymous
+  pages, copy-on-write, or the regular file page cache.
+- `MAP_PRIVATE`, executable framebuffer mappings, and `FBIOPUT_*` are rejected
+  in phase 1. There is no supported mode switch from an open framebuffer fd.
+- On last exclusive-writer close, the kernel does not clear the scanout. It
+  returns input routing to the prior text VT and leaves the final frame visible
+  until the next owner opens the device or the user switches VTs.
 
 Framebuffer ioctl ABI:
 
@@ -475,6 +594,12 @@ struct psaux_event {
   observe a half-packet.
 
 ### 7. Pseudo-Terminals
+
+The standalone PTY and tmux work is specified in
+`doc/PTY_TMUX_PLAN.md`. That document owns the Unix98 ABI, tty/session
+semantics, AF_UNIX prerequisite, package builds, and acceptance tests below.
+This section records only how that independently shippable work is consumed by
+the later GUI terminal milestone.
 
 The GUI terminal must use a real tty. The earlier pipe-based shell was a
 prototype only; job control, `isatty()`, `TIOCSWINSZ`, and terminal signal
@@ -1230,8 +1355,9 @@ Change:
 - `src/include/multiboot.h`: add `MB_FLAG_VIDEO`, video type constants, and a
   packed VBE mode info structure.
 - `src/kernel/start.S`: set `MB_FLAGS` to `0x00010403` (existing flags plus
-  `MB_FLAG_VBE`); append mode type 0,
-  width 1920, height 1080, depth 32 after the existing Multiboot fields.
+  `MB_FLAG_VBE`); append mode type 0, width 1024, height 768, depth 32 after
+  the existing Multiboot fields. Keep 1920x1080 as an interactive build-time
+  request only after the baseline QEMU test is stable.
 - `src/include/video/fb.h`: add `struct fb_info`.
 - `src/video/fb.c`: add `fb_early_init()` and `fb_map()`.
 - `src/kernel/mario.c` or the current kernel entry file: call `fb_early_init()`
