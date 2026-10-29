@@ -3,6 +3,13 @@
 #include <misc.h>
 
 #define SYS_SOCKETPAIR 8
+#define SYS_SEND 9
+#define SYS_RECV 10
+#define SYS_SENDTO 11
+#define SYS_RECVFROM 12
+
+extern int sys_read(unsigned int fd, char *buf, unsigned int count);
+extern int sys_write(unsigned int fd, char *buf, unsigned int count);
 
 struct unix_socket_pair;
 
@@ -223,12 +230,27 @@ int sys_socketpair(int domain, int type, int protocol, int *fd)
 
 int sys_socketcall(int call, unsigned long *args)
 {
-	if (call != SYS_SOCKETPAIR)
+	if (call != SYS_SOCKETPAIR && call != SYS_SEND && call != SYS_RECV &&
+	    call != SYS_SENDTO && call != SYS_RECVFROM)
 		return -ENOSYS;
 	if (verify_area(VERIFY_READ, args, 4 * sizeof(unsigned long)))
 		return -EFAULT;
-	return sys_socketpair(get_fs_long((int *)&args[0]),
-			      get_fs_long((int *)&args[1]),
-			      get_fs_long((int *)&args[2]),
-			      (int *)get_fs_long((int *)&args[3]));
+	switch (call) {
+	case SYS_SOCKETPAIR:
+		return sys_socketpair(get_fs_long((int *)&args[0]),
+				      get_fs_long((int *)&args[1]),
+				      get_fs_long((int *)&args[2]),
+				      (int *)get_fs_long((int *)&args[3]));
+	case SYS_SEND:
+	case SYS_SENDTO:
+		return sys_write(get_fs_long((int *)&args[0]),
+				 (char *)get_fs_long((int *)&args[1]),
+				 get_fs_long((int *)&args[2]));
+	case SYS_RECV:
+	case SYS_RECVFROM:
+		return sys_read(get_fs_long((int *)&args[0]),
+				(char *)get_fs_long((int *)&args[1]),
+				get_fs_long((int *)&args[2]));
+	}
+	return -ENOSYS;
 }

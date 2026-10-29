@@ -11,8 +11,8 @@ int main(void)
 	struct pollfd pfd;
 
 	assert(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, fd) == 0);
-	assert(write(fd[0], "ping", 4) == 4);
-	assert(read(fd[1], buf, 4) == 4);
+	assert(send(fd[0], "ping", 4, 0) == 4);
+	assert(recv(fd[1], buf, 4, 0) == 4);
 	assert(!__builtin_memcmp(buf, "ping", 4));
 	assert(read(fd[1], buf, 1) == -1);
 	assert(errno == EAGAIN);
