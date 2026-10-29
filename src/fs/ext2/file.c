@@ -61,51 +61,51 @@ static int ext2_read_symlink_target(struct inode *inode, char *buf, size_t size)
 	return copied;
 }
 
-static int ext2_file_read(struct inode *inode, struct file *file, char *buf,
-			  int count)
+static int ext2_file_read_page(struct inode *inode, off64_t offset,
+			       char *page, unsigned long valid_bytes)
 {
-	uint32_t total;
-	uint32_t done;
+	uint32_t done = 0;
+	uint32_t block_size = EXT2_BLOCK_SIZE(inode->i_sb);
 
 	if (!inode || !S_ISREG(inode->i_mode))
 		return -EINVAL;
-	if (file->f_pos >= inode->i_size)
-		return 0;
-
-	done = 0;
-	total = MIN((uint64_t)count, (uint64_t)(inode->i_size - file->f_pos));
-	while (done < total) {
-		uint32_t block_index = file->f_pos / EXT2_BLOCK_SIZE(inode->i_sb);
-		uint32_t offset = file->f_pos % EXT2_BLOCK_SIZE(inode->i_sb);
-		uint32_t chunk = EXT2_BLOCK_SIZE(inode->i_sb) - offset;
+	while (done < valid_bytes) {
+		uint32_t block_index = ((uint64_t)offset + done) / block_size;
+		uint32_t block_offset = ((uint64_t)offset + done) % block_size;
+		uint32_t chunk = block_size - block_offset;
 		uint32_t physical = ext2_bmap(inode, block_index, 0);
 		uint8_t *block_buf;
 		int error;
 
-		if (chunk > total - done)
-			chunk = total - done;
+		if (chunk > valid_bytes - done)
+			chunk = valid_bytes - done;
 
-		block_buf = kmalloc(EXT2_BLOCK_SIZE(inode->i_sb));
+		block_buf = kmalloc(block_size);
 		if (!block_buf)
-			return done ? (int)done : -ENOMEM;
+			return -ENOMEM;
 
 		if (!physical) {
-			memset(block_buf, 0, EXT2_BLOCK_SIZE(inode->i_sb));
+			memset(block_buf, 0, block_size);
 		} else {
 			error = ext2_read_block(inode->i_sb, physical, block_buf);
 			if (error) {
 				kfree(block_buf);
-				return done ? (int)done : error;
+				return error;
 			}
 		}
 
-		memcpy_tofs(buf + done, block_buf + offset, chunk);
+		memcpy(page + done, block_buf + block_offset, chunk);
 		kfree(block_buf);
 		done += chunk;
-		file->f_pos += chunk;
 	}
 
 	return done;
+}
+
+static int ext2_file_read(struct inode *inode, struct file *file, char *buf,
+			  int count)
+{
+	return generic_file_read(inode, file, buf, count);
 }
 
 static int ext2_file_write(struct inode *inode, struct file *file, char *buf,
@@ -152,9 +152,13 @@ static int ext2_file_write(struct inode *inode, struct file *file, char *buf,
 		}
 		memcpy_fromfs(block_buf + offset, buf + total, chunk);
 		error = ext2_write_block(sb, physical, block_buf);
-		kfree(block_buf);
-		if (error)
+		if (error) {
+			kfree(block_buf);
 			break;
+		}
+		filemap_update_cached_range(inode, start,
+					    (const char *)block_buf + offset, chunk);
+		kfree(block_buf);
 
 		total += chunk;
 		start += chunk;
@@ -308,11 +312,8 @@ int ext2_truncate(struct inode *inode, int size)
 	new_blocks = (new_size + block_size - 1) / block_size;
 
 	if (new_blocks >= old_blocks) {
-		/* The inode grows (or stays the same size).  Drop cached pages
-		 * beyond the old EOF so future faults read the newly allocated
-		 * bytes instead of the stale zero-filled mmap page. */
-		if (new_size > old_size)
-			filemap_invalidate_pages(inode, old_size);
+		/* Cached pages beyond the old EOF are already zero-filled.  Keep
+		 * them so shared mappings retain their page identity across growth. */
 		inode->i_size = new_size;
 		ext2_write32((uint8_t *)&raw->i_size, new_size);
 		set_bit(I_Dirty, &inode->i_state);
@@ -467,6 +468,7 @@ struct inode_operations ext2_link_iops = {
 
 struct file_operations ext2_file_fops = {
 	.read = ext2_file_read,
+	.read_page = ext2_file_read_page,
 	.write = ext2_file_write,
 	.mmap = generic_file_mmap,
 };

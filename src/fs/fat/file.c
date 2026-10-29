@@ -7,55 +7,57 @@
 
 extern uint64_t current_time(void);
 
-static int fat_file_read(struct inode *inode, struct file *file, char *buf,
-			 int count)
+static int fat_file_read_page(struct inode *inode, off64_t offset,
+			      char *page, unsigned long valid_bytes)
 {
 	struct super_block *sb;
 	uint32_t cluster_size;
-	uint64_t total;
 	uint32_t done;
 
 	if (!inode || !S_ISREG(inode->i_mode))
 		return -EINVAL;
-	if (file->f_pos >= inode->i_size)
-		return 0;
 
 	sb = inode->i_sb;
 	cluster_size = FAT_CLUSTER_SIZE(sb);
-	total = MIN((uint64_t)count, (uint64_t)(inode->i_size - file->f_pos));
 	done = 0;
 
-	while (done < total) {
-		uint32_t cluster_index = file->f_pos / cluster_size;
-		uint32_t offset = file->f_pos % cluster_size;
-		uint32_t chunk = cluster_size - offset;
+	while (done < valid_bytes) {
+		uint64_t pos = (uint64_t)offset + done;
+		uint32_t cluster_index = pos / cluster_size;
+		uint32_t cluster_offset = pos % cluster_size;
+		uint32_t chunk = cluster_size - cluster_offset;
 		uint32_t cluster;
 		uint8_t *cluster_buf;
 		int error;
 
-		if (chunk > total - done)
-			chunk = total - done;
+		if (chunk > valid_bytes - done)
+			chunk = valid_bytes - done;
 
 		cluster = fat_cluster_at(inode, cluster_index);
 		if (!cluster)
-			return done ? (int)done : -EIO;
+			return -EIO;
 
 		cluster_buf = kmalloc(cluster_size);
 		if (!cluster_buf)
-			return done ? (int)done : -ENOMEM;
+			return -ENOMEM;
 		error = fat_read_cluster(sb, cluster, cluster_buf);
 		if (error) {
 			kfree(cluster_buf);
-			return done ? (int)done : error;
+			return error;
 		}
 
-		memcpy_tofs(buf + done, cluster_buf + offset, chunk);
+		memcpy(page + done, cluster_buf + cluster_offset, chunk);
 		kfree(cluster_buf);
 		done += chunk;
-		file->f_pos += chunk;
 	}
 
 	return done;
+}
+
+static int fat_file_read(struct inode *inode, struct file *file, char *buf,
+			 int count)
+{
+	return generic_file_read(inode, file, buf, count);
 }
 
 static int fat_zero_range(struct inode *inode, uint64_t start,
@@ -219,13 +221,10 @@ static int fat_file_truncate(struct inode *inode, int size)
 		}
 	}
 
-	/* Keep the global file page cache consistent with the new file size.
-	 * Shrinks drop pages wholly beyond the new EOF; grows zero the partial
-	 * old-EOF page and drop pages that used to be past the end. */
+	/* Shrinks drop pages wholly beyond the new EOF.  Growth retains the
+	 * existing zero-filled pages beyond the old EOF. */
 	if ((uint64_t)size < old_size)
 		filemap_invalidate_pages(inode, size);
-	else if ((uint64_t)size > old_size)
-		filemap_invalidate_pages(inode, old_size);
 
 	inode->i_size = size;
 	inode->i_nr_block = ((uint64_t)size + 511) / 512;
@@ -314,9 +313,13 @@ static int fat_file_write(struct inode *inode, struct file *file, char *buf,
 
 		memcpy_fromfs(cluster_buf + offset, buf + total, chunk);
 		error = fat_write_cluster(sb, cluster, cluster_buf);
-		kfree(cluster_buf);
-		if (error)
+		if (error) {
+			kfree(cluster_buf);
 			break;
+		}
+		filemap_update_cached_range(inode, start,
+					    (const char *)cluster_buf + offset, chunk);
+		kfree(cluster_buf);
 
 		total += chunk;
 		start += chunk;
@@ -346,6 +349,7 @@ struct inode_operations fat_file_iops = {
 
 struct file_operations fat_file_fops = {
 	.read = fat_file_read,
+	.read_page = fat_file_read_page,
 	.write = fat_file_write,
 	.mmap = generic_file_mmap,
 };

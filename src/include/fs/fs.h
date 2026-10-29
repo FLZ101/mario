@@ -160,11 +160,37 @@ void iref(struct inode *);
 typedef int (*filldir_t)(void *, char *, int, off_t, ino_t, unsigned char);
 
 struct file;
+enum filemap_access_kind {
+	FILEMAP_ACCESS_READ,
+	FILEMAP_ACCESS_MMAP,
+};
+
+struct filemap_stats {
+	unsigned long read_acquires;
+	unsigned long mmap_acquires;
+	unsigned long read_hits;
+	unsigned long mmap_hits;
+	unsigned long read_hits_mmap_filled;
+	unsigned long mmap_hits_read_filled;
+	unsigned long mmap_zero_hits;
+	unsigned long misses;
+	unsigned long loader_starts;
+	unsigned long loader_errors;
+	unsigned long waiters;
+	unsigned long invalidations;
+	unsigned long evictions;
+	unsigned long budget_full;
+	unsigned long uncached_bytes;
+	unsigned long temporary_fallbacks;
+	unsigned long cached_pages;
+};
+
 struct file_operations {
 	int (*open)(struct inode *, struct file *);
 	void (*release)(struct inode *, struct file *);
 	int (*lseek)(struct inode *, struct file *, off_t, int);
 	int (*read)(struct inode *, struct file *, char *, int);
+	int (*read_page)(struct inode *, off64_t, char *, unsigned long);
 	int (*write)(struct inode *, struct file *, char *, int);
 	int (*readdir)(struct inode *, struct file *, void *, filldir_t);
 	int (*mmap)(struct inode *, struct file *, struct vm_area_struct *);
@@ -218,7 +244,14 @@ int dir_namei(char *pathname, int *namelen, char **name,
 int open_namei(char *, int, struct inode **,struct inode *);
 
 int generic_file_mmap(struct inode *, struct file *, struct vm_area_struct *);
+int generic_file_read(struct inode *, struct file *, char *, int);
+int filemap_get_page(struct file *, off64_t, enum filemap_access_kind,
+		     unsigned long *);
+void filemap_update_cached_range(struct inode *, off64_t, const char *,
+				 unsigned long);
 void filemap_invalidate_pages(struct inode *, unsigned long);
 void filemap_invalidate_inode(struct inode *);
+void filemap_get_stats(struct filemap_stats *);
+void filemap_reset_stats(void);
 
 #endif /* _FS_H */

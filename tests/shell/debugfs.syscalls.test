@@ -1,6 +1,13 @@
 RUN: ls /sys/kernel/debug
 CHECK: syscalls
 CHECK: trace_pid
+CHECK: filemap
+
+RUN: cat /sys/kernel/debug/filemap
+CHECK: cached_pages
+
+RUN: echo reset > /sys/kernel/debug/filemap; echo filemap-reset:$?
+CHECK: filemap-reset:0
 
 RUN: cat /sys/kernel/debug/syscalls
 CHECK: syscall

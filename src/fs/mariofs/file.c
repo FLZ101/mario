@@ -69,13 +69,10 @@ static int mario_file_truncate(struct inode *i, int size)
 	}
 end:
 	mario_destroy_block_map(i);
-	/* MarioFS mmap pages are cached by inode and file-page index, so the
-	 * truncate path must invalidate pages outside the new size exactly as
-	 * ext2 and FAT32 do. */
+	/* Shrinks must discard pages outside the new size.  Growth retains the
+	 * existing zero-filled pages beyond the old EOF. */
 	if ((unsigned long)size < old_size)
 		filemap_invalidate_pages(i, size);
-	else if ((unsigned long)size > old_size)
-		filemap_invalidate_pages(i, old_size);
 	i->i_size = size;
 	i->i_nr_block = n;
 	set_bit(I_Dirty, &i->i_state);
@@ -159,10 +156,11 @@ struct inode_operations mario_link_iops = {
 	.follow_link = mario_follow_link,
 };
 
-int mario_file_read(struct inode *i, struct file *f, char *buf, int count)
+static int mario_file_read_page(struct inode *i, off64_t offset, char *page,
+				unsigned long valid_bytes)
 {
-	int n, block, nth, res = 0;
-	unsigned int start, end, read;
+	int n, block, nth;
+	unsigned long done = 0;
 	struct buffer_head *bh;
 
 	if (!i)
@@ -170,39 +168,30 @@ int mario_file_read(struct inode *i, struct file *f, char *buf, int count)
 	if (!S_ISREG(i->i_mode))
 		return -EINVAL;
 
-	start = f->f_pos;
-	end = i->i_size;
-	if (start >= end)
-		return 0;
-	if (end > start + count)
-		end = start + count;
-	/* bytes of data a block contains */
 	n = i->i_block_size - 4;
-	// No more to read
-	nth = mario_nth_block(i, start/n + 1, &block);
-	if (start/n + 1 != nth)
-		return 0;
-read_a_block:
-	if (!(bh = bread(i->i_dev, block)))
-		return res;
-	read = n - start % n;
-	if (read > end - start)
-		read = end - start;
-	memcpy_tofs(buf, bh->b_data + start % n, read);
-	block = *(int *)(bh->b_data + n);
-	brelse(bh);
-	res += read;
-	buf += read;
-	start += read;
-	f->f_pos += read;
-	if (start == end)
-		return res;
-	if (!block) {
-		pr_err("%s%s", __FUNCTION__, ": Corrupt mariofs\n");
-		return res;
+	while (done < valid_bytes) {
+		unsigned long pos = (unsigned long)offset + done;
+		unsigned long block_offset = pos % n;
+		unsigned long chunk = n - block_offset;
+
+		if (chunk > valid_bytes - done)
+			chunk = valid_bytes - done;
+		nth = mario_nth_block(i, pos / n + 1, &block);
+		if (nth != (int)(pos / n + 1))
+			return -EIO;
+		bh = bread(i->i_dev, block);
+		if (!bh)
+			return -EIO;
+		memcpy(page + done, bh->b_data + block_offset, chunk);
+		brelse(bh);
+		done += chunk;
 	}
-	goto read_a_block;
-	return 0;
+	return done;
+}
+
+int mario_file_read(struct inode *i, struct file *f, char *buf, int count)
+{
+	return generic_file_read(i, f, buf, count);
 }
 
 /*
@@ -280,6 +269,7 @@ write_a_block:
 		write = end - start;
 	memcpy_fromfs(bh->b_data + start % n, buf, write);
 	set_dirty(bh);
+	filemap_update_cached_range(i, start, bh->b_data + start % n, write);
 	res += write;
 	buf += write;
 	start += write;
@@ -322,6 +312,7 @@ tail_3:
 
 struct file_operations mario_file_fops = {
 	.read = mario_file_read,
+	.read_page = mario_file_read_page,
 	.write = mario_file_write,
 	.mmap = generic_file_mmap,
 };

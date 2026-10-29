@@ -13,9 +13,11 @@
 #define DEBUGFS_INO_SYSCALLS	4UL
 #define DEBUGFS_INO_TRACE_PID	5UL
 #define DEBUGFS_INO_AHCI	6UL
+#define DEBUGFS_INO_FILEMAP	7UL
 
 #define DEBUGFS_SYSCALLS_BUF	8192
 #define DEBUGFS_AHCI_BUF	1024
+#define DEBUGFS_FILEMAP_BUF	1024
 
 static struct file_operations debugfs_dir_fops;
 
@@ -31,7 +33,7 @@ static int debugfs_name_is(char *name, int len, char *want)
 static mode_t debugfs_inode_mode(unsigned long ino)
 {
 	if (ino == DEBUGFS_INO_SYSCALLS || ino == DEBUGFS_INO_TRACE_PID ||
-	    ino == DEBUGFS_INO_AHCI)
+	    ino == DEBUGFS_INO_AHCI || ino == DEBUGFS_INO_FILEMAP)
 		return S_IFREG | 0644;
 	return S_IFDIR | 0555;
 }
@@ -243,6 +245,41 @@ static int debugfs_ahci_content(char *buf, size_t size)
 	return n;
 }
 
+static int debugfs_filemap_content(char *buf, size_t size)
+{
+	struct filemap_stats stats;
+	int n = 0;
+
+	filemap_get_stats(&stats);
+	n += sprintkn(buf + n, size - n, "cached_pages %lu\n", stats.cached_pages);
+	n += sprintkn(buf + n, size - n, "read_acquires %lu\n", stats.read_acquires);
+	n += sprintkn(buf + n, size - n, "mmap_acquires %lu\n", stats.mmap_acquires);
+	n += sprintkn(buf + n, size - n, "read_hits %lu\n", stats.read_hits);
+	n += sprintkn(buf + n, size - n, "mmap_hits %lu\n", stats.mmap_hits);
+	n += sprintkn(buf + n, size - n, "read_hits_mmap_filled %lu\n",
+		      stats.read_hits_mmap_filled);
+	n += sprintkn(buf + n, size - n, "mmap_hits_read_filled %lu\n",
+		      stats.mmap_hits_read_filled);
+	n += sprintkn(buf + n, size - n, "mmap_zero_hits %lu\n",
+		      stats.mmap_zero_hits);
+	n += sprintkn(buf + n, size - n, "misses %lu\n", stats.misses);
+	n += sprintkn(buf + n, size - n, "loader_starts %lu\n",
+		      stats.loader_starts);
+	n += sprintkn(buf + n, size - n, "loader_errors %lu\n",
+		      stats.loader_errors);
+	n += sprintkn(buf + n, size - n, "waiters %lu\n", stats.waiters);
+	n += sprintkn(buf + n, size - n, "invalidations %lu\n",
+		      stats.invalidations);
+	n += sprintkn(buf + n, size - n, "evictions %lu\n", stats.evictions);
+	n += sprintkn(buf + n, size - n, "budget_full %lu\n",
+		      stats.budget_full);
+	n += sprintkn(buf + n, size - n, "uncached_bytes %lu\n",
+		      stats.uncached_bytes);
+	n += sprintkn(buf + n, size - n, "temporary_fallbacks %lu\n",
+		      stats.temporary_fallbacks);
+	return n;
+}
+
 static int debugfs_parse_pid(char *buf, int len, pid_t *pid)
 {
 	int n = 0;
@@ -269,6 +306,13 @@ static int debugfs_parse_pid(char *buf, int len, pid_t *pid)
 	return 0;
 }
 
+static int debugfs_is_reset(char *buf, int len)
+{
+	if (len == 6 && buf[5] == '\n')
+		len--;
+	return len == 5 && !memcmp(buf, "reset", 5);
+}
+
 static int debugfs_file_read(struct inode *inode, struct file *file,
 			     char *buf, int count)
 {
@@ -293,6 +337,18 @@ static int debugfs_file_read(struct inode *inode, struct file *file,
 		char tmp[DEBUGFS_AHCI_BUF];
 
 		size = debugfs_ahci_content(tmp, sizeof(tmp));
+		if (file->f_pos >= size)
+			return 0;
+		if (count > size - file->f_pos)
+			count = size - file->f_pos;
+		memcpy_tofs(buf, tmp + file->f_pos, count);
+		file->f_pos += count;
+		return count;
+	}
+	if (inode->i_ino == DEBUGFS_INO_FILEMAP) {
+		char tmp[DEBUGFS_FILEMAP_BUF];
+
+		size = debugfs_filemap_content(tmp, sizeof(tmp));
 		if (file->f_pos >= size)
 			return 0;
 		if (count > size - file->f_pos)
@@ -339,6 +395,15 @@ static int debugfs_file_write(struct inode *inode, struct file *file,
 		ahci_profile_reset();
 		return count;
 	}
+	if (inode->i_ino == DEBUGFS_INO_FILEMAP) {
+		if (count <= 0 || count > sizeof(tmp))
+			return -EINVAL;
+		memcpy_fromfs(tmp, buf, count);
+		if (!debugfs_is_reset(tmp, count))
+			return -EINVAL;
+		filemap_reset_stats();
+		return count;
+	}
 	if (inode->i_ino == DEBUGFS_INO_TRACE_PID) {
 		if (count <= 0)
 			return -EINVAL;
@@ -377,6 +442,8 @@ static struct inode *debugfs_make_file(unsigned long ino)
 		size = 16;
 	else if (ino == DEBUGFS_INO_AHCI)
 		size = DEBUGFS_AHCI_BUF;
+	else if (ino == DEBUGFS_INO_FILEMAP)
+		size = DEBUGFS_FILEMAP_BUF;
 	return debugfs_alloc_inode(ino, size, NULL, &debugfs_file_fops);
 }
 
@@ -392,6 +459,8 @@ static int debugfs_lookup_child(unsigned long dir_ino, char *name, int len,
 			*res = debugfs_make_file(DEBUGFS_INO_TRACE_PID);
 		else if (debugfs_name_is(name, len, "ahci"))
 			*res = debugfs_make_file(DEBUGFS_INO_AHCI);
+		else if (debugfs_name_is(name, len, "filemap"))
+			*res = debugfs_make_file(DEBUGFS_INO_FILEMAP);
 		return *res ? 0 : -ENOENT;
 	}
 
@@ -411,7 +480,7 @@ static int debugfs_parent(unsigned long dir_ino, struct inode **res)
 	}
 
 	if (dir_ino == DEBUGFS_INO_SYSCALLS || dir_ino == DEBUGFS_INO_TRACE_PID ||
-	    dir_ino == DEBUGFS_INO_AHCI) {
+	    dir_ino == DEBUGFS_INO_AHCI || dir_ino == DEBUGFS_INO_FILEMAP) {
 		*res = debugfs_make_dir(DEBUGFS_INO_ROOT);
 		return *res ? 0 : -ENOMEM;
 	}
@@ -469,6 +538,11 @@ static int debugfs_get_entry(unsigned long dir_ino, int index, char *name,
 		case 2:
 			sprintkn(name, size, "%s", "ahci");
 			*ino = DEBUGFS_INO_AHCI;
+			*type = DT_REG;
+			return 0;
+		case 3:
+			sprintkn(name, size, "%s", "filemap");
+			*ino = DEBUGFS_INO_FILEMAP;
 			*type = DT_REG;
 			return 0;
 		default:
