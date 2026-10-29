@@ -13,6 +13,8 @@ int main(void)
 {
 	char path[32];
 	char buf[16];
+	char input[2048];
+	char echoed[4096];
 	int locked = 0;
 	int number;
 	int master;
@@ -107,6 +109,39 @@ int main(void)
 		assert(WEXITSTATUS(status) == 0);
 		assert(close(ready[0]) == 0);
 	}
+
+	master = open("/dev/ptmx", O_RDWR);
+	assert(master >= 0);
+	assert(ioctl(master, TIOCGPTN, &number) == 0);
+	snprintf(path, sizeof(path), "/dev/pts/%d", number);
+	assert(ioctl(master, TIOCSPTLCK, &locked) == 0);
+	slave = open(path, O_RDWR | O_NOCTTY);
+	assert(slave >= 0);
+	memset(input, 1, sizeof(input));
+	assert(fcntl(master, F_SETFL, O_NONBLOCK) == 0);
+	assert(write(master, input, sizeof(input)) == sizeof(input));
+	assert(write(master, "x", 1) == -1);
+	assert(errno == EAGAIN);
+	{
+		struct pollfd pfd = { .fd = master, .events = POLLIN | POLLOUT };
+
+		assert(poll(&pfd, 1, 0) == 1);
+		assert(!(pfd.revents & POLLOUT));
+	}
+	assert(read(master, echoed, sizeof(echoed)) == sizeof(echoed));
+	for (int i = 0; i < sizeof(echoed); i += 2) {
+		assert(echoed[i] == '^');
+		assert(echoed[i + 1] == 'A');
+	}
+	assert(write(master, "x\n", 2) == 2);
+	assert(read(slave, input, sizeof(input)) == sizeof(input));
+	assert(read(slave, buf, 2) == 2);
+	assert(buf[0] == 'x');
+	assert(buf[1] == '\n');
+	assert(read(master, buf, 3) == 3);
+	assert(!memcmp(buf, "x\r\n", 3));
+	assert(close(slave) == 0);
+	assert(close(master) == 0);
 
 	puts("pty-ok");
 	return 0;

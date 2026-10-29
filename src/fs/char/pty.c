@@ -176,6 +176,7 @@ static int pty_master_read(struct inode *i, struct file *f, char *buf, int count
 		if (!ring_buffer_empty(&pty->output)) {
 			n = ring_buffer_read(&pty->output, buf, count, 1);
 			wake_up_interruptible(&pty->tty.wait_write);
+			wake_up_interruptible(&pty->master_read_wait);
 			spin_unlock_irqrestore(&pty->lock, flags);
 			return n;
 		}
@@ -196,17 +197,38 @@ static int pty_master_write(struct inode *i, struct file *f, char *buf, int coun
 	struct pty_pair *pty = f->private_data;
 
 	for (int i = 0; i < count; i++) {
+		unsigned long flags;
+		pid_t signal_pgrp;
+		int signal;
+		int wake_read;
+		int output_full;
 		int err;
 
 		for (;;) {
-			err = tty_receive_c(&pty->tty, get_fs_byte(buf + i));
+			spin_lock_irqsave(&pty->lock, flags);
+			if (!pty->slave_open) {
+				spin_unlock_irqrestore(&pty->lock, flags);
+				return i ? i : -EIO;
+			}
+			err = tty_receive_c_atomic(&pty->tty, get_fs_byte(buf + i),
+						   &pty->output, &output_full,
+						   &wake_read, &signal_pgrp, &signal);
+			spin_unlock_irqrestore(&pty->lock, flags);
+			if (!err) {
+				if (wake_read)
+					wake_up_interruptible(&pty->tty.wait_read);
+				wake_up_interruptible(&pty->master_read_wait);
+				if (signal)
+					kill_pg(signal_pgrp, signal, 0);
+			}
 			if (err != -EAGAIN)
 				break;
 			if (f->f_flags & O_NONBLOCK)
 				return i ? i : -EAGAIN;
 			if (current->signal & ~current->blocked)
 				return i ? i : -ERESTARTSYS;
-			sleep_on(&pty->tty.wait_input, TASK_INTERRUPTIBLE, NULL);
+			sleep_on(output_full ? &pty->master_read_wait :
+				 &pty->tty.wait_input, TASK_INTERRUPTIBLE, NULL);
 		}
 		if (err)
 			return i ? i : err;
@@ -248,14 +270,22 @@ static int pty_master_poll(struct file *f, struct poll_context *ctx)
 {
 	struct pty_pair *pty = f->private_data;
 	unsigned long flags;
-	short mask = POLLOUT;
+	short mask = 0;
 
 	poll_wait(f, &pty->master_read_wait, ctx);
+	poll_wait(f, &pty->tty.wait_input, ctx);
 	spin_lock_irqsave(&pty->lock, flags);
 	if (!ring_buffer_empty(&pty->output))
 		mask |= POLLIN;
 	else if (!pty->slave_open)
 		mask |= POLLERR | POLLHUP;
+	if (pty->slave_open) {
+		spin_lock(&pty->tty.lock);
+		if (!pty->tty.hung_up && !ring_buffer_full(&pty->tty.read_buf) &&
+		    ring_buffer_space(&pty->output) >= 3)
+			mask |= POLLOUT;
+		spin_unlock(&pty->tty.lock);
+	}
 	spin_unlock_irqrestore(&pty->lock, flags);
 	return mask;
 }

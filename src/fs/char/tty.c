@@ -186,6 +186,124 @@ tail_2:
 	return 0;
 }
 
+int tty_receive_c_atomic(struct tty_struct *tty, unsigned char c,
+			 struct ring_buffer *output, int *output_full,
+			 int *wake_read, pid_t *signal_pgrp, int *signal)
+{
+	unsigned long flags;
+	cc_t c_cc[NCCS];
+	tcflag_t c_iflag, c_lflag, c_oflag;
+	char echo[3];
+	char processed[6];
+	int echo_count = 0;
+	int processed_count = 0;
+	int popped = -1;
+	int push = 1;
+	int wake = 0;
+	int sig = 0;
+	pid_t pgrp = 0;
+
+	*output_full = 0;
+	*wake_read = 0;
+	*signal_pgrp = 0;
+	*signal = 0;
+
+	spin_lock_irqsave(&tty->lock, flags);
+	if (!tty->count || tty->hung_up) {
+		spin_unlock_irqrestore(&tty->lock, flags);
+		return -EIO;
+	}
+	c_iflag = tty->termios.c_iflag;
+	c_lflag = tty->termios.c_lflag;
+	c_oflag = tty->termios.c_oflag;
+	memcpy(c_cc, tty->termios.c_cc, sizeof(c_cc));
+
+	if (c_lflag & ISIG) {
+		if (c == c_cc[VINTR]) {
+			sig = SIGINT;
+			push = 0;
+		} else if (c == c_cc[VQUIT]) {
+			sig = SIGQUIT;
+			push = 0;
+		} else if (c == c_cc[VSUSP]) {
+			sig = SIGTSTP;
+			push = 0;
+		}
+	}
+
+	if (!sig) {
+		if (c == '\r') {
+			if (c_iflag & IGNCR) {
+				push = 0;
+				c_lflag &= ~ECHO;
+			} else if (c_iflag & ICRNL) {
+				c = '\n';
+			}
+		} else if (c == '\n' && (c_iflag & INLCR)) {
+			c = '\r';
+		}
+
+		if (push && (c_lflag & ICANON) && c == c_cc[VERASE]) {
+			popped = ring_buffer_empty(&tty->read_buf) ? -1 :
+				 ring_buffer_pop(&tty->read_buf);
+			push = 0;
+		} else if (push && (c_lflag & ICANON) &&
+			   (c == c_cc[VEOF] || c == '\n' || c == '\r' ||
+			    c == c_cc[VEOL])) {
+			wake = 1;
+		} else if (push && !(c_lflag & ICANON)) {
+			wake = 1;
+		}
+	}
+
+	if (push && ring_buffer_full(&tty->read_buf)) {
+		spin_unlock_irqrestore(&tty->lock, flags);
+		return -EAGAIN;
+	}
+
+	if (c_lflag & ECHO) {
+		if (c == c_cc[VERASE] && (c_lflag & ECHOE)) {
+			if (popped != -1) {
+				echo[echo_count++] = '\b';
+				echo[echo_count++] = ' ';
+				echo[echo_count++] = '\b';
+			}
+		} else if ((c_lflag & ECHOCTL) &&
+			   ((c <= 31 && c != '\t' && c != '\n' && c != '\r') ||
+			    c == 127)) {
+			echo[echo_count++] = '^';
+			echo[echo_count++] = c == 127 ? '?' : c + 0x40;
+		} else {
+			echo[echo_count++] = c;
+		}
+	}
+	for (int i = 0; i < echo_count; i++) {
+		if ((c_oflag & OPOST) && echo[i] == '\n' && (c_oflag & ONLCR))
+			processed[processed_count++] = '\r';
+		processed[processed_count++] = echo[i];
+	}
+	if (ring_buffer_space(output) < processed_count) {
+		if (popped != -1)
+			ring_buffer_write(&tty->read_buf, &popped, 1, 0);
+		spin_unlock_irqrestore(&tty->lock, flags);
+		*output_full = 1;
+		return -EAGAIN;
+	}
+
+	if (push)
+		ring_buffer_write(&tty->read_buf, &c, 1, 0);
+	if (processed_count)
+		ring_buffer_write(output, processed, processed_count, 0);
+	if (sig) {
+		pgrp = tty->pgrp;
+		*signal = sig;
+		*signal_pgrp = pgrp;
+	}
+	spin_unlock_irqrestore(&tty->lock, flags);
+	*wake_read = wake;
+	return 0;
+}
+
 void tty_receive_s(struct tty_struct *tty, char *s)
 {
 	if (!tty->count)
