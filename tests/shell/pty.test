@@ -1,0 +1,2 @@
+RUN: /usr/bin/test/pty.exe
+CHECK: pty-ok

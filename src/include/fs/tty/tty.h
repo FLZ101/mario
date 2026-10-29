@@ -14,6 +14,8 @@ struct tty_driver {
 
 	struct tty_struct *tty_table;
 	struct file_operations *fops;
+	struct tty_struct *(*lookup)(dev_t minor);
+	int (*bind)(struct tty_struct *tty, struct file *f);
 	int (*write)(struct tty_struct *tty, const char *buf, int count);
 };
 
@@ -51,5 +53,9 @@ int tty_put_c(struct tty_struct *tty, unsigned char c);
 void tty_put_s(struct tty_struct *tty, char *s);
 void tty_receive_c(struct tty_struct *tty, unsigned char c);
 void tty_receive_s(struct tty_struct *tty, char *s);
+int tty_read(struct inode *i, struct file *f, char *buf, int count);
+int tty_write(struct inode *i, struct file *f, char *buf, int count);
+int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long arg);
+int tty_poll(struct file *f, struct poll_context *ctx);
 
 #endif /* _TTY_H */

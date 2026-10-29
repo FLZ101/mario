@@ -1,6 +1,7 @@
 #include <fs/fs.h>
 #include <fs/tty/tty.h>
 #include <fs/tty/console.h>
+#include <fs/pty.h>
 
 #include <misc.h>
 
@@ -205,7 +206,10 @@ int get_tty(dev_t dev, struct tty_struct **tty)
 	for (struct tty_driver *p = tty_drivers; p; p = p->next) {
 		if (p->major == major &&
 		    p->minor <= minor && minor < p->minor + p->n) {
-			*tty = &p->tty_table[minor - p->minor];
+			if (p->lookup)
+				*tty = p->lookup(minor);
+			else
+				*tty = &p->tty_table[minor - p->minor];
 			return 0;
 		}
 	}
@@ -215,6 +219,9 @@ int get_tty(dev_t dev, struct tty_struct **tty)
 int tty_bind_file(struct tty_struct *tty, struct file *f)
 {
 	unsigned long flags;
+
+	if (tty->driver->bind)
+		return tty->driver->bind(tty, f);
 
 	spin_lock_irqsave(&tty->lock, flags);
 	if (!tty->initialized) {
@@ -445,7 +452,7 @@ found:
 	return fallback;
 }
 
-static int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long arg)
+int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long arg)
 {
 	int err = 0;
 	int opt = 0;
@@ -576,7 +583,7 @@ static void tty_release(struct inode *i, struct file *f)
 	spin_unlock_irqrestore(&tty->lock, flags);
 }
 
-static int tty_poll(struct file *f, struct poll_context *ctx)
+int tty_poll(struct file *f, struct poll_context *ctx)
 {
 	struct tty_struct *tty = (struct tty_struct *)f->private_data;
 	if (!tty) {
@@ -623,4 +630,5 @@ void tty_init(void)
 	console_init();
 	serial_init();
 	register_chrdev(TTY_MAJOR, &tty_fops);
+	pty_init();
 }
