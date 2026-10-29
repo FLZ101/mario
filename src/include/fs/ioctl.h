@@ -20,6 +20,8 @@
 #define TIOCSWINSZ	0x5414
 #define TIOCNOTTY	0x5422
 #define TIOCGSID	0x5429    // *argp = tcgetsid(fd)
+#define TIOCGPTN	0x80045430
+#define TIOCSPTLCK	0x40045431
 
 #define BLKGETSIZE	0x1260    // get device size in 512-byte sectors
 #define BLKGETSIZE64	0x80081272 // get device size in bytes

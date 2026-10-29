@@ -24,6 +24,10 @@ int register_chrdev(unsigned int, struct file_operations *);
 
 #define TTY_MAJOR	2
 
+#define PTY_MAJOR	4
+#define NR_PTYS		32
+#define PTMX_MINOR	255
+
 #define TTY_MINOR_0	0	// /dev/tty0. foreground virtual console
 #define TTY_MINOR_1	1	// /dev/tty1. first virtual console
 #define NUM_CONSOLE 6
