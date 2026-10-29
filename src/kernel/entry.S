@@ -791,21 +791,21 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_memfd_create */
 	.long sys_not_exist /* SYS_bpf */
 	.long sys_execveat
-	.long sys_not_exist /* SYS_socket */
+	.long sys_socket
 	.long sys_socketpair
-	.long sys_not_exist /* SYS_bind */
-	.long sys_not_exist /* SYS_connect */
-	.long sys_not_exist /* SYS_listen */
-	.long sys_not_exist /* SYS_accept4 */
-	.long sys_not_exist /* SYS_getsockopt */
+	.long sys_bind
+	.long sys_connect
+	.long sys_listen
+	.long sys_accept4
+	.long sys_getsockopt
 	.long sys_not_exist /* SYS_setsockopt */
 	.long sys_not_exist /* SYS_getsockname */
 	.long sys_not_exist /* SYS_getpeername */
 	.long sys_not_exist /* SYS_sendto */
-	.long sys_not_exist /* SYS_sendmsg */
+	.long sys_sendmsg
 	.long sys_not_exist /* SYS_recvfrom */
-	.long sys_not_exist /* SYS_recvmsg */
-	.long sys_not_exist /* SYS_shutdown */
+	.long sys_recvmsg
+	.long sys_shutdown
 	.long sys_not_exist /* SYS_userfaultfd */
 	.long sys_not_exist /* SYS_membarrier */
 	.long sys_not_exist /* SYS_mlock2 */

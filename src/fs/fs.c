@@ -2,6 +2,7 @@
 #include <fs/proc.h>
 #include <fs/sysfs.h>
 #include <fs/debugfs.h>
+#include <fs/socket.h>
 #include <misc.h>
 
 void fs_init(void)
@@ -9,6 +10,7 @@ void fs_init(void)
 	sb_init();
 	inode_init();
 	file_init();
+	socket_init();
 	register_file_system(&mariofs);
 	register_file_system(&ext2);
 	register_file_system(&fat);

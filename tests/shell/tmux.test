@@ -1,0 +1,8 @@
+RUN: tmux -V
+CHECK: tmux 3.8
+RUN: mkdir -p /root/tmux-tmp; TERM=linux TMUX_TMPDIR=/root/tmux-tmp tmux -L smoke -f /dev/null new-session -d -s smoke /bin/oksh; echo tmux-new:$?
+CHECK: tmux-new:0
+RUN: TERM=linux TMUX_TMPDIR=/root/tmux-tmp tmux -L smoke list-sessions
+CHECK: smoke:
+RUN: TERM=linux TMUX_TMPDIR=/root/tmux-tmp tmux -L smoke kill-server; echo tmux-kill:$?
+CHECK: tmux-kill:0

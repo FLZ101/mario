@@ -1,0 +1,7 @@
+VGA-SEND-KEY: f2
+VGA-CHECK: / #
+VGA-SEND: TERM=linux TMUX_TMPDIR=/root/tmux-tmp tmux -L vga -f /dev/null new-session -s vga /bin/oksh
+SLEEP: 2
+VGA-SEND: printf tmux-vga-ok
+VGA-CHECK: tmux-vga-ok
+VGA-DUMP-SCREEN: tmux-1.ppm,1,23
