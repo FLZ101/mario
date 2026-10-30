@@ -575,7 +575,7 @@ ENTRY(sys_call_table)
 	.long sys__llseek
 	.long sys_getdents
 	.long sys_select /* SYS__newselect */
-	.long sys_not_exist /* SYS_flock */
+	.long sys_flock
 	.long sys_msync
 	.long sys_readv
 	.long sys_writev
@@ -604,7 +604,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_nfsservctl */
 	.long sys_not_exist /* SYS_setresgid */
 	.long sys_not_exist /* SYS_getresgid */
-	.long sys_not_exist /* SYS_prctl */
+	.long sys_prctl
 	.long sys_not_exist /* SYS_rt_sigreturn */
 	.long sys_sigaction /* SYS_rt_sigaction */
 	.long sys_sigprocmask /* SYS_rt_sigprocmask */
@@ -741,7 +741,7 @@ ENTRY(sys_call_table)
 	.long sys_fchmodat
 	.long sys_faccessat
 	.long sys_not_exist /* SYS_pselect6 */
-	.long sys_not_exist /* SYS_ppoll */
+	.long sys_ppoll
 	.long sys_not_exist /* SYS_unshare */
 	.long sys_not_exist /* SYS_set_robust_list */
 	.long sys_not_exist /* SYS_get_robust_list */
@@ -763,7 +763,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_eventfd2 */
 	.long sys_not_exist /* SYS_epoll_create1 */
 	.long sys_not_exist /* SYS_dup3 */
-	.long sys_not_exist /* SYS_pipe2 */
+	.long sys_pipe2
 	.long sys_not_exist /* SYS_inotify_init1 */
 	.long sys_not_exist /* SYS_preadv */
 	.long sys_not_exist /* SYS_pwritev */

@@ -5,9 +5,54 @@
 #include <resource.h>
 #include <utsname.h>
 #include <version.h>
+#include <fs/fs.h>
 #include <mm/uaccess.h>
 #include <mm/page_alloc.h>
 #include <syscall.h>
+
+#define PR_SET_NAME 15
+#define PR_GET_NAME 16
+
+#define LOCK_SH 1
+#define LOCK_EX 2
+#define LOCK_NB 4
+#define LOCK_UN 8
+
+int sys_prctl(int option, unsigned long arg2, unsigned long arg3,
+	      unsigned long arg4, unsigned long arg5)
+{
+	char name[sizeof(current->comm)];
+
+	(void)arg3;
+	(void)arg4;
+	(void)arg5;
+
+	switch (option) {
+	case PR_SET_NAME:
+		if (verify_area(VERIFY_READ, (void *)arg2, sizeof(name)))
+			return -EFAULT;
+		memcpy_fromfs(name, (void *)arg2, sizeof(name));
+		name[sizeof(name) - 1] = '\0';
+		memcpy(current->comm, name, sizeof(name));
+		return 0;
+	case PR_GET_NAME:
+		if (verify_area(VERIFY_WRITE, (void *)arg2, sizeof(name)))
+			return -EFAULT;
+		memcpy_tofs((void *)arg2, current->comm, sizeof(name));
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
+
+int sys_flock(unsigned int fd, int operation)
+{
+	if (fd >= NR_OPEN || !current->files->fd[fd])
+		return -EBADF;
+	if (operation & ~(LOCK_SH | LOCK_EX | LOCK_NB | LOCK_UN))
+		return -EINVAL;
+	return 0;
+}
 
 int sys_getpgid(pid_t pid)
 {

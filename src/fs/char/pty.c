@@ -262,6 +262,9 @@ static int pty_master_ioctl(struct inode *i, struct file *f, unsigned int cmd,
 		spin_unlock_irqrestore(&pty->lock, flags);
 		return 0;
 	}
+	case TIOCGWINSZ:
+	case TIOCSWINSZ:
+		return tty_ioctl_tty(&pty->tty, cmd, arg);
 	}
 	return -ENOTTY;
 }

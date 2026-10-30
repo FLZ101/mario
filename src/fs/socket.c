@@ -38,6 +38,12 @@ struct unix_socket_pair {
 	spinlock_t lock;
 };
 
+struct unix_right {
+	struct file *file;
+	unsigned long position;
+	unsigned long end;
+};
+
 struct unix_socket {
 	struct unix_socket_pair *pair;
 	struct ring_buffer receive;
@@ -52,10 +58,12 @@ struct unix_socket {
 	int write_shutdown;
 	int bound;
 	int listening;
-	struct file *rights[UNIX_RIGHTS_MAX];
+	struct unix_right rights[UNIX_RIGHTS_MAX];
 	unsigned int rights_head;
 	unsigned int rights_tail;
 	unsigned int rights_count;
+	unsigned long read_position;
+	unsigned long write_position;
 	char path[UNIX_PATH_MAX];
 };
 
@@ -109,7 +117,7 @@ static struct unix_socket *socket_peer(struct unix_socket *socket)
 static void socket_destroy(struct unix_socket *socket)
 {
 	while (socket->rights_count) {
-		struct file *file = socket->rights[socket->rights_head];
+		struct file *file = socket->rights[socket->rights_head].file;
 
 		socket->rights_head =
 			(socket->rights_head + 1) % UNIX_RIGHTS_MAX;
@@ -154,20 +162,76 @@ static struct unix_socket_pair *socket_pair_alloc(struct unix_socket *first,
 	return pair;
 }
 
-static int socket_read(struct inode *i, struct file *f, char *buf, int count)
+static void socket_discard_rights(struct unix_socket *socket,
+				  unsigned long position)
+{
+	while (socket->rights_count &&
+	       socket->rights[socket->rights_head].position < position) {
+		struct file *file = socket->rights[socket->rights_head].file;
+
+		socket->rights_head =
+			(socket->rights_head + 1) % UNIX_RIGHTS_MAX;
+		socket->rights_count--;
+		release_file(file, 1);
+	}
+}
+
+static struct file *socket_take_right(struct unix_socket *socket,
+				      unsigned long start,
+				      unsigned long end)
+{
+	struct file *file = NULL;
+
+	socket_discard_rights(socket, start);
+	if (socket->rights_count &&
+	    socket->rights[socket->rights_head].position == start && end > start) {
+		file = socket->rights[socket->rights_head].file;
+		socket->rights_head =
+			(socket->rights_head + 1) % UNIX_RIGHTS_MAX;
+		socket->rights_count--;
+	}
+	return file;
+}
+
+static int socket_read_data(struct file *f, char *buf, int count,
+			    struct file **right)
 {
 	struct unix_socket *socket = socket_endpoint(f);
 	struct unix_socket *peer;
 	unsigned long flags;
+	unsigned long start;
 	int n;
 
+	if (right)
+		*right = NULL;
 	if (!socket->pair)
 		return -ENOTCONN;
 	peer = socket_peer(socket);
 	for (;;) {
 		spin_lock_irqsave(&socket->pair->lock, flags);
 		if (!ring_buffer_empty(&socket->receive)) {
+			start = socket->read_position;
+			if (right) {
+				socket_discard_rights(socket, start);
+				if (socket->rights_count) {
+					struct unix_right *next =
+						&socket->rights[socket->rights_head];
+
+					if (next->position > start &&
+					    next->position < start + count)
+						count = next->position - start;
+					else if (next->position == start &&
+						 next->end < start + count)
+						count = next->end - start;
+				}
+			}
 			n = ring_buffer_read(&socket->receive, buf, count, 1);
+			socket->read_position += n;
+			if (right)
+				*right = socket_take_right(socket, start,
+							  socket->read_position);
+			if (!right || !*right)
+				socket_discard_rights(socket, socket->read_position);
 			wake_up_interruptible(&socket->wait_write);
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return n;
@@ -183,6 +247,11 @@ static int socket_read(struct inode *i, struct file *f, char *buf, int count)
 			return -ERESTARTSYS;
 		sleep_on(&socket->wait_read, TASK_INTERRUPTIBLE, NULL);
 	}
+}
+
+static int socket_read(struct inode *i, struct file *f, char *buf, int count)
+{
+	return socket_read_data(f, buf, count, NULL);
 }
 
 static int socket_write(struct inode *i, struct file *f, char *buf, int count)
@@ -204,6 +273,7 @@ static int socket_write(struct inode *i, struct file *f, char *buf, int count)
 		}
 		n = ring_buffer_write(&peer->receive, buf, count, 1);
 		if (n) {
+			peer->write_position += n;
 			wake_up_interruptible(&peer->wait_read);
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return n;
@@ -217,39 +287,18 @@ static int socket_write(struct inode *i, struct file *f, char *buf, int count)
 	}
 }
 
-static int socket_queue_right(struct unix_socket *socket, struct file *file)
+static int socket_queue_right(struct unix_socket *socket, struct file *file,
+			      unsigned long position, unsigned long end)
 {
-	unsigned long flags;
-	int err = 0;
-
-	spin_lock_irqsave(&socket->pair->lock, flags);
 	if (socket->rights_count == UNIX_RIGHTS_MAX)
-		err = -EAGAIN;
-	else {
-		fref(file);
-		socket->rights[socket->rights_tail] = file;
-		socket->rights_tail =
-			(socket->rights_tail + 1) % UNIX_RIGHTS_MAX;
-		socket->rights_count++;
-	}
-	spin_unlock_irqrestore(&socket->pair->lock, flags);
-	return err;
-}
-
-static struct file *socket_take_right(struct unix_socket *socket)
-{
-	struct file *file = NULL;
-	unsigned long flags;
-
-	spin_lock_irqsave(&socket->pair->lock, flags);
-	if (socket->rights_count) {
-		file = socket->rights[socket->rights_head];
-		socket->rights_head =
-			(socket->rights_head + 1) % UNIX_RIGHTS_MAX;
-		socket->rights_count--;
-	}
-	spin_unlock_irqrestore(&socket->pair->lock, flags);
-	return file;
+		return -EAGAIN;
+	fref(file);
+	socket->rights[socket->rights_tail].file = file;
+	socket->rights[socket->rights_tail].position = position;
+	socket->rights[socket->rights_tail].end = end;
+	socket->rights_tail = (socket->rights_tail + 1) % UNIX_RIGHTS_MAX;
+	socket->rights_count++;
+	return 0;
 }
 
 static int socket_lseek(struct inode *i, struct file *f, off_t offset, int origin)
@@ -673,6 +722,8 @@ int sys_shutdown(int fd, int how)
 	if (how != SHUT_WR) {
 		socket->read_shutdown = 1;
 		ring_buffer_clear(&socket->receive);
+		socket->read_position = socket->write_position;
+		socket_discard_rights(socket, socket->read_position);
 		wake_up_interruptible(&socket->wait_read);
 		wake_up_interruptible(&socket->wait_write);
 	}
@@ -759,6 +810,9 @@ int sys_sendmsg(int fd, struct socket_msghdr *user_msg, int flags)
 	struct file *right;
 	struct file *file;
 	struct unix_socket *socket;
+	struct unix_socket *peer;
+	unsigned long irq_flags;
+	unsigned int message_length = 0;
 	int total = 0;
 	int err;
 
@@ -778,21 +832,85 @@ int sys_sendmsg(int fd, struct socket_msghdr *user_msg, int flags)
 		return err;
 	for (int index = 0; index < msg.iovlen; index++) {
 		memcpy_fromfs(&iov, &msg.iov[index], sizeof(iov));
+		if (iov.len > (unsigned int)-1 - message_length)
+			return -EMSGSIZE;
+		message_length += iov.len;
+	}
+	socket = socket_endpoint(file);
+	if (!socket->pair)
+		return -ENOTCONN;
+	peer = socket_peer(socket);
+	if (right) {
+		if (!message_length)
+			return 0;
+		if (message_length > peer->receive.size)
+			return -EMSGSIZE;
+		for (;;) {
+			spin_lock_irqsave(&socket->pair->lock, irq_flags);
+			if (socket->write_shutdown || !peer->opens ||
+			    peer->read_shutdown) {
+				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
+				send_sig(SIGPIPE, current, 0);
+				return -EPIPE;
+			}
+			if (peer->rights_count != UNIX_RIGHTS_MAX &&
+			    ring_buffer_space(&peer->receive) >= message_length) {
+				unsigned long position = peer->write_position;
+
+				for (int index = 0; index < msg.iovlen; index++) {
+					memcpy_fromfs(&iov, &msg.iov[index], sizeof(iov));
+					if (iov.len)
+						assert(ring_buffer_write(&peer->receive, iov.base,
+									 iov.len, 1) == iov.len);
+				}
+				socket_queue_right(peer, right, position,
+						   position + message_length);
+				peer->write_position += message_length;
+				wake_up_interruptible(&peer->wait_read);
+				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
+				return message_length;
+			}
+			spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
+			if (file->f_flags & O_NONBLOCK)
+				return -EAGAIN;
+			if (current->signal & ~current->blocked)
+				return -ERESTARTSYS;
+			sleep_on(&peer->wait_write, TASK_INTERRUPTIBLE, NULL);
+		}
+	}
+	for (int index = 0; index < msg.iovlen; index++) {
+		memcpy_fromfs(&iov, &msg.iov[index], sizeof(iov));
 		if (!iov.len)
 			continue;
-		err = sys_write(fd, iov.base, iov.len);
-		if (err < 0)
-			return total ? total : err;
-		total += err;
-		if ((unsigned int)err < iov.len)
-			break;
+		for (;;) {
+			spin_lock_irqsave(&socket->pair->lock, irq_flags);
+			if (socket->write_shutdown || !peer->opens ||
+			    peer->read_shutdown) {
+				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
+				send_sig(SIGPIPE, current, 0);
+				return total ? total : -EPIPE;
+			}
+			err = ring_buffer_write(&peer->receive, iov.base, iov.len, 1);
+			if (err) {
+				peer->write_position += err;
+				wake_up_interruptible(&peer->wait_read);
+				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
+				total += err;
+				if ((unsigned int)err < iov.len)
+					break;
+				goto next_iov;
+			}
+			spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
+			if (file->f_flags & O_NONBLOCK)
+				return total ? total : -EAGAIN;
+			if (current->signal & ~current->blocked)
+				return total ? total : -ERESTARTSYS;
+			sleep_on(&peer->wait_write, TASK_INTERRUPTIBLE, NULL);
+		}
+		break;
+	next_iov:
+		continue;
 	}
-	if (!total || !right)
-		return total;
-	socket = socket_endpoint(file);
-	err = socket_queue_right(socket_peer(socket), right);
-	if (err)
-		return err;
 	return total;
 }
 
@@ -803,7 +921,6 @@ int sys_recvmsg(int fd, struct socket_msghdr *user_msg, int flags)
 	struct socket_cmsghdr cmsg;
 	struct file *file;
 	struct file *right;
-	struct unix_socket *socket;
 	int total = 0;
 	int err;
 	int newfd;
@@ -824,11 +941,11 @@ int sys_recvmsg(int fd, struct socket_msghdr *user_msg, int flags)
 		memcpy_fromfs(&iov, &msg.iov[index], sizeof(iov));
 		if (!iov.len)
 			continue;
-		err = sys_read(fd, iov.base, iov.len);
+		err = socket_read_data(file, iov.base, iov.len, &right);
 		if (err < 0)
 			return total ? total : err;
 		total += err;
-		if ((unsigned int)err < iov.len)
+		if (right || (unsigned int)err < iov.len)
 			break;
 	}
 	control_length = msg.controllen;
@@ -836,8 +953,6 @@ int sys_recvmsg(int fd, struct socket_msghdr *user_msg, int flags)
 	msg.controllen = 0;
 	if (!total)
 		goto done;
-	socket = socket_endpoint(file);
-	right = socket_take_right(socket);
 	if (!right)
 		goto done;
 	newfd = next_fd(0);

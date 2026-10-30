@@ -354,3 +354,32 @@ int sys_pipe(unsigned long *pipefd)
 	put_fs_long(fd[1], pipefd+1);
 	return 0;
 }
+
+int sys_pipe2(unsigned long *pipefd, int flags)
+{
+	int fd[2];
+	int error;
+
+	if (flags & ~(O_CLOEXEC | O_NONBLOCK))
+		return -EINVAL;
+
+	error = verify_area(VERIFY_WRITE, pipefd, 2 * sizeof(long));
+	if (error)
+		return error;
+	error = do_pipe(fd);
+	if (error)
+		return error;
+
+	if (flags & O_NONBLOCK) {
+		current->files->fd[fd[0]]->f_flags |= O_NONBLOCK;
+		current->files->fd[fd[1]]->f_flags |= O_NONBLOCK;
+	}
+	if (flags & O_CLOEXEC) {
+		FD_SET(fd[0], &current->files->close_on_exec);
+		FD_SET(fd[1], &current->files->close_on_exec);
+	}
+
+	put_fs_long(fd[0], pipefd + 0);
+	put_fs_long(fd[1], pipefd + 1);
+	return 0;
+}

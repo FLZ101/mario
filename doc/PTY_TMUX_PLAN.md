@@ -85,6 +85,37 @@ a desktop, or a window manager.
   pathname and cleanup behavior, not mode isolation. The directory and socket
   are created and removed by tmux; no launch wrapper owns their lifetime.
 
+## Implementation Status (2026-10-30)
+
+The initial no-GUI tmux milestone is implemented and its interactive VGA
+acceptance case passes. The implementation includes:
+
+- Unix98 PTY allocation and static `/dev/pts/N` slaves, terminal/session
+  handling, hangup, poll, and one shared `struct winsize` per PTY pair.
+  PTY masters forward `TIOCGWINSZ` and `TIOCSWINSZ` to that shared tty state,
+  so tmux can resize a pane through its master fd and deliver `SIGWINCH` to
+  the pane foreground process group.
+- `AF_UNIX/SOCK_STREAM`, `socketpair`, and one-FD `SCM_RIGHTS`. Descriptor
+  attachments are tracked with their stream-byte start and end positions.
+  A `recvmsg` copy is capped at an attachment boundary, preserving the
+  association through partial reads; plain `read`/`recv` that crosses an
+  attachment releases it without disturbing later stream bytes.
+- tmux-required runtime compatibility: `pipe2(O_CLOEXEC|O_NONBLOCK)`,
+  `ppoll`, `prctl(PR_SET_NAME|PR_GET_NAME)`, and `flock` syscall entries.
+  `ppoll` accepts the Linux i386 eight-byte kernel signal-mask ABI while
+  applying Mario's 32-signal mask internally.
+- Console primary-device-attributes handling for `CSI c`, returning the
+  VT102-compatible `CSI ? 6 c` response tmux probes during startup.
+- Static libevent 2.1.13 and tmux 3.8 builds, installed into the ramdisk with
+  the ncurses `screen` terminfo entry.
+
+The passing VGA test creates a real tmux server, sends distinct commands to
+three panes, creates a second window, returns to the split window, checks
+that the server remains alive, and compares the final tmux framebuffer. The
+test suppresses tmux's live clock in its local configuration so the checked-in
+PPM remains deterministic. The broader detach/reattach, resize-stress, and
+repeated-lifecycle goals below remain the next acceptance coverage to add.
+
 ## Current Baseline
 
 Mario already has useful pieces but not the complete contract:
@@ -522,7 +553,10 @@ model, rather than weakening the generic `read`, `write`, final-release, and
   `recvmsg` consuming that byte receives it. A plain `read`/`recv` consuming
   the tagged byte, a too-small control buffer (`MSG_CTRUNC`), or a full
   receiver fd table discards and releases the attachment rather than stalling
-  or leaking it. Preserve the data stream in each case.
+  or leaking it. Preserve the data stream in each case. Queue each attachment
+  with its `[start, end)` stream-byte range and cap a descriptor-aware receive
+  at the next boundary, so a partial receive cannot skip, attach early, or
+  reorder a later descriptor.
 - Addressing: pathname sockets below `/tmp` only. Enforce `sun_path` bounds,
   require the parent directory to exist, and create an `S_IFSOCK` filesystem
   entry atomically at bind. `close` never unlinks that entry; `unlink` removes
@@ -674,7 +708,8 @@ every tmux/libevent requirement with status and test coverage:
 | --- | --- | --- |
 | Terminal | `openpty` or `posix_openpt`, `grantpt`, `unlockpt`, `ptsname` | Implement Unix98 PTY ABI; use musl wrappers where available. |
 | Session | `fork`, `setsid`, `setpgid`, `ioctl(TIOCSCTTY)` | Validate session/ctty behavior with a native test before tmux. |
-| I/O | `poll`, nonblocking fds, pipes, `fcntl` | Existing support is audited and extended only when a tmux test fails. |
+| I/O | `poll`, `ppoll`, nonblocking fds, `pipe2`, `fcntl` | Implemented the tmux-required `pipe2` and `ppoll` ABI; retain focused regression coverage for their flags, timeout, and signal-mask paths. |
+| Runtime | `prctl(PR_SET_NAME/PR_GET_NAME)`, `flock` | Implemented the tmux-required syscall entries; broaden lock semantics only when a multi-server regression requires it. |
 | Local IPC | pathname stream socket, `socketpair`, one-FD `SCM_RIGHTS` | Implement and test the minimal tmux transport milestone. |
 | Terminal database | `TERM=screen` entry | Package tested terminfo files in the ramdisk. |
 | Filesystem | `/tmp`, `mkdir`, `unlink`, permissions | Verify socket directory creation and stale-socket cleanup. |
@@ -850,29 +885,43 @@ catch descriptor/refcount races.
 
 Test interactive tmux through the existing `tests/lit_vga_test.py` harness,
 just like `tests/vga/vim-1.test`; do not replace this with a serial-only shell
-smoke test. Add `tests/vga/tmux-1.test` and its checked-in
-`tests/vga/tmux-1.ppm` reference capture. The initial case uses the same
-directive style and cropped screenshot range as Vim:
+smoke test. `tests/vga/tmux-1.test` and its checked-in
+`tests/vga/tmux-1.ppm` reference capture exercise the implemented baseline:
 
 ```text
 VGA-SEND-KEY: f2
 VGA-CHECK: / #
-VGA-SEND: TERM=linux TMUX_TMPDIR=/tmp tmux -L vga -f /dev/null new-session -s vga /bin/oksh
-SLEEP: 5
+VGA-SEND: printf 'set -g status-right ""\n' > /tmp/tmux-vga.conf
+VGA-SEND: tmux -L vga -f /tmp/tmux-vga.conf new-session -s vga /bin/oksh
+SLEEP: 2
 VGA-CHECK: [vga]
-VGA-SEND: printf tmux-vga-ok
-VGA-CHECK: tmux-vga-ok
-VGA-DUMP-SCREEN: tmux-1.ppm,1,23
+VGA-SEND: echo PANE_ONE
+VGA-SEND-KEY: ctrl-b
+VGA-SEND-RAW: %
+SLEEP: 1
+VGA-SEND: echo PANE_TWO
+VGA-SEND-KEY: ctrl-b
+VGA-SEND-RAW: "
+SLEEP: 1
+VGA-SEND: echo PANE_THREE
+VGA-SEND-KEY: ctrl-b
+VGA-SEND-RAW: c
+SLEEP: 1
+VGA-SEND: echo WINDOW_TWO
+VGA-SEND-KEY: ctrl-b
+VGA-SEND-RAW: p
+SLEEP: 1
+VGA-CHECK-NOT: server exited unexpectedly
+VGA-CHECK-SCREEN: tmux-1.ppm
 ```
 
-The `VGA-DUMP-SCREEN` directive intentionally follows `vim-1.test`: it
-captures a reference PPM after the pane command but does **not** compare it at
-test runtime. The `VGA-CHECK` directives are therefore the pass/fail
-assertions: retain checks for a prompt, tmux status line, and pane output so a
-failure is diagnosable without examining the PPM. The pane must report
-`TERM=screen` in a separate native/shell assertion; do not make the reference
-capture depend on prompt or status-line details that vary with a future tmux
-patch release.
+The test checks output from all three panes and from the second window before
+returning to the split window. It waits after pane/window commands because
+their redraws are asynchronous, then uses `VGA-CHECK-SCREEN` to compare the
+whole tmux framebuffer at runtime. The local config removes only the dynamic
+status-right clock; the status bar, pane borders, and pane contents remain in
+the reference image. Keep the negative server-exit assertion: a server that
+dies after a pane resize can otherwise leave stale pane text on the display.
 
 Add separate noninteractive shell coverage for `list-sessions`, `capture-pane`,
 `send-keys`, `kill-server`, stale-path cleanup, two-pane isolation, and outer

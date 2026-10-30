@@ -634,11 +634,10 @@ found:
 	return fallback;
 }
 
-int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long arg)
+int tty_ioctl_tty(struct tty_struct *tty, unsigned int cmd, unsigned long arg)
 {
 	int err = 0;
 	int opt = 0;
-	struct tty_struct *tty = (struct tty_struct *) f->private_data;
 
 	if (!tty)
 		return -EIO;
@@ -801,6 +800,11 @@ int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long a
 			}
 	}
 	return -EINVAL;
+}
+
+int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long arg)
+{
+	return tty_ioctl_tty(f->private_data, cmd, arg);
 }
 
 static void tty_release(struct inode *i, struct file *f)

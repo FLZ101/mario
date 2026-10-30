@@ -800,6 +800,13 @@ static void csi_n(struct console *con)
 	}
 }
 
+static void csi_c(struct console *con)
+{
+	struct tty_struct *tty = get_console_tty(con);
+
+	tty_receive_s(tty, "\033[?6c");
+}
+
 void console_soft_reset(struct console *con);
 
 static void use_alt_screen_buffer(struct console *con)
@@ -1054,6 +1061,9 @@ static void csi(struct console *con, unsigned char c)
 		break;
 	case 'n':
 		csi_n(con);
+		break;
+	case 'c':
+		csi_c(con);
 		break;
 	case 'r':
 		csi_r(con);

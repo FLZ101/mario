@@ -64,6 +64,7 @@ void tty_receive_s(struct tty_struct *tty, char *s);
 int tty_read(struct inode *i, struct file *f, char *buf, int count);
 int tty_write(struct inode *i, struct file *f, char *buf, int count);
 int tty_ioctl(struct inode *i, struct file *f, unsigned int cmd, unsigned long arg);
+int tty_ioctl_tty(struct tty_struct *tty, unsigned int cmd, unsigned long arg);
 int tty_poll(struct file *f, struct poll_context *ctx);
 
 #endif /* _TTY_H */

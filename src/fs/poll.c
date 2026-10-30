@@ -1,5 +1,8 @@
 #include <fs/fs.h>
 #include <mm/kmalloc.h>
+#include <signal.h>
+
+#define PPOLL_SIGSET_SIZE 8
 
 static void count_qproc(struct file *f, wait_queue_t *q, struct poll_context *ctx)
 {
@@ -203,6 +206,50 @@ int sys_poll(struct pollfd *ufds, unsigned int nfds, long timeout)
 
     kfree(fds);
     return error;
+}
+
+int sys_ppoll(struct pollfd *ufds, unsigned int nfds,
+	      const struct timespec *timeout, const sigset_t *sigmask,
+	      size_t sigsetsize)
+{
+	struct timespec ts;
+	sigset_t old_mask;
+	const long max_timeout = (long)(~0UL >> 1);
+	long timeout_ms = -1;
+	int error;
+
+	if (timeout) {
+		error = verify_area(VERIFY_READ, timeout, sizeof(ts));
+		if (error)
+			return error;
+		memcpy_fromfs(&ts, timeout, sizeof(ts));
+		if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000)
+			return -EINVAL;
+		if (ts.tv_sec > (max_timeout - 999) / 1000)
+			timeout_ms = max_timeout;
+		else
+			timeout_ms = ts.tv_sec * 1000 + (ts.tv_nsec + 999999) / 1000000;
+	}
+
+	old_mask = current->blocked;
+	if (sigmask) {
+		sigset_t mask;
+
+		if (sigsetsize != PPOLL_SIGSET_SIZE)
+			return -EINVAL;
+		error = verify_area(VERIFY_READ, sigmask, sigsetsize);
+		if (error)
+			return error;
+		memcpy_fromfs(&mask, sigmask, sizeof(mask));
+		current->blocked = mask & ~( (1UL << (SIGKILL - 1)) |
+					    (1UL << (SIGSTOP - 1)) );
+	}
+
+	error = sys_poll(ufds, nfds, timeout_ms);
+	if (!error && (current->signal & ~current->blocked))
+		error = -EINTR;
+	current->blocked = old_mask;
+	return error;
 }
 
 /*
