@@ -150,6 +150,11 @@ struct super_block *ext2_read_super(struct super_block *sb)
 	EXT2_SB(sb).inode_size = esb->s_inode_size;
 	EXT2_SB(sb).incompat_features = esb->s_feature_incompat;
 	EXT2_SB(sb).ro_compat_features = esb->s_feature_ro_compat;
+	EXT2_SB(sb).compat_features = esb->s_feature_compat;
+	EXT2_SB(sb).hash_version = esb->s_def_hash_version;
+	for (uint32_t i = 0; i < 4; i++)
+		EXT2_SB(sb).hash_seed[i] =
+			ext2_read32((const uint8_t *)&esb->s_hash_seed[i]);
 	EXT2_SB(sb).readonly = 0;
 
 	error = ext2_load_group_descriptors(sb, esb);

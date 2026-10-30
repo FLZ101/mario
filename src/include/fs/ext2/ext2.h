@@ -40,6 +40,10 @@ struct file_operations;
 
 #define EXT2_BTREE_FL		0x1000
 
+#define EXT2_HASH_LEGACY	0
+#define EXT2_HASH_HALF_MD4	1
+#define EXT2_HASH_TEA		2
+
 #define EXT2_FEATURE_COMPAT_DIR_PREALLOC	0x0001
 #define EXT2_FEATURE_COMPAT_IMAGIC_INODES	0x0002
 #define EXT2_FEATURE_COMPAT_HAS_JOURNAL		0x0004
@@ -93,6 +97,17 @@ struct ext2_super_block {
 	__u8 s_volume_name[16];
 	__u8 s_last_mounted[64];
 	__u32 s_algorithm_usage_bitmap;
+	__u8 s_prealloc_blocks;
+	__u8 s_prealloc_dir_blocks;
+	__u16 s_padding1;
+	__u8 s_journal_uuid[16];
+	__u32 s_journal_inum;
+	__u32 s_journal_dev;
+	__u32 s_last_orphan;
+	__u32 s_hash_seed[4];
+	__u8 s_def_hash_version;
+	__u8 s_padding2[3];
+	__u32 s_default_mount_opts;
 } __attribute__((packed));
 
 /* Standard 32-byte group descriptor used by non-64-bit ext2 filesystems. */
@@ -138,6 +153,29 @@ struct ext2_dir_entry_2 {
 	char name[];
 } __attribute__((packed));
 
+/*
+ * Hash-tree index structures.  The first dx_entry in a root or interior
+ * node is a dummy entry: its first 32-bit word is really the dx_countlimit,
+ * while its block word is the first block in the lowest hash range.
+ */
+struct ext2_dx_root_info {
+	__u32 reserved_zero;
+	__u8 hash_version;
+	__u8 info_length;
+	__u8 indirect_levels;
+	__u8 unused_flags;
+} __attribute__((packed));
+
+struct ext2_dx_countlimit {
+	__u16 limit;
+	__u16 count;
+} __attribute__((packed));
+
+struct ext2_dx_entry {
+	__u32 hash;
+	__u32 block;
+} __attribute__((packed));
+
 /* Kernel-side mount state for one ext2 filesystem. */
 struct ext2_sb_info {
 	uint32_t block_size;
@@ -153,6 +191,9 @@ struct ext2_sb_info {
 	uint32_t desc_per_block;
 	uint32_t incompat_features;
 	uint32_t ro_compat_features;
+	uint32_t compat_features;
+	uint32_t hash_seed[4];
+	uint32_t hash_version;
 	struct ext2_group_desc *group_desc;
 	unsigned long readonly;
 };
@@ -214,6 +255,8 @@ void ext2_clear_inode(struct inode *inode);
 int ext2_write_super(struct super_block *sb);
 struct super_block *ext2_read_super(struct super_block *sb);
 int ext2_truncate(struct inode *inode, int size);
+int ext2_dirhash(struct super_block *sb, const char *name, int len,
+		 uint32_t *hash);
 
 extern struct file_system_type ext2;
 extern struct inode_operations ext2_file_iops;

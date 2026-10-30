@@ -1,0 +1,31 @@
+# Mutate an existing hash-indexed directory.  QEMU runs with -snapshot, so
+# these operations never touch the checked-in hd3.img.  The Vim syntax
+# directory is deliberately full enough that several inserts force htree leaf
+# splits and root-index reindexing.
+RUN: export PATH=/bin/toybox:/bin
+
+RUN: echo a > /usr/share/vim/vim92/syntax/zz_mario_a.vim; echo a:$?
+RUN: echo b > /usr/share/vim/vim92/syntax/zz_mario_b.vim; echo b:$?
+RUN: echo c > /usr/share/vim/vim92/syntax/zz_mario_c.vim; echo c:$?
+RUN: echo d > /usr/share/vim/vim92/syntax/zz_mario_d.vim; echo d:$?
+RUN: echo e > /usr/share/vim/vim92/syntax/zz_mario_e.vim; echo e:$?
+RUN: echo f > /usr/share/vim/vim92/syntax/zz_mario_f.vim; echo f:$?
+CHECK: a:0
+CHECK: b:0
+CHECK: c:0
+CHECK: d:0
+CHECK: e:0
+CHECK: f:0
+
+RUN: cat /usr/share/vim/vim92/syntax/zz_mario_f.vim; echo fread:$?
+CHECK: f
+CHECK: fread:0
+RUN: cat /usr/share/vim/vim92/syntax/syntax.vim > /dev/null; echo old-lookup:$?
+CHECK: old-lookup:0
+
+RUN: rm /usr/share/vim/vim92/syntax/zz_mario_a.vim /usr/share/vim/vim92/syntax/zz_mario_b.vim /usr/share/vim/vim92/syntax/zz_mario_c.vim /usr/share/vim/vim92/syntax/zz_mario_d.vim /usr/share/vim/vim92/syntax/zz_mario_e.vim /usr/share/vim/vim92/syntax/zz_mario_f.vim; echo rm:$?
+CHECK: rm:0
+RUN: test ! -e /usr/share/vim/vim92/syntax/zz_mario_f.vim; echo absent:$?
+CHECK: absent:0
+RUN: test -f /usr/share/vim/vim92/syntax/syntax.vim; echo still-indexed-lookup:$?
+CHECK: still-indexed-lookup:0

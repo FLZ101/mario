@@ -8,10 +8,25 @@
 
 extern uint64_t current_time(void);
 
+static void ext2_touch_dir(struct inode *dir);
+static int ext2_add_entry_linear(struct inode *dir, const char *name, int len,
+				 uint32_t ino, uint8_t file_type);
+static int ext2_delete_entry_linear(struct inode *dir, const char *name,
+				    int len);
+
 static int ext2_dir_is_indexed(struct inode *dir)
 {
 	return !!(ext2_read32((const uint8_t *)&EXT2_INODE(dir).raw.i_flags) &
 		  EXT2_BTREE_FL);
+}
+
+static void ext2_dir_deindex(struct inode *dir)
+{
+	uint32_t flags = ext2_read32((const uint8_t *)&EXT2_INODE(dir).raw.i_flags);
+
+	ext2_write32((uint8_t *)&EXT2_INODE(dir).raw.i_flags,
+		     flags & ~EXT2_BTREE_FL);
+	ext2_touch_dir(dir);
 }
 
 static uint8_t ext2_file_type(umode_t mode)
@@ -34,6 +49,325 @@ static uint8_t ext2_file_type(umode_t mode)
 	}
 }
 
+#define EXT2_DX_ROOT_INFO_OFFSET		24
+#define EXT2_DX_ROOT_ENTRIES_OFFSET		32
+#define EXT2_DX_NODE_ENTRIES_OFFSET		8
+
+struct ext2_dx_rebuild_entry {
+	uint32_t ino;
+	uint32_t hash;
+	uint8_t file_type;
+	uint8_t name_len;
+	char name[EXT2_NAME_LEN];
+};
+
+static int ext2_dx_rebuild_entry_before(const struct ext2_dx_rebuild_entry *a,
+					const struct ext2_dx_rebuild_entry *b)
+{
+	int min_len;
+	int cmp;
+
+	if (a->hash != b->hash)
+		return a->hash < b->hash;
+
+	min_len = a->name_len < b->name_len ? a->name_len : b->name_len;
+	cmp = memcmp(a->name, b->name, min_len);
+	if (cmp)
+		return cmp < 0;
+	return a->name_len < b->name_len;
+}
+
+static void ext2_dx_sort_entries(struct ext2_dx_rebuild_entry *entries,
+				 uint32_t count)
+{
+	uint32_t i;
+
+	for (i = 1; i < count; i++) {
+		struct ext2_dx_rebuild_entry key = entries[i];
+		uint32_t j = i;
+
+		while (j > 0 && ext2_dx_rebuild_entry_before(&key, &entries[j - 1])) {
+			entries[j] = entries[j - 1];
+			j--;
+		}
+		entries[j] = key;
+	}
+}
+
+static uint32_t ext2_dx_count(const uint8_t *entries)
+{
+	return ext2_read16(entries + 2);
+}
+
+static uint32_t ext2_dx_limit(const uint8_t *entries)
+{
+	return ext2_read16(entries);
+}
+
+static uint32_t ext2_dx_entry_hash(const uint8_t *entries, uint32_t index)
+{
+	return ext2_read32(entries + index * sizeof(struct ext2_dx_entry));
+}
+
+static uint32_t ext2_dx_entry_block(const uint8_t *entries, uint32_t index)
+{
+	return ext2_read32(entries + index * sizeof(struct ext2_dx_entry) + 4);
+}
+
+/*
+ * Pick the index entry whose hash range contains @hash.  Entry zero is the
+ * dummy entry that owns the lowest range, so it is handled as the lower
+ * bound of the binary search instead of using its countlimit word as a hash.
+ */
+static int ext2_dx_probe(const uint8_t *entries, uint32_t available,
+			 uint32_t hash, uint32_t *logical, uint32_t *index)
+{
+	uint32_t count = ext2_dx_count(entries);
+	uint32_t limit = ext2_dx_limit(entries);
+	uint32_t first = 1;
+	uint32_t last;
+
+	if (!limit || limit > available / sizeof(struct ext2_dx_entry) ||
+	    count < 1 || count > limit)
+		return -EIO;
+
+	if (count == 1) {
+		*logical = ext2_dx_entry_block(entries, 0);
+		*index = 0;
+		return 0;
+	}
+
+	last = count - 1;
+	while (first <= last) {
+		uint32_t mid = first + (last - first) / 2;
+
+		if (ext2_dx_entry_hash(entries, mid) > hash)
+			last = mid - 1;
+		else
+			first = mid + 1;
+	}
+
+	*index = first - 1;
+	*logical = ext2_dx_entry_block(entries, *index);
+	return 0;
+}
+
+/*
+ * Locate the leaf block for @hash in a level-zero htree.  The root buffer is
+ * returned to the caller so an insertion can update the index boundaries in
+ * the same in-memory copy before writing it back.
+ */
+static int ext2_dx_probe_leaf(struct inode *dir, uint32_t hash,
+			      uint32_t *leaf_logical, uint32_t *physical,
+			      uint32_t *root_physical, uint8_t **root_buf,
+			      uint8_t **entries_out, uint32_t *entry_index)
+{
+	struct super_block *sb = dir->i_sb;
+	uint32_t block_size = sb->s_block_size;
+	struct ext2_dx_root_info *info;
+	uint8_t *buf;
+	uint8_t *entries;
+	uint32_t index;
+	uint32_t target;
+	int error;
+
+	*root_buf = NULL;
+	*entries_out = NULL;
+	buf = kmalloc(block_size);
+	if (!buf)
+		return -ENOMEM;
+
+	*physical = ext2_bmap(dir, 0, 0);
+	if (!*physical) {
+		error = -EIO;
+		goto out;
+	}
+	*root_physical = *physical;
+	error = ext2_read_block(sb, *physical, buf);
+	if (error)
+		goto out;
+
+	info = (struct ext2_dx_root_info *)(buf + EXT2_DX_ROOT_INFO_OFFSET);
+	if (info->hash_version != EXT2_HASH_HALF_MD4 ||
+	    info->info_length != 8 || info->indirect_levels != 0) {
+		error = -ENOTSUP;
+		goto out;
+	}
+
+	entries = buf + EXT2_DX_ROOT_ENTRIES_OFFSET;
+	error = ext2_dx_probe(entries, block_size - EXT2_DX_ROOT_ENTRIES_OFFSET,
+			      hash, &target, &index);
+	if (error)
+		goto out;
+	if (!target ||
+	    (uint64_t)target * block_size >= (uint64_t)dir->i_size) {
+		error = -EIO;
+		goto out;
+	}
+
+	*leaf_logical = target;
+	*entry_index = index;
+	*entries_out = entries;
+	*root_buf = buf;
+	*physical = ext2_bmap(dir, target, 0);
+	if (!*physical) {
+		error = -EIO;
+		goto out;
+	}
+	return 0;
+out:
+	kfree(buf);
+	return error;
+}
+
+/*
+ * Resolve a name in an indexed directory.  The root block is logical block
+ * zero; interior nodes have the same dx_entry layout at offset 8 instead of
+ * 32.  The index is walked without recursion, bounded by the on-disk
+ * indirect_levels field, and the selected leaf is scanned like a normal ext2
+ * directory block.
+ */
+static int ext2_dx_find_entry(struct inode *dir, const char *name, int len,
+			      uint32_t *res_block, uint32_t *res_offset)
+{
+	struct super_block *sb = dir->i_sb;
+	uint32_t block_size = sb->s_block_size;
+	uint32_t root_levels;
+	uint32_t depth = 0;
+	uint32_t seen[3] = { 0, 0, 0 };
+	uint32_t hash;
+	uint32_t physical;
+	uint32_t target;
+	uint32_t offset;
+	uint32_t limit;
+	uint8_t *buf;
+	const uint8_t *entries;
+	int error;
+
+	error = ext2_dirhash(sb, name, len, &hash);
+	if (error)
+		return error;
+
+	physical = ext2_bmap(dir, 0, 0);
+	if (!physical)
+		return -EIO;
+	buf = kmalloc(block_size);
+	if (!buf)
+		return -ENOMEM;
+	error = ext2_read_block(sb, physical, buf);
+	if (error)
+		goto out;
+
+	{
+		struct ext2_dx_root_info *info =
+			(struct ext2_dx_root_info *)(buf + EXT2_DX_ROOT_INFO_OFFSET);
+
+		/*
+		 * Only half-MD4 indexed directories are interpreted.  The
+		 * root info is fixed size in ext2/3 and htree depth is capped
+		 * at two, keeping the iterative walk below bounded.
+		 */
+		if (info->hash_version != EXT2_HASH_HALF_MD4 ||
+		    info->info_length != 8 || info->indirect_levels > 2) {
+			error = -ENOTSUP;
+			goto out;
+		}
+		root_levels = info->indirect_levels;
+	}
+
+	entries = buf + EXT2_DX_ROOT_ENTRIES_OFFSET;
+	for (;;) {
+		uint32_t i;
+		uint32_t entry_index;
+
+		error = ext2_dx_probe(entries, block_size -
+				      (uint32_t)(entries - buf), hash, &target,
+				      &entry_index);
+		if (error)
+			goto out;
+		if (!target ||
+		    (uint64_t)target * block_size >= (uint64_t)dir->i_size) {
+			error = -EIO;
+			goto out;
+		}
+		for (i = 0; i < depth; i++) {
+			if (seen[i] == target) {
+				error = -EIO;
+				goto out;
+			}
+		}
+		seen[depth] = target;
+
+		if (depth == root_levels)
+			break;
+
+		kfree(buf);
+		buf = NULL;
+		physical = ext2_bmap(dir, target, 0);
+		if (!physical) {
+			error = -EIO;
+			goto out;
+		}
+		buf = kmalloc(block_size);
+		if (!buf) {
+			error = -ENOMEM;
+			goto out;
+		}
+		error = ext2_read_block(sb, physical, buf);
+		if (error)
+			goto out;
+		entries = buf + EXT2_DX_NODE_ENTRIES_OFFSET;
+		depth++;
+	}
+
+	physical = ext2_bmap(dir, target, 0);
+	if (!physical) {
+		error = -EIO;
+		goto out;
+	}
+
+	kfree(buf);
+	buf = kmalloc(block_size);
+	if (!buf) {
+		error = -ENOMEM;
+		goto out;
+	}
+	error = ext2_read_block(sb, physical, buf);
+	if (error)
+		goto out;
+
+	limit = block_size;
+	if ((uint64_t)target * block_size + limit > (uint64_t)dir->i_size)
+		limit = dir->i_size - target * block_size;
+
+	for (offset = 0; offset < limit;) {
+		struct ext2_dir_entry_2 *entry =
+			(struct ext2_dir_entry_2 *)(buf + offset);
+		uint16_t rec_len =
+			ext2_read16((const uint8_t *)&entry->rec_len);
+
+		if (rec_len < 8 || offset + rec_len > limit) {
+			error = -EIO;
+			goto out;
+		}
+		if (ext2_read32((const uint8_t *)&entry->inode) &&
+		    entry->name_len == len &&
+		    !memcmp(entry->name, name, len)) {
+			*res_block = physical;
+			*res_offset = offset;
+			error = 0;
+			goto out;
+		}
+		offset += rec_len;
+	}
+
+	error = -ENOENT;
+out:
+	if (buf)
+		kfree(buf);
+	return error;
+}
+
 static void ext2_touch_dir(struct inode *dir)
 {
 	struct ext2_inode *raw = &EXT2_INODE(dir).raw;
@@ -51,9 +385,20 @@ static int ext2_find_entry(struct inode *dir, const char *name, int len,
 	uint32_t block_index;
 	int error;
 
-	if (ext2_dir_is_indexed(dir))
-		return -ENOTSUP;
+	if (ext2_dir_is_indexed(dir)) {
+		error = ext2_dx_find_entry(dir, name, len, res_block,
+					   res_offset);
+		if (error != -ENOTSUP)
+			return error;
+	}
 
+	/*
+	 * Fallback for indexed directories whose hash version or tree shape is
+	 * not supported by ext2_dx_find_entry().  Their leaf blocks still use
+	 * the normal directory-entry format, and index blocks start with fake
+	 * entries whose rec_len covers the index payload, so this linear scan
+	 * skips those blocks and reaches every leaf entry.
+	 */
 	for (block_index = 0;
 	     (uint64_t)block_index * sb->s_block_size < (uint64_t)dir->i_size;
 	     block_index++) {
@@ -101,8 +446,406 @@ static int ext2_find_entry(struct inode *dir, const char *name, int len,
 	return -ENOENT;
 }
 
-static int ext2_add_entry(struct inode *dir, const char *name, int len,
-			  uint32_t ino, uint8_t file_type)
+static int ext2_dx_leaf_insert(struct inode *dir, uint32_t physical,
+			       uint8_t *buf, const char *name, int len,
+			       uint32_t ino, uint8_t file_type)
+{
+	struct super_block *sb = dir->i_sb;
+	uint32_t block_size = sb->s_block_size;
+	uint16_t rec_len = EXT2_DIR_REC_LEN(len);
+	uint32_t offset;
+	uint32_t prev_offset = 0;
+	uint16_t prev_rec = 0;
+
+	for (offset = 0; offset < block_size;) {
+		struct ext2_dir_entry_2 *entry =
+			(struct ext2_dir_entry_2 *)(buf + offset);
+		uint16_t entry_rec =
+			ext2_read16((const uint8_t *)&entry->rec_len);
+
+		if (entry_rec < 8 || offset + entry_rec > block_size)
+			break;
+		if (!ext2_read32((const uint8_t *)&entry->inode) &&
+		    entry_rec >= rec_len) {
+			ext2_write32((uint8_t *)&entry->inode, ino);
+			ext2_write16((uint8_t *)&entry->rec_len, entry_rec);
+			entry->name_len = len;
+			entry->file_type = file_type;
+			memcpy(entry->name, name, len);
+			return ext2_write_block(sb, physical, buf);
+		}
+		prev_offset = offset;
+		prev_rec = entry_rec;
+		offset += entry_rec;
+	}
+
+	if (prev_rec) {
+		struct ext2_dir_entry_2 *prev =
+			(struct ext2_dir_entry_2 *)(buf + prev_offset);
+		uint16_t used = EXT2_DIR_REC_LEN(prev->name_len);
+		uint32_t new_offset = prev_offset + used;
+
+		if (new_offset + rec_len <= block_size) {
+			struct ext2_dir_entry_2 *entry;
+
+			ext2_write16((uint8_t *)&prev->rec_len, used);
+			entry = (struct ext2_dir_entry_2 *)(buf + new_offset);
+			ext2_write32((uint8_t *)&entry->inode, ino);
+			ext2_write16((uint8_t *)&entry->rec_len,
+				     block_size - new_offset);
+			entry->name_len = len;
+			entry->file_type = file_type;
+			memcpy(entry->name, name, len);
+			return ext2_write_block(sb, physical, buf);
+		}
+	}
+
+	return -ENOSPC;
+}
+
+static int ext2_dx_leaf_min_hash(struct inode *dir, const uint8_t *buf,
+				 uint32_t *min_hash)
+{
+	struct super_block *sb = dir->i_sb;
+	uint32_t block_size = sb->s_block_size;
+	uint32_t offset;
+	int found = 0;
+
+	*min_hash = 0;
+	for (offset = 0; offset < block_size;) {
+		struct ext2_dir_entry_2 *entry =
+			(struct ext2_dir_entry_2 *)(buf + offset);
+		uint16_t rec_len =
+			ext2_read16((const uint8_t *)&entry->rec_len);
+		uint32_t hash;
+		int error;
+
+		if (rec_len < 8 || offset + rec_len > block_size)
+			break;
+		if (!ext2_read32((const uint8_t *)&entry->inode)) {
+			offset += rec_len;
+			continue;
+		}
+		error = ext2_dirhash(sb, entry->name, entry->name_len, &hash);
+		if (error)
+			return error;
+		if (!found || hash < *min_hash) {
+			*min_hash = hash;
+			found = 1;
+		}
+		offset += rec_len;
+	}
+	return 0;
+}
+
+static void ext2_dx_pack_block(uint8_t *buf, uint32_t block_size,
+			       const struct ext2_dx_rebuild_entry *entries,
+			       uint32_t start, uint32_t end)
+{
+	uint32_t offset = 0;
+	uint32_t last_offset = 0;
+	uint32_t i;
+
+	memset(buf, 0, block_size);
+	if (end == start) {
+		struct ext2_dir_entry_2 *entry = (struct ext2_dir_entry_2 *)buf;
+
+		ext2_write16((uint8_t *)&entry->rec_len, block_size);
+		return;
+	}
+
+	for (i = start; i < end; i++) {
+		struct ext2_dir_entry_2 *entry =
+			(struct ext2_dir_entry_2 *)(buf + offset);
+		uint16_t rec_len = EXT2_DIR_REC_LEN(entries[i].name_len);
+
+		ext2_write32((uint8_t *)&entry->inode, entries[i].ino);
+		ext2_write16((uint8_t *)&entry->rec_len, rec_len);
+		entry->name_len = entries[i].name_len;
+		entry->file_type = entries[i].file_type;
+		memcpy(entry->name, entries[i].name, entries[i].name_len);
+		last_offset = offset;
+		offset += rec_len;
+	}
+	if (last_offset + EXT2_DIR_REC_LEN(entries[end - 1].name_len) <
+	    block_size) {
+		struct ext2_dir_entry_2 *last =
+			(struct ext2_dir_entry_2 *)(buf + last_offset);
+
+		ext2_write16((uint8_t *)&last->rec_len,
+			     block_size - last_offset);
+	}
+}
+
+static int ext2_dx_split_leaf(struct inode *dir, uint32_t leaf_physical,
+			      uint32_t root_physical,
+			      uint32_t entry_index, uint32_t new_hash,
+			      uint8_t *root_buf, uint8_t *root_entries,
+			      const char *name, int len, uint32_t ino,
+			      uint8_t file_type)
+{
+	struct super_block *sb = dir->i_sb;
+	struct ext2_inode *raw = &EXT2_INODE(dir).raw;
+	uint32_t block_size = sb->s_block_size;
+	uint32_t old_count;
+	uint32_t count = ext2_dx_count(root_entries);
+	uint32_t limit = ext2_dx_limit(root_entries);
+	struct ext2_dx_rebuild_entry *items;
+	uint8_t *leaf_buf;
+	uint8_t *first_buf;
+	uint8_t *second_buf;
+	uint32_t total;
+	uint32_t old_leaf_entries = 0;
+	uint32_t pos;
+	uint32_t first_count;
+	uint32_t first_size;
+	uint32_t new_logical;
+	uint32_t new_physical;
+	uint32_t offset;
+	uint32_t i;
+	int error;
+
+	if (count >= limit)
+		return -ENOTSUP;
+
+	leaf_buf = kmalloc(block_size);
+	if (!leaf_buf)
+		return -ENOMEM;
+	error = ext2_read_block(sb, leaf_physical, leaf_buf);
+	if (error) {
+		kfree(leaf_buf);
+		return error;
+	}
+
+	for (offset = 0; offset < block_size;) {
+		struct ext2_dir_entry_2 *entry =
+			(struct ext2_dir_entry_2 *)(leaf_buf + offset);
+		uint16_t rec_len =
+			ext2_read16((const uint8_t *)&entry->rec_len);
+
+		if (rec_len < 8 || offset + rec_len > block_size)
+			break;
+		if (ext2_read32((const uint8_t *)&entry->inode))
+			old_leaf_entries++;
+		offset += rec_len;
+	}
+
+	total = old_leaf_entries + 1;
+	items = kmalloc(total * sizeof(*items));
+	if (!items) {
+		kfree(leaf_buf);
+		return -ENOMEM;
+	}
+
+	old_count = 0;
+	for (offset = 0; offset < block_size;) {
+		struct ext2_dir_entry_2 *entry =
+			(struct ext2_dir_entry_2 *)(leaf_buf + offset);
+		uint16_t rec_len =
+			ext2_read16((const uint8_t *)&entry->rec_len);
+
+		if (rec_len < 8 || offset + rec_len > block_size)
+			break;
+		if (ext2_read32((const uint8_t *)&entry->inode)) {
+			struct ext2_dx_rebuild_entry *item = &items[old_count++];
+
+			item->ino = ext2_read32((const uint8_t *)&entry->inode);
+			item->name_len = entry->name_len;
+			item->file_type = entry->file_type;
+			memcpy(item->name, entry->name, entry->name_len);
+			error = ext2_dirhash(sb, entry->name, entry->name_len,
+					     &item->hash);
+			if (error) {
+				kfree(items);
+				kfree(leaf_buf);
+				return error;
+			}
+		}
+		offset += rec_len;
+	}
+	kfree(leaf_buf);
+
+	items[old_count].ino = ino;
+	items[old_count].hash = new_hash;
+	items[old_count].name_len = len;
+	items[old_count].file_type = file_type;
+	memcpy(items[old_count].name, name, len);
+	ext2_dx_sort_entries(items, total);
+
+	pos = 0;
+	first_count = 0;
+	first_size = 0;
+	while (pos < total) {
+		uint32_t group_start = pos;
+		uint32_t group_hash = items[pos].hash;
+		uint32_t group_size = 0;
+
+		while (pos < total && items[pos].hash == group_hash) {
+			group_size += EXT2_DIR_REC_LEN(items[pos].name_len);
+			pos++;
+		}
+		if (group_size > block_size) {
+			kfree(items);
+			return -ENOTSUP;
+		}
+		if (first_size + group_size > block_size) {
+			pos = group_start;
+			break;
+		}
+		first_size += group_size;
+		first_count = pos;
+		if (pos == total)
+			break;
+	}
+	if (first_count == 0 || first_count == total) {
+		kfree(items);
+		return -ENOTSUP;
+	}
+
+	new_logical = dir->i_size / block_size;
+	new_physical = ext2_bmap(dir, new_logical, 1);
+	if (!new_physical) {
+		kfree(items);
+		return -ENOSPC;
+	}
+	first_buf = kmalloc(block_size);
+	second_buf = kmalloc(block_size);
+	if (!first_buf || !second_buf) {
+		if (first_buf)
+			kfree(first_buf);
+		if (second_buf)
+			kfree(second_buf);
+		kfree(items);
+		return -ENOMEM;
+	}
+
+	ext2_dx_pack_block(first_buf, block_size, items, 0, first_count);
+	ext2_dx_pack_block(second_buf, block_size, items, first_count, total);
+	error = ext2_write_block(sb, leaf_physical, first_buf);
+	if (!error)
+		error = ext2_write_block(sb, new_physical, second_buf);
+	kfree(first_buf);
+	kfree(second_buf);
+	if (error) {
+		kfree(items);
+		return error;
+	}
+
+	dir->i_size += block_size;
+	ext2_write32((uint8_t *)&raw->i_size, dir->i_size);
+	ext2_touch_dir(dir);
+
+	for (i = count; i > entry_index + 1; i--) {
+		ext2_write32(root_entries + i * sizeof(struct ext2_dx_entry),
+			     ext2_dx_entry_hash(root_entries, i - 1));
+		ext2_write32(root_entries + i * sizeof(struct ext2_dx_entry) + 4,
+			     ext2_dx_entry_block(root_entries, i - 1));
+	}
+	ext2_write32(root_entries + (entry_index + 1) *
+		     sizeof(struct ext2_dx_entry),
+		     items[first_count].hash);
+	ext2_write32(root_entries + (entry_index + 1) *
+		     sizeof(struct ext2_dx_entry) + 4, new_logical);
+	if (entry_index > 0) {
+		ext2_write32(root_entries + entry_index *
+			     sizeof(struct ext2_dx_entry), items[0].hash);
+	}
+	ext2_write16(root_entries + 2, count + 1);
+	error = ext2_write_block(sb, root_physical, root_buf);
+	kfree(items);
+	if (error) {
+		ext2_dir_deindex(dir);
+		error = 0;
+	}
+	return error;
+}
+
+static int ext2_add_entry_indexed(struct inode *dir, const char *name, int len,
+				  uint32_t ino, uint8_t file_type)
+{
+	struct super_block *sb = dir->i_sb;
+	uint32_t block_size = sb->s_block_size;
+	uint32_t hash;
+	uint32_t leaf_logical;
+	uint32_t leaf_physical;
+	uint32_t root_physical;
+	uint32_t entry_index;
+	uint32_t min_hash;
+	uint8_t *root_buf;
+	uint8_t *root_entries;
+	uint8_t *leaf_buf;
+	int error;
+
+	if (len > EXT2_NAME_LEN)
+		return -ENAMETOOLONG;
+
+	error = ext2_dirhash(sb, name, len, &hash);
+	if (error)
+		goto deindex;
+	error = ext2_dx_probe_leaf(dir, hash, &leaf_logical, &leaf_physical,
+				   &root_physical, &root_buf, &root_entries,
+				   &entry_index);
+	if (error)
+		goto deindex;
+
+	leaf_buf = kmalloc(block_size);
+	if (!leaf_buf) {
+		kfree(root_buf);
+		goto deindex;
+	}
+	error = ext2_read_block(sb, leaf_physical, leaf_buf);
+	if (error) {
+		kfree(leaf_buf);
+		kfree(root_buf);
+		goto deindex;
+	}
+	error = ext2_dx_leaf_insert(dir, leaf_physical, leaf_buf, name, len,
+				    ino, file_type);
+	if (error == -ENOSPC) {
+		kfree(leaf_buf);
+		error = ext2_dx_split_leaf(dir, leaf_physical,
+					   root_physical, entry_index, hash,
+					   root_buf, root_entries, name, len,
+					   ino, file_type);
+		kfree(root_buf);
+		if (error == -ENOTSUP)
+			goto deindex;
+		return error;
+	}
+	if (error) {
+		kfree(leaf_buf);
+		kfree(root_buf);
+		goto deindex;
+	}
+
+	error = ext2_dx_leaf_min_hash(dir, leaf_buf, &min_hash);
+	kfree(leaf_buf);
+	if (error) {
+		kfree(root_buf);
+		ext2_dir_deindex(dir);
+		return 0;
+	}
+	if (!error && entry_index > 0) {
+		ext2_write32(root_entries + entry_index *
+			     sizeof(struct ext2_dx_entry), min_hash);
+		error = ext2_write_block(sb, root_physical, root_buf);
+		if (error) {
+			ext2_dir_deindex(dir);
+			error = 0;
+		}
+	}
+	kfree(root_buf);
+	if (!error)
+		ext2_touch_dir(dir);
+	return error;
+
+deindex:
+	ext2_dir_deindex(dir);
+	return ext2_add_entry_linear(dir, name, len, ino, file_type);
+}
+
+static int ext2_add_entry_linear(struct inode *dir, const char *name, int len,
+				 uint32_t ino, uint8_t file_type)
 {
 	struct super_block *sb = dir->i_sb;
 	struct ext2_inode *raw = &EXT2_INODE(dir).raw;
@@ -221,7 +964,51 @@ static int ext2_add_entry(struct inode *dir, const char *name, int len,
 	return error;
 }
 
-static int ext2_delete_entry(struct inode *dir, const char *name, int len)
+static int ext2_add_entry(struct inode *dir, const char *name, int len,
+			  uint32_t ino, uint8_t file_type)
+{
+	if (ext2_dir_is_indexed(dir))
+		return ext2_add_entry_indexed(dir, name, len, ino, file_type);
+	return ext2_add_entry_linear(dir, name, len, ino, file_type);
+}
+
+static int ext2_delete_entry_indexed(struct inode *dir, const char *name,
+				     int len)
+{
+	struct super_block *sb = dir->i_sb;
+	uint32_t block;
+	uint32_t offset;
+	uint8_t *buf;
+	struct ext2_dir_entry_2 *entry;
+	int error;
+
+	error = ext2_dx_find_entry(dir, name, len, &block, &offset);
+	if (error == -ENOTSUP) {
+		ext2_dir_deindex(dir);
+		return ext2_delete_entry_linear(dir, name, len);
+	}
+	if (error)
+		return error;
+
+	buf = kmalloc(sb->s_block_size);
+	if (!buf)
+		return -ENOMEM;
+	error = ext2_read_block(sb, block, buf);
+	if (error) {
+		kfree(buf);
+		return error;
+	}
+	entry = (struct ext2_dir_entry_2 *)(buf + offset);
+	ext2_write32((uint8_t *)&entry->inode, 0);
+	error = ext2_write_block(sb, block, buf);
+	kfree(buf);
+	if (!error)
+		ext2_touch_dir(dir);
+	return error;
+}
+
+static int ext2_delete_entry_linear(struct inode *dir, const char *name,
+				    int len)
 {
 	struct super_block *sb = dir->i_sb;
 	uint32_t block;
@@ -251,13 +1038,17 @@ static int ext2_delete_entry(struct inode *dir, const char *name, int len)
 	return error;
 }
 
+static int ext2_delete_entry(struct inode *dir, const char *name, int len)
+{
+	if (ext2_dir_is_indexed(dir))
+		return ext2_delete_entry_indexed(dir, name, len);
+	return ext2_delete_entry_linear(dir, name, len);
+}
+
 static int ext2_dir_is_empty(struct inode *dir)
 {
 	struct super_block *sb = dir->i_sb;
 	uint32_t block_index;
-
-	if (ext2_dir_is_indexed(dir))
-		return -ENOTSUP;
 
 	for (block_index = 0;
 	     (uint64_t)block_index * sb->s_block_size < (uint64_t)dir->i_size;
@@ -447,9 +1238,10 @@ static int ext2_readdir(struct inode *dir, struct file *file, void *dirent,
 	uint8_t *buf;
 	int error;
 
-	if (ext2_dir_is_indexed(dir))
-		return -ENOTSUP;
-
+	/*
+	 * Indexed directories use the same leaf-block format as linear ones, so
+	 * readdir can list them by walking the logical blocks directly.
+	 */
 	while ((uint64_t)file->f_pos < (uint64_t)dir->i_size) {
 		block_index = file->f_pos / block_size;
 		block_start = block_index * block_size;

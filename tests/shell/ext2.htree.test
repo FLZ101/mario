@@ -1,0 +1,24 @@
+# The hdc5 ext2 partition mounted at /usr contains a hash-indexed Vim syntax
+# directory.  Pick entries from each leaf block so lookup must walk the htree
+# index instead of accidentally scanning only the first directory block.
+RUN: export PATH=/bin/toybox:/bin
+
+# Leaf block 1 (lowest hash range).
+RUN: test -f /usr/share/vim/vim92/syntax/rcs.vim; echo rcs:$?
+CHECK: rcs:0
+RUN: test -f /usr/share/vim/vim92/syntax/nosyntax.vim; echo nosyntax:$?
+CHECK: nosyntax:0
+
+# Leaf block 3.
+RUN: test -f /usr/share/vim/vim92/syntax/gitsendemail.vim; echo gitsendemail:$?
+CHECK: gitsendemail:0
+
+# Leaf block 2.
+RUN: test -f /usr/share/vim/vim92/syntax/euphoria4.vim; echo euphoria4:$?
+CHECK: euphoria4:0
+RUN: test -f /usr/share/vim/vim92/syntax/syntax.vim; echo syntax:$?
+CHECK: syntax:0
+
+# Leaf block 4, including the entry at the htree boundary.
+RUN: test -f /usr/share/vim/vim92/syntax/icemenu.vim; echo icemenu:$?
+CHECK: icemenu:0

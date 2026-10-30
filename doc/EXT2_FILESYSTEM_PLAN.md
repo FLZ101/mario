@@ -95,6 +95,8 @@ Important fields:
 | 92 | compat feature flags |
 | 96 | incompat feature flags |
 | 100 | read-only compat feature flags |
+| 236 | hash seed (`s_hash_seed[4]`) |
+| 252 | default directory hash version |
 
 Compute:
 
@@ -120,9 +122,10 @@ For read-only support:
   - inline data
 - Support `EXT2_FEATURE_INCOMPAT_FILETYPE`, which is set by normal
   `mkfs.ext2` and means directory entries carry a `file_type` byte.
-- Compat and most read-only-compat features can be ignored for read access,
-  but indexed (`DIR_INDEX`) directories require either a linear-directory
-  fallback or explicit rejection.
+- Compat and most read-only-compat features can be ignored for read access.
+  Indexed (`DIR_INDEX`) directories are supported for read lookup when they
+  use the half-MD4 hash; unsupported hash versions fall back to a linear
+  directory scan.
 
 For writable support:
 
@@ -374,8 +377,45 @@ struct ext2_dir_entry_2 {
 - Skip deleted entries where `inode == 0`.
 - Return `iget(sb, entry.inode)`.
 
-If the directory has the ext2 index flag and htree indexing is not
-implemented, return `-ENOTSUP` instead of doing an incorrect linear search.
+For indexed directories, use the htree lookup described below. If the index
+uses an unsupported hash version or has an unsupported layout, fall back to
+the linear search across all directory blocks.
+
+### Indexed Directories (htree)
+
+Ext2 indexed directories set `EXT2_BTREE_FL` in the inode flags. Logical block
+zero is the htree root: it contains normal `.` and `..` entries followed by a
+`struct ext2_dx_root_info` at byte offset 24 and the dx entry array at byte
+offset 32. Interior nodes use the same dx entry layout at byte offset 8.
+
+The first dx entry is a dummy entry whose 32-bit `hash` word actually holds
+the `limit`/`count` pair. Its `block` word is the first block in the lowest
+hash range; real entries start at `entries + 1`.
+
+Read lookup is implemented in `src/fs/ext2/dir.c`:
+
+- Compute the filename hash with half-MD4, using the filesystem hash seed from
+  the superblock.
+- Binary-search the htree nodes, bounded by `indirect_levels`, and read the
+  selected leaf block.
+- Scan only that leaf block for the target `ext2_dir_entry_2`.
+
+The half-MD4 implementation lives in `src/fs/ext2/hash.c`. Only hash version
+`EXT2_HASH_HALF_MD4` is interpreted; legacy and TEA indexes fall back to the
+linear lookup.
+
+Indexed-directory mutation is supported for level-zero htree directories:
+
+- Adding an entry first tries the selected leaf block. If the new name is the
+  new minimum hash in that leaf, the corresponding root-index boundary is
+  updated.
+- If the leaf is full, the leaf is sorted by hash, split into two leaf blocks,
+  and a new root dx entry is inserted and shifted as needed.
+- Deleting an entry zeros the directory entry in its leaf. Empty leaves are
+  harmless: the index may keep their old range, but no lookup can match an
+  absent name in that range.
+- Unsupported layouts or root-full conditions clear `EXT2_BTREE_FL` and fall
+  back to the ordinary linear-directory mutation path, preserving correctness.
 
 ### Readdir
 
@@ -482,6 +522,7 @@ After the writable milestone, remove that internal flag and enforce
 - `src/fs/ext2/inode.c`
 - `src/fs/ext2/bmap.c`
 - `src/fs/ext2/dir.c`
+- `src/fs/ext2/hash.c`
 - `src/fs/ext2/file.c`
 - `src/fs/ext2/balloc.c`
 - `src/fs/ext2/ialloc.c`
@@ -625,7 +666,7 @@ When using the existing three-disk `qemu/Makefile` layout, use
 ### Milestone 2: Read-only file and directory I/O
 
 - Implement `ext2_bmap()` read path.
-- Implement directory lookup and readdir.
+- Implement directory lookup and readdir, including half-MD4 htree lookup.
 - Implement regular file read and fast/slow symlink read.
 - Implement `stat`/`statfs` integration.
 - Verify with `ls -l`, `cat`, `readlink`, `find`, and `getcwd` on an ext2
@@ -691,12 +732,17 @@ Automated test candidates:
 - `tests/shell/ext2.test`: mount, list, read, `stat`, and unmount.
 - `tests/shell/ext2-write.test`: create/write/read/delete/rename on a
   disposable ext2 image.
+- `tests/shell/ext2.htree.test`: look up files from different leaf blocks of
+  an indexed ext2 directory.
+- `tests/shell/ext2.htree.write.test`: create and delete entries in an indexed
+  directory, exercising leaf splits and root-index reindexing.
 - A small `app/test/ext2` program for deterministic sector/inode inspection.
 
 ## Deferred
 
 - ext3/ext4 journaling, extents, and 64-bit block numbers.
-- Htree/`DIR_INDEX` directories.
+- Htree root/internal-node splitting beyond level zero, where the current
+  driver deindexes the directory and uses linear mutation instead.
 - Extended attributes, ACLs, and metadata checksums.
 - Sparse superblock and resize-inode aware allocation.
 - Block-group preallocation and reservation heuristics.
