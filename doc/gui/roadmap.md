@@ -496,7 +496,7 @@ Change:
 - `app/usr/libpng/`: vendor pinned sources.
 - `app/usr/build-libpng.sh`, `app/usr/libpng.mk`.
 - `app/usr/libmario-ui/src/image.c`: BMP/PNG decode to `gui_surface`.
-- `rd/copy_files.py`: install `tests/gui/assets/gui/` under
+- `rd/copy_files.py`: install `tests/gui/assets/` under
   `/usr/share/mario-tests/gui`, so guest tests can copy its
   immutable fixture tree to `/tmp/gui-fixtures/` before every mutation.
 - `app/usr/imageviewer/`: viewer application and image cache.
