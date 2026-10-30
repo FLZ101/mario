@@ -10,3 +10,5 @@
 /zlib-*
 /sqlite-*
 /Python-*
+/libevent-*
+/tmux-*
