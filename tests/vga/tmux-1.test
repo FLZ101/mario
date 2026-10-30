@@ -1,7 +1,8 @@
 VGA-SEND-KEY: f2
 VGA-CHECK: / #
-VGA-SEND: TERM=linux TMUX_TMPDIR=/root/tmux-tmp tmux -L vga -f /dev/null new-session -s vga /bin/oksh
+VGA-SEND: tmux -L vga -f /dev/null new-session -s vga /bin/oksh
 SLEEP: 2
+VGA-CHECK: [vga]
 VGA-SEND: echo PANE_ONE
 VGA-CHECK: PANE_ONE
 VGA-SEND-KEY: ctrl-b

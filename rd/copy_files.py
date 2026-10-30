@@ -231,8 +231,10 @@ def copy_rootfs_files(
         "mnt",
         "proc",
         "sys",
+        "tmp",
     ):
         (root / rel).mkdir(parents=True, exist_ok=True)
+    os.chmod(root / "tmp", 0o1777)
 
     copied = copy_files(root, files, src_root_dir=ROOT)
 
