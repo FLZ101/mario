@@ -1,0 +1,12 @@
+# The helper verifies ioctls and raw write/readback, then draws a red 8x8
+# xrgb8888 block at the top-left of the scanout.
+# Exercise the raw framebuffer device from the serial control shell.
+SERIAL: /usr/bin/test/fb.exe
+SERIAL-CHECK: fb0: 1024x768 bpp=32 stride=4096
+# Open the independent interactive text terminal before sending it input.
+GUI-SEND-KEY: f2
+# Type and submit the diagnostic through the virtual keyboard, not serial.
+GUI-TYPE: dmesg | grep 'fb:'
+# F2 repaints after the raw write; the final scanout shows the typed diagnostic.
+GUI-CHECK-SCREEN: assets/fb.ppm
+EXIT:

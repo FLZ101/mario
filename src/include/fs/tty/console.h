@@ -82,6 +82,9 @@ dev_t get_fg_console_dev();
 struct tty_struct *get_fg_tty();
 struct console *get_fg_console();
 void switch_fg_console(int i);
+void console_snapshot_foreground(uint16_t mem[N_ROW][N_COL],
+				 unsigned int *pos_y, unsigned int *pos_x,
+				 int *cursor_hidden);
 
 #define SCREEN_BUF_SIZE (N_ROW * N_COL)
 #define SCREEN_BUF_BYTE_SIZE (N_ROW * N_COL * sizeof(uint16_t))

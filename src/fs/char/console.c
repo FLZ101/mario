@@ -8,6 +8,7 @@
 #include <lib/spinlock.h>
 
 #include <io.h>
+#include <video/fbcon.h>
 
 static struct console console_table[NUM_CONSOLE];
 static struct tty_struct console_tty_table[NUM_CONSOLE];
@@ -34,6 +35,11 @@ dev_t get_fg_console_dev()
 static int is_fg(struct console *con)
 {
 	return get_fg_console() == con;
+}
+
+static int legacy_present(struct console *con)
+{
+	return is_fg(con) && !fbcon_enabled();
 }
 
 // /dev/console is /dev/tty1
@@ -162,7 +168,7 @@ static uint16_t makec(struct console *con, unsigned char c)
 static void hide_cursor(struct console *con) {
 	con->cursor_hidden = 1;
 
-	if (!is_fg(con))
+	if (!legacy_present(con))
 		return;
 
 	// Disable cursor by setting bit 5 (0x20) in Cursor Start register
@@ -174,7 +180,7 @@ static void hide_cursor(struct console *con) {
 static void show_cursor(struct console *con) {
 	con->cursor_hidden = 0;
 
-	if (!is_fg(con))
+	if (!legacy_present(con))
 		return;
 
 	outb(0x3D4, 0x0A);
@@ -184,7 +190,7 @@ static void show_cursor(struct console *con) {
 
 static void move_cursor(struct console *con)
 {
-	if (!is_fg(con))
+	if (!legacy_present(con))
 		return;
 
 	unsigned int pos = N_COL * con->pos_y + con->pos_x;
@@ -225,7 +231,7 @@ static void erase_screen(struct console *con, unsigned row_start, unsigned row_e
 	unsigned n = N_COL * (row_end + 1 - row_start);
 
 	memsetw((void *)con->mem + addr, SPACE, n);
-	if (is_fg(con))
+	if (legacy_present(con))
 		memsetw((void *)VIDEO_MEM + addr, SPACE, n);
 }
 
@@ -245,7 +251,7 @@ static void __erase_line(struct console *con, int start, int end)
 
 	for (int i = start; i < end + 1; ++i) {
 		con->mem[con->pos_y][i] = SPACE;
-		if (is_fg(con))
+		if (legacy_present(con))
 			VIDEO_MEM[con->pos_y][i] = SPACE;
 	}
 }
@@ -289,14 +295,14 @@ static void __scroll(struct console *con, unsigned start, unsigned end, int up)
 		src *= SCREEN_ROW_BYTE_SIZE;
 		dst *= SCREEN_ROW_BYTE_SIZE;
 		memmove((void *)con->mem + dst, (void *)con->mem + src, size);
-		if (is_fg(con))
+		if (legacy_present(con))
 			memmove((void *)VIDEO_MEM + dst, (void *)VIDEO_MEM + src, size);
 	}
 
 	dst = up ? end : start;
 	dst *= SCREEN_ROW_BYTE_SIZE;
 	memsetw((void *)con->mem + dst, SPACE, N_COL);
-	if (is_fg(con))
+	if (legacy_present(con))
 		memsetw((void *)VIDEO_MEM + dst, SPACE, N_COL);
 }
 
@@ -309,11 +315,11 @@ static void delete_one_char(struct console *con, unsigned y, unsigned x)
 	if (start < end) {
 		unsigned sz = end - start;
 		memmove((void *)con->mem + start, (void *)con->mem + start + sizeof(uint16_t), sz);
-		if (is_fg(con))
+		if (legacy_present(con))
 			memmove((void *)VIDEO_MEM + start, (void *)VIDEO_MEM + start + sizeof(uint16_t), sz);
 	}
 	memsetw((void *)con->mem + end, SPACE, 1);
-	if (is_fg(con))
+	if (legacy_present(con))
 		memsetw((void *)VIDEO_MEM + end, SPACE, 1);
 }
 
@@ -326,11 +332,11 @@ static void insert_one_char(struct console *con, unsigned y, unsigned x)
 	if (start < end) {
 		unsigned sz = end - start;
 		memmove((void *)con->mem + start + sizeof(uint16_t), (void *)con->mem + start, sz);
-		if (is_fg(con))
+		if (legacy_present(con))
 			memmove((void *)VIDEO_MEM + start + sizeof(uint16_t), (void *)VIDEO_MEM + start, sz);
 	}
 	memsetw((void *)con->mem + start, SPACE, 1);
-	if (is_fg(con))
+	if (legacy_present(con))
 		memsetw((void *)VIDEO_MEM + start, SPACE, 1);
 }
 
@@ -394,7 +400,7 @@ void write_char(struct console *con, unsigned char c, int translate)
 
 		_x = makec(con, _x);
 		con->mem[con->pos_y][con->pos_x] = _x;
-		if (is_fg(con))
+		if (legacy_present(con))
 			VIDEO_MEM[con->pos_y][con->pos_x] = _x;
 		con->pos_x++;
 	}
@@ -839,7 +845,7 @@ static void use_alt_screen_buffer(struct console *con)
 	con->pos_x = 0;
 	con->pos_y = 0;
 
-	if (is_fg(con)) {
+	if (legacy_present(con)) {
 		memcpy(VIDEO_MEM, con->mem, SCREEN_BUF_BYTE_SIZE);
 		move_cursor(con);
 	}
@@ -866,7 +872,7 @@ static void use_normal_screen_buffer(struct console *con)
 	__do(bold);
 #undef __do
 
-	if (is_fg(con)) {
+	if (legacy_present(con)) {
 		memcpy(VIDEO_MEM, con->mem, SCREEN_BUF_BYTE_SIZE);
 		move_cursor(con);
 	}
@@ -1295,11 +1301,15 @@ static int console_write(struct tty_struct *tty, const char *buf, int count)
 	dev_t minor = MINOR(tty->dev);
 	struct console *con = &console_table[minor - tty->driver->minor];
 	unsigned long flags;
+	int was_fg;
 
 	spin_lock_irqsave(&console_lock, flags);
 	for (int i = 0; i < count; i++)
 		console_write_char(con, buf[i]);
+	was_fg = is_fg(con);
 	spin_unlock_irqrestore(&console_lock, flags);
+	if (was_fg)
+		fbcon_console_changed(con);
 	return count;
 }
 
@@ -1328,13 +1338,15 @@ void switch_fg_console(int i)
 	struct console *con = &console_table[i];
 	fg_console = i;
 
-	memcpy(VIDEO_MEM, con->mem, SCREEN_BUF_BYTE_SIZE);
-	move_cursor(con);
+	if (legacy_present(con)) {
+		memcpy(VIDEO_MEM, con->mem, SCREEN_BUF_BYTE_SIZE);
+		move_cursor(con);
 
-	if (con->cursor_hidden)
-		hide_cursor(con);
-	else
-		show_cursor(con);
+		if (con->cursor_hidden)
+			hide_cursor(con);
+		else
+			show_cursor(con);
+	}
 
 	// reset keyboard state
 	con->k.v_flags = 0;
@@ -1344,15 +1356,35 @@ void switch_fg_console(int i)
 	con->state = NORMAL;
 
 	spin_unlock_irqrestore(&console_lock, flags);
+	fbcon_console_switched(con);
 }
 
 void console_sync(struct console *con)
 {
 	unsigned long flags;
 
+	if (fbcon_enabled())
+		return;
+
 	spin_lock_irqsave(&console_lock, flags);
 	memcpy(con->mem, VIDEO_MEM, SCREEN_BUF_BYTE_SIZE);
 	get_cursor(&con->pos_y, &con->pos_x);
+	spin_unlock_irqrestore(&console_lock, flags);
+}
+
+void console_snapshot_foreground(uint16_t mem[N_ROW][N_COL],
+				 unsigned int *pos_y, unsigned int *pos_x,
+				 int *cursor_hidden)
+{
+	unsigned long flags;
+	struct console *con;
+
+	spin_lock_irqsave(&console_lock, flags);
+	con = &console_table[fg_console];
+	memcpy(mem, con->mem, SCREEN_BUF_BYTE_SIZE);
+	*pos_y = con->pos_y;
+	*pos_x = con->pos_x;
+	*cursor_hidden = con->cursor_hidden;
 	spin_unlock_irqrestore(&console_lock, flags);
 }
 
@@ -1394,7 +1426,8 @@ void console_init()
 	for (int i = 0; i < NUM_CONSOLE; ++i) {
 		struct tty_struct *tty = &console_tty_table[i];
 		con = &console_table[i];
-		console_reset(con);
+		if (i || !fbcon_enabled())
+			console_reset(con);
 
 		if (tty_init_struct(tty, MKDEV(TTY_MAJOR, TTY_MINOR_1 + i),
 				    &console_driver, N_ROW, N_COL))

@@ -24,13 +24,13 @@ while an earlier checkpoint is red.
 - Text tests run through the serial/tmux harness or a text VT, never the
   graphics session. GUI tests start from a text console, then use F8 to enter
   graphics mode.
-- Mario builds one common image. It always requests VBE, includes the
+- Mario builds one common image. Its GRUB4DOS menu selects VBE with `setvbe`, includes the
   framebuffer/input drivers and GUI payload, and uses F1-F6 versus F8 only as
   a runtime foreground-console transition.
 - Text and GUI tests run against that same image. `tests/lit_tty_test.py`,
-  `tests/lit_shell_test.py`, and the future `tests/lit_gui_test.py` run their
-  respective selected cases; GUI tests explicitly enter F8, while text tests
-  stay in the terminal harness.
+  `tests/lit_shell_test.py`, and `tests/lit_gui_test.py` run their respective
+  selected cases. M0 GUI tests exercise `/dev/fb0` and F1-F6 framebuffer text
+  VTs; F8 begins in M1.
 - When a milestone introduces a new GUI binary, update `app/usr/Makefile` and
   `rd/copy_files.py` in that milestone; verify with `rd/make-rd0.py` that
   `make image` installs and strips the binary into the common `ramdisk0`.
@@ -39,7 +39,7 @@ while an earlier checkpoint is red.
 
 | Milestone | Deliverable | Exit gate |
 | --- | --- | --- |
-| M0 — Framebuffer platform | VBE handoff, `/dev/fb0`, and framebuffer text VTs | `fb0.test` and `text-vt.test` |
+| M0 — Framebuffer platform | VBE handoff, `/dev/fb0`, and framebuffer text VTs | `fb.test` and `fb-tty.test` |
 | M1 — Graphics session and test control | F8 graphics mode, raw input, and GUI-runner primitives | console/input shell and GUI tests |
 | M2 — Toolkit and fonts | `libmario-ui`, pinned FreeType, bundled fonts | font and event screenshots |
 | M3 — Single-process desktop | compositor, windows, init integration, readiness/frame diagnostics | desktop and window screenshots |
@@ -75,16 +75,18 @@ Change:
   requests a framebuffer and initializes it when the handoff is valid.
 - `Makefile`: add `GUI_TEST_CASES ?= tests/gui` and `gui-test`, which invokes
   `tests/lit_gui_test.py`; add it to `test` after
-  `fb0.test` exists. Keep `vga-test` as an intentional no-op compatibility
+  `fb.test` exists. Keep `vga-test` as an intentional no-op compatibility
   target and never attach GUI coverage to it.
-- `src/include/multiboot.h`: add `MB_FLAG_VIDEO`, video type constants, and a
-  packed VBE mode info structure.
-- `src/kernel/start.S`: set `MB_FLAGS` to `0x00010403` (existing flags plus
-  `MB_FLAG_VBE`) and append mode type 0, width 1024, height 768, depth 32 in
-  the single image. Keep 1920x1080 as an interactive build-time request only
-  after the baseline QEMU test is stable.
+- `qemu/grub4dos-0.4.6a/menu.lst`: make GRUB4DOS the default disk loader and
+  use `setvbe 1024x768x32`. QEMU's direct `-kernel` Multiboot loader does not
+  supply VBE, so GUI runs boot the normal disk image.
+- `src/include/multiboot.h`: add framebuffer-extension fields plus the packed
+  legacy VBE mode-info structure. Keep the supported `MB_FLAGS=0x00010003`:
+  GRUB4DOS rejects the plan's former `0x00010403` header bit.
 - `src/include/video/fb.h`: add `struct fb_info`.
-- `src/video/fb.c`: add `fb_early_init()` and `fb_map()`.
+- `src/video/fb.c`: add `fb_early_init()` and `fb_map()`. Accept a direct
+  Multiboot framebuffer record, a legacy VBE mode-info record, or GRUB4DOS's
+  `video=<mode>@<base>,<pitch>` command-line handoff.
 - `src/kernel/mario.c` or the current kernel entry file: call `fb_early_init()`
   before paging teardown and `fb_map()` after paging is stable. Start the one
   `fbcon` kernel thread only after `sched_init_smp()`; it waits on `fbcon_wait`
@@ -97,22 +99,24 @@ Change:
 - `src/video/font_cp437_8x16.inc`: add the checked-in 256-glyph bitmap generated
   once from the bundled DejaVu Sans Mono source, with source/license metadata.
 - `src/fs/char/console.c`: render the existing 80x25 text-VT cell buffers with
-  a VGA-compatible 9x16 CP437 renderer into a centered `720x400` canvas
-  whenever a framebuffer is enabled; retain the legacy-VGA rendering path when
-  no framebuffer handoff is present. Replace every direct `VIDEO_MEM` mirror
-  with cell/span/row/full presentation calls, mark dirty bounds under
-  `console_lock`, and wake the `fbcon` thread after releasing that lock. Normal
-  output repaints changed cells only; only clear, alternate-screen, scroll, and
-  a foreground-VT switch may repaint broad regions.
+  a VGA-compatible 9x16 CP437 renderer centered in a 9x18 cell, leaving a
+  two-unit line gap, whenever a framebuffer is enabled; retain the legacy-VGA
+  rendering path when no framebuffer handoff is present. Replace every direct
+  `VIDEO_MEM` mirror with cell/span/row/full presentation calls, mark dirty
+  bounds under `console_lock`, and wake the `fbcon` thread after releasing that
+  lock. Normal output repaints changed cells only; only clear,
+  alternate-screen, scroll, and a foreground-VT switch may repaint broad
+  regions.
 - `src/include/fs/chrdev.h`: add `FB_MAJOR 13` and `FB_MINOR 0`.
 - `src/fs/char/fb.c`: implement open/lseek/read/write/release/ioctl.
 - `rd/device_list`: add `fb0 C 13 0`.
-- `tests/gui/fb0.test`: write a known pixel pattern and compare a screendump.
-- `tests/gui/text-vt.test`: use serial control to write a distinct fixed marker
-  at the same known cell location on each `/dev/tty1` through `/dev/tty6`,
-  inject F1-F6 through QMP, and compare that text-canvas crop after every
-  switch. It starts no GUI-seat helper and proves the framebuffer text path
-  independently of the desktop.
+- `tests/gui/fb.test`: switch to an `oksh` text terminal, type
+  `dmesg | grep 'fb:'` through QMP key events, then write a known pixel pattern
+  through `/dev/fb0` and compare the complete screendump.
+- `tests/gui/fb-tty.test`: switch to a text terminal, draw fixed colored
+  rectangles in its four corners, and compare complete screendumps with the
+  cursor shown and hidden. It starts no GUI-seat helper and proves the
+  framebuffer text path independently of the desktop.
 - `tests/lit_gui_test.py`: add a dedicated QMP/serial test runner. It uses QMP
   for `screendump` and input injection, serial only for guest control/status,
   and never shares implementation with the tmux text runner.
@@ -123,8 +127,8 @@ Build and run:
 make kernel
 make image
 make quick-run-gtk
-.venv/bin/python tests/lit_gui_test.py --test fb0.test tests/gui
-.venv/bin/python tests/lit_gui_test.py --test text-vt.test tests/gui
+.venv/bin/python tests/lit_gui_test.py --test fb.test tests/gui
+.venv/bin/python tests/lit_gui_test.py --test fb-tty.test tests/gui
 make gui-test
 ```
 
@@ -132,21 +136,21 @@ Checkpoint:
 
 - Kernel `printk` reports a nonzero width, height, stride, bpp, and physical
   base.
-- `fb0.test` passes.
-- `text-vt.test` proves F1-F6 show the correct independent 80x25 cell buffer
-  through the framebuffer renderer while no `/dev/gui` owner or desktop process
-  exists. The test retries its expected crop rather than sleeping, proving the
-  asynchronous `fbcon` paint has completed. F8 remains unavailable in M0.
+- `fb.test` passes.
+- `fb-tty.test` proves a text terminal's 80x25 cell buffer and cursor
+  visibility render through the framebuffer path while no `/dev/gui` owner or
+  desktop process exists. F8 remains unavailable in M0.
 - The same image passes all shell and TTY tests; without VBE information it
   falls back to legacy text output.
-- `fb0.test` performs its raw write/readback before M1 installs foreground-GUI
+- `fb.test` performs its raw write/readback before M1 installs foreground-GUI
   write gating; M0 proves the device ABI, not desktop ownership.
 
 Debug:
 
 - If the screen stays black, verify `MB_FLAGS` and the mode word order.
 - If the framebuffer is mapped at the wrong address, compare the VBE base
-  against the reserved kernel window and add an overlap check.
+  against the reserved `0xf0400000` kernel window. It must not share AHCI's
+  single-slot `ioremap()` aperture at `0xf0000000`.
 - If `/dev/fb0` reads garbage, check stride versus width and use
   `bytes_per_scanline` for every row.
 
@@ -188,7 +192,7 @@ Change:
   switch-away/switch-back.
 - `src/include/video/fb.h` and `src/fs/char/fb.c`: add
   `FBIOGET_CONSOLE_STATE` and wake `/dev/fb0` pollers with `POLLPRI` on
-  console switches. M0 permits the focused raw `fb0.test` writer; after M1,
+  console switches. M0 permits the focused raw `fb.test` writer; after M1,
   ordinary `/dev/fb0` writes return `-EBUSY` unless graphics is foreground.
   The kernel `fbcon` presenter bypasses this file-operation gate. User writes
   copy in bounded scanline-sized chunks with a foreground-generation check;
@@ -675,7 +679,7 @@ affected text regression; it boots the same image and stays on a text VT.
 Targeted tests:
 
 ```sh
-.venv/bin/python tests/lit_gui_test.py --test fb0.test tests/gui
+.venv/bin/python tests/lit_gui_test.py --test fb.test tests/gui
 .venv/bin/python tests/lit_gui_test.py --test gui.desktop.test tests/gui
 .venv/bin/python tests/lit_gui_test.py --test gui.terminal.test tests/gui
 .venv/bin/python tests/lit_gui_test.py --test gui.imageviewer.test tests/gui
@@ -722,6 +726,10 @@ GUI-runner and input-harness details:
   PPM comparisons are pixel-exact at 1024x768x32. The pinned theme, fonts,
   static `--:--` clock, fixed cursor, and deterministic fixtures make a
   tolerance unnecessary; a changed golden requires explicit review.
+- Every `tests/gui/*.test` file must contain a screenshot assertion. The runner
+  rejects a test that has only serial checks, input actions, or raw framebuffer
+  ABI probes; `GUI-CHECK-DIFFERENT` and `GUI-CHECK-MATCH` count because they
+  compare QMP screendumps.
 - Split coverage by layer: shell tests cover framebuffer/input record ABIs and
   error paths; GUI tests cover visible desktop behavior; each GUI test
   drives the real desktop, widgets, PTYs, and applications end to end.

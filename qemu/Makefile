@@ -75,15 +75,7 @@ debug:
 #	-display gtk
 #	-display curses
 #	-d int,mmu,guest_errors -D qemu.log
-QUICK_QEMU_FLAGS := \
-	-m 256M \
-	-smp $(SMP) \
-	-kernel $(KERNEL_EXE) \
-	-initrd $(RDX) \
-	-append "mario.smp=$(SMP)" \
-	-display $(QEMU_DISPLAY) \
-	$(HD_FLAGS) \
-	-no-reboot -no-shutdown
+QUICK_QEMU_FLAGS := $(QEMU_FLAGS)
 
 quick-run:
 	qemu-system-i386 $(QUICK_QEMU_FLAGS)

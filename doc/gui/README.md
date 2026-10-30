@@ -120,12 +120,12 @@ The following decisions are fixed for the first implementation:
   drivers, GUI binaries, fonts, and test fixtures. F1-F6 versus F8 is a
   runtime foreground-console choice, never a build or image choice.
 - If the loader supplies a valid framebuffer, text VTs are rendered from their
-  existing 80x25 cell buffers with a VGA-compatible 9x16 CP437 bitmap into a
-  centered `720x400` canvas while F1-F6 is foreground. The remaining scanout
-  pixels are black. This kernel-only presenter uses a fixed bitmap font, not
-  FreeType or any desktop/UI component. If no valid framebuffer is supplied,
-  the same image retains the legacy hardware text path and F8 remains
-  unavailable.
+  existing 80x25 cell buffers with a VGA-compatible 9x16 CP437 bitmap centered
+  in a 9x18 cell, leaving a two-unit line gap. The largest aspect-preserving
+  canvas is used while F1-F6 is foreground and the remaining scanout pixels
+  are black. This kernel-only presenter uses a fixed bitmap font, not FreeType
+  or any desktop/UI component. If no valid framebuffer is supplied, the same
+  image retains the legacy hardware text path and F8 remains unavailable.
 
 No phase may start until its entry conditions are met, and it is complete only
 when its listed test gate passes. Unix98 PTYs and the minimal `AF_UNIX` stream

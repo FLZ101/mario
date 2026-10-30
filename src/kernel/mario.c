@@ -12,6 +12,9 @@
 #include <mm/e820.h>
 #include <mm/mm.h>
 
+#include <video/fb.h>
+#include <video/fbcon.h>
+
 #include <fs/fs.h>
 
 #include <syscall_trace.h>
@@ -70,7 +73,9 @@ void mario(struct multiboot_info *m)
 	percpu_init();
 	printk_init(m);
 	setup_memory_region(m);
+	fb_early_init(m);
 	paging_init(m);
+	fb_map();
 	page_alloc_init();
 	trap_init();
 	irq_init();
@@ -91,6 +96,7 @@ void mario(struct multiboot_info *m)
 	futex_init();
 
 	sti();
+	fbcon_start();
 	/* The PIT is already running, which lets the AP start-up path wait on
 	 * jiffies for INIT/SIPI pacing. */
 	smp_init();

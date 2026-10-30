@@ -351,7 +351,7 @@ rd/device_list             # adds fb0, gui, psaux, ptmx, pts/0..31
 Test:
 
 ```text
-tests/gui/fb0.test
+tests/gui/fb.test
 tests/gui/gui.desktop.test
 tests/gui/gui.terminal.test
 tests/gui/gui.imageviewer.test

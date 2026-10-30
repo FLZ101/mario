@@ -5,15 +5,16 @@ services required before userspace can draw and manage windows.
 
 ## 1. Request a Multiboot Video Mode
 
-**Ownership boundary:** the Multiboot producer (GRUB/QEMU loader or the
-future real-mode custom bootloader) chooses and sets a VBE mode. The kernel
+**Ownership boundary:** GRUB4DOS chooses and sets the VBE mode for the image.
+The kernel
 does not enumerate VBE modes: BIOS interfaces are unavailable and inappropriate
 after entering protected mode. The kernel validates the resulting Multiboot
 framebuffer record and either maps it or stays in text mode.
 
 In `src/include/multiboot.h`:
 
-- Add `MB_FLAG_VIDEO` as an alias for the existing `MB_FLAG_VBE`.
+- Add the Multiboot framebuffer extension and the packed legacy VBE Mode Info
+  Block used by GRUB4DOS.
 - Add Multiboot video mode type constants:
 
   ```c
@@ -34,14 +35,14 @@ In `src/include/multiboot.h`:
   uint32_t phys_base_ptr;
   ```
 
-In `src/kernel/start.S`, always set `MB_FLAGS` to `0x00010403` (existing flags
-plus `MB_FLAG_VBE`: `0x00010003 | 0x00000400`) and append preferred-mode words
-after the existing address fields: mode type `0`, width `1024`, height `768`,
-depth `32`. Keep `MB_CHECK` as `-(MB_MAGIC + MB_FLAGS)` so the header checksum
-updates automatically. A later interactive build setting may request
-1920x1080 once the baseline screenshot test is stable. This is part of the
-single Mario image; it is not conditioned on a GUI build flag. The kernel
-initializes the framebuffer whenever the Multiboot handoff passes validation.
+Keep the supported `MB_FLAGS=0x00010003` header in `src/kernel/start.S`.
+GRUB4DOS rejects the former `0x00010403` request bit and QEMU's direct
+`-kernel` Multiboot loader does not provide VBE. Instead,
+`qemu/grub4dos-0.4.6a/menu.lst` uses `setvbe 1024x768x32` before loading the
+kernel. GRUB4DOS appends `video=1024x768x32@<physical-base>,<byte-pitch>` to
+the Multiboot command line; the kernel validates that form and uses the QEMU
+stdvga `xrgb8888` layout. A direct Multiboot framebuffer or legacy VBE record
+remains preferred when present.
 
 The preferred mode is a request. For "always use the highest supported mode",
 the *custom bootloader* must enumerate VBE modes before protected mode:
@@ -73,11 +74,9 @@ Fallback selection rule:
 - For a non-32-bpp fallback mode, `/dev/fb0` still exposes the real masks and
   offsets; `libmario-ui` performs the conversion on every flush.
 
-For QEMU's built-in Multiboot loader, the preferred-mode header is sufficient
-for the first test image. For the custom `src/boot/boot.asm`, VBE enumeration
-is a later bootloader milestone. Until then, the custom-loader path retains
-the existing text fallback. This is a deliberate compatibility split, not a
-partial kernel implementation.
+The GUI test runner boots the normal GRUB4DOS disk image. The direct QEMU
+`-kernel` and custom `src/boot/boot.asm` paths retain the existing text
+fallback until they can provide one of the validated framebuffer handoffs.
 
 EDID/DDC is out of scope. This plan selects the highest VBE BIOS mode rather
 than the monitor's native physical mode.
@@ -112,8 +111,9 @@ Lifecycle:
    Multiboot memory is still mapped.
 2. After `paging_init()`, `fb_map()` creates kernel page-table entries for the
    framebuffer physical range.
-3. Use an explicit reserved kernel virtual window such as `0xF0000000`
-   (`KERNEL_BASE + 0x70000000`). Validate it against RAM mappings.
+3. Use the explicit `0xF0400000` framebuffer window. It is deliberately in a
+   different page-directory entry from AHCI's single-slot `ioremap()` aperture
+   at `0xF0000000`.
 4. If VBE data is absent or invalid, leave `fb_info.enabled == 0` and continue
    with text mode.
 
@@ -210,7 +210,7 @@ Device ownership and access:
   the fd to clients. Client surfaces are composited by the server.
 - Create `/dev/fb0` with root-only permissions (0600 initially). If Mario
   gains a permission system later, add a dedicated `video` group.
-- M0 permits its one exclusive raw `/dev/fb0` writer so `fb0.test` can prove
+- M0 permits its one exclusive raw `/dev/fb0` writer so `fb.test` can prove
   the device ABI without a GUI session. M1 changes ordinary writes to return
   `-EBUSY` unless graphics is foreground; the kernel `fbcon` presenter is not a
   file-operation client and is unaffected by that gate. The desktop redraws
@@ -227,9 +227,10 @@ Device ownership and access:
 
 Keep the existing 80x25 text-console cell buffers as the canonical text VT
 state. When a framebuffer is enabled, render those cells through a
-VGA-compatible 9x16 CP437 text renderer into a centered `720x400` canvas;
-without one, retain the existing legacy-VGA output. The renderer uses the
-legacy 16-color palette and reproduces the current text cursor and attributes:
+VGA-compatible 9x16 CP437 text renderer into the largest centered,
+aspect-preserving canvas that fits the framebuffer; without one, retain the
+existing legacy-VGA output. The renderer uses the legacy 16-color palette and
+reproduces the current text cursor and attributes:
 
 This compatibility-console path is an M0 requirement. It initializes before
 `/dev/gui`, `mario-desktop`, or any F8 graphics-session support exists: booting
@@ -259,10 +260,19 @@ a GUI widget, does not depend on `/dev/fb0` file operations, and is available
 before any userspace process starts.
 
 - The checked-in font table is a 256-glyph, one-bit CP437 8x16 bitmap generated
-  once from the bundled DejaVu Sans Mono source, with the source version and
-  license recorded beside the generated file. The renderer adds the ninth
-  column needed by the 80x25 VGA-compatible canvas and repeats the final glyph
-  column only for CP437 box-drawing characters.
+  from the bundled DejaVu Sans Mono source by `util/gen_cp437_font.py`, with
+  the source version and license recorded beside the generated file. The
+  renderer adds the ninth column needed by the 80x25 VGA-compatible canvas and
+  repeats the final glyph column only for CP437 box-drawing characters.
+- The presenter uses a 9x18 cell: the 9x16 glyph is vertically centered with
+  a two-unit background gap between rows. It scales that grid as a whole, then
+  distributes any fractional output pixels across rows and columns. Thus
+  `1024x768` uses a centered `1024x640` canvas and `1920x1080` uses
+  `1728x1080`, while terminal applications continue to observe an unchanged
+  80x25 geometry.
+- Scaled bitmap glyphs use fixed-point bilinear coverage to blend their
+  foreground and background palette colors, smoothing enlarged text without
+  changing the CP437 glyph set, cell layout, or box-drawing extension.
 - `fbcon` maps the existing 4-bit foreground/background attributes through the
   canonical VGA 16-color palette. It writes directly through `fb_info` using
   the actual stride and pixel masks; it never assumes XRGB8888 outside the
@@ -272,10 +282,17 @@ before any userspace process starts.
   `show_cursor`, `hide_cursor`, and `move_cursor` must therefore dispatch to
   `fbcon` instead of programming the VGA CRTC cursor registers. The initial
   cursor is a non-blinking, two-pixel-high inverse-color underline; blinking is
-  deferred so screenshot output is deterministic.
+  deferred so screenshot output is deterministic. `CSI ?25l` hides the
+  underline and `CSI ?25h` restores it.
 - On the legacy path, retain the current `VIDEO_MEM` and hardware-cursor
   behavior unchanged. `console_sync()` imports `0xB8000` only on that path;
   in framebuffer mode `con->mem` is already authoritative.
+- `printk_init()` prepares `tty1` before device initialization and records
+  early kernel output in its cell buffer. A framebuffer boot preserves that
+  prepared buffer when `console_init()` registers the tty devices, so F1 shows
+  the kernel boot text once `fbcon` performs its first repaint. GRUB4DOS menu
+  text cannot be preserved because `setvbe` replaces the bootloader text mode
+  before the kernel starts.
 
 Refactor the current direct `VIDEO_MEM` mirrors into one presentation boundary:
 

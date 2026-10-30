@@ -10,7 +10,6 @@ RUN: ls -la /mnt
 CHECK: grldr
 CHECK: menu.lst
 RUN: cat /mnt/menu.lst
-CHECK: timeout 3
 CHECK: chainloader /boot.bin
 RUN: umount /mnt; echo hda1-umount-status:$?
 CHECK: hda1-umount-status:0

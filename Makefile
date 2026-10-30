@@ -8,10 +8,11 @@ PYTHON := $(ROOT)/.venv/bin/python
 VENV_STAMP := $(ROOT)/.venv/.stamp
 SHELL_TEST_CASES ?= tests/shell
 TTY_TEST_CASES ?= tests/tty
+GUI_TEST_CASES ?= tests/gui
 
 .PHONY: all kernel rd app image run debug \
-	quick-run quick-debug quick-run-gtk quick-debug-gtk \
-	test test-all shell-test tty-test vga-test \
+	quick-run quick-debug run-gtk debug-gtk quick-run-gtk quick-debug-gtk \
+	test test-all shell-test tty-test gui-test \
 	musl venv precommit setup \
 	compiler-rt
 
@@ -85,10 +86,10 @@ shell-test: venv kernel rd image
 tty-test: venv kernel rd image
 	$(PYTHON) tests/lit_tty_test.py --smp $(SMP) --jobs $(JOBS) $(TTY_TEST_CASES)
 
-vga-test:
-	@:
+gui-test: venv kernel rd image
+	$(PYTHON) tests/lit_gui_test.py --smp $(SMP) --jobs $(JOBS) $(GUI_TEST_CASES)
 
-test: shell-test tty-test
+test: shell-test tty-test gui-test
 
 test-all:
 	$(MAKE) test SMP=1
@@ -116,6 +117,12 @@ quick-run: image
 
 quick-debug: image
 	$(MAKE) quick-debug -C qemu
+
+run-gtk: image
+	$(MAKE) QEMU_DISPLAY=gtk run -C qemu
+
+debug-gtk: image
+	$(MAKE) QEMU_DISPLAY=gtk debug -C qemu
 
 quick-run-gtk: image
 	$(MAKE) QEMU_DISPLAY=gtk quick-run -C qemu

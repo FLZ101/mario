@@ -1,6 +1,13 @@
 # GUI Test Fixtures
 
-These are deterministic source fixtures, not golden screenshots:
+Golden screenshots are complete 1024 by 768 PPM QMP screendumps checked by
+`GUI-CHECK-SCREEN`:
+
+- `fb.ppm`: raw `/dev/fb0` write result.
+- `fb-tty.ppm`: framebuffer text-terminal state.
+- `fb-tty-cursor-hidden.ppm`: framebuffer text terminal with the cursor hidden.
+
+Other files are deterministic source fixtures, not golden screenshots:
 
 - `checker-64.bmp`: 64 by 64 24-bit BMP with four repeating colors; verifies
   BMP channel order and bottom-up decoding.

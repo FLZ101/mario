@@ -1,10 +1,17 @@
 timeout 3
 
+title mario (grub4dos VBE 1024x768x32)
+find --set-root /kernel.exe
+setvbe 1024x768x32
+kernel /kernel.exe
+module /rdx
+
+title mario (grub4dos VBE 1920x1080x32)
+find --set-root /kernel.exe
+setvbe 1920x1080x32
+kernel /kernel.exe
+module /rdx
+
 title mario (boot.bin)
 find --set-root /boot.bin
 chainloader /boot.bin
-
-title mario (grub4dos)
-find --set-root /kernel.exe
-kernel /kernel.exe
-module /rdx

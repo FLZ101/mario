@@ -19,7 +19,17 @@
 #define MB_FLAG_MODULE  0x008
 #define MB_FLAG_MMAP    0x040
 #define MB_FLAG_LOADER  0x100
-#define MB_FLAG_VBE     0x400
+#define MB_FLAG_APM     0x400
+#define MB_FLAG_VBE     0x800
+#define MB_FLAG_FRAMEBUFFER 0x1000
+
+/* Multiboot header mode types. */
+#define MB_VIDEO_TYPE_GRAPHICS 0
+#define MB_VIDEO_TYPE_TEXT     1
+
+#define MB_FRAMEBUFFER_TYPE_INDEXED 0
+#define MB_FRAMEBUFFER_TYPE_RGB     1
+#define MB_FRAMEBUFFER_TYPE_EGA_TEXT 2
 
 #ifndef __ASSEMBLY__
 
@@ -58,6 +68,27 @@ struct multiboot_info {
 	__u16 vbe_interface_seg;
 	__u16 vbe_interface_off;
 	__u16 vbe_interface_len;
+
+	__u64 framebuffer_addr;
+	__u32 framebuffer_pitch;
+	__u32 framebuffer_width;
+	__u32 framebuffer_height;
+	__u8 framebuffer_bpp;
+	__u8 framebuffer_type;
+	union {
+		struct {
+			__u32 framebuffer_palette_addr;
+			__u16 framebuffer_palette_num_colors;
+		} __attribute__((gcc_struct, packed));
+		struct {
+			__u8 framebuffer_red_field_position;
+			__u8 framebuffer_red_mask_size;
+			__u8 framebuffer_green_field_position;
+			__u8 framebuffer_green_mask_size;
+			__u8 framebuffer_blue_field_position;
+			__u8 framebuffer_blue_mask_size;
+		} __attribute__((gcc_struct, packed));
+	};
 } __attribute__((gcc_struct, packed));  /* !!! */
 
 struct multiboot_module
@@ -67,6 +98,39 @@ struct multiboot_module
 	__u32 string;
 	__u32 reserved;
 };
+
+struct multiboot_vbe_mode_info {
+	__u16 mode_attributes;
+	__u8 win_a_attributes;
+	__u8 win_b_attributes;
+	__u16 win_granularity;
+	__u16 win_size;
+	__u16 win_a_segment;
+	__u16 win_b_segment;
+	__u32 win_func_ptr;
+	__u16 bytes_per_scanline;
+	__u16 x_resolution;
+	__u16 y_resolution;
+	__u8 x_char_size;
+	__u8 y_char_size;
+	__u8 number_of_planes;
+	__u8 bits_per_pixel;
+	__u8 number_of_banks;
+	__u8 memory_model;
+	__u8 bank_size;
+	__u8 number_of_image_pages;
+	__u8 reserved1;
+	__u8 red_mask_size;
+	__u8 red_field_position;
+	__u8 green_mask_size;
+	__u8 green_field_position;
+	__u8 blue_mask_size;
+	__u8 blue_field_position;
+	__u8 reserved_mask_size;
+	__u8 reserved_field_position;
+	__u8 direct_color_mode_info;
+	__u32 phys_base_ptr;
+} __attribute__((gcc_struct, packed));
 
 #define MB_MEM_AVAILABLE 1
 

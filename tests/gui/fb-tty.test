@@ -1,0 +1,25 @@
+# F6 switches to the framebuffer-backed tty6 without a desktop process.
+# Draw four fixed color blocks at the terminal corners through a multiline
+# serial shell script, leaving the framebuffer margin black.
+SERIAL: <<TTY6
+{
+    printf '\033[2J\033[H\033[8;20HVT6-MARKER'
+    for row in 1 2 3; do
+        printf "\033[${row};1H\033[46m                    \033[${row};60H\033[42m                    "
+    done
+    for row in 23 24 25; do
+        printf "\033[${row};1H\033[45m                    \033[${row};60H\033[43m                    "
+    done
+    printf '\033[0m\033[8;20HVT6-MARKER'
+} > /dev/tty6
+TTY6
+# F6 presents the prepared terminal cell buffer on the framebuffer.
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+# Cursor visibility changes only the underline at the active cursor cell.
+SERIAL: printf '\033[?25l' > /dev/tty6
+GUI-CHECK-SCREEN: assets/fb-tty-cursor-hidden.ppm
+SERIAL: printf '\033[?25h' > /dev/tty6
+# Showing the cursor restores the original full framebuffer image.
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+EXIT:
