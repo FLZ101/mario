@@ -1,8 +1,0 @@
-VGA-SEND-KEY: f2
-VGA-CHECK: / #
-VGA-SEND: vim
-SLEEP: 5
-VGA-CHECK: VIM - Vi IMproved
-VGA-CHECK: version 9.2.428
-VGA-CHECK: [No Name]
-VGA-CHECK-SCREEN: vim-0.ppm,1,12

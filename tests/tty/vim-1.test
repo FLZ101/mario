@@ -1,0 +1,15 @@
+TTY-SEND: vim /etc/welcome.txt
+SLEEP: 5
+TTY-CHECK: _______
+TTY-SEND: :vsplit
+TTY-SEND: :split
+TTY-SEND-RAW: gg0
+TTY-SEND-RAW: i
+TTY-SEND: the quick brown fox
+TTY-SEND-RAW: \x1b
+TTY-SEND-RAW: G
+TTY-SEND-RAW: o
+TTY-SEND: the lazy dog
+TTY-SEND-RAW: \x1b
+SLEEP: 1
+TTY-CHECK-PANEL: vim-1.txt

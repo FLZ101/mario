@@ -1,0 +1,24 @@
+  1 the quick brown fox                |  1 the quick brown fox
+  2  _______                           |  2  _______
+  3 < Hello >                          |  3 < Hello >
+  4  -------                           |  4  -------
+  5         \   ^__^                   |  5         \   ^__^
+  6          \  (oo)\_______           |  6          \  (oo)\_______
+  7             (__)\       )\/\       |  7             (__)\       )\/\
+  8                 ||----w |          |  8                 ||----w |
+  9                 ||     ||          |  9                 ||     ||
+ 10 the lazy dog                       | 10 the lazy dog
+ 11                                     <tc/welcome.txt [+]1,2 All | latin1 dos
+~                                      |  1 the quick brown fox
+~                                      |  2  _______
+~                                      |  3 < Hello >
+~                                      |  4  -------
+~                                      |  5         \   ^__^
+~                                      |  6          \  (oo)\_______
+~                                      |  7             (__)\       )\/\
+~                                      |  8                 ||----w |
+~                                      |  9                 ||     ||
+~                                      | 10 the lazy dog
+~                                      | 11
+<c/welcome.txt [+]1,2 All | latin1 dos  <c/welcome.txt [+]9,17 All | latin1 dos
+-- INSERT --                                                         ^[

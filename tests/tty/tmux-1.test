@@ -1,0 +1,28 @@
+TTY-SEND: printf 'set -g status-right ""\n' > /tmp/tmux-tty.conf
+TTY-SEND: tmux -L tty -f /tmp/tmux-tty.conf new-session -s tty /bin/oksh
+SLEEP: 2
+TTY-CHECK: [tty]
+TTY-SEND: echo PANE_ONE
+TTY-CHECK: PANE_ONE
+TTY-SEND-KEY: C-b
+TTY-SEND-RAW: %
+SLEEP: 1
+TTY-SEND: echo PANE_TWO
+TTY-CHECK: PANE_TWO
+TTY-SEND-KEY: C-b
+TTY-SEND-RAW: "
+SLEEP: 1
+TTY-SEND: echo PANE_THREE
+TTY-CHECK: PANE_THREE
+TTY-SEND-KEY: C-b
+TTY-SEND-RAW: c
+SLEEP: 1
+TTY-SEND: echo WINDOW_TWO
+TTY-SEND-KEY: C-b
+TTY-SEND-RAW: p
+SLEEP: 1
+TTY-CHECK: PANE_ONE
+TTY-CHECK: PANE_TWO
+TTY-CHECK: PANE_THREE
+TTY-CHECK-NOT: server exited unexpectedly
+TTY-CHECK-PANEL: tmux-1.txt

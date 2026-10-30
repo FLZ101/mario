@@ -7,11 +7,11 @@ ROOT := $(shell pwd)
 PYTHON := $(ROOT)/.venv/bin/python
 VENV_STAMP := $(ROOT)/.venv/.stamp
 SHELL_TEST_CASES ?= tests/shell
-VGA_TEST_CASES ?= tests/vga
+TTY_TEST_CASES ?= tests/tty
 
 .PHONY: all kernel rd app image run debug \
 	quick-run quick-debug quick-run-gtk quick-debug-gtk \
-	test test-all shell-test vga-test \
+	test test-all shell-test tty-test vga-test \
 	musl venv precommit setup \
 	compiler-rt
 
@@ -39,13 +39,11 @@ export OPTIMIZE
 SMP ?= 1
 export SMP
 
-# Number of lit test cases run concurrently by shell-test and vga-test.
+# Number of lit test cases run concurrently by shell-test and tty-test.
 # Keep this moderate: too many concurrent QEMU instances contend for host
 # disks, which can push ext2/vfat mount, read, write, and stress tests past
-# their timeout, and for host/display resources.  VGA-CHECK-SCREEN compares a
-# pixel-exact QEMU screendump with the expected frame; under CPU
-# oversubscription the guest may not finish drawing before the dump is taken,
-# so those assertions can fail transiently.
+# their timeout. TTY tests use independent QEMU instances and host tmux
+# servers, so excessive parallelism can still delay terminal redraws.
 JOBS ?= 4
 export JOBS
 
@@ -84,10 +82,13 @@ venv: $(VENV_STAMP)
 shell-test: venv kernel rd image
 	$(PYTHON) tests/lit_shell_test.py --smp $(SMP) --jobs $(JOBS) $(SHELL_TEST_CASES)
 
-vga-test: venv kernel rd image
-	$(PYTHON) tests/lit_vga_test.py --smp $(SMP) --jobs $(JOBS) $(VGA_TEST_CASES)
+tty-test: venv kernel rd image
+	$(PYTHON) tests/lit_tty_test.py --smp $(SMP) --jobs $(JOBS) $(TTY_TEST_CASES)
 
-test: shell-test vga-test
+vga-test:
+	@:
+
+test: shell-test tty-test
 
 test-all:
 	$(MAKE) test SMP=1

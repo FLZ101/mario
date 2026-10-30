@@ -1,0 +1,4 @@
+TTY-SEND: vim -Nu NONE -c 'set shortmess+=I'
+SLEEP: 5
+TTY-CHECK: 0,0-1
+TTY-CHECK-PANEL: vim-0.txt

@@ -1,0 +1,25 @@
+MARIO_TTY_PROMPT> echo PANE_ONE         x/ # echo PANE_TWO
+PANE_ONE                                xPANE_TWO
+MARIO_TTY_PROMPT>                       x/ #
+                                        x
+                                        x
+                                        x
+                                        x
+                                        x
+                                        x
+                                        x
+                                        x
+                                        x
+                                        tqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+                                        x/ # echo PANE_THREE
+                                        xPANE_THREE
+                                        x/ #
+                                        x
+                                        x
+                                        x
+                                        x
+                                        x
+                                        x
+                                        x
+                                        x
+[tty] 0:oksh* 1:oksh-

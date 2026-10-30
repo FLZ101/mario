@@ -1,0 +1,8 @@
+TTY-SEND: hexedit -r /etc/welcome.txt
+TTY-CHECK: readonly
+SLEEP: 1
+TTY-CHECK-PANEL: toybox.hexedit.txt
+TTY-SEND-RAW: q
+SLEEP: 1
+TTY-SEND: echo HEXEDIT-EXIT-OK
+TTY-CHECK: HEXEDIT-EXIT-OK
