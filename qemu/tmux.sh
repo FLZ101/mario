@@ -22,39 +22,48 @@ if [ "$1" == "start" ]; then
         exit 1
     fi
 
+    mkdir -p "$cwd/tmp"
+
     tmux new-session -d -s "$SESSION_NAME"
+    CON_WIN=$(tmux display-message -t "$SESSION_NAME" -p '#{window_index}')
 
     declare -a ARGS
     ARGS=()
+    SERIAL_WINS=()
 
     NUM_SERIALS=4
-    for ((i=1; i<=$NUM_SERIALS; i++)); do
-        tmux new-window -t "$SESSION_NAME"
-        WIN=$((i+1))
-        rm -f tmp/unix-$WIN
+    for ((i=0; i<NUM_SERIALS; i++)); do
+        WIN=$(tmux new-window -d -P -F '#{window_index}' -t "$SESSION_NAME")
+        SERIAL_WINS+=("$WIN")
+        rm -f "$cwd/tmp/unix-$WIN"
         ARGS+=(-serial "unix:$cwd/tmp/unix-$WIN,server=on,wait=on")
-        tmux select-pane -t "$SESSION_NAME:$WIN.1" -T "serial $((i-1))"
-        tmux send-keys -t "$SESSION_NAME:$WIN.1" 'clear' Enter
+        tmux select-pane -t "$SESSION_NAME:$WIN" -T "serial $i"
+        tmux send-keys -t "$SESSION_NAME:$WIN" 'clear' Enter
     done
 
-    tmux select-pane -t "$SESSION_NAME:1.1" -T "con"
-    tmux send-keys -t "$SESSION_NAME:1.1" 'clear' Enter
+    tmux select-pane -t "$SESSION_NAME:$CON_WIN" -T "con"
+    tmux send-keys -t "$SESSION_NAME:$CON_WIN" 'clear' Enter
 
     FULL_QEMU_CMD=( "$QEMU_BIN" "${ARGS[@]}" "$@" )
 
-    tmux send-keys -t "$SESSION_NAME:1.1" "${FULL_QEMU_CMD[*]}" Enter
+    tmux send-keys -t "$SESSION_NAME:$CON_WIN" "${FULL_QEMU_CMD[*]}" Enter
 
-    for ((i=1; i<=$NUM_SERIALS; i++)); do
-        WIN=$((i+1))
-        socket=$cwd/tmp/unix-$WIN
-        while [[ ! -e $socket ]] ; do
+    for ((i=0; i<NUM_SERIALS; i++)); do
+        WIN=${SERIAL_WINS[$i]}
+        socket="$cwd/tmp/unix-$WIN"
+        for ((try=1; try<=30; try++)); do
+            [ -e "$socket" ] && break
             echo "Waiting for $socket ..."
             sleep 1
         done
-        tmux send-keys -t "$SESSION_NAME:$WIN.1" "socat STDIO,cfmakeraw,isig=1 UNIX:$socket" Enter
+        if [ ! -e "$socket" ]; then
+            echo "Error: timed out waiting for $socket; is QEMU starting?" >&2
+            exit 1
+        fi
+        tmux send-keys -t "$SESSION_NAME:$WIN" "socat STDIO,cfmakeraw,isig=1 UNIX:$socket" Enter
     done
 
-    tmux select-window -t "$SESSION_NAME:1"
+    tmux select-window -t "$SESSION_NAME:$CON_WIN"
 
     echo ":-)"
 

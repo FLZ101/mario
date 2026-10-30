@@ -46,6 +46,9 @@ clean:
 
 ifneq ($(QEMU_DISPLAY),gtk)
 QEMU_DISPLAY	:=curses
+QEMU_VGA	:=none
+else
+QEMU_VGA	:=std
 endif
 
 HD_FLAGS := \
@@ -63,6 +66,7 @@ QEMU_FLAGS := \
 	-m 256M \
 	-smp $(SMP) \
 	-display $(QEMU_DISPLAY) \
+	-vga $(QEMU_VGA) \
 	$(HD_FLAGS) \
 	-no-reboot -no-shutdown
 
@@ -75,7 +79,14 @@ debug:
 #	-display gtk
 #	-display curses
 #	-d int,mmu,guest_errors -D qemu.log
-QUICK_QEMU_FLAGS := $(QEMU_FLAGS)
+QUICK_QEMU_FLAGS := \
+	-m 256M \
+	-smp $(SMP) \
+	-kernel $(KERNEL_EXE) \
+	-initrd $(RDX) \
+	-display $(QEMU_DISPLAY) \
+	$(HD_FLAGS) \
+	-no-reboot -no-shutdown
 
 quick-run:
 	qemu-system-i386 $(QUICK_QEMU_FLAGS)
