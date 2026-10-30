@@ -164,15 +164,17 @@ int sys_getdents64(unsigned int fd, void *dirent, unsigned int count)
 
 extern int lookup(struct inode *dir, char *name, int len, struct inode **res);
 
-// NOTE: inode is eaten
-static struct inode *get_parent_dir_inode(struct inode *inode)
+// NOTE: inode is eaten by lookup(), including on error paths.
+static struct inode *get_parent_dir_inode(struct inode *inode, int *err)
 {
-	assert(S_ISDIR(inode->i_mode));
-
 	struct inode *parent = NULL;
 
-	int err = lookup(inode, "..", 2, &parent);
-	assert(!err && parent && "Fail to get parent directory's inode");
+	*err = lookup(inode, "..", 2, &parent);
+	if (*err || !parent) {
+		if (!*err)
+			*err = -ENOENT;
+		return NULL;
+	}
 
 	return parent;
 }
@@ -270,7 +272,10 @@ int sys_getcwd(char *buf, unsigned long size)
 		}
 
 		ino_t ino = inode->i_ino;
-		parent = get_parent_dir_inode(inode); // inode is eaten
+		int lookup_err = 0;
+		parent = get_parent_dir_inode(inode, &lookup_err);
+		if (!parent)
+			return lookup_err;
 		if (inode == parent)
 			break;
 
