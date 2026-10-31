@@ -6,7 +6,7 @@ gcc
 binutils
 nasm
 gdb
-clang-tidy
+clang-tools-extra
 
 # 32-bit compiler support for Mario's -m32 builds.
 glibc-devel.i686
@@ -39,7 +39,6 @@ socat
 # Python environment used by the lit runners and pre-commit.
 python3
 python3-pip
-python3-venv
 
 # Host Python build dependencies.
 zlib-devel
