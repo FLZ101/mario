@@ -6,6 +6,7 @@ from pathlib import Path
 import mkdisk
 
 GRUB = Path("grub4dos-0.4.6a")
+MENU = Path(os.environ.get("MARIO_BOOT_MENU", GRUB / "menu.lst"))
 
 disk = mkdisk.Disk(
     name="hd1",
@@ -20,7 +21,7 @@ disk = mkdisk.Disk(
             bootable=True,
             content=(
                 (GRUB / "grldr", "/"),
-                (GRUB / "menu.lst", "/"),
+                (MENU, "/"),
                 (Path("hd1/p1"), "/"),
             ),
         ),

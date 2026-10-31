@@ -107,10 +107,10 @@ image: kernel rd
 	$(MAKE) -C qemu
 
 run: image
-	$(MAKE) run -C qemu
+	$(MAKE) BOOT_ENTRY=2 run -C qemu
 
 debug: image
-	$(MAKE) debug -C qemu
+	$(MAKE) BOOT_ENTRY=2 debug -C qemu
 
 quick-run: image
 	$(MAKE) quick-run -C qemu
