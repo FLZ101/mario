@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 r"""A very small lit-style runner for Mario shell behavior tests.
 
 Test files use a tiny subset of lit syntax:

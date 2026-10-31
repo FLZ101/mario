@@ -14,12 +14,16 @@ struct fb_bitfield {
 	uint32_t length;
 };
 
+/* Mirror of src/include/video/fb.h. */
 struct fb_var_screeninfo {
 	uint32_t xres, yres, xres_virtual, yres_virtual;
 	uint32_t xoffset, yoffset;
 	uint32_t bits_per_pixel, grayscale;
 	struct fb_bitfield red, green, blue, transp;
-	uint32_t rest[17];
+	uint32_t nonstd, activate, height, width, accel_flags;
+	uint32_t pixclock, left_margin, right_margin, upper_margin, lower_margin;
+	uint32_t hsync_len, vsync_len, sync, vmode, rotate, colorspace;
+	uint32_t reserved[4];
 };
 
 struct fb_fix_screeninfo {

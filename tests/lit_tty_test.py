@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 r"""Run Mario full-screen terminal tests through a host tmux pane.
 
 Test files use a small lit-style directive set:

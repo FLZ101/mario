@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Generate Mario's 8x16 CP437 framebuffer-console font."""
 
 from pathlib import Path

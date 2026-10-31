@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shared raw-disk builder used by make-hd1/2/3.
 
 The image is assembled with Linux loop devices:

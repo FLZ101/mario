@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Copy files into a ramdisk staging tree.
 
 The copy operations shared by the ramdisk builder live here so they can be

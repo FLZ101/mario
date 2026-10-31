@@ -26,16 +26,17 @@ struct fb_info {
 	int enabled;
 };
 
-/* Linux-compatible enough for the M0 raw device ABI. */
+/* Returned by FBIOGET_VSCREENINFO.  Keep this layout identical to the Linux
+ * fb_var_screeninfo ABI so kernel and userspace copies do not diverge. */
 struct fb_var_screeninfo {
-	uint32_t xres, yres, xres_virtual, yres_virtual;
-	uint32_t xoffset, yoffset;
-	uint32_t bits_per_pixel, grayscale;
-	struct fb_bitfield red, green, blue, transp;
+	uint32_t xres, yres, xres_virtual, yres_virtual; /* visible/virtual resolution */
+	uint32_t xoffset, yoffset;                       /* panning offset */
+	uint32_t bits_per_pixel, grayscale;              /* color depth */
+	struct fb_bitfield red, green, blue, transp;     /* channel positions */
 	uint32_t nonstd, activate, height, width, accel_flags;
 	uint32_t pixclock, left_margin, right_margin, upper_margin, lower_margin;
 	uint32_t hsync_len, vsync_len, sync, vmode, rotate, colorspace;
-	uint32_t reserved[4];
+	uint32_t reserved[4];                            /* preserve Linux ABI size */
 };
 
 struct fb_fix_screeninfo {

@@ -1,0 +1,91 @@
+name: ci
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    container:
+      image: ${{ matrix.image }}
+      options: --privileged
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        image:
+          - ubuntu:23.10
+          - ubuntu:latest
+          - fedora:39
+          - fedora:latest
+        smp: [1, 4, 16]
+        flags:
+          - "DEBUG=0"
+          - "DEBUG=1"
+          - "DEBUG=1 OPTIMIZE=-O3"
+
+    steps:
+      - name: Install git before checkout
+        run: |
+          . /etc/os-release
+          if [ "$ID" = ubuntu ]; then
+            if [ "$VERSION_ID" = "23.10" ]; then
+              sed -i \
+                -e 's|http://archive.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' \
+                -e 's|http://security.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' \
+                /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+            fi
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates
+          else
+            if [ "$VERSION_ID" = "39" ]; then
+              sed -i \
+                -e 's|^metalink=|#metalink=|' \
+                -e 's|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://archives.fedoraproject.org/pub/archive/fedora/linux|' \
+                /etc/yum.repos.d/fedora.repo /etc/yum.repos.d/fedora-updates.repo
+            fi
+            dnf install -y --setopt=install_weak_deps=False git ca-certificates
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Install build and test dependencies
+        run: |
+          . /etc/os-release
+          if [ "$ID" = ubuntu ]; then
+            if [ "$VERSION_ID" = "23.10" ]; then
+              sed -i \
+                -e 's|http://archive.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' \
+                -e 's|http://security.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' \
+                /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+            fi
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              make gcc gcc-multilib binutils nasm qemu-system-x86 gdb \
+              dosfstools e2fsprogs mtools bison byacc \
+              autoconf automake libtool wget patch socat tmux \
+              clang-tidy python3 python3-pip python3-venv \
+              zlib1g-dev libffi-dev libssl-dev libreadline-dev \
+              libsqlite3-dev libbz2-dev liblzma-dev uuid-dev \
+              libncurses-dev pkg-config
+          else
+            if [ "$VERSION_ID" = "39" ]; then
+              sed -i \
+                -e 's|^metalink=|#metalink=|' \
+                -e 's|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://archives.fedoraproject.org/pub/archive/fedora/linux|' \
+                /etc/yum.repos.d/fedora.repo /etc/yum.repos.d/fedora-updates.repo
+            fi
+            dnf install -y --setopt=install_weak_deps=False \
+              make gcc binutils nasm qemu-system-x86 gdb \
+              dosfstools e2fsprogs mtools bison byacc \
+              autoconf automake libtool wget patch socat tmux \
+              clang-tidy python3 python3-pip zlib-devel \
+              glibc-devel.i686 libgcc.i686 libffi-devel \
+              openssl-devel readline-devel sqlite-devel \
+              bzip2-devel xz-devel libuuid-devel ncurses-devel \
+              pkgconf-pkg-config
+          fi
+
+      - name: Run tests
+        run: make test ${{ matrix.flags }} SMP=${{ matrix.smp }}

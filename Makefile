@@ -12,7 +12,7 @@ GUI_TEST_CASES ?= tests/gui
 
 .PHONY: all kernel rd app image run debug \
 	quick-run quick-debug run-gtk debug-gtk quick-run-gtk quick-debug-gtk \
-	test test-all shell-test tty-test gui-test \
+	test shell-test tty-test gui-test \
 	musl venv precommit-install precommit precommit-all setup \
 	compiler-rt
 
@@ -24,16 +24,23 @@ all: kernel rd
 COMPILE_COMMANDS_JSON := $(ROOT)/compile_commands.json
 export COMPILE_COMMANDS_JSON
 
-# DEBUG=true (or DEBUG=1) builds the kernel, libc and applications with -O0.
-# The default release build uses -O3.
-DEBUG ?= false
-DEBUG_TRUE := $(filter true True TRUE 1,$(DEBUG))
-ifeq ($(DEBUG_TRUE),)
-OPTIMIZE := -O3
-else
-OPTIMIZE := -O0
-endif
+# OPTIMIZE controls code generation only; it is not a runtime-check switch.
+OPTIMIZE ?= -O0
 export OPTIMIZE
+
+# DEBUG is a preset that enables all runtime checks.  Specific check
+# variables use ?=, so a command-line or environment value overrides DEBUG.
+DEBUG ?= 1
+DEBUG_TRUE := $(filter 1 true TRUE True,$(DEBUG))
+ifeq ($(DEBUG_TRUE),)
+KMALLOC_DEBUG ?= 0
+PAGE_ALLOC_DEBUG ?= 0
+STACK_PROTECTOR ?= 0
+else
+KMALLOC_DEBUG ?= 1
+PAGE_ALLOC_DEBUG ?= 1
+STACK_PROTECTOR ?= 1
+endif
 
 # Number of QEMU CPUs used by test and quick-run targets.  Keep the default
 # at one; SMP test cases opt in with REQUIRES-SMP and are skipped otherwise.
@@ -49,7 +56,6 @@ export BOOT_ENTRY
 # their timeout. TTY tests use independent QEMU instances and host tmux
 # servers, so excessive parallelism can still delay terminal redraws.
 JOBS ?= 4
-export JOBS
 
 CC	:= $(ROOT)/util/cc
 export CC
@@ -62,7 +68,10 @@ APP_CC	:= $(ROOT)/util/mario-musl-cc
 APP_LD	:= $(ROOT)/util/mario-musl-ld
 
 kernel: compiler-rt
-	$(MAKE) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld -C src
+	$(MAKE) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld \
+		KMALLOC_DEBUG=$(KMALLOC_DEBUG) \
+		PAGE_ALLOC_DEBUG=$(PAGE_ALLOC_DEBUG) \
+		STACK_PROTECTOR=$(STACK_PROTECTOR) -C src
 
 rd: app
 	$(MAKE) -C rd
@@ -93,13 +102,6 @@ gui-test: venv kernel rd image
 	$(PYTHON) tests/lit_gui_test.py --smp $(SMP) --jobs $(JOBS) $(GUI_TEST_CASES)
 
 test: shell-test tty-test gui-test
-
-test-all:
-	$(MAKE) test SMP=1
-	$(MAKE) test SMP=2
-	$(MAKE) test SMP=4
-	$(MAKE) test SMP=8
-	$(MAKE) test SMP=16
 
 precommit-install: venv
 	$(PYTHON) -m pre_commit install

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Bridge a tmux pane's pseudo-terminal to a QEMU Unix serial socket."""
 
 from __future__ import annotations

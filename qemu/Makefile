@@ -1,5 +1,7 @@
 SHELL := /bin/bash
 
+PYTHON ?= python3
+
 # Number of QEMU CPUs.  Defaults to one until SMP bring-up lands so the
 # existing single-CPU kernel path remains the default for all targets.
 SMP ?= 1
@@ -38,14 +40,14 @@ $(HD1_BOOT_STAMP): $(BOOT_MENU)
 	@rm -f tmp/.hd1-menu-*
 	@touch $@
 
-hd1.img: make-hd1.py mkdisk.py $(HD1_BOOT_STAMP) $(shell MARIO_BOOT_MENU='$(BOOT_MENU)' python3 make-hd1.py --deps)
-	MARIO_BOOT_MENU='$(BOOT_MENU)' python3 make-hd1.py
+hd1.img: make-hd1.py mkdisk.py $(HD1_BOOT_STAMP) $(shell MARIO_BOOT_MENU='$(BOOT_MENU)' $(PYTHON) make-hd1.py --deps)
+	MARIO_BOOT_MENU='$(BOOT_MENU)' $(PYTHON) make-hd1.py
 
-hd2.img: make-hd2.py mkdisk.py $(shell python3 make-hd2.py --deps)
-	python3 make-hd2.py
+hd2.img: make-hd2.py mkdisk.py $(shell $(PYTHON) make-hd2.py --deps)
+	$(PYTHON) make-hd2.py
 
-hd3.img: make-hd3.py mkdisk.py $(shell python3 make-hd3.py --deps)
-	python3 make-hd3.py
+hd3.img: make-hd3.py mkdisk.py $(shell $(PYTHON) make-hd3.py --deps)
+	$(PYTHON) make-hd3.py
 
 clean:
 	rm -rf tmp/ hd1.img hd2.img hd3.img

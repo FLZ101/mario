@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Build rd/rd0 from the static seed and the standard Mario rootfs files."""
 
 from __future__ import annotations

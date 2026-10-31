@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 r"""Run framebuffer tests through QMP against the GRUB4DOS VBE boot path.
 
 Directives:
