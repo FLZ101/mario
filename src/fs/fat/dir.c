@@ -1229,6 +1229,13 @@ static int fat_lookup(struct inode *dir, char *name, int len,
 	sb = dir->i_sb;
 	cluster_size = FAT_CLUSTER_SIZE(sb);
 	cluster = FAT_INODE(dir).start_cluster;
+	/*
+	 * fat_lfn_finish() writes the terminating NUL at lfn->name[lfn->len].
+	 * If this stack object is not zeroed first, lfn->len can contain stale
+	 * stack data larger than sizeof(lfn->name); that out-of-bounds write
+	 * corrupts the caller's saved registers/return state.
+	 */
+	fat_lfn_reset(&lfn);
 	lfn_pending = 0;
 
 	for (;;) {
