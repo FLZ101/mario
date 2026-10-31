@@ -9,9 +9,12 @@ nasm
 gdb
 clang-tidy
 
-# QEMU and raw-disk image generation. util-linux provides sfdisk/losetup.
+# QEMU and raw-disk image generation. fdisk provides sfdisk; mount provides
+# losetup, mount and umount.
 qemu-system-x86
 util-linux
+fdisk
+mount
 dosfstools
 e2fsprogs
 mtools
