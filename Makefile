@@ -1,3 +1,5 @@
+MAKEOVERRIDES :=
+
 RM	:= rm -f
 
 SHELL := /bin/bash
@@ -31,6 +33,8 @@ export OPTIMIZE
 # DEBUG is a preset that enables all runtime checks.  Specific check
 # variables use ?=, so a command-line or environment value overrides DEBUG.
 DEBUG ?= 1
+unexport DEBUG
+
 DEBUG_TRUE := $(filter 1 true TRUE True,$(DEBUG))
 ifeq ($(DEBUG_TRUE),)
 KMALLOC_DEBUG ?= 0
@@ -55,7 +59,7 @@ export BOOT_ENTRY
 # disks, which can push ext2/vfat mount, read, write, and stress tests past
 # their timeout. TTY tests use independent QEMU instances and host tmux
 # servers, so excessive parallelism can still delay terminal redraws.
-JOBS ?= 4
+LIT_JOBS ?= 4
 
 CC	:= $(ROOT)/util/cc
 export CC
@@ -93,13 +97,13 @@ $(VENV_STAMP): requirements.txt
 venv: $(VENV_STAMP)
 
 shell-test: venv kernel rd image
-	$(PYTHON) tests/lit_shell_test.py --smp $(SMP) --jobs $(JOBS) $(SHELL_TEST_CASES)
+	$(PYTHON) tests/lit_shell_test.py --smp $(SMP) --jobs $(LIT_JOBS) $(SHELL_TEST_CASES)
 
 tty-test: venv kernel rd image
-	$(PYTHON) tests/lit_tty_test.py --smp $(SMP) --jobs $(JOBS) $(TTY_TEST_CASES)
+	$(PYTHON) tests/lit_tty_test.py --smp $(SMP) --jobs $(LIT_JOBS) $(TTY_TEST_CASES)
 
 gui-test: venv kernel rd image
-	$(PYTHON) tests/lit_gui_test.py --smp $(SMP) --jobs $(JOBS) $(GUI_TEST_CASES)
+	$(PYTHON) tests/lit_gui_test.py --smp $(SMP) --jobs $(LIT_JOBS) $(GUI_TEST_CASES)
 
 test: shell-test tty-test gui-test
 

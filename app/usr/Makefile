@@ -6,9 +6,6 @@ ROOT := $(shell pwd)
 OPTIMIZE ?= -O3
 export OPTIMIZE
 
-unexport SMP
-unexport BOOT_ENTRY
-
 .PHONY:: all build
 .PHONY:: clean clean-src
 

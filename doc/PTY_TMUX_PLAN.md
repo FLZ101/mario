@@ -138,8 +138,8 @@ Mario already has useful pieces but not the complete contract:
 Before code changes, record the exact output of these baseline tests:
 
 ```sh
-make test SMP=1 JOBS=1
-make test SMP=4 JOBS=4
+make test SMP=1
+make test SMP=4
 ```
 
 Any failures outside PTY/sockets must be resolved or explicitly excluded before

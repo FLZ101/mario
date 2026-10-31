@@ -13,6 +13,8 @@ export ROOT
 OPTIMIZE ?= -O3
 export OPTIMIZE
 
+unexport SMP BOOT_ENTRY
+
 all: example usr | check
 
 example:

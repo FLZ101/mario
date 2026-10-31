@@ -19,7 +19,6 @@ jobs:
           - ubuntu:latest
           - fedora:39
           - fedora:latest
-        smp: [1, 4, 16]
         flags:
           - "DEBUG=0"
           - "DEBUG=1"
@@ -87,5 +86,11 @@ jobs:
               pkgconf-pkg-config
           fi
 
-      - name: Run tests
-        run: make test ${{ matrix.flags }} SMP=${{ matrix.smp }}
+      - name: Run tests (SMP=1)
+        run: make test ${{ matrix.flags }} SMP=1
+
+      - name: Run tests (SMP=4)
+        run: make test ${{ matrix.flags }} SMP=4
+
+      - name: Run tests (SMP=16)
+        run: make test ${{ matrix.flags }} SMP=16

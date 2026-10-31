@@ -7,7 +7,7 @@ userspace drawing and widget library shared by the desktop and applications.
 Create a static userspace library under:
 
 ```text
-app/usr/libmario-ui/
+app/gui/libmario-ui/
   include/gui/gui.h
   include/gui/surface.h
   include/gui/event.h
@@ -182,7 +182,7 @@ FreeType build notes:
 
 Font loading:
 
-- Keep the bundled DejaVu sources under `app/usr/libmario-ui/assets/fonts/`
+- Keep the bundled DejaVu sources under `app/gui/libmario-ui/assets/fonts/`
   and install them under `rd/usr/share/fonts/` in the common image. DejaVu Sans is
   the proportional desktop font; DejaVu Sans Mono is used for the terminal and
   file-manager columns.

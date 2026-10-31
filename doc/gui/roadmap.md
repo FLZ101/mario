@@ -277,14 +277,14 @@ Change:
 - `app/usr/build-freetype.sh` and `app/usr/freetype.mk`: build with
   `util/mario-musl-cc`; pin the archive version, URL, and SHA-256; enable
   SFNT/TrueType/CFF and disable unused modules.
-- `app/usr/libmario-ui/include/gui/*.h`: define the core types and public API from
+- `app/gui/libmario-ui/include/gui/*.h`: define the core types and public API from
   the design section.
-- `app/usr/libmario-ui/src/surface.c`: fill, blit, blend, lines, clipping.
-- `app/usr/libmario-ui/src/font.c`: FreeType loading, UTF-8 conversion, glyph cache,
+- `app/gui/libmario-ui/src/surface.c`: fill, blit, blend, lines, clipping.
+- `app/gui/libmario-ui/src/font.c`: FreeType loading, UTF-8 conversion, glyph cache,
   and CP437 fallback.
-- `app/usr/libmario-ui/src/event.c`: keyboard/mouse translation and event queue.
-- `app/usr/libmario-ui/src/widget.c`: first `gui_label`/`gui_button` widgets.
-- `app/usr/libmario-ui/assets/fonts/`: bundle the pinned DejaVu Sans and
+- `app/gui/libmario-ui/src/event.c`: keyboard/mouse translation and event queue.
+- `app/gui/libmario-ui/src/widget.c`: first `gui_label`/`gui_button` widgets.
+- `app/gui/libmario-ui/assets/fonts/`: bundle the pinned DejaVu Sans and
   DejaVu Sans Mono sources; `rd/copy_files.py` installs them under
   `/usr/share/fonts` in the common image.
 - `tests/gui/gui.font.test`: render a known string and compare the screen.
@@ -334,22 +334,22 @@ Goal:
 
 Change:
 
-- `app/usr/desktop/main.c`: application entry and console ownership; remove
+- `app/gui/desktop/main.c`: application entry and console ownership; remove
   stale desktop status files at startup. After an F8-triggered full
   composition, atomically publish the monotonically increasing decimal frame
   number to `/tmp/mario-desktop.frame`, then create
   `/tmp/mario-desktop.ready`. Remove `ready` immediately on switch-away;
   remove all status files on clean exit. Publish `/tmp/mario-desktop.debug`
   with display, focus, pointer, and recent-event state for test failures.
-- `app/usr/desktop/demo.c`: `Welcome` and `Display` built-in diagnostic
+- `app/gui/desktop/demo.c`: `Welcome` and `Display` built-in diagnostic
   windows with the fixed initial geometry from `desktop.md`; they exercise
   normal window-manager paths and are not test-only bypasses.
-- `app/usr/desktop/wm.c`: z-order, focus, hit testing, move/resize.
-- `app/usr/desktop/compositor.c`: dirty-rectangle collection and `/dev/fb0`
+- `app/gui/desktop/wm.c`: z-order, focus, hit testing, move/resize.
+- `app/gui/desktop/compositor.c`: dirty-rectangle collection and `/dev/fb0`
   flush.
-- `app/usr/desktop/panel.c`: launcher, window list, and static `--:--` clock.
-- `app/usr/desktop/cursor.c`: pointer tracking and cursor sprite.
-- `app/usr/desktop/theme.c`: fixed first-milestone geometry, colors, and
+- `app/gui/desktop/panel.c`: launcher, window list, and static `--:--` clock.
+- `app/gui/desktop/cursor.c`: pointer tracking and cursor sprite.
+- `app/gui/desktop/theme.c`: fixed first-milestone geometry, colors, and
   cursor used by screenshot tests.
 - `app/usr/Makefile`: add the desktop binary.
 - `rd/copy_files.py`: copy `mario-desktop` to `/usr/bin` in the common image.
@@ -421,7 +421,7 @@ Change:
 Build and run:
 
 ```sh
-make tty-test TTY_TEST_CASES=tests/tty/tmux-1.test JOBS=1
+make tty-test TTY_TEST_CASES=tests/tty/tmux-1.test
 ```
 
 Checkpoint:
@@ -499,7 +499,7 @@ Change:
 
 - `app/usr/libpng/`: vendor pinned sources.
 - `app/usr/build-libpng.sh`, `app/usr/libpng.mk`.
-- `app/usr/libmario-ui/src/image.c`: BMP/PNG decode to `gui_surface`.
+- `app/gui/libmario-ui/src/image.c`: BMP/PNG decode to `gui_surface`.
 - `rd/copy_files.py`: install `tests/gui/assets/` under
   `/usr/share/mario-tests/gui`, so guest tests can copy its
   immutable fixture tree to `/tmp/gui-fixtures/` before every mutation.
@@ -595,11 +595,11 @@ Goal:
 
 Change:
 
-- `app/usr/libmario-ui/protocol.c`: bounded length-prefixed message encode/decode,
+- `app/gui/libmario-ui/protocol.c`: bounded length-prefixed message encode/decode,
   including fragmented-read reassembly and `EPROTO` handling.
-- `app/usr/libmario-ui/include/gui/protocol.h`: protocol version, complete
+- `app/gui/libmario-ui/include/gui/protocol.h`: protocol version, complete
   message enum, and packed payload structs matching the IPC contract.
-- `app/usr/desktop/`: split `mario-wm` server from `mario-desktop` client.
+- `app/gui/desktop/`: split `mario-wm` server from `mario-desktop` client.
 - `app/usr/terminal/`, `app/usr/imageviewer/`, `app/usr/filemanager/`: move
   window surface updates behind GUI protocol messages.
 - `rd/copy_files.py` and `app/system/init/main.c`: install `/usr/bin/mario-wm`

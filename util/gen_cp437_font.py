@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 ROOT = Path(__file__).resolve().parent.parent
-FONT_PATH = ROOT / "app/usr/libmario-ui/assets/fonts/DejaVuSansMono.ttf"
+FONT_PATH = ROOT / "app/gui/libmario-ui/assets/fonts/DejaVuSansMono.ttf"
 OUTPUT_PATH = ROOT / "src/video/font_cp437_8x16.inc"
 FONT_SIZE = 13
 CELL_WIDTH = 8
@@ -74,7 +74,7 @@ def main() -> None:
     lines = [
         "/*",
         " * 8x16 CP437 bitmap generated from DejaVu Sans Mono 2.37.",
-        " * Source: app/usr/libmario-ui/assets/fonts/DejaVuSansMono.ttf.",
+        " * Source: app/gui/libmario-ui/assets/fonts/DejaVuSansMono.ttf.",
         " * Generator: util/gen_cp437_font.py (13 px, threshold 96).",
         " * License: Bitstream Vera / DejaVu Fonts license; see assets/fonts/LICENSE-DejaVu.txt.",
         " */",

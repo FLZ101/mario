@@ -334,8 +334,8 @@ src/mm/paging.c
 Userspace:
 
 ```text
-app/usr/libmario-ui/
-app/usr/desktop/
+app/gui/libmario-ui/
+app/gui/desktop/
 app/usr/terminal/
 app/usr/imageviewer/
 app/usr/filemanager/
@@ -343,7 +343,7 @@ app/usr/launcher/
 app/usr/Makefile
 app/usr/freetype/
 app/usr/libpng/
-app/usr/libmario-ui/assets/fonts/  # bundled TTF source files
+app/gui/libmario-ui/assets/fonts/  # bundled TTF source files
 rd/etc/mario-gui.conf      # simple GUI session configuration
 rd/device_list             # adds fb0, gui, psaux, ptmx, pts/0..31
 ```
