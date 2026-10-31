@@ -36,19 +36,6 @@ def get_args():
             flags.append(f"{compiler_rt}")
             pass
 
-        case "mario-libc-ld":
-            lib_dir = (cwd / ".." / "libc" / "lib").resolve()
-            linker_script = lib_dir / "mario.ld"
-            flags.extend(
-                [
-                    f"-L{lib_dir}",
-                    "-lc",
-                    "-T",
-                    f"{linker_script}",
-                    f"{compiler_rt}",
-                ]
-            )
-
         case "mario-musl-ld":
             musl_dir = (cwd / ".." / "musl").resolve()
             lib_dir = (musl_dir / "musl-1.2.5-install" / "lib").resolve()
