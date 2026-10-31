@@ -9,7 +9,7 @@ nasm
 gdb
 clang-tidy
 
-# QEMU and raw-disk image generation.
+# QEMU and raw-disk image generation. util-linux provides sfdisk/losetup.
 qemu-system-x86
 util-linux
 dosfstools

@@ -61,7 +61,6 @@ jobs:
             fi
             apt-get update
             packages=$(grep -Ev '^[[:space:]]*#|^[[:space:]]*$' .github/ci/ubuntu-packages.txt)
-            echo "Installing packages: $packages"
             DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $packages
           else
             if [ "$VERSION_ID" = "39" ]; then
@@ -71,9 +70,19 @@ jobs:
                 /etc/yum.repos.d/fedora.repo /etc/yum.repos.d/fedora-updates.repo
             fi
             packages=$(grep -Ev '^[[:space:]]*#|^[[:space:]]*$' .github/ci/fedora-packages.txt)
-            echo "Installing packages: $packages"
             dnf install -y --setopt=install_weak_deps=False $packages
           fi
+
+      - name: Verify disk image tools
+        run: |
+          PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH"
+          command -v sfdisk
+          command -v losetup
+          command -v mkfs.vfat
+          command -v mkfs.ext2
+          command -v mkfs.ext4
+          command -v mount
+          command -v umount
 
       - name: Run tests (SMP=1)
         run: make test ${{ matrix.flags }} SMP=1

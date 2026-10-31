@@ -12,7 +12,7 @@ clang-tidy
 glibc-devel.i686
 libgcc.i686
 
-# QEMU and raw-disk image generation.
+# QEMU and raw-disk image generation. util-linux provides sfdisk/losetup.
 qemu-system-x86
 util-linux
 dosfstools

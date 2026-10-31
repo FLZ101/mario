@@ -32,6 +32,22 @@ from typing import Optional
 SECTOR_SIZE = 512
 ALIGN_SECTORS = 2048
 
+# GitHub Actions container jobs can start with a PATH that omits the
+# standard sbin directories.  The image builders need sfdisk, losetup,
+# mkfs.* and mount, which util-linux/dosfstools/e2fsprogs install below
+# these directories on both Ubuntu and Fedora.
+SYSTEM_SBIN_DIRS = ("/usr/local/sbin", "/usr/sbin", "/sbin")
+
+
+def _ensure_sbin_in_path() -> None:
+    """Prepend standard sbin directories to subprocess PATH."""
+    path_dirs = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d]
+    for directory in reversed(SYSTEM_SBIN_DIRS):
+        if directory not in path_dirs:
+            path_dirs.insert(0, directory)
+    os.environ["PATH"] = os.pathsep.join(path_dirs)
+
+
 EXTENDED_TYPE = "5"
 
 # DOS MBR type id for each filesystem this project uses.
@@ -284,6 +300,7 @@ def expand_deps(disk: Disk):
 
 
 def build(disk: Disk) -> None:
+    _ensure_sbin_in_path()
     here = Path.cwd()
     image = here / (disk.name + ".img")
     tmp = here / "tmp"
