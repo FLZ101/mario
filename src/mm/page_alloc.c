@@ -12,6 +12,9 @@
 
 #define MAX_ORDER 11
 
+#define ORDER_PAGES(order)	(1UL << (order))
+#define ORDER_MASK(order)	(ORDER_PAGES(order) - 1)
+
 struct free_area {
 	struct list_head free_list;
 	unsigned long *map; // buddy bitmap. 0: there is no buddy; 1: there is a buddy
@@ -30,10 +33,24 @@ struct page *mem_map;
  */
 static spinlock_t page_alloc_lock = SPINLOCK_UNLOCKED;
 
-#define __free_list_del(page) list_del(&(page)->list)
+#define __free_list_del(page) do { \
+	struct list_head *__l = &(page)->list; \
+	assert(__l->prev && __l->next); \
+	assert(__l->prev->next == __l); \
+	assert(__l->next->prev == __l); \
+	list_del(__l); \
+} while (0)
+
+#define __free_area_bitmap_bits(order) \
+	(((free_area[order].map_size + 31) >> 5) << 5)
 
 #define __free_list_add(page, order) do { \
+	assert((order) < MAX_ORDER); \
+	assert((unsigned long)(page) >= (unsigned long)mem_map); \
 	assert(PAGE_TO_PFN(page) < max_pfn); \
+	assert((PAGE_TO_PFN(page) & ORDER_MASK(order)) == 0); \
+	assert(free_area[order].free_list.prev->next == &free_area[order].free_list); \
+	assert(free_area[order].free_list.next->prev == &free_area[order].free_list); \
 	list_add_tail(&(page)->list, &free_area[order].free_list); \
 } while (0)
 
@@ -119,6 +136,7 @@ struct page *alloc_pages(unsigned long order)
 	unsigned long n;
 	unsigned long flags;
 
+	assert(order < MAX_ORDER);
 	spin_lock_irqsave(&page_alloc_lock, flags);
 	// int free_before = get_free_area_size();
 	// int free_expected = free_before - (1 << order);
@@ -134,13 +152,18 @@ struct page *alloc_pages(unsigned long order)
 
 	struct page *page = __free_list_entry(free_area[n].free_list.next);
 	unsigned long pfn = PAGE_TO_PFN(page);
+	assert((unsigned long)page >= (unsigned long)mem_map);
+	assert(pfn < max_pfn);
+	assert((pfn & ORDER_MASK(n)) == 0);
+	assert(free_area[n].free_list.next == &page->list);
 	__free_list_del(page);
 	while (1) {
+		assert((pfn >> (n + 1)) < __free_area_bitmap_bits(n));
 		change_bit(pfn >> (n + 1), free_area[n].map);
 		if (n == order)
 			break;
 		n--;
-		__free_list_add(page + (1 << n), n);
+		__free_list_add(page + ORDER_PAGES(n), n);
 	}
 
 	// assert(free_expected == get_free_area_size());
@@ -178,17 +201,24 @@ unsigned long zero_page_alloc(void)
 
 struct page *expand(struct page *page, unsigned long order)
 {
+	assert(order < MAX_ORDER - 1);
+	assert((unsigned long)page >= (unsigned long)mem_map);
+	assert(PAGE_TO_PFN(page) < max_pfn);
+	assert((PAGE_TO_PFN(page) & ORDER_MASK(order)) == 0);
+
 	// lower page number of the pair
 	unsigned long nr = PAGE_TO_PFN(page) >> (order + 1) << (order + 1);
 	struct page *res = PFN_TO_PAGE(nr);
 
+	assert((page == res) || (page == res + ORDER_PAGES(order)));
+
 	// remove its buddy from list
 	if (page == res) {
 		// @page is the lower
-		__free_list_del(page + (1 << order));
+		__free_list_del(page + ORDER_PAGES(order));
 	} else {
 		// @page is the higher
-		__free_list_del(page - (1 << order));
+		__free_list_del(page - ORDER_PAGES(order));
 	}
 
 	return res;
@@ -198,18 +228,25 @@ void free_pages(struct page *page, unsigned long order)
 {
 	unsigned long flags;
 
+	assert(order < MAX_ORDER);
+	assert((unsigned long)page >= (unsigned long)mem_map);
+	assert(PAGE_TO_PFN(page) < max_pfn);
+	assert((PAGE_TO_PFN(page) & ORDER_MASK(order)) == 0);
+
 	spin_lock_irqsave(&page_alloc_lock, flags);
 	// int free_before = get_free_area_size();
 	// int free_expected = free_before + (1 << order);
 
 	while (1) {
 		unsigned long nr = PAGE_TO_PFN(page) >> (order + 1); // buddy number
+		assert(nr < __free_area_bitmap_bits(order));
 		// if there is no buddy (i.e. the bit is 0), the bit is set, and we insert @page into this list;
 		// else the bit is cleared, and @page and the buddy will be in the next list
 		if (!test_and_change_bit(nr, free_area[order].map))
 			break;
 		if (order == MAX_ORDER - 1)
 			break;
+		assert(order < MAX_ORDER - 1);
 		page = expand(page, order);
 		order++;
 	}
