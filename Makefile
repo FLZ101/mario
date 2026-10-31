@@ -40,6 +40,9 @@ export OPTIMIZE
 SMP ?= 1
 export SMP
 
+BOOT_ENTRY ?= x
+export BOOT_ENTRY
+
 # Number of lit test cases run concurrently by shell-test and tty-test.
 # Keep this moderate: too many concurrent QEMU instances contend for host
 # disks, which can push ext2/vfat mount, read, write, and stress tests past
@@ -112,11 +115,13 @@ setup: precommit-install
 image: kernel rd
 	$(MAKE) -C qemu
 
-run: image
-	$(MAKE) BOOT_ENTRY=2 run -C qemu
+run:
+	$(MAKE) BOOT_ENTRY=2 image
+	$(MAKE) run -C qemu
 
-debug: image
-	$(MAKE) BOOT_ENTRY=2 debug -C qemu
+debug:
+	$(MAKE) BOOT_ENTRY=2 image
+	$(MAKE) debug -C qemu
 
 quick-run: image
 	$(MAKE) quick-run -C qemu

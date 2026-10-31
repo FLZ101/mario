@@ -214,14 +214,26 @@ def _copy_entry(fstype: str, source: Path, dest_root: Path) -> None:
             _quiet(["cp", "-a", str(source), dest])
 
 
+def _copy_file(fstype: str, source: Path, dest: Path) -> None:
+    """Copy a single file to an explicit destination path."""
+    if fstype == "fat32":
+        _quiet(["cp", str(source), str(dest)])
+    else:
+        _quiet(["cp", "-a", str(source), str(dest)])
+
+
 def _populate_filesystem(fstype: str, content: tuple, mountpoint: Path) -> None:
     """Copy all content entries into a mounted filesystem."""
     for source, dest in content:
         source = Path(source)
-        dest_root = mountpoint / dest.strip("/")
-        dest_root.mkdir(parents=True, exist_ok=True)
+        dest_path = mountpoint / dest.strip("/")
 
-        _copy_entry(fstype, source, dest_root)
+        if dest.endswith("/") or source.is_dir():
+            dest_path.mkdir(parents=True, exist_ok=True)
+            _copy_entry(fstype, source, dest_path)
+        else:
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            _copy_file(fstype, source, dest_path)
 
 
 def _umount_quiet(mountpoint: Path) -> None:

@@ -21,7 +21,7 @@ disk = mkdisk.Disk(
             bootable=True,
             content=(
                 (GRUB / "grldr", "/"),
-                (MENU, "/"),
+                (MENU, "/menu.lst"),
                 (Path("hd1/p1"), "/"),
             ),
         ),

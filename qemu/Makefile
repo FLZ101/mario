@@ -20,15 +20,10 @@ KERNEL_EXE := ../src/kernel/kernel.exe
 
 image: hd1.img hd2.img hd3.img
 
-ifeq ($(BOOT_ENTRY),x)
 BOOT_MENU := grub4dos-0.4.6a/menu.lst
-HD1_MENU_ENV :=
-else
-BOOT_MENU := tmp/menu-$(BOOT_ENTRY).lst
-HD1_MENU_ENV := MARIO_BOOT_MENU=$(BOOT_MENU)
-endif
-
 ifneq ($(BOOT_ENTRY),x)
+BOOT_MENU := tmp/menu-$(BOOT_ENTRY).lst
+
 $(BOOT_MENU): grub4dos-0.4.6a/menu.lst
 	@mkdir -p tmp
 	@awk -v d='$(BOOT_ENTRY)' \
@@ -43,8 +38,8 @@ $(HD1_BOOT_STAMP): $(BOOT_MENU)
 	@rm -f tmp/.hd1-menu-*
 	@touch $@
 
-hd1.img: make-hd1.py mkdisk.py $(HD1_BOOT_STAMP) $(shell $(HD1_MENU_ENV) python3 make-hd1.py --deps)
-	$(HD1_MENU_ENV) python3 make-hd1.py
+hd1.img: make-hd1.py mkdisk.py $(HD1_BOOT_STAMP) $(shell MARIO_BOOT_MENU='$(BOOT_MENU)' python3 make-hd1.py --deps)
+	MARIO_BOOT_MENU='$(BOOT_MENU)' python3 make-hd1.py
 
 hd2.img: make-hd2.py mkdisk.py $(shell python3 make-hd2.py --deps)
 	python3 make-hd2.py
