@@ -109,7 +109,8 @@ def get_args():
     compile_commands_json = os.getenv("COMPILE_COMMANDS_JSON")
     if compile_commands_json:
         compile_commands_json = Path(compile_commands_json)
-        compile_commands_json.touch()
+        if not compile_commands_json.exists():
+            compile_commands_json.touch()
 
         for x in args:
             if x.endswith(".c") or x.endswith(".S"):

@@ -43,7 +43,7 @@ jobs:
 
       - name: Build kernel and app in ${{ matrix.image }}
         run: |
-          sudo podman run --rm \
+          podman run --rm \
             -v "$PWD:$PWD" \
             -w "$PWD" \
             "${{ matrix.image }}" \
