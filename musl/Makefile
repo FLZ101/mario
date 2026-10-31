@@ -9,7 +9,8 @@ export OPTIMIZE
 MUSL_VER		:=1.2.5
 MUSL_SRC_DIR	:=musl-$(MUSL_VER)
 MUSL_SRC_FILE	:=$(MUSL_SRC_DIR).tar.gz
-MUSL_SRC_URL	:=https://musl.libc.org/releases/$(MUSL_SRC_FILE)
+# Original upstream release: https://musl.libc.org/releases/$(MUSL_SRC_FILE)
+MUSL_SRC_URL	:=https://github.com/ifduyue/musl/archive/refs/tags/v$(MUSL_VER).tar.gz
 MUSL_INSTALL_DIR	:=$(ROOT)/$(MUSL_SRC_DIR)-install
 
 .PHONY: all build src check
