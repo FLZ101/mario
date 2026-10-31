@@ -11,6 +11,7 @@
 #include <mm/ioremap.h>
 
 #include <lib/string.h>
+#include <timer.h>
 
 /*
  * AHCI/SATA block-device driver.
@@ -378,27 +379,60 @@ static int ahci_wait_poll(struct ahci_port *port)
 	return 0;
 }
 
+static void ahci_wait_timeout(unsigned long data)
+{
+	wake_up_process((struct task_struct *)data);
+}
+
 /*
- * Wait until irq_ahci() marks this port complete or errored.  The loop is
- * required because the interrupt may arrive in the tiny window after
- * wait_lock is released but before schedule() parks the task.  In that case
- * wake_up_process() turns the task RUNNING again, schedule() may not switch
- * away, and only the repeated completion check prevents a spurious return.
+ * Wait until irq_ahci() marks this port complete or errored.
+ *
+ * irq_ahci() normally wakes the waiter.  Some QEMU/PIC configurations can
+ * still lose the shared level-style AHCI completion interrupt after a
+ * command has finished (PxCI is already clear), which would leave this task
+ * parked forever.  Arm a one-tick timer before sleeping and, whenever it
+ * fires, use PxCI as the hardware's authoritative completion bit.  This keeps
+ * the normal path interrupt-latency-free while bounding a missed interrupt to
+ * one timer tick.
  */
-static void ahci_wait_for_completion(struct ahci_port *port)
+static int ahci_wait_for_completion(struct ahci_port *port)
 {
 	unsigned long flags;
+	struct timer_list timer;
 
 	for (;;) {
 		spin_lock_irqsave(&port->wait_lock, flags);
 		if (port->complete || port->error) {
 			spin_unlock_irqrestore(&port->wait_lock, flags);
-			break;
+			return port->error ? -EIO : 0;
+		}
+
+		/*
+		 * cmd_lock serializes this port's single command table, so when
+		 * PxCI falls back to zero the command just issued has finished.
+		 * Check PxTFD/PxIS for an error that was missed with the IRQ.
+		 */
+		if (!(port_read(port, AHCI_PxCI) & 1)) {
+			uint32_t pis = port_read(port, AHCI_PxIS);
+			uint32_t tfd = port_read(port, AHCI_PxTFD);
+
+			spin_unlock_irqrestore(&port->wait_lock, flags);
+			if (pis & AHCI_PxIS_TFES)
+				return -EIO;
+			if (tfd & (AHCI_PxTFD_ERR | AHCI_PxTFD_DF))
+				return -EIO;
+			return 0;
 		}
 
 		current->state = TASK_UNINTERRUPTIBLE;
+		init_timer(&timer);
+		timer.expires = 1;
+		timer.data = (unsigned long)current;
+		timer.fun = ahci_wait_timeout;
+		add_timer(&timer);
 		spin_unlock_irqrestore(&port->wait_lock, flags);
 		schedule();
+		del_timer(&timer);
 	}
 }
 
@@ -467,15 +501,26 @@ static int ahci_issue_command(struct ahci_port *port, uint8_t command,
 
 	if (poll) {
 		error = ahci_wait_poll(port);
+		/*
+		 * Polled commands are used while interrupts are unavailable
+		 * (boot-time IDENTIFY and GPT/MBR parsing).  ahci_wait_poll()
+		 * deliberately leaves PxIS bits set so it can inspect them, but
+		 * this port must not publish those bits to the shared AHCI IRQ
+		 * line later.  Clear the port interrupt status before switching
+		 * to IRQ-driven commands; otherwise the shared level-style line
+		 * can remain asserted and a later completion from another port
+		 * may produce no new edge for the 8259's edge-triggered PIC.
+		 */
+		port_write(port, AHCI_PxIS, 0xffffffffU);
 		spin_lock_irqsave(&port->wait_lock, wait_flags);
 		port->waiter = NULL;
 		spin_unlock_irqrestore(&port->wait_lock, wait_flags);
 	} else {
-		ahci_wait_for_completion(port);
+		error = ahci_wait_for_completion(port);
 		spin_lock_irqsave(&port->wait_lock, wait_flags);
 		port->waiter = NULL;
 		spin_unlock_irqrestore(&port->wait_lock, wait_flags);
-		if (port->error)
+		if (error)
 			error = -EIO;
 	}
 	ahci_profile_account(command, sector_count, ahci_read_tsc() - start_tsc);
