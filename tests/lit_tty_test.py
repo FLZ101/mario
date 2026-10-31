@@ -114,13 +114,17 @@ class TtyLitTest:
                 if body.startswith("EXIT:"):
                     break
                 if body.startswith("TTY-SEND-RAW:"):
-                    self.actions.append(("send_raw", decode_raw(body.split(":", 1)[1].strip())))
+                    self.actions.append(
+                        ("send_raw", decode_raw(body.split(":", 1)[1].strip()))
+                    )
                 elif body.startswith("TTY-SEND-KEY:"):
                     self.actions.append(("send_key", body.split(":", 1)[1].strip()))
                 elif body.startswith("TTY-SEND:"):
                     self.actions.append(("send", body.split(":", 1)[1].strip()))
                 elif body.startswith("TTY-CHECK-NOT-REGEX:"):
-                    self.actions.append(("check_not_regex", body.split(":", 1)[1].strip()))
+                    self.actions.append(
+                        ("check_not_regex", body.split(":", 1)[1].strip())
+                    )
                 elif body.startswith("TTY-CHECK-REGEX:"):
                     self.actions.append(("check_regex", body.split(":", 1)[1].strip()))
                 elif body.startswith("TTY-CHECK-NOT:"):
@@ -139,7 +143,9 @@ class TtyLitTest:
                         raise ValueError(f"{self.path}: TIMEOUT must be positive")
                     self.actions.append(("timeout", seconds))
                 elif body.startswith("REQUIRES-SMP:"):
-                    self.requires_smp = parse_smp_requirement(body.split(":", 1)[1].strip())
+                    self.requires_smp = parse_smp_requirement(
+                        body.split(":", 1)[1].strip()
+                    )
         return self
 
 
@@ -217,10 +223,16 @@ class TmuxSerialSession:
             "-snapshot",
         ]
         for index, image in enumerate(HD_IMAGES, start=1):
-            command += ["-drive", f"id=mario-tty-hd{index},file={image},format=raw,if=none"]
+            command += [
+                "-drive",
+                f"id=mario-tty-hd{index},file={image},format=raw,if=none",
+            ]
         command += ["-device", "ahci,id=mario-tty-ahci"]
         for index in range(1, 4):
-            command += ["-device", f"ide-hd,drive=mario-tty-hd{index},bus=mario-tty-ahci.{index - 1}"]
+            command += [
+                "-device",
+                f"ide-hd,drive=mario-tty-hd{index},bus=mario-tty-ahci.{index - 1}",
+            ]
 
         self.qemu_log_file = self.qemu_log.open("w", encoding="utf-8")
         self.qemu_process = subprocess.Popen(
@@ -234,7 +246,9 @@ class TmuxSerialSession:
         deadline = time.monotonic() + DEFAULT_TIMEOUT
         while not self.serial_socket.exists():
             if self.qemu_process.poll() is not None:
-                raise TtyTestError(f"QEMU did not create its serial socket\n{self.qemu_diagnostics()}")
+                raise TtyTestError(
+                    f"QEMU did not create its serial socket\n{self.qemu_diagnostics()}"
+                )
             if time.monotonic() >= deadline:
                 raise TtyTestTimeout(f"timed out waiting for {self.serial_socket}")
             time.sleep(0.02)
@@ -279,7 +293,9 @@ class TmuxSerialSession:
 
     def capture_panel(self) -> str:
         try:
-            panel = self._tmux("capture-pane", "-p", "-t", self.tmux_target, capture=True)
+            panel = self._tmux(
+                "capture-pane", "-p", "-t", self.tmux_target, capture=True
+            )
         except subprocess.CalledProcessError:
             return ""
         return normalize_panel(panel)
@@ -288,15 +304,23 @@ class TmuxSerialSession:
         return self._wait(lambda panel: needle in panel, timeout, repr(needle))
 
     def wait_not_contains(self, needle: str, timeout: float) -> str:
-        return self._wait(lambda panel: needle not in panel, timeout, f"absence of {needle!r}")
+        return self._wait(
+            lambda panel: needle not in panel, timeout, f"absence of {needle!r}"
+        )
 
     def wait_regex(self, pattern: str, timeout: float, want_match: bool) -> str:
         try:
             expression = re.compile(pattern)
         except re.error as error:
             raise TtyTestError(f"invalid regex {pattern!r}: {error}") from error
-        description = f"regex {pattern!r}" if want_match else f"absence of regex {pattern!r}"
-        return self._wait(lambda panel: bool(expression.search(panel)) == want_match, timeout, description)
+        description = (
+            f"regex {pattern!r}" if want_match else f"absence of regex {pattern!r}"
+        )
+        return self._wait(
+            lambda panel: bool(expression.search(panel)) == want_match,
+            timeout,
+            description,
+        )
 
     def qemu_diagnostics(self) -> str:
         if not self.qemu_log.exists():
@@ -359,7 +383,9 @@ def run_test(test: TtyLitTest, qemu: str, smp: int, index: int):
                 except TtyTestError as error:
                     failures.append(f"TTY-CHECK-NOT-REGEX: {value!r}\n{error}")
             elif action == "dump_panel":
-                resolve_test_path(test.path, str(value)).write_text(session.capture_panel(), encoding="utf-8")
+                resolve_test_path(test.path, str(value)).write_text(
+                    session.capture_panel(), encoding="utf-8"
+                )
             elif action == "check_panel":
                 expected_path = resolve_test_path(test.path, str(value))
                 expected = normalize_panel(expected_path.read_text(encoding="utf-8"))
@@ -387,7 +413,10 @@ def discover(paths: list[str]) -> list[TtyLitTest]:
     for raw_path in paths:
         path = Path(raw_path).resolve()
         if path.is_dir():
-            tests.extend(TtyLitTest(candidate).parse() for candidate in sorted(path.rglob("*.test")))
+            tests.extend(
+                TtyLitTest(candidate).parse()
+                for candidate in sorted(path.rglob("*.test"))
+            )
         elif path.suffix == ".test":
             tests.append(TtyLitTest(path).parse())
         else:
@@ -421,7 +450,9 @@ def main() -> int:
     runnable = []
     skipped = []
     for test in tests:
-        if test.requires_smp is not None and not smp_requirement_matches(test.requires_smp, args.smp):
+        if test.requires_smp is not None and not smp_requirement_matches(
+            test.requires_smp, args.smp
+        ):
             skipped.append((test, f"requires SMP {test.requires_smp[2]}"))
         else:
             runnable.append(test)

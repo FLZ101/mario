@@ -14,8 +14,38 @@ CELL_WIDTH = 8
 CELL_HEIGHT = 16
 THRESHOLD = 96
 CP437_CONTROL = (
-    " ", "☺", "☻", "♥", "♦", "♣", "♠", "•", "◘", "○", "◙", "♂", "♀", "♪", "♫", "☼",
-    "►", "◄", "↕", "‼", "¶", "§", "▬", "↨", "↑", "↓", "→", "←", "∟", "↔", "▲", "▼",
+    " ",
+    "☺",
+    "☻",
+    "♥",
+    "♦",
+    "♣",
+    "♠",
+    "•",
+    "◘",
+    "○",
+    "◙",
+    "♂",
+    "♀",
+    "♪",
+    "♫",
+    "☼",
+    "►",
+    "◄",
+    "↕",
+    "‼",
+    "¶",
+    "§",
+    "▬",
+    "↨",
+    "↑",
+    "↓",
+    "→",
+    "←",
+    "∟",
+    "↔",
+    "▲",
+    "▼",
 )
 
 
@@ -29,8 +59,7 @@ def cp437_character(code: int) -> str:
 
 def glyph_rows(font: ImageFont.FreeTypeFont, code: int) -> list[int]:
     image = Image.new("L", (CELL_WIDTH, CELL_HEIGHT))
-    ImageDraw.Draw(image).text((0, 0), cp437_character(code), font=font,
-                               fill=255)
+    ImageDraw.Draw(image).text((0, 0), cp437_character(code), font=font, fill=255)
     rows = []
     for y in range(CELL_HEIGHT):
         row = 0

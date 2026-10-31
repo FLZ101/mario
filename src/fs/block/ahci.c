@@ -997,7 +997,7 @@ void hd_init(void)
 	int bar_count;
 	uint32_t pi;
 	uint32_t ghc;
-	uint16_t identify[256];
+	uint16_t identify[256] = {0};
 	unsigned int port_number;
 	int error;
 

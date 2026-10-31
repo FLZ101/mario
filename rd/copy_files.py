@@ -46,6 +46,7 @@ def _is_elf(path):
     with open(path, "rb") as f:
         return f.read(4) == b"\x7fELF"
 
+
 def _make_writable(path):
     mode = os.stat(path).st_mode
 
@@ -55,6 +56,7 @@ def _make_writable(path):
         return True  # Changed to writable
 
     return False  # Already writable
+
 
 def _strip_path(path: Path) -> None:
     if _is_elf(path):
@@ -189,7 +191,6 @@ def copy_rootfs_files(
         "app/usr/oksh-7.8-install/bin/oksh": "bin/oksh",
         "app/usr/toybox-0.8.9-install/bin/*": "bin/toybox",
         "rd/tools/rd-make.c": "root/work/rd-make.c",
-
         "app/usr/sbase-install/bin/*": "usr/bin/sbase",
         "app/usr/ubase-install/bin/*": "usr/bin/ubase",
         "app/example/*/*.exe": "usr/bin/example",

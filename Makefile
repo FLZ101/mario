@@ -13,7 +13,7 @@ GUI_TEST_CASES ?= tests/gui
 .PHONY: all kernel rd app image run debug \
 	quick-run quick-debug run-gtk debug-gtk quick-run-gtk quick-debug-gtk \
 	test test-all shell-test tty-test gui-test \
-	musl venv precommit setup \
+	musl venv precommit-install precommit precommit-all setup \
 	compiler-rt
 
 .PHONY: clean clean-kernel clean-rd clean-app-example clean-app-usr clean-image \
@@ -98,10 +98,16 @@ test-all:
 	$(MAKE) test SMP=8
 	$(MAKE) test SMP=16
 
-precommit: venv
+precommit-install: venv
 	$(PYTHON) -m pre_commit install
 
-setup: precommit
+precommit: setup
+	$(PYTHON) -m pre_commit run
+
+precommit-all: setup
+	$(PYTHON) -m pre_commit run --all-files
+
+setup: precommit-install
 
 image: kernel rd
 	$(MAKE) -C qemu

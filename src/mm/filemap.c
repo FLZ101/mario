@@ -507,7 +507,7 @@ static unsigned long filemap_nopage(struct vm_area_struct *vma,
 {
 	struct file *file = vma->vm_file;
 	unsigned long pos;
-	unsigned long page;
+	unsigned long page = 0;
 	int error;
 
 	addr &= PAGE_MASK;

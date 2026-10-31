@@ -103,9 +103,11 @@ int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
     struct poll_entry *entries = NULL;
     int n_done;
 
+    // NOLINTNEXTLINE(bugprone-sizeof-expression)
     if (nfds > (unsigned int)-1 / sizeof(*files))
         return -ENOMEM;
 
+    // NOLINTNEXTLINE(bugprone-sizeof-expression)
     files = kmalloc(nfds * sizeof(*files));
     if (!files)
         return -ENOMEM;

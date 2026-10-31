@@ -39,6 +39,8 @@ PROMPT_PATTERN = re.compile(r"(?m)^\r*MARIO_GUI_PROMPT> ")
 DEFAULT_TIMEOUT = 15.0
 BOOT_MENU_DELAY = 3.0
 KEY_DELAY = 0.05
+
+
 class GuiTestError(RuntimeError):
     pass
 
@@ -63,7 +65,9 @@ class GuiTest:
                 if value.startswith("<<"):
                     delimiter = value[2:].strip()
                     if not delimiter:
-                        raise GuiTestError(f"{self.path}: SERIAL heredoc needs a delimiter")
+                        raise GuiTestError(
+                            f"{self.path}: SERIAL heredoc needs a delimiter"
+                        )
                     script: list[str] = []
                     index += 1
                     while index < len(lines) and lines[index] != delimiter:
@@ -93,9 +97,10 @@ class GuiTest:
             elif line.startswith("GUI-"):
                 raise GuiTestError(f"{self.path}: unsupported directive {line!r}")
             index += 1
-        if not any(action == "screen"
-                   for action, _ in self.actions):
-            raise GuiTestError(f"{self.path}: every GUI test needs a screenshot assertion")
+        if not any(action == "screen" for action, _ in self.actions):
+            raise GuiTestError(
+                f"{self.path}: every GUI test needs a screenshot assertion"
+            )
         return self
 
 
@@ -166,15 +171,32 @@ def expect_prompt(child: pexpect.spawn, timeout: float, description: str) -> str
     try:
         child.expect(PROMPT_PATTERN, timeout=timeout)
     except pexpect.exceptions.TIMEOUT as exc:
-        raise GuiTestError(f"{description} timed out; last output: {child.before[-500:]!r}") from exc
+        raise GuiTestError(
+            f"{description} timed out; last output: {child.before[-500:]!r}"
+        ) from exc
     return child.before
 
 
 def qemu_command(qemu: str, qmp_path: str, smp: int) -> list[str]:
     command = [
-        qemu, "-m", "256M", "-smp", str(smp), "-boot", "c", "-vga", "std",
-        "-display", "none", "-serial", "stdio", "-qmp", f"unix:{qmp_path},server=on,wait=off",
-        "-no-reboot", "-no-shutdown", "-snapshot",
+        qemu,
+        "-m",
+        "256M",
+        "-smp",
+        str(smp),
+        "-boot",
+        "c",
+        "-vga",
+        "std",
+        "-display",
+        "none",
+        "-serial",
+        "stdio",
+        "-qmp",
+        f"unix:{qmp_path},server=on,wait=off",
+        "-no-reboot",
+        "-no-shutdown",
+        "-snapshot",
     ]
     for index, image in enumerate(HD_IMAGES, 1):
         command += ["-drive", f"id=gui-hd{index},file={image},format=raw,if=none"]
@@ -185,7 +207,9 @@ def qemu_command(qemu: str, qmp_path: str, smp: int) -> list[str]:
 
 
 def dump_screen(qmp: Qmp) -> Image.Image:
-    with tempfile.NamedTemporaryFile(prefix="mario-gui-", suffix=".ppm", delete=False) as stream:
+    with tempfile.NamedTemporaryFile(
+        prefix="mario-gui-", suffix=".ppm", delete=False
+    ) as stream:
         path = stream.name
     try:
         qmp.command("screendump", {"filename": path})
@@ -204,8 +228,10 @@ def wait_for_screen(qmp: Qmp, golden: Path, timeout: float) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         current = dump_screen(qmp)
-        if current.size == expected.size and \
-           ImageChops.difference(current, expected).getbbox() is None:
+        if (
+            current.size == expected.size
+            and ImageChops.difference(current, expected).getbbox() is None
+        ):
             return True
         time.sleep(0.05)
     return False
@@ -236,8 +262,9 @@ def type_text(qmp: Qmp, text: str) -> None:
     send_key(qmp, "ret")
 
 
-def run_serial_script(child: pexpect.spawn, script: str, timeout: float,
-                      description: str) -> str:
+def run_serial_script(
+    child: pexpect.spawn, script: str, timeout: float, description: str
+) -> str:
     delimiter = "__MARIO_SERIAL_EOF__"
     if delimiter in script:
         raise GuiTestError(f"{description}: reserved heredoc delimiter")
@@ -253,7 +280,12 @@ def run_test(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
         os.unlink(qmp_path)
     except FileNotFoundError:
         pass
-    child = pexpect.spawn(qemu_command(qemu, qmp_path, smp)[0], qemu_command(qemu, qmp_path, smp)[1:], encoding="latin-1", timeout=DEFAULT_TIMEOUT)
+    child = pexpect.spawn(
+        qemu_command(qemu, qmp_path, smp)[0],
+        qemu_command(qemu, qmp_path, smp)[1:],
+        encoding="latin-1",
+        timeout=DEFAULT_TIMEOUT,
+    )
     qmp = Qmp(qmp_path)
     failures: list[str] = []
     timeout = DEFAULT_TIMEOUT
@@ -329,6 +361,7 @@ def main() -> None:
 
     parsed = [GuiTest(path).parse() for path in tests]
     failed = False
+
     def execute(item: tuple[int, GuiTest]):
         index, test = item
         started = time.monotonic()
@@ -337,8 +370,14 @@ def main() -> None:
             return test, time.monotonic() - started, failures, None
         except Exception as exc:
             return test, time.monotonic() - started, [], exc
+
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        for test, elapsed, failures, error in (future.result() for future in as_completed([pool.submit(execute, item) for item in enumerate(parsed)])):
+        for test, elapsed, failures, error in (
+            future.result()
+            for future in as_completed(
+                [pool.submit(execute, item) for item in enumerate(parsed)]
+            )
+        ):
             name = test.path.relative_to(ROOT)
             if error is not None:
                 print(f"FAIL: {name} [{elapsed:.2f}s]\n{error}", flush=True)

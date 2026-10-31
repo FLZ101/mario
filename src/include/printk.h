@@ -49,6 +49,7 @@ int vsprintkn(char *buf, size_t size, const char *fmt, va_list ap);
 #define hang(...) do { \
 	printk(KERN_CRIT __VA_ARGS__); \
 	__asm__ __volatile__ ("cli; 1:hlt; jmp 1b"); \
+	__builtin_unreachable(); \
 } while (0)
 
 #define unreachable() \

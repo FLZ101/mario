@@ -1,7 +1,7 @@
 #include <fs/fs.h>
 #include <fs/dirent.h>
 
-#define NAME_OFFSET(de) ((int) ((de)->d_name - (char *) (de)))
+#define NAME_OFFSET(type) ((int)__builtin_offsetof(type, d_name))
 #define ROUND_UP(x) (((x)+sizeof(long)-1) & ~(sizeof(long)-1))
 
 struct getdents_callback {
@@ -19,7 +19,7 @@ static int filldir(void *__buf, char *name, int namelen,
 {
 	struct mario_dirent *dirent;
 	struct getdents_callback *buf = (struct getdents_callback *)__buf;
-	int reclen = ROUND_UP(NAME_OFFSET(dirent) + namelen + 1);
+	int reclen = ROUND_UP(NAME_OFFSET(struct mario_dirent) + namelen + 1);
 
 	buf->error = 0;
 	if (reclen > buf->count) {
@@ -50,7 +50,7 @@ static int filldir64(void *__buf, char *name, int namelen,
 {
 	struct mario_dirent64 *dirent;
 	struct getdents_callback *buf = (struct getdents_callback *)__buf;
-	int reclen = ROUND_UP(NAME_OFFSET(dirent) + namelen + 1);
+	int reclen = ROUND_UP(NAME_OFFSET(struct mario_dirent64) + namelen + 1);
 
 	buf->error = 0;
 	if (reclen > buf->count) {
@@ -81,7 +81,7 @@ static int kernel_filldir64(void *__buf, char *name, int namelen,
 {
 	struct mario_dirent64 *dirent;
 	struct getdents_callback *buf = (struct getdents_callback *)__buf;
-	int reclen = ROUND_UP(NAME_OFFSET(dirent) + namelen + 1);
+	int reclen = ROUND_UP(NAME_OFFSET(struct mario_dirent64) + namelen + 1);
 
 	buf->error = 0;
 	if (reclen > buf->count) {

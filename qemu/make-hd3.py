@@ -7,7 +7,7 @@ import mkdisk
 
 disk = mkdisk.Disk(
     name="hd3",
-    size_mib=320+512,
+    size_mib=320 + 512,
     label="gpt",
     partitions=[
         mkdisk.Partition(

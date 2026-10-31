@@ -104,7 +104,7 @@ int blkdev_get_info(dev_t dev, struct blkdev_info *info)
 
 int get_sector_size(dev_t dev, int *size)
 {
-	struct blkdev_info info;
+	struct blkdev_info info = {0};
 
 	if (blkdev_get_info(dev, &info)) {
 		*size = 0;

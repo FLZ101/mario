@@ -180,7 +180,9 @@ def _wait_for_partition_devices(loop: str, partitions) -> None:
         if missing:
             time.sleep(0.05)
     if missing:
-        raise RuntimeError("loop partition devices did not appear: " + ", ".join(missing))
+        raise RuntimeError(
+            "loop partition devices did not appear: " + ", ".join(missing)
+        )
 
 
 def _make_filesystem(fstype: str, device: str) -> None:

@@ -1,0 +1,4 @@
+---
+Checks: '-*,clang-analyzer-core.uninitialized.*,clang-analyzer-core.NullDereference,clang-analyzer-core.UndefinedBinaryOperatorResult,clang-analyzer-unix.Malloc,clang-analyzer-unix.MismatchedDeallocator,bugprone-sizeof-expression,bugprone-suspicious-memset-usage,bugprone-undefined-memory-manipulation'
+WarningsAsErrors: '*'
+HeaderFilterRegex: '^src/'

@@ -473,9 +473,7 @@ def main():
         sys.exit(2)
 
     missing_hd_images = [
-        path
-        for path in (HD1_IMAGE, HD2_IMAGE, HD3_IMAGE)
-        if not os.path.exists(path)
+        path for path in (HD1_IMAGE, HD2_IMAGE, HD3_IMAGE) if not os.path.exists(path)
     ]
 
     failed = False
