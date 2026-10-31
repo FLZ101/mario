@@ -60,14 +60,9 @@ jobs:
                 /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
             fi
             apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-              make gcc gcc-multilib binutils nasm qemu-system-x86 gdb \
-              dosfstools e2fsprogs mtools bison byacc \
-              autoconf automake libtool wget patch socat tmux \
-              clang-tidy python3 python3-pip python3-venv \
-              zlib1g-dev libffi-dev libssl-dev libreadline-dev \
-              libsqlite3-dev libbz2-dev liblzma-dev uuid-dev \
-              libncurses-dev pkg-config
+            packages=$(grep -Ev '^[[:space:]]*#|^[[:space:]]*$' .github/ci/ubuntu-packages.txt)
+            echo "Installing packages: $packages"
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $packages
           else
             if [ "$VERSION_ID" = "39" ]; then
               sed -i \
@@ -75,15 +70,9 @@ jobs:
                 -e 's|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://archives.fedoraproject.org/pub/archive/fedora/linux|' \
                 /etc/yum.repos.d/fedora.repo /etc/yum.repos.d/fedora-updates.repo
             fi
-            dnf install -y --setopt=install_weak_deps=False \
-              make gcc binutils nasm qemu-system-x86 gdb \
-              dosfstools e2fsprogs mtools bison byacc \
-              autoconf automake libtool wget patch socat tmux \
-              clang-tidy python3 python3-pip zlib-devel \
-              glibc-devel.i686 libgcc.i686 libffi-devel \
-              openssl-devel readline-devel sqlite-devel \
-              bzip2-devel xz-devel libuuid-devel ncurses-devel \
-              pkgconf-pkg-config
+            packages=$(grep -Ev '^[[:space:]]*#|^[[:space:]]*$' .github/ci/fedora-packages.txt)
+            echo "Installing packages: $packages"
+            dnf install -y --setopt=install_weak_deps=False $packages
           fi
 
       - name: Run tests (SMP=1)

@@ -1,7 +1,0 @@
-{
-  "name": "mario",
-  "build": {
-    "dockerfile": "../Containerfile",
-    "context": ".."
-  }
-}
