@@ -130,8 +130,18 @@ void wake_up_process(struct task_struct *p)
 		 * reached schedule), leave it there; its CPU will continue it. */
 		p->state = TASK_RUNNING;
 		if (!task_on_runqueue(p)) {
-			target = select_task_cpu(p);
-			p->cpu = target;
+			/*
+			 * Enqueue on the CPU the task last ran on.  At this point
+			 * p may still be executing on that CPU and about to call
+			 * schedule() (for example after down() released a
+			 * semaphore but before sleep_on() parks the task).  If we
+			 * changed p->cpu now, the still-running task would enter
+			 * schedule() with current->cpu pointing at the wrong
+			 * runqueue, corrupting scheduler state and losing the
+			 * wakeup.  Remote migration is deliberately deferred to
+			 * fork time and to schedule()'s pending-signal path.
+			 */
+			target = p->cpu;
 			__enqueue_task(target, p);
 		}
 	} else if (!task_on_runqueue(p)) {
