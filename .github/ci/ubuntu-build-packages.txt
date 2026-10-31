@@ -1,0 +1,35 @@
+# Build dependencies for GitHub Actions on Ubuntu.
+#
+# Toolchain.
+make
+gcc
+gcc-multilib
+binutils
+nasm
+
+# Python used by the rd build scripts.
+python3
+
+# Archive and configure tools used by app builds.
+wget
+patch
+tar
+gzip
+unzip
+bison
+byacc
+autoconf
+automake
+libtool
+pkg-config
+
+# Host Python build dependencies.
+zlib1g-dev
+libffi-dev
+libssl-dev
+libreadline-dev
+libsqlite3-dev
+libbz2-dev
+liblzma-dev
+uuid-dev
+libncurses-dev

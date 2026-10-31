@@ -7,88 +7,53 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 180
-    container:
-      image: ${{ matrix.image }}
-      options: --privileged
     strategy:
       fail-fast: false
       max-parallel: 4
       matrix:
-        image:
-          - ubuntu:23.10
-          - ubuntu:latest
-          - fedora:39
-          - fedora:latest
-        flags:
-          - "DEBUG=0"
-          - "DEBUG=1"
-          - "DEBUG=1 OPTIMIZE=-O3"
+        include:
+          - { image: "ubuntu:23.10", flags: "DEBUG=0" }
+          - { image: "ubuntu:23.10", flags: "DEBUG=1" }
+          - { image: "ubuntu:23.10", flags: "DEBUG=1 OPTIMIZE=-O3" }
+          - { image: "ubuntu:latest", flags: "DEBUG=0" }
+          - { image: "ubuntu:latest", flags: "DEBUG=1" }
+          - { image: "ubuntu:latest", flags: "DEBUG=1 OPTIMIZE=-O3" }
+          - { image: "fedora:39", flags: "DEBUG=0" }
+          - { image: "fedora:39", flags: "DEBUG=1" }
+          - { image: "fedora:39", flags: "DEBUG=1 OPTIMIZE=-O3" }
+          - { image: "fedora:latest", flags: "DEBUG=0" }
+          - { image: "fedora:latest", flags: "DEBUG=1" }
+          - { image: "fedora:latest", flags: "DEBUG=1 OPTIMIZE=-O3" }
 
     steps:
-      - name: Install git before checkout
-        run: |
-          . /etc/os-release
-          if [ "$ID" = ubuntu ]; then
-            if [ "$VERSION_ID" = "23.10" ]; then
-              sed -i \
-                -e 's|http://archive.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' \
-                -e 's|http://security.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' \
-                /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-            fi
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates
-          else
-            if [ "$VERSION_ID" = "39" ]; then
-              sed -i \
-                -e 's|^metalink=|#metalink=|' \
-                -e 's|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://archives.fedoraproject.org/pub/archive/fedora/linux|' \
-                /etc/yum.repos.d/fedora.repo /etc/yum.repos.d/fedora-updates.repo
-            fi
-            dnf install -y --setopt=install_weak_deps=False git ca-certificates
-          fi
-
       - uses: actions/checkout@v4
 
-      - name: Install build and test dependencies
+      - name: Install host dependencies
         run: |
-          . /etc/os-release
-          if [ "$ID" = ubuntu ]; then
-            if [ "$VERSION_ID" = "23.10" ]; then
-              sed -i \
-                -e 's|http://archive.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' \
-                -e 's|http://security.ubuntu.com/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' \
-                /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-            fi
-            apt-get update
-            packages=$(grep -Ev '^[[:space:]]*#|^[[:space:]]*$' .github/ci/ubuntu-packages.txt)
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $packages
-          else
-            if [ "$VERSION_ID" = "39" ]; then
-              sed -i \
-                -e 's|^metalink=|#metalink=|' \
-                -e 's|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://archives.fedoraproject.org/pub/archive/fedora/linux|' \
-                /etc/yum.repos.d/fedora.repo /etc/yum.repos.d/fedora-updates.repo
-            fi
-            packages=$(grep -Ev '^[[:space:]]*#|^[[:space:]]*$' .github/ci/fedora-packages.txt)
-            dnf install -y --setopt=install_weak_deps=False $packages
-          fi
+          # apt-get keeps non-interactive output stable in CI.
+          sudo apt-get update
+          packages=$(grep -Ev '^[[:space:]]*#|^[[:space:]]*$' .github/ci/ubuntu-test-packages.txt)
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends podman $packages
 
-      - name: Verify disk image tools
+      - name: Check loop devices
         run: |
-          PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH"
-          command -v sfdisk
-          command -v losetup
-          command -v mkfs.vfat
-          command -v mkfs.ext2
-          command -v mkfs.ext4
-          command -v mount
-          command -v umount
+          # Fail early: the disk image builders need a free loop device.
+          test -e /dev/loop-control
+          sudo losetup --find
+
+      - name: Build kernel and app in ${{ matrix.image }}
+        run: |
+          sudo podman run --rm \
+            -v "$PWD:$PWD" \
+            -w "$PWD" \
+            "${{ matrix.image }}" \
+            sh .github/ci/build-in-container.sh "${{ matrix.flags }}"
 
       - name: Run tests (SMP=1)
-        run: make test ${{ matrix.flags }} SMP=1
+        run: make test SMP=1
 
       - name: Run tests (SMP=4)
-        run: make test ${{ matrix.flags }} SMP=4
+        run: make test SMP=4
 
       - name: Run tests (SMP=16)
-        run: make test ${{ matrix.flags }} SMP=16
+        run: make test SMP=16
