@@ -136,20 +136,6 @@ $ make DEBUG=0 OPTIMIZE=-O3 kernel app
 
 Image and test targets create `.venv` automatically when it is missing.
 
-### 3. Create disk images
-
-```
-$ make disk-image
-```
-
-For a specific grub4dos menu:
-
-```
-$ make disk-image-text
-$ make disk-image-vbe_1024x768
-$ make disk-image-vbe_1920x1080
-```
-
 ## Test
 
 ```
