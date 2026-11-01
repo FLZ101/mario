@@ -1,7 +1,8 @@
 TOYBOX_VER		:=0.8.9
 TOYBOX_SRC_DIR	:=toybox-$(TOYBOX_VER)
 TOYBOX_SRC_FILE	:=$(TOYBOX_SRC_DIR).tar.gz
-TOYBOX_SRC_URL	:=https://landley.net/toybox/downloads/$(TOYBOX_SRC_FILE)
+# TOYBOX_SRC_URL	:=https://landley.net/toybox/downloads/$(TOYBOX_SRC_FILE)
+TOYBOX_SRC_URL	:=https://github.com/landley/toybox/archive/refs/tags/$(TOYBOX_VER).tar.gz
 TOYBOX_INSTALL_DIR	:=$(ROOT)/$(TOYBOX_SRC_DIR)-install
 
 .PHONY build:: build-toybox

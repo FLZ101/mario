@@ -1,7 +1,8 @@
 NANO_VER		:=9.0
 NANO_SRC_DIR	:=nano-$(NANO_VER)
 NANO_SRC_FILE	:=$(NANO_SRC_DIR).tar.gz
-NANO_SRC_URL	:=https://ftp.gnu.org/gnu/nano/$(NANO_SRC_FILE)
+# NANO_SRC_URL	:=https://ftp.gnu.org/gnu/nano/$(NANO_SRC_FILE)
+NANO_SRC_URL	:=https://mirrors.ibiblio.org/pub/mirrors/gnu/nano/$(NANO_SRC_FILE)
 NANO_INSTALL_DIR	:=$(ROOT)/$(NANO_SRC_DIR)-install
 
 .PHONY build:: build-nano
