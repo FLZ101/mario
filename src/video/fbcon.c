@@ -35,7 +35,7 @@ static const uint8_t palette[16][3] = {
 static wait_queue_t fbcon_wait;
 static spinlock_t fbcon_lock = SPINLOCK_UNLOCKED;
 static int fbcon_pending;
-static int fbcon_started;
+static volatile int fbcon_started;
 static int fbcon_full_repaint;
 
 struct fbcon_layout {
@@ -292,6 +292,7 @@ static void fbcon_paint(int full)
 static void fbcon_thread(void *arg)
 {
 	(void)arg;
+	memcpy(current->comm, "[fbcon]", sizeof("[fbcon]"));
 	for (;;) {
 		int full;
 
@@ -314,7 +315,7 @@ static void fbcon_queue(int full)
 {
 	unsigned long flags;
 
-	if (!fb_is_enabled())
+	if (!fb_is_enabled() || !fbcon_started)
 		return;
 	spin_lock_irqsave(&fbcon_lock, flags);
 	fbcon_pending = 1;

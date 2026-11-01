@@ -44,6 +44,8 @@ static char *envp_init[MAX_INIT_ENVS+2] = { "HOME=/root", NULL, };
 
 void init(void *arg)
 {
+	memcpy(current->comm, "[init]", sizeof("[init]"));
+
 	// pid of init.exe is 1
 	execve("/sbin/init.exe", argv_init, envp_init);
 	hang("Fail to start init.exe: %d", errno);
@@ -96,12 +98,15 @@ void mario(struct multiboot_info *m)
 	futex_init();
 
 	sti();
-	fbcon_start();
 	/* The PIT is already running, which lets the AP start-up path wait on
 	 * jiffies for INIT/SIPI pacing. */
 	smp_init();
 	/* rdtsc needs a running PIT for a known time base. */
 	syscall_trace_calibrate();
+	/* Start init first so it remains the oldest task and PID 1.  The fbcon
+	 * worker is a kernel thread created only in framebuffer mode; if it is
+	 * forked first it steals PID 1 from init.exe. */
 	kernel_thread(init, NULL);
+	fbcon_start();
 	cpu_idle();
 }
