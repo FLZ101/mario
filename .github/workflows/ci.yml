@@ -12,18 +12,21 @@ jobs:
       max-parallel: 4
       matrix:
         include:
-          - { image: "ubuntu:23.10", flags: "DEBUG=0" }
-          - { image: "ubuntu:23.10", flags: "DEBUG=1" }
+          - { image: "ubuntu:23.10", flags: "DEBUG=0 OPTIMIZE=-O3" }
           - { image: "ubuntu:23.10", flags: "DEBUG=1 OPTIMIZE=-O3" }
-          - { image: "ubuntu:26.04", flags: "DEBUG=0" }
-          - { image: "ubuntu:26.04", flags: "DEBUG=1" }
+          - { image: "ubuntu:23.10", flags: "" }
+
+          - { image: "ubuntu:26.04", flags: "DEBUG=0 OPTIMIZE=-O3" }
           - { image: "ubuntu:26.04", flags: "DEBUG=1 OPTIMIZE=-O3" }
-          - { image: "fedora:39", flags: "DEBUG=0" }
-          - { image: "fedora:39", flags: "DEBUG=1" }
+          - { image: "ubuntu:26.04", flags: "" }
+
+          - { image: "fedora:39", flags: "DEBUG=0 OPTIMIZE=-O3" }
           - { image: "fedora:39", flags: "DEBUG=1 OPTIMIZE=-O3" }
-          - { image: "fedora:45", flags: "DEBUG=0" }
-          - { image: "fedora:45", flags: "DEBUG=1" }
+          - { image: "fedora:39", flags: "" }
+
+          - { image: "fedora:45", flags: "DEBUG=0 OPTIMIZE=-O3" }
           - { image: "fedora:45", flags: "DEBUG=1 OPTIMIZE=-O3" }
+          - { image: "fedora:45", flags: "" }
 
     steps:
       - uses: actions/checkout@v4
