@@ -8,6 +8,6 @@ export CFLAGS="-ggdb ${OPTIMIZE} -fno-omit-frame-pointer"
 ./configure --host=i686-pc-linux-gnu --prefix="$LIBEVENT_INSTALL_DIR" --disable-shared --enable-static \
   --disable-samples --disable-libevent-regress --disable-thread-support \
   --disable-openssl --disable-debug-mode
-make -j1
+make -j "${JOBS:-1}"
 make install STRIP=true
 popd

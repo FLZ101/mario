@@ -21,7 +21,7 @@ export CFLAGS="-ggdb ${OPTIMIZE} -fno-omit-frame-pointer"
     --prefix="$ZLIB_INSTALL_DIR" \
     --static
 
-make -j 1
+make -j "${JOBS:-1}"
 
 # Keep debug info
 make install STRIP=true

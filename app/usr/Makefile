@@ -5,6 +5,8 @@ RM	:=rm -f
 ROOT := $(shell pwd)
 OPTIMIZE ?= -O0
 export OPTIMIZE
+JOBS ?= $(shell nproc)
+export JOBS
 
 .PHONY:: all build
 .PHONY:: clean clean-src

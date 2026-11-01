@@ -25,7 +25,7 @@ make distclean
     AR=ar \
     RANLIB=ranlib
 
-make -j 1
+make -j "${JOBS:-1}"
 make install
 
 popd

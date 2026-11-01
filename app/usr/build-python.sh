@@ -58,7 +58,7 @@ EOF
     CC="" LD="" ../configure \
         --prefix="$PYTHON_INSTALL_DIR_LINUX"
 
-    CC="" LD="" MAKEFLAGS="" make -j 1
+    CC="" LD="" MAKEFLAGS="" make -j "${JOBS:-1}"
     CC="" LD="" MAKEFLAGS="" make install
 
     popd
@@ -121,7 +121,7 @@ build_for_mario()
 
     # config.log
 
-    make LINKFORSHARED=" " -j 1
+    make LINKFORSHARED=" " -j "${JOBS:-1}"
 
     # Keep debug info
     make install STRIP=true

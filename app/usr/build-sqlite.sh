@@ -37,7 +37,7 @@ export CFLAGS="-ggdb ${OPTIMIZE} -fno-omit-frame-pointer"
     --with-readline-cflags="-I${READLINE_INSTALL_DIR}/include/ -I${READLINE_INSTALL_DIR}/include/readline -I${NCURSES_INSTALL_DIR}/include -I${NCURSES_INSTALL_DIR}/include/ncursesw" \
     --with-readline-ldflags="-L${READLINE_INSTALL_DIR}/lib -L${NCURSES_INSTALL_DIR}/lib -lreadline -lncurses"
 
-make -j 1
+make -j "${JOBS:-1}"
 
 # Keep debug info
 make install STRIP=true

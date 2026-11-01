@@ -41,7 +41,7 @@ export NCURSES_LIBS="-lncurses"
     --enable-utf8=no \
     --enable-year2038
 
-make -j 1
+make -j "${JOBS:-1}"
 
 # Keep debug info
 make install STRIP=true

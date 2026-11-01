@@ -33,7 +33,7 @@ else
     make distclean
 fi
 
-make -j 1
+make -j "${JOBS:-1}"
 make install
 
 popd

@@ -11,6 +11,6 @@ export LDFLAGS="-static -L${LIBEVENT_INSTALL_DIR}/lib -L${NCURSES_INSTALL_DIR}/l
 export ac_cv_search_forkpty='none required'
 export PKG_CONFIG=/bin/false
 ./configure --host=i686-pc-linux-gnu --prefix="$TMUX_INSTALL_DIR" --disable-utempter --disable-sixel
-make -j1
+make -j "${JOBS:-1}"
 make install STRIP=true
 popd

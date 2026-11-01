@@ -30,7 +30,7 @@ export LIBS="-lncurses"
     --enable-year2038 \
     --with-editor=vim
 
-make -j 1
+make -j "${JOBS:-1}"
 
 # Keep debug info
 make install STRIP=true

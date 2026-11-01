@@ -31,7 +31,7 @@ export LDFLAGS="-L${NCURSES_INSTALL_DIR}/lib"
     --enable-year2038 \
     --with-curses
 
-make -j 1
+make -j "${JOBS:-1}"
 
 # Keep debug info
 make install STRIP=true

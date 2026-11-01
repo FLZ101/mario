@@ -74,7 +74,7 @@ export LDFLAGS="-L${NCURSES_INSTALL_DIR}/lib"
     --disable-sysmouse --disable-nls --enable-year2038 \
     --with-wayland=no --with-x=no --with-gnome=no --disable-acl
 
-make VIMRCLOC=/etc VIMRUNTIMEDIR=/usr/share/vim/vim92 -j 1
+make VIMRCLOC=/etc VIMRUNTIMEDIR=/usr/share/vim/vim92 -j "${JOBS:-1}"
 
 # Keep debug info
 make install STRIP=true
