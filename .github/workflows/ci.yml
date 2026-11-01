@@ -41,15 +41,23 @@ jobs:
           test -e /dev/loop-control
           sudo losetup --find
 
-      - name: Build kernel and app in ${{ matrix.image }}
-        run: |
-          make BUILD_IMAGE="${{ matrix.image }}" ${{ matrix.flags }} kernel app
+      - name: Setup venv
+        run: make venv
+
+      - name: Build ${{ matrix.image }} container
+        run: make BUILD_IMAGE="${{ matrix.image }}" container
+
+      - name: Build kernel and app
+        run: make ${{ matrix.flags }} kernel app
+
+      - name: Create disk images
+        run: make image
 
       - name: Run tests (SMP=1)
-        run: make ${{ matrix.flags }} test LIT_JOBS=1 SMP=1
+        run: make SMP=1 LIT_JOBS=1 test
 
       - name: Run tests (SMP=4)
-        run: make ${{ matrix.flags }} test LIT_JOBS=1 SMP=4
+        run: make SMP=4 LIT_JOBS=1 test
 
       - name: Run tests (SMP=16)
-        run: make ${{ matrix.flags }} test LIT_JOBS=1 SMP=16
+        run: make SMP=16 LIT_JOBS=1 test

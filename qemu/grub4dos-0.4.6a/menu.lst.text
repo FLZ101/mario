@@ -1,0 +1,7 @@
+timeout 0
+default 0
+
+title mario (grub4dos)
+find --set-root /kernel.exe
+kernel /kernel.exe
+module /rdx

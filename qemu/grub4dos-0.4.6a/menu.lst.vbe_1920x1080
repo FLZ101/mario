@@ -1,0 +1,8 @@
+timeout 0
+default 0
+
+title mario (grub4dos VBE 1920x1080x32)
+find --set-root /kernel.exe
+setvbe 1920x1080x32
+kernel /kernel.exe
+module /rdx

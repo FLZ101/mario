@@ -5,12 +5,10 @@ PYTHON ?= python3
 # Number of QEMU CPUs.  Defaults to one until SMP bring-up lands so the
 # existing single-CPU kernel path remains the default for all targets.
 SMP ?= 1
-# grub4dos menu.lst entry to boot by default.  Use BOOT_ENTRY=N when
-# running `make run`, `make debug`, or `make image` from this directory
-# (or the top level) to preselect that numbered menu entry and boot with
-# no menu timeout.  Leave BOOT_ENTRY unset (internally x) to use the
-# original menu.lst unchanged.
-BOOT_ENTRY ?= x
+# grub4dos menu file installed as /menu.lst.  Prebuilt menus live in
+# qemu/grub4dos-0.4.6a.
+BOOT_MENU ?= menu.lst
+BOOT_MENU_FILE := grub4dos-0.4.6a/$(BOOT_MENU)
 
 .PHONY: all clean image run debug quick-run quick-debug \
 	tmux-run tmux-debug tmux-attach tmux-kill
@@ -22,26 +20,15 @@ KERNEL_EXE := ../src/kernel/kernel.exe
 
 image: hd1.img hd2.img hd3.img
 
-BOOT_MENU := grub4dos-0.4.6a/menu.lst
-ifneq ($(BOOT_ENTRY),x)
-BOOT_MENU := tmp/menu-$(BOOT_ENTRY).lst
+HD1_BOOT_STAMP := tmp/.hd1-boot-$(BOOT_MENU)
 
-$(BOOT_MENU): grub4dos-0.4.6a/menu.lst
+$(HD1_BOOT_STAMP): $(BOOT_MENU_FILE)
 	@mkdir -p tmp
-	@awk -v d='$(BOOT_ENTRY)' \
-		'BEGIN { printf "default %s\ntimeout 0\n", d } \
-		 !/^default[ \t]/ && !/^timeout[ \t]/ { print }' $< > $@
-endif
-
-HD1_BOOT_STAMP := tmp/.hd1-menu-$(BOOT_ENTRY)
-
-$(HD1_BOOT_STAMP): $(BOOT_MENU)
-	@mkdir -p tmp
-	@rm -f tmp/.hd1-menu-*
+	@rm -f tmp/.hd1-boot-*
 	@touch $@
 
-hd1.img: make-hd1.py mkdisk.py $(HD1_BOOT_STAMP) $(shell MARIO_BOOT_MENU='$(BOOT_MENU)' $(PYTHON) make-hd1.py --deps)
-	MARIO_BOOT_MENU='$(BOOT_MENU)' $(PYTHON) make-hd1.py
+hd1.img: make-hd1.py mkdisk.py $(HD1_BOOT_STAMP) $(shell MARIO_BOOT_MENU='$(BOOT_MENU_FILE)' $(PYTHON) make-hd1.py --deps)
+	MARIO_BOOT_MENU='$(BOOT_MENU_FILE)' $(PYTHON) make-hd1.py
 
 hd2.img: make-hd2.py mkdisk.py $(shell $(PYTHON) make-hd2.py --deps)
 	$(PYTHON) make-hd2.py
