@@ -10,6 +10,8 @@ extern void kernel_thread(void (*fun)(void *), void *arg);
 
 #define FONT_WIDTH 9
 #define FONT_HEIGHT 16
+#define FONT_GLYPH_WIDTH 18
+#define FONT_GLYPH_HEIGHT 32
 #define LINE_GAP 2
 #define CELL_HEIGHT (FONT_HEIGHT + LINE_GAP)
 #define TERMINAL_PADDING_X FONT_WIDTH
@@ -19,8 +21,8 @@ extern void kernel_thread(void (*fun)(void *), void *arg);
 #define CANVAS_WIDTH (CONTENT_WIDTH + 2 * TERMINAL_PADDING_X)
 #define CANVAS_HEIGHT (CONTENT_HEIGHT + 2 * TERMINAL_PADDING_Y)
 
-static const uint8_t font_cp437[256][16] = {
-#include "font_cp437_8x16.inc"
+static const uint8_t font_cp437[256][FONT_GLYPH_HEIGHT][FONT_GLYPH_WIDTH] = {
+#include "font_cp437_18x32_gray.inc"
 };
 
 static const uint8_t palette[16][3] = {
@@ -125,28 +127,26 @@ static void fbcon_layout(struct fbcon_layout *layout)
 	layout->height = content_bottom - layout->top;
 }
 
-static unsigned int fbcon_glyph_bit(const uint8_t *glyph, unsigned int ch,
-				   unsigned int x, unsigned int y)
+static unsigned int fbcon_glyph_value(
+	const uint8_t (*glyph)[FONT_GLYPH_WIDTH], unsigned int x, unsigned int y)
 {
-	if (x < 8)
-		return glyph[y] & (0x80 >> x) ? 255 : 0;
-	return ch >= 0xc0 && ch <= 0xdf && (glyph[y] & 1) ? 255 : 0;
+	return glyph[y][x];
 }
 
-static unsigned int fbcon_sample_glyph(const uint8_t *glyph, unsigned int ch,
-				      unsigned int x, unsigned int y,
-				      unsigned int width, unsigned int height)
+static unsigned int fbcon_sample_glyph(
+	const uint8_t (*glyph)[FONT_GLYPH_WIDTH], unsigned int x, unsigned int y,
+	unsigned int width, unsigned int height)
 {
-	int source_x = ((2 * x + 1) * FONT_WIDTH * 256) / (2 * width) - 128;
-	int source_y = ((2 * y + 1) * FONT_HEIGHT * 256) / (2 * height) - 128;
+	int source_x = ((2 * x + 1) * FONT_GLYPH_WIDTH * 256) / (2 * width) - 128;
+	int source_y = ((2 * y + 1) * FONT_GLYPH_HEIGHT * 256) / (2 * height) - 128;
 	unsigned int x0, x1, y0, y1, x_fraction, y_fraction;
 	unsigned int tl, tr, bl, br;
 
 	if (source_x <= 0) {
 		x0 = x1 = 0;
 		x_fraction = 0;
-	} else if (source_x >= (FONT_WIDTH - 1) * 256) {
-		x0 = x1 = FONT_WIDTH - 1;
+	} else if (source_x >= (FONT_GLYPH_WIDTH - 1) * 256) {
+		x0 = x1 = FONT_GLYPH_WIDTH - 1;
 		x_fraction = 0;
 	} else {
 		x0 = source_x / 256;
@@ -156,18 +156,18 @@ static unsigned int fbcon_sample_glyph(const uint8_t *glyph, unsigned int ch,
 	if (source_y <= 0) {
 		y0 = y1 = 0;
 		y_fraction = 0;
-	} else if (source_y >= (FONT_HEIGHT - 1) * 256) {
-		y0 = y1 = FONT_HEIGHT - 1;
+	} else if (source_y >= (FONT_GLYPH_HEIGHT - 1) * 256) {
+		y0 = y1 = FONT_GLYPH_HEIGHT - 1;
 		y_fraction = 0;
 	} else {
 		y0 = source_y / 256;
 		y1 = y0 + 1;
 		y_fraction = source_y % 256;
 	}
-	tl = fbcon_glyph_bit(glyph, ch, x0, y0);
-	tr = fbcon_glyph_bit(glyph, ch, x1, y0);
-	bl = fbcon_glyph_bit(glyph, ch, x0, y1);
-	br = fbcon_glyph_bit(glyph, ch, x1, y1);
+	tl = fbcon_glyph_value(glyph, x0, y0);
+	tr = fbcon_glyph_value(glyph, x1, y0);
+	bl = fbcon_glyph_value(glyph, x0, y1);
+	br = fbcon_glyph_value(glyph, x1, y1);
 	return (tl * (256 - x_fraction) * (256 - y_fraction) +
 		tr * x_fraction * (256 - y_fraction) +
 		bl * (256 - x_fraction) * y_fraction +
@@ -204,7 +204,7 @@ static void fbcon_cell(const struct fbcon_layout *layout, unsigned int row,
 {
 	const uint8_t *fg = palette[(cell >> 8) & 0x0f];
 	const uint8_t *bg = palette[(cell >> 12) & 0x0f];
-	const uint8_t *glyph = font_cp437[cell & 0xff];
+	const uint8_t (*glyph)[FONT_GLYPH_WIDTH] = font_cp437[cell & 0xff];
 	unsigned int left = layout->left + col * layout->width / N_COL;
 	unsigned int right = layout->left + (col + 1) * layout->width / N_COL;
 	unsigned int top = layout->top + row * layout->height / N_ROW;
@@ -219,8 +219,8 @@ static void fbcon_cell(const struct fbcon_layout *layout, unsigned int row,
 			unsigned int coverage = 0;
 
 			if (y >= glyph_top && y < glyph_bottom)
-				coverage = fbcon_sample_glyph(glyph, cell & 0xff,
-					x - left, y - glyph_top, right - left,
+				coverage = fbcon_sample_glyph(glyph, x - left,
+					y - glyph_top, right - left,
 					glyph_bottom - glyph_top);
 
 			fbcon_blend(rgb, fg, bg, coverage);

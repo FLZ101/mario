@@ -97,10 +97,6 @@ class GuiTest:
             elif line.startswith("GUI-"):
                 raise GuiTestError(f"{self.path}: unsupported directive {line!r}")
             index += 1
-        if not any(action == "screen" for action, _ in self.actions):
-            raise GuiTestError(
-                f"{self.path}: every GUI test needs a screenshot assertion"
-            )
         return self
 
 

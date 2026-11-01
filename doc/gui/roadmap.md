@@ -96,7 +96,7 @@ Change:
   framebuffer text presenter. It consumes existing `struct console` cell
   buffers, uses a fixed CP437 bitmap/palette, honors real stride and masks, and
   implements a software cursor without depending on `/dev/fb0` or userspace.
-- `src/video/font_cp437_8x16.inc`: add the checked-in 256-glyph bitmap generated
+- `src/video/font_cp437_18x32_gray.inc`: add the checked-in 256-glyph bitmap generated
   once from the bundled DejaVu Sans Mono source, with source/license metadata.
 - `src/fs/char/console.c`: render the existing 80x25 text-VT cell buffers with
   a VGA-compatible 9x16 CP437 renderer centered in a 9x18 cell, leaving a

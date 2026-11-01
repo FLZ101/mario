@@ -250,7 +250,7 @@ Add a small kernel-only presentation backend:
 ```text
 src/include/video/fbcon.h
 src/video/fbcon.c
-src/video/font_cp437_8x16.inc
+src/video/font_cp437_18x32_gray.inc
 ```
 
 `fbcon` owns no terminal state. `struct console::mem`, cursor coordinates,
@@ -259,20 +259,22 @@ only converts an already-final 16-bit cell into framebuffer pixels. This is not
 a GUI widget, does not depend on `/dev/fb0` file operations, and is available
 before any userspace process starts.
 
-- The checked-in font table is a 256-glyph, one-bit CP437 8x16 bitmap generated
-  from the bundled DejaVu Sans Mono source by `util/gen_cp437_font.py`, with
-  the source version and license recorded beside the generated file. The
-  renderer adds the ninth column needed by the 80x25 VGA-compatible canvas and
-  repeats the final glyph column only for CP437 box-drawing characters.
+- The checked-in font table is a 256-glyph, 18x32 grayscale CP437 bitmap
+  supersampled from the bundled DejaVu Sans Mono source by
+  `util/gen_cp437_font.py`, with the source version and license recorded
+  beside the generated file. The generator stores the extra two source columns
+  needed by the 80x25 VGA-compatible canvas and repeats the final glyph columns
+  only for CP437 box-drawing characters.
 - The presenter uses a 9x18 cell: the 9x16 glyph is vertically centered with
   a two-unit background gap between rows. It scales that grid as a whole, then
   distributes any fractional output pixels across rows and columns. Thus
   `1024x768` uses a centered `1024x640` canvas and `1920x1080` uses
   `1728x1080`, while terminal applications continue to observe an unchanged
   80x25 geometry.
-- Scaled bitmap glyphs use fixed-point bilinear coverage to blend their
-  foreground and background palette colors, smoothing enlarged text without
-  changing the CP437 glyph set, cell layout, or box-drawing extension.
+- Scaled bitmap glyphs use fixed-point bilinear coverage on the grayscale
+  source to blend their foreground and background palette colors, smoothing
+  enlarged text without changing the CP437 glyph set, cell layout, or
+  box-drawing extension.
 - `fbcon` maps the existing 4-bit foreground/background attributes through the
   canonical VGA 16-color palette. It writes directly through `fb_info` using
   the actual stride and pixel masks; it never assumes XRGB8888 outside the
