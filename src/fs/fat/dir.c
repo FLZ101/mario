@@ -882,7 +882,7 @@ static int fat_delete_entry_at(struct inode *dir, uint32_t cluster,
 	uint32_t first_offset = offset;
 	uint32_t cur_cluster;
 	uint32_t cur_offset;
-	uint32_t index;
+	uint32_t index = 0;
 	uint8_t *buf;
 	int error;
 
