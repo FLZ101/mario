@@ -478,7 +478,7 @@ A20:
     mov [ClusNumber2], eax
     call load_next_clus
     jnc $   ;Is KERNEL_EXE an empty file?
-    mov [loaded_L], word 0  ;[loaded_H] is already set to [BytesPerClus]
+    mov word [loaded_L], 0  ;[loaded_H] is already set to [BytesPerClus]
 
 ;find Multiboot header
 ;NOTE:
@@ -586,7 +586,7 @@ multiboot_header_found:
     mov eax, [ClusNumber2]
     mov [ClusNumber], eax
     call load_next_clus
-    mov [loaded_L], dword 0
+    mov dword [loaded_L], 0
     mov eax, [BytesPerClus]
     mov [loaded_H], eax
 .next_0:
@@ -632,7 +632,7 @@ find_rd:
 ;Now eax is the fisrt cluster number of RD?
     mov [ClusNumber], eax
 
-    mov [read_L], dword 0
+    mov dword [read_L], 0
     mov eax, [file_size]
     mov [read_H], eax
 
@@ -654,7 +654,7 @@ find_rd:
     mov [tmp1], eax  ;rd(?+1)_start should be page aligned
 .next_1:
     call load_next_clus
-    mov [loaded_L], dword 0
+    mov dword [loaded_L], 0
     mov eax, [BytesPerClus]
     mov [loaded_H], eax
 
@@ -783,7 +783,7 @@ set_modules:
     mov [modules + edi + 4], eax  ;mod_end
     mov eax, [esi]
     mov [modules + edi], eax      ;mod_start
-    mov [modules + edi + 8], dword 0x7800 + OFFSET + RD_STR   ;string
+    mov dword [modules + edi + 8], 0x7800 + OFFSET + RD_STR   ;string
     add edi, 16 ;sizeof(struct multiboot_module) is 16B
 .next_0:
     add esi, 8
@@ -794,7 +794,7 @@ done_modules:
     je E820     ;no module loaded
     shr edi, 4  ;Do not forget this
     mov [mods_count], edi
-    mov [mods_addr], dword 0x7800 + OFFSET + modules
+    mov dword [mods_addr], 0x7800 + OFFSET + modules
     or [flag], byte 8
 
 ;the e820 memory map will lie at ds:(flag + 512)
@@ -806,8 +806,8 @@ E820:
     xor ebx, ebx
     xor bp, bp          ;keep an entry count in bp
 .do:
-    mov [di - 4], word 24
-    mov [di + 20], byte 1
+    mov word [di - 4], 24
+    mov byte [di + 20], 1
     mov edx, 0x534d4150
     mov eax, 0xe820
     mov ecx, 24
@@ -836,12 +836,12 @@ E820:
     mov ax, 4 + 24  ; !!!
     mul bp
     mov [mmap_length], ax
-    mov [mmap_addr], dword 0x7800 + OFFSET + mmap
+    mov dword [mmap_addr], 0x7800 + OFFSET + mmap
 
 BootloaderName:
     call get_cur_pos
     mov [CurPos], dx
-    mov [boot_loader_name], dword 0x7800 + OFFSET + Name
+    mov dword [boot_loader_name], 0x7800 + OFFSET + Name
     or [flag], word 256
 
 jump_to_kernel:
