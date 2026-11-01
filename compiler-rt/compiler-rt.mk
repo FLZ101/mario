@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 ROOT := $(shell pwd)
-OPTIMIZE ?= -O3
+OPTIMIZE ?= -O0
 
 COMPILER_RT_SRC_DIR := compiler-rt
 COMPILER_RT_OBJ_DIR := compiler-rt

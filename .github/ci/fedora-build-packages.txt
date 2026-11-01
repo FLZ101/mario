@@ -1,0 +1,41 @@
+# Build dependencies for GitHub Actions on Fedora.
+#
+# Toolchain.
+make
+gcc
+binutils
+nasm
+
+# Mario's -m32 builds link compiler-rt rather than 32-bit libgcc/glibc.
+# glibc-devel.i686
+# libgcc.i686
+
+# Python used by app/usr/build-python.sh while CPython configure/make runs.
+python3
+
+# Archive and configure tools used by app builds.
+wget
+patch
+tar
+gzip
+unzip
+bison
+byacc
+autoconf
+automake
+libtool
+pkgconf-pkg-config
+
+# Host Python build dependencies.
+zlib-devel
+libffi-devel
+openssl-devel
+readline-devel
+sqlite-devel
+bzip2-devel
+xz-devel
+libuuid-devel
+ncurses-devel
+
+# Additional CP437/iconv charmaps used by the font tooling.
+glibc-gconv-extra

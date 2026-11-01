@@ -1,0 +1,26 @@
+# Test dependencies for GitHub Actions on Fedora.
+#
+# Host image-generation toolchain. rd-make.exe is built with the host
+# compiler.
+make
+gcc
+binutils
+
+# QEMU and raw-disk image generation. util-linux provides sfdisk, losetup,
+# mount and umount.
+qemu-system-x86
+util-linux
+dosfstools
+e2fsprogs
+
+# Test harness.
+tmux
+socat
+
+# Python environment used by the lit runners.
+python3
+python3-pip
+
+# Debug and pre-commit tools.
+gdb
+clang-tools-extra

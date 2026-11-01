@@ -3,7 +3,7 @@ SHELL := /bin/bash
 RM	:=rm -f
 
 ROOT := $(shell pwd)
-OPTIMIZE ?= -O3
+OPTIMIZE ?= -O0
 export OPTIMIZE
 
 .PHONY:: all build

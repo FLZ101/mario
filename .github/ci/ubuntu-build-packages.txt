@@ -3,11 +3,12 @@
 # Toolchain.
 make
 gcc
-gcc-multilib
+# Mario links compiler-rt instead of 32-bit libgcc.
+# gcc-multilib
 binutils
 nasm
 
-# Python used by the rd build scripts.
+# Python used by app/usr/build-python.sh while CPython configure/make runs.
 python3
 
 # Archive and configure tools used by app builds.

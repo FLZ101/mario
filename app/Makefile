@@ -10,7 +10,7 @@ SHELL := /bin/bash
 
 ROOT := $(shell pwd)
 export ROOT
-OPTIMIZE ?= -O3
+OPTIMIZE ?= -O0
 export OPTIMIZE
 
 unexport SMP BOOT_ENTRY

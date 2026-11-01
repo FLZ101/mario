@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 RM	:=rm -f
-OPTIMIZE ?= -O3
+OPTIMIZE ?= -O0
 NASM	:=nasm
 MAKE	:=make -R
 

@@ -1,16 +1,17 @@
 # Test dependencies for GitHub Actions on Ubuntu.
 #
-# QEMU and raw-disk image generation. fdisk provides sfdisk; mount provides
-# losetup, mount and umount.
+# Host image-generation toolchain. rd-make.exe is built with the host
+# compiler.
 gcc
 binutils
+
+# QEMU and raw-disk image generation. fdisk provides sfdisk; mount provides
+# losetup, mount and umount.
 qemu-system-x86
-util-linux
 fdisk
 mount
 dosfstools
 e2fsprogs
-mtools
 
 # Test harness.
 make

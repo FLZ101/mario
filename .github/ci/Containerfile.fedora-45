@@ -1,0 +1,6 @@
+FROM fedora:45
+
+COPY .github/ci/fedora-build-packages.txt /tmp/mario-packages.txt
+
+RUN dnf install -y --setopt=install_weak_deps=False \
+        $(grep -Ev '^[[:space:]]*#|^[[:space:]]*$' /tmp/mario-packages.txt)

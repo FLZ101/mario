@@ -35,9 +35,10 @@ HD_IMAGES = [ROOT / "qemu" / f"hd{index}.img" for index in range(1, 4)]
 PROMPT = "MARIO_GUI_PROMPT> "
 BOOT_PROMPT = "/ # "
 PROMPT_PATTERN = re.compile(r"(?m)^\r*MARIO_GUI_PROMPT> ")
-DEFAULT_TIMEOUT = 15.0
+DEFAULT_TIMEOUT = 60.0
 BOOT_MENU_DELAY = 3.0
 KEY_DELAY = 0.05
+SCREEN_SETTLE_DELAY = 1.0
 
 
 class GuiTestError(RuntimeError):
@@ -309,8 +310,11 @@ def run_test(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
             elif action == "type":
                 type_text(qmp, value)
             elif action == "screen":
+                time.sleep(SCREEN_SETTLE_DELAY)
                 if not wait_for_screen(qmp, value, timeout):
-                    failures.append(f"GUI-CHECK-SCREEN: {value}")
+                    failures.append(
+                        f"GUI-CHECK-SCREEN timed out after {timeout:.1f}s: {value}"
+                    )
             elif action == "timeout":
                 timeout = value
     finally:

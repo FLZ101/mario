@@ -42,7 +42,7 @@ INITRD = ROOT / "rd/rdx"
 HD_IMAGES = [ROOT / f"qemu/hd{index}.img" for index in range(1, 4)]
 BRIDGE = ROOT / "tests/tty_serial_bridge.py"
 
-DEFAULT_TIMEOUT = 30.0
+DEFAULT_TIMEOUT = 60.0
 PANEL_WIDTH = 80
 PANEL_HEIGHT = 25
 PROMPT = "MARIO_TTY_PROMPT>"

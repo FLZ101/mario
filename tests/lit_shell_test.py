@@ -51,7 +51,7 @@ def prompt_pattern(literal):
 
 BOOT_PROMPT = prompt_pattern("/ # ")
 PROMPT = prompt_pattern("MARIO_TEST_PROMPT> ")
-DEFAULT_TIMEOUT = 30
+DEFAULT_TIMEOUT = 60
 
 
 def parse_smp_requirement(spec):

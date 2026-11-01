@@ -15,15 +15,15 @@ jobs:
           - { image: "ubuntu:23.10", flags: "DEBUG=0" }
           - { image: "ubuntu:23.10", flags: "DEBUG=1" }
           - { image: "ubuntu:23.10", flags: "DEBUG=1 OPTIMIZE=-O3" }
-          - { image: "ubuntu:latest", flags: "DEBUG=0" }
-          - { image: "ubuntu:latest", flags: "DEBUG=1" }
-          - { image: "ubuntu:latest", flags: "DEBUG=1 OPTIMIZE=-O3" }
+          - { image: "ubuntu:26.04", flags: "DEBUG=0" }
+          - { image: "ubuntu:26.04", flags: "DEBUG=1" }
+          - { image: "ubuntu:26.04", flags: "DEBUG=1 OPTIMIZE=-O3" }
           - { image: "fedora:39", flags: "DEBUG=0" }
           - { image: "fedora:39", flags: "DEBUG=1" }
           - { image: "fedora:39", flags: "DEBUG=1 OPTIMIZE=-O3" }
-          - { image: "fedora:latest", flags: "DEBUG=0" }
-          - { image: "fedora:latest", flags: "DEBUG=1" }
-          - { image: "fedora:latest", flags: "DEBUG=1 OPTIMIZE=-O3" }
+          - { image: "fedora:45", flags: "DEBUG=0" }
+          - { image: "fedora:45", flags: "DEBUG=1" }
+          - { image: "fedora:45", flags: "DEBUG=1 OPTIMIZE=-O3" }
 
     steps:
       - uses: actions/checkout@v4
@@ -43,17 +43,13 @@ jobs:
 
       - name: Build kernel and app in ${{ matrix.image }}
         run: |
-          podman run --rm \
-            -v "$PWD:$PWD" \
-            -w "$PWD" \
-            "${{ matrix.image }}" \
-            sh .github/ci/build-in-container.sh "${{ matrix.flags }}"
+          make BUILD_IMAGE="${{ matrix.image }}" ${{ matrix.flags }} kernel app
 
       - name: Run tests (SMP=1)
-        run: make test SMP=1
+        run: make ${{ matrix.flags }} test SMP=1
 
       - name: Run tests (SMP=4)
-        run: make test SMP=4
+        run: make ${{ matrix.flags }} test SMP=4
 
       - name: Run tests (SMP=16)
-        run: make test SMP=16
+        run: make ${{ matrix.flags }} test SMP=16

@@ -42,35 +42,53 @@ A simple Linux clone for x86.
 
 ## Prerequisites
 
-```
-$ sudo dnf install make gcc binutils nasm qemu-system-x86 gdb dosfstools e2fsprogs mtools bison yacc
+Dependencies for the supported distros are maintained in text files:
 
-$ sudo dnf install wget patch
+- `.github/ci/ubuntu-build-packages.txt`
+- `.github/ci/ubuntu-test-packages.txt`
+- `.github/ci/fedora-build-packages.txt`
+- `.github/ci/fedora-test-packages.txt`
 
-$ sudo dnf install autoconf automake libtool
-
-$ sudo dnf install socat tmux
-```
-
-The build uses a 32-bit GCC toolchain (`-m32`). If your host GCC
-does not have i386 support installed:
-
-Ubuntu/Debian:
+Install both lists on Ubuntu with:
 
 ```
-$ sudo apt install gcc-multilib
+$ sudo apt-get update
+$ sudo apt-get install -y $(grep -hEv '^[[:space:]]*#|^[[:space:]]*$' \
+    .github/ci/ubuntu-build-packages.txt .github/ci/ubuntu-test-packages.txt)
 ```
 
-Fedora:
+Or on Fedora with:
 
 ```
-$ sudo dnf install glibc-devel.i686 libgcc.i686
+$ sudo dnf install -y $(grep -hEv '^[[:space:]]*#|^[[:space:]]*$' \
+    .github/ci/fedora-build-packages.txt .github/ci/fedora-test-packages.txt)
 ```
 
 ## Build
 
 ```
 $ make
+```
+
+The default is a host build. Set `BUILD_IMAGE` to build kernel and app inside
+a container:
+
+```
+$ make BUILD_IMAGE=ubuntu:26.04
+```
+
+Available images are `ubuntu:23.10`, `ubuntu:26.04`, `fedora:39`, and
+`fedora:45`. The first podman build creates and caches the image under
+`localhost/mario-build:<distro-tag>`.
+
+Use `make BUILD_IMAGE=ubuntu:26.04 container-image` to rebuild that image
+explicitly, or `make BUILD_IMAGE=ubuntu:26.04 container-shell` to open a
+shell inside it.
+
+Run the test suite with:
+
+```
+$ make test
 ```
 
 ## Run

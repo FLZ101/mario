@@ -1,0 +1,7 @@
+FROM ubuntu:26.04
+
+COPY .github/ci/ubuntu-build-packages.txt /tmp/mario-packages.txt
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        $(grep -Ev '^[[:space:]]*#|^[[:space:]]*$' /tmp/mario-packages.txt)

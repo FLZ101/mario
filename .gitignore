@@ -11,5 +11,7 @@ src/boot/boot.lst
 /tmp/
 compile_commands.json
 /.cache/
+# Persisted host/podman build environment marker.
+/.build-env
 __pycache__/
 .venv/

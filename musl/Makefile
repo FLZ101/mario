@@ -3,7 +3,7 @@ SHELL := /bin/bash
 RM	:=rm -f
 
 ROOT := $(shell pwd)
-OPTIMIZE ?= -O3
+OPTIMIZE ?= -O0
 export OPTIMIZE
 
 MUSL_VER		:=1.2.5

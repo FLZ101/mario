@@ -10,7 +10,7 @@ OBJS	+= $(patsubst %.c,%.o, $(wildcard $(ROOT)/lib/*.c))
 
 RM :=rm -f
 CP :=cp
-OPTIMIZE ?= -O3
+OPTIMIZE ?= -O0
 INCLUDE :=-I$(ROOT)/include
 CFLAGS	:=-c $(INCLUDE) \
 	-std=gnu11 -Wall -Werror \

@@ -1,0 +1,10 @@
+FROM fedora:39
+
+COPY .github/ci/fedora-build-packages.txt /tmp/mario-packages.txt
+
+RUN sed -i \
+        -e 's|^metalink=|#metalink=|' \
+        -e 's|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://archives.fedoraproject.org/pub/archive/fedora/linux|' \
+        /etc/yum.repos.d/fedora.repo /etc/yum.repos.d/fedora-updates.repo; \
+    dnf install -y --setopt=install_weak_deps=False \
+        $(grep -Ev '^[[:space:]]*#|^[[:space:]]*$' /tmp/mario-packages.txt)
