@@ -1,3 +1,5 @@
+[![ci](https://github.com/FLZ101/mario/actions/workflows/ci.yml/badge.svg)](https://github.com/FLZ101/mario/actions/workflows/ci.yml)
+
 A simple Linux clone for x86.
 
 ## Screenshots
