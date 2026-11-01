@@ -33,7 +33,7 @@ while an earlier checkpoint is red.
   VTs; F8 begins in M1.
 - When a milestone introduces a new GUI binary, update `app/usr/Makefile` and
   `rd/copy_files.py` in that milestone; verify with `rd/make-rd0.py` that
-  `make image` installs and strips the binary into the common `ramdisk0`.
+  `make disk-image` installs and strips the binary into the common `ramdisk0`.
 
 ## Milestone Map
 
@@ -125,7 +125,7 @@ Build and run:
 
 ```sh
 make kernel
-make image
+make disk-image
 make quick-run-gtk
 .venv/bin/python tests/lit_gui_test.py --test fb.test tests/gui
 .venv/bin/python tests/lit_gui_test.py --test fb-tty.test tests/gui
@@ -221,7 +221,7 @@ Build and run:
 
 ```sh
 make kernel
-make image
+make disk-image
 make quick-run-gtk
 .venv/bin/python tests/lit_gui_test.py --test gui.console.test tests/gui
 .venv/bin/python tests/lit_shell_test.py tests/shell/mouse.test
@@ -295,7 +295,7 @@ Build and run:
 
 ```sh
 make app
-make image
+make disk-image
 make quick-run-gtk
 .venv/bin/python tests/lit_gui_test.py --test gui.font.test tests/gui
 .venv/bin/python tests/lit_gui_test.py --test gui.event.test tests/gui
@@ -365,7 +365,7 @@ Build and run:
 
 ```sh
 make app
-make image
+make disk-image
 make quick-run-gtk
 .venv/bin/python tests/lit_gui_test.py --test gui.desktop.test tests/gui
 .venv/bin/python tests/lit_gui_test.py --test gui.window.test tests/gui
@@ -456,7 +456,7 @@ Build and run:
 
 ```sh
 make app
-make image
+make disk-image
 make quick-run-gtk
 .venv/bin/python tests/lit_gui_test.py --test gui.terminal.test tests/gui
 ```
@@ -512,7 +512,7 @@ Build and run:
 
 ```sh
 make app
-make image
+make disk-image
 make quick-run-gtk
 .venv/bin/python tests/lit_gui_test.py --test gui.imageviewer.test tests/gui
 ```
@@ -557,7 +557,7 @@ Build and run:
 
 ```sh
 make app
-make image
+make disk-image
 make quick-run-gtk
 .venv/bin/python tests/lit_gui_test.py --test gui.filemanager.test tests/gui
 ```
@@ -612,7 +612,7 @@ Build and run:
 
 ```sh
 make app
-make image
+make disk-image
 make quick-run-gtk
 .venv/bin/python tests/lit_gui_test.py --test gui.mp.test tests/gui
 ```
@@ -669,7 +669,7 @@ After each milestone:
 
 ```sh
 make kernel
-make image
+make disk-image
 make quick-run-gtk
 ```
 

@@ -25,10 +25,10 @@ venv: $(VENV_STAMP)
 precommit-install: venv
 	$(PYTHON) -m pre_commit install
 
-precommit: setup
+precommit: precommit-install
 	$(PYTHON) -m pre_commit run
 
-precommit-all: setup
+precommit-all: precommit-install
 	$(PYTHON) -m pre_commit run --all-files
 
 clean: clean-hooks

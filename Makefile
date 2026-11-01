@@ -5,17 +5,19 @@ export SHELL
 
 ROOT := $(shell pwd)
 
-.PHONY: all clean
+.PHONY: all clean clean-all
 
 all: kernel app
 
-clean: clean-kernel clean-app
+clean: clean-build
+
+clean-all: clean-build clean-disk-image clean-container
 
 # ------
 
-.PHONY: venv precommit precommit-all
+.PHONY: venv precommit-install precommit precommit-all
 
-venv precommit precommit-all:
+venv precommit-install precommit precommit-all:
 	make -f Makefile.setup.mk $@
 
 # ------
@@ -35,36 +37,62 @@ clean-build-env: clean-kernel clean-app
 
 # ------
 
-.PHONY: container clean-container
+.PHONY: container clean-container clean-container-env clean-containers
 
 container: $(BUILD_ENV_CLEAN)
 
-container clean-container:
+container:
 	@if [ -n '$(BUILD_IMAGE)' ]; then \
-		make -f Makefile.container.mk BUILD_IMAGE=$(BUILD_IMAGE) $@; \
+		make -f Makefile.container.mk BUILD_IMAGE=$(BUILD_IMAGE) container; \
 	fi
+
+clean-container:
+	@if [ -n '$(BUILD_IMAGE)' ]; then \
+		make -f Makefile.container.mk BUILD_IMAGE=$(BUILD_IMAGE) clean-container; \
+	fi
+
+clean-container-env:
+	@test -f '$(BUILD_ENV_FILE)' || { echo 'not in a container build: $(BUILD_ENV_FILE) does not exist' >&2; exit 1; }
+	make -f Makefile.build.mk clean-build
+	make -f Makefile.container.mk clean-container-env
+
+clean-containers:
+	make -f Makefile.container.mk clean-containers
 
 # ------
 
 .PHONY: kernel app
-.PHONY: clean-kernel clean-app
+.PHONY: clean-build clean-kernel clean-app clean-src
 
 DEBUG ?= 1
 OPTIMIZE ?= -O0
 
-kernel app clean-kernel clean-app:
+kernel app:
 	make -f Makefile.build.mk DEBUG=$(DEBUG) OPTIMIZE=$(OPTIMIZE) $@
+
+clean-build clean-kernel clean-app clean-src:
+	make -f Makefile.build.mk $@
 
 # ------
 
-.PHONY: image clean-image
+.PHONY: disk-image disk-image-vbe_1024x768 disk-image-vbe_1920x1080 \
+	disk-image-text clean-disk-image
 
-BOOT_MENU ?= menu.lst
+disk-image disk-image-vbe_1024x768 disk-image-vbe_1920x1080 disk-image-text: venv
 
-image:
-	make -f Makefile.image.mk BOOT_MENU=$(BOOT_MENU)
+disk-image:
+	make -f Makefile.image.mk BOOT_MENU=menu.lst
 
-clean-image:
+disk-image-vbe_1024x768:
+	make -f Makefile.image.mk BOOT_MENU=menu.lst.vbe_1024x768
+
+disk-image-vbe_1920x1080:
+	make -f Makefile.image.mk BOOT_MENU=menu.lst.vbe_1920x1080
+
+disk-image-text:
+	make -f Makefile.image.mk BOOT_MENU=menu.lst.text
+
+clean-disk-image:
 	make -f Makefile.image.mk clean
 
 # ------
@@ -74,5 +102,21 @@ clean-image:
 SMP ?= 1
 LIT_JOBS ?= 4
 
-test: image
+test: venv disk-image-vbe_1024x768
+	make -f Makefile.run.mk SMP=$(SMP) LIT_JOBS=$(LIT_JOBS) $@
+
+# ------
+
+.PHONY: run debug quick-run quick-debug \
+	run-gtk debug-gtk quick-run-gtk quick-debug-gtk \
+	tmux-run tmux-debug tmux-attach tmux-kill
+
+run debug quick-run quick-debug quick-run-gtk quick-debug-gtk \
+	tmux-run tmux-debug tmux-attach tmux-kill: disk-image-text
+
+run-gtk debug-gtk: disk-image
+
+run debug quick-run quick-debug \
+	run-gtk debug-gtk quick-run-gtk quick-debug-gtk \
+	tmux-run tmux-debug tmux-attach tmux-kill:
 	make -f Makefile.run.mk SMP=$(SMP) LIT_JOBS=$(LIT_JOBS) $@

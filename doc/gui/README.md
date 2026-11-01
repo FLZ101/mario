@@ -204,7 +204,7 @@ Build and size budget:
   not correctness limits; if they are exceeded, trim unused FreeType modules
   before reducing features.
 - Keep all generated binaries static and `strip` them in the image build.
-- Measure the ramdisk delta in `make image`; the GUI payload is always staged
+- Measure the ramdisk delta in `make disk-image`; the GUI payload is always staged
   in the single image once its milestone is implemented. If the budget is
   exceeded, trim unused FreeType modules before reducing features.
 - `make app` always builds the GUI libraries/apps once introduced, and

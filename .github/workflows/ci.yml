@@ -51,7 +51,7 @@ jobs:
         run: make ${{ matrix.flags }} kernel app
 
       - name: Create disk images
-        run: make image
+        run: make disk-image
 
       - name: Run tests (SMP=1)
         run: make SMP=1 LIT_JOBS=1 test

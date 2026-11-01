@@ -8,7 +8,7 @@ export SHELL
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 .PHONY: all kernel musl app compiler-rt
-.PHONY: clean-all clean-src clean-compiler-rt clean-kernel \
+.PHONY: clean-all clean-build clean-src clean-compiler-rt clean-kernel \
 	clean-app clean-app-example clean-app-usr clean-app-usr-src \
 	clean-musl clean-musl-src
 
@@ -73,7 +73,9 @@ musl: compiler-rt
 app: musl
 	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(APP_CC) LD=$(APP_LD) -C app
 
-clean-all: clean-kernel clean-compiler-rt clean-musl clean-app
+clean-all: clean-build clean-src
+
+clean-build: clean-kernel clean-compiler-rt clean-musl clean-app
 	$(RM) $(COMPILE_COMMANDS_JSON)
 
 clean-app: clean-app-example clean-app-usr
