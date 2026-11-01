@@ -26,11 +26,3 @@ pkg-config
 
 # Host Python build dependencies.
 zlib1g-dev
-libffi-dev
-libssl-dev
-libreadline-dev
-libsqlite3-dev
-libbz2-dev
-liblzma-dev
-uuid-dev
-libncurses-dev

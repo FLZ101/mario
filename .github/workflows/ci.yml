@@ -46,10 +46,10 @@ jobs:
           make BUILD_IMAGE="${{ matrix.image }}" ${{ matrix.flags }} kernel app
 
       - name: Run tests (SMP=1)
-        run: make ${{ matrix.flags }} test SMP=1
+        run: make ${{ matrix.flags }} test LIT_JOBS=1 SMP=1
 
       - name: Run tests (SMP=4)
-        run: make ${{ matrix.flags }} test SMP=4
+        run: make ${{ matrix.flags }} test LIT_JOBS=1 SMP=4
 
       - name: Run tests (SMP=16)
-        run: make ${{ matrix.flags }} test SMP=16
+        run: make ${{ matrix.flags }} test LIT_JOBS=1 SMP=16

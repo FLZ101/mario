@@ -13,5 +13,6 @@ compile_commands.json
 /.cache/
 # Persisted host/podman build environment marker.
 /.build-env
+/.build-image-*
 __pycache__/
 .venv/

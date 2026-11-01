@@ -37,10 +37,21 @@ build_for_linux()
         return 0
     fi
 
-    rm -f Modules/Setup.local
-
+    # This interpreter is only used as the cross-build Python.  Start from a
+    # clean out-of-tree build so host/container artifacts can never mix.
+    rm -rf linux
     mkdir -p linux
     pushd linux
+
+    # _ssl/_hashlib are unnecessary here.  Python 3.13 links them against
+    # newer OpenSSL APIs on some distros, then `make install` fails when it
+    # cannot import the built .so.
+    mkdir -p Modules
+    cat > Modules/Setup.local <<'EOF'
+*disabled*
+_ssl
+_hashlib
+EOF
 
     printenv | grep musl
 
@@ -61,6 +72,8 @@ build_for_mario()
         return 0
     fi
 
+    # Same as linux above: avoid reusing a stale cross-build directory.
+    rm -rf mario
     mkdir -p mario
     pushd mario
 

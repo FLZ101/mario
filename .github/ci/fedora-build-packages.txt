@@ -28,14 +28,6 @@ pkgconf-pkg-config
 
 # Host Python build dependencies.
 zlib-devel
-libffi-devel
-openssl-devel
-readline-devel
-sqlite-devel
-bzip2-devel
-xz-devel
-libuuid-devel
-ncurses-devel
 
 # Additional CP437/iconv charmaps used by the font tooling.
 glibc-gconv-extra
