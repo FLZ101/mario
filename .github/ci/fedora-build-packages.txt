@@ -6,6 +6,10 @@ gcc
 binutils
 nasm
 
+# Host file comparison used to require diffutils (for cmp).  The build now
+# uses make/bash built-ins and no longer calls cmp.
+# diffutils
+
 # Mario's -m32 builds link compiler-rt rather than 32-bit libgcc/glibc.
 # glibc-devel.i686
 # libgcc.i686

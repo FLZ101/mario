@@ -8,6 +8,10 @@ gcc
 binutils
 nasm
 
+# Host file comparison used to require diffutils (for cmp).  The build now
+# uses make/bash built-ins and no longer calls cmp.
+# diffutils
+
 # Python used by app/usr/build-python.sh while CPython configure/make runs.
 python3
 

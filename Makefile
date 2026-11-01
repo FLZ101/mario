@@ -24,7 +24,8 @@ GUI_TEST_CASES ?= tests/gui
 	quick-run quick-debug run-gtk debug-gtk quick-run-gtk quick-debug-gtk \
 	test shell-test tty-test gui-test \
 	musl venv precommit-install precommit precommit-all setup \
-	compiler-rt container-image container-shell container-clean FORCE
+	compiler-rt container-image container-shell container-clean \
+	clean-build-env record-build-env FORCE
 
 .PHONY: clean clean-kernel clean-rd clean-app-example clean-app-usr clean-image \
 	clean-musl clean-compiler-rt
@@ -70,8 +71,12 @@ export BOOT_ENTRY
 LIT_JOBS ?= 4
 
 # Empty means build on the host; setting BUILD_IMAGE selects podman.
-BUILD_IMAGE ?=
+BUILD_IMAGE ?= NOT_EXIST
+BUILD_IMAGE := $(if $(filter NOT_EXIST,$(BUILD_IMAGE)),$(LAST_BUILD_IMAGE),$(BUILD_IMAGE))
 BUILD_ENV = $(if $(BUILD_IMAGE),podman,host)
+ifneq ($(BUILD_IMAGE),$(LAST_BUILD_IMAGE))
+BUILD_ENV_CLEAN := clean-build-env
+endif
 # Recursive (not ?=) so a command-line BUILD_IMAGE override recomputes the tag.
 BUILD_IMAGE_TAG = localhost/mario-build:$(subst :,-,$(BUILD_IMAGE))
 PODMAN ?= podman
@@ -95,28 +100,15 @@ COMPILER_RT_MK := $(ROOT)/compiler-rt/compiler-rt.mk
 APP_CC	:= $(ROOT)/util/mario-musl-cc
 APP_LD	:= $(ROOT)/util/mario-musl-ld
 
-# Update the persisted environment marker.  When it changes, clean the
-# affected host/container build outputs first so artifacts from the old
-# environment are never reused for the new one.  Skip that clean under
-# `make -n`, where MAKEFLAGS contains `n`.
-$(BUILD_ENV_FILE): FORCE
-	@printf 'BUILD_IMAGE := %s\n' '$(BUILD_IMAGE)' > $@.tmp
-	@if [ -f $@ ]; then \
-		if cmp -s $@.tmp $@ 2>/dev/null; then \
-			$(RM) $@.tmp; \
-		else \
-			mv $@.tmp $@; \
-			if [ -z "$(filter n,$(MAKEFLAGS))" ]; then \
-				$(MAKE) clean-kernel clean-compiler-rt clean-musl \
-					clean-app-example clean-app-usr; \
-			fi; \
-		fi; \
-	else \
-		mv $@.tmp $@; \
-	fi
+record-build-env:
+	@printf 'LAST_BUILD_IMAGE := %s\n' '$(BUILD_IMAGE)' > $(BUILD_ENV_FILE)
+
+clean-build-env:
+	$(MAKE) clean-kernel clean-compiler-rt clean-musl \
+		clean-app-example clean-app-usr
 
 # Every build target records the environment before invoking its sub-make.
-compiler-rt kernel musl app: $(BUILD_ENV_FILE)
+compiler-rt kernel musl app: $(BUILD_ENV_CLEAN) record-build-env
 
 $(BUILD_IMAGE_STAMP): $(BUILD_CONTAINERFILE)
 	@if ! $(PODMAN) image exists "$(BUILD_IMAGE_TAG)" >/dev/null 2>&1; then \
