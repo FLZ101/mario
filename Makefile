@@ -61,7 +61,8 @@ clean-containers:
 
 # ------
 
-.PHONY: kernel app analyze-kernel
+.PHONY: kernel app analyze-kernel \
+	selftest-kmalloc selftest-page selftest-stack selftest-ubsan
 .PHONY: clean-build clean-kernel clean-app clean-src
 
 DEBUG ?= 1
@@ -84,6 +85,9 @@ kernel app:
 
 analyze-kernel:
 	make -f Makefile.build.mk DEBUG=0 OPTIMIZE=-O0 ANALYZE=1 analyze-kernel
+
+selftest-kmalloc selftest-page selftest-stack selftest-ubsan:
+	make -f Makefile.build.mk $@
 
 clean-build clean-kernel clean-app clean-src:
 	make -f Makefile.build.mk $@

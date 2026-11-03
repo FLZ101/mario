@@ -18,6 +18,7 @@
 
 #include <fs/fs.h>
 #include <stack_protector.h>
+#include <runtime_selftest.h>
 
 #include <syscall_trace.h>
 
@@ -85,6 +86,7 @@ void mario(struct multiboot_info *m)
 	paging_init(m);
 	fb_map();
 	page_alloc_init();
+	runtime_selftest();
 	trap_init();
 	irq_init();
 	time_init();

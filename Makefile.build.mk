@@ -7,7 +7,8 @@ export SHELL
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: all kernel musl app compiler-rt analyze-kernel
+.PHONY: all kernel musl app compiler-rt analyze-kernel \
+	selftest-kmalloc selftest-page selftest-stack selftest-ubsan
 .PHONY: clean-all clean-build clean-src clean-compiler-rt clean-kernel \
 	clean-app clean-app-example clean-app-usr clean-app-usr-src \
 	clean-musl clean-musl-src
@@ -78,6 +79,28 @@ analyze-kernel: compiler-rt
 	$(PODMAN_RUN) $(MAKE) OPTIMIZE=-O0 CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld \
 		AUTO_VAR_INIT=0 KMALLOC_DEBUG=0 PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 \
 		UBSAN=0 ANALYZE=1 -C src
+
+SELF_TEST_FLAGS := OPTIMIZE=-O0 CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld
+
+selftest-kmalloc: compiler-rt
+	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=1 \
+		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 UBSAN=0 \
+		KMALLOC_SELF_TEST=1 -C src
+
+selftest-page: compiler-rt
+	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
+		PAGE_ALLOC_DEBUG=1 STACK_PROTECTOR=0 UBSAN=0 \
+		PAGE_ALLOC_SELF_TEST=1 -C src
+
+selftest-stack: compiler-rt
+	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
+		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=1 UBSAN=0 \
+		STACK_PROTECTOR_SELF_TEST=1 -C src
+
+selftest-ubsan: compiler-rt
+	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
+		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 UBSAN=1 \
+		UBSAN_SELF_TEST=1 -C src
 
 musl: compiler-rt
 	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(ROOT)/util/mario-cc COMPILE_COMMANDS_JSON= -C musl
