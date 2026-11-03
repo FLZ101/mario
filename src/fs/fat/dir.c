@@ -93,6 +93,7 @@ static int fat_lfn_add(struct fat_lfn *lfn, const uint8_t *entry)
 		return -EINVAL;
 
 	if (!lfn->have_last) {
+		fat_lfn_reset(lfn);
 		if (!(entry[0] & 0x40))
 			return -EINVAL;
 		lfn->have_last = 1;
@@ -130,6 +131,8 @@ static int fat_lfn_finish(struct fat_lfn *lfn, const uint8_t *short_entry)
 		return -EINVAL;
 	if (fat_short_name_checksum(short_entry) != lfn->checksum)
 		return -EINVAL;
+	assert(lfn->len >= 0);
+	assert(lfn->len < (int)sizeof(lfn->name));
 	lfn->name[lfn->len] = '\0';
 	return lfn->len > 0 ? 0 : -EINVAL;
 }
