@@ -1,7 +1,8 @@
 NCURSES_VER		:=6.6
 NCURSES_SRC_DIR	:=ncurses-$(NCURSES_VER)
 NCURSES_SRC_FILE	:=$(NCURSES_SRC_DIR).tar.gz
-NCURSES_SRC_URL	:=https://invisible-island.net/archives/ncurses/$(NCURSES_SRC_FILE)
+# NCURSES_SRC_URL	:=https://invisible-island.net/archives/ncurses/$(NCURSES_SRC_FILE)
+NCURSES_SRC_URL	:=https://ftp.gnu.org/gnu/ncurses/$(NCURSES_SRC_FILE)
 NCURSES_INSTALL_DIR	:=$(ROOT)/$(NCURSES_SRC_DIR)-install
 export NCURSES_INSTALL_DIR
 
