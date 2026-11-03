@@ -157,7 +157,7 @@ get_entry_done:
 int mario_create(struct inode *dir, char *name, int len, struct inode **res)
 {
 	int err = 0;
-	struct mario_dir_entry entry;
+	struct mario_dir_entry entry = {0};
 
 	if (len > MARIO_NAME_LEN - 1) {
 		err = -ENAMETOOLONG;
@@ -306,7 +306,7 @@ tail:
 int mario_mkdir(struct inode *dir, char *name, int len, int mode)
 {
 	int block, ret = 0;
-	struct mario_dir_entry entry, *pe;
+	struct mario_dir_entry entry = {0}, *pe;
 	struct buffer_head *bh;
 
 	if (len > MARIO_NAME_LEN - 1) {
@@ -408,7 +408,7 @@ int do_mario_rename(struct inode *old_dir, char *old_name, int old_len,
 {
 	int ino, error = 0;
 	struct inode *old_inode, *new_inode;
-	struct mario_dir_entry entry;
+	struct mario_dir_entry entry = {0};
 
 	if (old_len > MARIO_NAME_LEN - 1 || new_len > MARIO_NAME_LEN - 1)
 		return -ENAMETOOLONG;
@@ -517,7 +517,7 @@ int mario_rename(struct inode *old_dir, char *old_name, int old_len,
 int mario_mknod(struct inode *dir, char *name, int len, int mode, int rdev)
 {
 	int ino, error = 0;
-	struct mario_dir_entry entry;
+	struct mario_dir_entry entry = {0};
 
 	if (len > MARIO_NAME_LEN - 1) {
 		error = -ENAMETOOLONG;
@@ -552,7 +552,7 @@ tail_1:
 int mario_symlink(struct inode *dir, char *basename, int namelen, char *oldname)
 {
 	int ino, error = 0;
-	struct mario_dir_entry entry;
+	struct mario_dir_entry entry = {0};
 
 	int n = strlen(oldname);
 	if (n + 1 > dir->i_block_size - 4) {
