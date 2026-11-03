@@ -54,19 +54,25 @@ def get_args():
         "-static",
         "-fno-unwind-tables",
         "-fno-asynchronous-unwind-tables",
-        "-fno-stack-protector",
     ]
+    stack_protector = os.environ.get("STACK_PROTECTOR") == "1"
     match prog_name:
         case "cc":
             flags_before = []
             flags = []
 
         case "mario-cc":
+            flags.append(
+                "-fstack-protector-strong"
+                if stack_protector
+                else "-fno-stack-protector"
+            )
             if not compile_only and not preprocess_only:
                 flags.extend(["-nostdlib", f"{compiler_rt}"])
             pass
 
         case "mario-musl-cc":
+            flags.append("-fno-stack-protector")
             musl_dir = (cwd / ".." / "musl").resolve()
             libc_dir = (musl_dir / "musl-1.2.5-install").resolve()
 

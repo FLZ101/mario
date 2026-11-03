@@ -71,8 +71,12 @@ void cpu_idle(void)
 
 void printk_init(struct multiboot_info *m);
 
+extern uint32_t __stack_chk_guard;
+
+__attribute__((no_stack_protector))
 void mario(struct multiboot_info *m)
 {
+	__stack_chk_guard = 0x6d617269;
 	percpu_init();
 	/* Make fatal diagnostics available before normal serial tty setup. */
 	panic_serial_init();
