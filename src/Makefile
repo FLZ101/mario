@@ -20,6 +20,9 @@ CFLAGS	:=-c -D__KERNEL__ $(INCLUDE) \
 	-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
 	-MMD -MP
 
+WARN_FLAGS ?= -Wmaybe-uninitialized -Warray-bounds=2 -Wstringop-overflow=4
+CFLAGS += $(WARN_FLAGS)
+
 ifeq ($(AUTO_VAR_INIT),1)
 CFLAGS	+= -ftrivial-auto-var-init=pattern
 endif
