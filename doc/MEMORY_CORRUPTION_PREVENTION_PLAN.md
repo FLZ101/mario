@@ -29,17 +29,28 @@ Already landed:
   - `fat_lookup()` and `fat_readdir()` zero `struct fat_lfn` before scanning.
   - Fix location: `src/fs/fat/dir.c:73`, `src/fs/fat/dir.c:1238`,
     `src/fs/fat/dir.c:1331`.
+- `9653dfa fs/fat: initialize index in fat_delete_entry_at`
+  - The later `index == 0` check is now preceded by
+    `fat_dir_cluster_index()` initialization instead of reading an
+    uninitialized local.
+  - Fix location: `src/fs/fat/dir.c:885`.
 - `601a48a mm: add page allocator invariant assertions`
   - Free-list linkage, PFN bounds, order bounds, and buddy alignment checks.
   - Fix location: `src/mm/page_alloc.c`.
 - `51fe07d build: add clang-tidy hook and fix findings`
   - Added `.clang-tidy` with the selected memory-safety checks.
   - Added a local `clang-tidy` pre-commit hook scoped to `^src/.*\.c$`.
-  - Added top-level `precommit-install`, `precommit`, `precommit-all`, and
-    `setup` targets.
+  - Added top-level `venv`, `precommit-install`, `precommit`, and
+    `precommit-all` targets.
   - Fixed the initial findings: zero-initialized `blkdev`/AHCI/filemap
     objects, `__builtin_offsetof` for `dirent` name offsets, and intentional
     `sizeof` diagnostics in `src/fs/poll.c`.
+- `8a3ba56 Add fatal stack diagnostics and filesystem fixes`
+  - `hang()` now dumps the trapping CPU's registers and a bounded EBP
+    backtrace to COM1 before halting, so a fault is reported at its source
+    instead of surfacing later as allocator corruption.
+  - Fix location: `src/kernel/panic.c`, `src/include/panic.h`.
+  - Design notes: `doc/STACK_DUMP_PLAN.md`.
 - Related concurrency fixes that remove intermittent corruption triggers:
   - `7cd1ea0 smp: keep wakeups on the task's current CPU`
   - `b33e481 ahci: recover from missed shared completion IRQs`
@@ -47,6 +58,24 @@ Already landed:
   - `doc/VFAT_LFN_STACK_CORRUPTION_FIX.md`
   - `doc/PYTHON_SUBPROCESS_SEGFAULT_DEBUG.md`
   - `doc/SHARED_DATA_STRUCTURES_AUDIT.md`
+
+Implemented by this rollout, in order:
+
+- `0a6d20c build: restore test-all target`
+- `19bd8e3 fat: make LFN fragment append self-initializing`
+- `323bb39 fs: initialize stateful lookup/scan objects`
+- `45b27d5 mm: add kzalloc() and use it for metadata`
+- `59a39c7 build: add AUTO_VAR_INIT automatic local initialization`
+- `b1be492 build: finish runtime-check plumbing`
+- `3266779 mm: add KMALLOC_DEBUG header, redzone, and use-after-free check`
+- `f347f9d mm: add PAGE_ALLOC_DEBUG owner/poison check`
+- `451c8f9 kernel: add STACK_PROTECTOR support`
+- `4989de1 kernel: keep stack canary consistent across CPUs`
+- `1105b30 kernel: add UBSAN instrumentation and freestanding handlers`
+- `fe86c9c build: add memory-corruption warning flags`
+- `21612d4 build: add podman-aware make analyze-kernel`
+- `f9ad823 test: add deliberate corruption self-tests`
+- `6bf686f test: add VFAT LFN stress and SMP allocator stress`
 
 Existing build characteristics that this plan should preserve or exploit:
 
@@ -56,32 +85,38 @@ Existing build characteristics that this plan should preserve or exploit:
 - `DEBUG ?= 1` is the aggregate runtime-check preset. It enables all runtime
   checks by default; specific check variables override it.
 - Kernel builds include `-ggdb` and `-fno-omit-frame-pointer`.
-- `util/cc` currently adds `-fno-stack-protector` to the kernel wrapper.
+- `util/cc` currently adds `-fno-stack-protector` to the `mario-*` wrappers.
 - `compile_commands.json` is generated at the repository root.
 - `.pre-commit-config.yaml` already runs `black` plus the local
   `clang-tidy` hook.
 - `make precommit` runs hooks on staged files; `make precommit-all` runs them
   over the whole tree.
-- `make test-all` runs shell/tty/gui tests for `SMP=1/2/4/8/16`.
+- `make test` builds the VBE image and runs shell/tty/gui tests for one
+  `SMP` value; CI repeats it for `SMP=1/4/16` with `LIT_JOBS=1`.
 
 ## Build Configuration Model
 
-`DEBUG` is an aggregate runtime-check preset, not an optimization switch. By
-default `DEBUG=1` enables all runtime checks; `DEBUG=0` disables them unless
-a specific check overrides it:
+`DEBUG` is an aggregate runtime-check preset, not an optimization switch. The
+top-level `Makefile` accepts `DEBUG`/`OPTIMIZE` and forwards them to
+`Makefile.build.mk`, where the per-check variables are computed. By default
+`DEBUG=1` enables all runtime checks; `DEBUG=0` disables them unless a
+specific check overrides it:
 
 ```make
 OPTIMIZE ?= -O0
 
 DEBUG ?= 1
-ifeq ($(DEBUG),1)
-KMALLOC_DEBUG ?= 1
-PAGE_ALLOC_DEBUG ?= 1
-STACK_PROTECTOR ?= 1
-else
+DEBUG_TRUE := $(filter 1 true TRUE True,$(DEBUG))
+ifeq ($(DEBUG_TRUE),)
 KMALLOC_DEBUG ?= 0
 PAGE_ALLOC_DEBUG ?= 0
 STACK_PROTECTOR ?= 0
+AUTO_VAR_INIT ?= 0
+else
+KMALLOC_DEBUG ?= 1
+PAGE_ALLOC_DEBUG ?= 1
+STACK_PROTECTOR ?= 1
+AUTO_VAR_INIT ?= 1
 endif
 ```
 
@@ -97,11 +132,46 @@ Precedence, highest first:
 Because `DEBUG` sets the specific options with `?=`, an explicit specific
 option is never overwritten by `DEBUG`.
 
-## Next Action
+Current status:
 
-Start with Phase 1.1. It directly removes the LFN initialization defect with
-the lowest risk, then proceed through 1.2 and 1.3 before adding runtime
-canaries in Phase 2.
+- `AUTO_VAR_INIT`, `KMALLOC_DEBUG`, `PAGE_ALLOC_DEBUG`, `STACK_PROTECTOR`,
+  `UBSAN`, and `ANALYZE` are all wired through `Makefile.build.mk` and
+  `src/Makefile`, and their kernel consumers are implemented.
+- The self-test targets are available through both `Makefile` and
+  `Makefile.build.mk`:
+  `selftest-kmalloc`, `selftest-page`, `selftest-stack`, `selftest-ubsan`.
+- `DEBUG=1` enables all default runtime checks; `DEBUG=0` disables them.
+  `UBSAN` and `ANALYZE` remain opt-in and default to `0`.
+
+| Make variable | C macro / effect | Consumer | Phase |
+| --- | --- | --- | --- |
+| `KMALLOC_DEBUG` | `CONFIG_KMALLOC_DEBUG` | `src/mm/kmalloc.c` | 2.1 |
+| `PAGE_ALLOC_DEBUG` | `CONFIG_PAGE_ALLOC_DEBUG` | `src/mm/page_alloc.c` | 2.2 |
+| `STACK_PROTECTOR` | compiler flag selection | `util/cc` | 2.3 |
+| `AUTO_VAR_INIT` | `-ftrivial-auto-var-init=pattern` | `src/Makefile` | 1.4 |
+| `UBSAN` | sanitizer flags + `CONFIG_UBSAN` | kernel runtime handlers | 2.4 |
+| `ANALYZE` | `-fanalyzer` flag | `src/Makefile` | 3.2 |
+
+## Step-by-Step Execution Plan
+
+Run the steps in order. Each step is a separate, buildable commit with its own
+acceptance checks. The detailed instructions follow in the referenced phase.
+
+0. **Baseline** — build and run the focused tests before changing code.
+1. **1.1** — make the FAT LFN accumulator self-initializing.
+2. **1.2** — audit and zero-initialize stateful local objects.
+3. **1.3** — add `kzalloc()` and convert metadata allocations.
+4. **1.4** — enable automatic initialization of automatic variables.
+5. **2.0** — finish the runtime-check build plumbing.
+6. **2.1** — add the `KMALLOC_DEBUG` header, redzone, and use-after-free check.
+7. **2.2** — add the `PAGE_ALLOC_DEBUG` state/owner/poison check.
+8. **2.3** — add kernel stack protector support.
+9. **2.4** — add UBSan instrumentation and handlers.
+10. **3.1** — enable the targeted memory-corruption warning flags.
+11. **3.2** — add the podman-aware `analyze-kernel` target.
+12. **4.1** — add deliberate corruption self-tests.
+13. **4.2–4.3** — add VFAT LFN and allocator regression/stress tests.
+14. **5** — record the debugging checklist and run the rollout gate.
 
 ## Rules
 
@@ -258,9 +328,65 @@ make kernel
 .venv/bin/python tests/lit_shell_test.py tests/shell
 ```
 
+### 1.4 Enable automatic variable initialization
+
+The manual audit in 1.2 fixes known sites, but future uninitialized locals
+remain the same bug class. Make the compiler zero or pattern-initialize every
+automatic variable unless it is explicitly initialized:
+
+- Add `AUTO_VAR_INIT ?= 1` to `Makefile.build.mk` and preset it from `DEBUG`
+  exactly like `KMALLOC_DEBUG`.
+- Pass `AUTO_VAR_INIT=$(AUTO_VAR_INIT)` from the top-level `kernel` target to
+  `Makefile.build.mk`, and from there to the kernel submake.
+- In `src/Makefile`, when `AUTO_VAR_INIT=1`, append
+  `-ftrivial-auto-var-init=pattern` to `CFLAGS`; when it is `0`, do not add
+  the flag.
+- Confirm the installed GCC/Clang supports the flag before enabling it in CI.
+  If the oldest supported build image lacks it, keep the step behind the
+  variable and document the unsupported image.
+
+Use `pattern` first because it exposes accidental dependence on a specific
+zeroed pattern; fall back to `zero` only if `pattern` produces too much noise
+or an unsupported toolchain.
+
+Acceptance:
+
+```sh
+make kernel AUTO_VAR_INIT=1
+make kernel AUTO_VAR_INIT=0
+make SMP=1 LIT_JOBS=1 test
+```
+
+The VFAT LFN initialization bug class is caught by the compiler even if a
+future caller forgets to reset its local metadata object.
+
 ## Phase 2: Runtime Corruption Detection
 
 These changes move detection closer to the invalid write and to free time.
+
+### 2.0 Finish the runtime-check build plumbing
+
+The preset variables already exist in `Makefile.build.mk`, but the consumers
+do not yet receive every value they need.
+
+- Keep `DEBUG` as the aggregate preset and preserve the `?=` override rule.
+- Forward each specific check variable from the top-level `kernel` target to
+  `Makefile.build.mk` so command-line overrides survive `MAKEOVERRIDES :=`.
+- Export `STACK_PROTECTOR` so `util/cc` can select the stack-protector flag.
+- Wire `UBSAN` through the top-level `Makefile`, `Makefile.build.mk`, and the
+  kernel submake before implementing the handlers in 2.4.
+- Pass `AUTO_VAR_INIT` to `src/Makefile` from 1.4.
+- Add each `-DCONFIG_*` flag in `src/Makefile` from the corresponding make
+  variable, not from `OPTIMIZE` or `DEBUG` directly.
+
+Acceptance:
+
+```sh
+make -n DEBUG=1 KMALLOC_DEBUG=1 STACK_PROTECTOR=1 kernel |
+  grep -E -- '-DCONFIG_KMALLOC_DEBUG|-fstack-protector'
+make -n DEBUG=0 KMALLOC_DEBUG=0 STACK_PROTECTOR=0 kernel |
+  grep -E -- '-fno-stack-protector'
+```
 
 Gate convention:
 
@@ -269,14 +395,14 @@ Gate convention:
 - Make variable `STACK_PROTECTOR=1` selects the guarded `util/cc` path.
 - Make variable `UBSAN=1` will add the selected `-fsanitize=` flags and
   `-DCONFIG_UBSAN` for the kernel runtime handlers.
-- `DEBUG=1` presets all three to enabled; `DEBUG=0` presets them to disabled.
-  Individual settings override `DEBUG`.
+- `DEBUG=1` presets the runtime-check variables to enabled; `DEBUG=0` presets
+  them to disabled. Individual settings override `DEBUG`.
 - A default `DEBUG=1` build enables every check. Disable individual checks
   explicitly, or use `DEBUG=0` to disable the whole group.
 - The C code uses the `CONFIG_*` macro only; `OPTIMIZE` is not used as a
   runtime-check gate.
 
-### 2.1 kmalloc debug header, canary, and double-free check
+### 2.1 kmalloc debug header, redzone, and use-after-free check
 
 The current block layout is packed:
 
@@ -287,32 +413,45 @@ struct block_header {
 } __attribute__((gcc_struct, packed));
 ```
 
-`kmalloc()` returns `&block->next`, and `kfree()` subtracts four bytes to get
-the header. The allocator does not record the requested size, owner, or
-allocation/freed state.
+`kmalloc()` returns `&block->next`, so the four bytes immediately before the
+user pointer are the `next` field and the `board` pointer is the field before
+that. `kfree()` recovers the full `struct block_header` from the pointer. The
+allocator does not record the requested size, owner, or allocation/freed state.
 
 Introduce a debug-only header behind `CONFIG_KMALLOC_DEBUG`, enabled by
 `KMALLOC_DEBUG=1`:
 
-- Add a magic word and owner tag to `struct block_header` when the macro is
-  enabled.
+- Add `magic`, `owner`, and the requested `size` to `struct block_header` when
+  the macro is enabled.
+- Keep the user pointer at the original `&block->next` offset in debug builds
+  or adjust `kfree()` and the bucket geometry together; do not break the
+  release layout.
 - Adjust the `buckets[]` sizes in `src/mm/kmalloc.c` so the larger debug
   header is included; currently each bucket chooses
   `bucket->block_size - 4 >= size`.
-- Validate magic and allocated/freed state in `kfree()`.
+- Store the requested allocation size so the allocator knows where the usable
+  object ends.
+- Place a redzone canary immediately after the usable object and validate it
+  in `kfree()` to catch writes past the requested size.
+- On free, poison the usable object and change `magic` to a distinct
+  freed-magic value; reject double free in `kfree()`.
 - Reject `NULL` and reject pointers whose magic is wrong.
-- Keep release builds using the existing four-byte header.
+- Keep release builds using the existing four-byte prefix.
 
 Suggested fields:
 
 ```c
 uint32_t magic;         /* allocated or freed magic */
 int owner;              /* current->pid for the last owner */
+size_t size;            /* requested usable size */
+uint32_t redzone;       /* canary immediately after the usable object */
 ```
 
 Acceptance:
 
-- A deliberate double free stops in `kfree()` with an assertion.
+- A deliberate double free, out-of-bounds write, or stale-pointer reuse that
+  reaches `kfree()` stops with an assertion; freed-magic rejection and redzone
+  validation cover the allocator-visible cases.
 - Normal shell tests still pass with the default `KMALLOC_DEBUG=1` build.
 
 ### 2.2 Page allocator debug state
@@ -436,16 +575,21 @@ Use GCC `-fanalyzer` as a slow, opt-in target:
   -fanalyzer -Wno-error=analyzer-too-complex
   ```
 
-- Add a top-level target:
+- Add an `analyze-kernel` target to `Makefile.build.mk` that uses the same
+  `$(PODMAN_RUN)` invocation as `kernel`, but passes
+  `OPTIMIZE=-O0 ANALYZE=1 DEBUG=0` and the mario CC/LD wrappers.
+- Add the top-level passthrough:
 
   ```make
   analyze-kernel:
-      $(MAKE) -C src OPTIMIZE=-O0 ANALYZE=1
+      make -f Makefile.build.mk DEBUG=0 OPTIMIZE=-O0 ANALYZE=1 analyze-kernel
   ```
 
 Acceptance:
 
 - `make analyze-kernel` completes and produces a reviewable warning list.
+- It runs inside the recorded container when `.build-env` exists and directly
+  on the host otherwise, matching `make kernel`.
 - Each uninitialized-use or out-of-bounds finding is fixed or documented.
 
 ### 3.3 Clang-tidy git hook
@@ -486,7 +630,7 @@ Acceptance:
 - `git commit` runs `clang-tidy` only on changed kernel sources.
 - A commit introducing an uninitialized-use or obvious out-of-bounds pattern is
   blocked.
-- `make test SMP=1` still passes after any manual fixes.
+- `make SMP=1 LIT_JOBS=1 test` still passes after any manual fixes.
 
 Remaining work:
 
@@ -496,7 +640,29 @@ Remaining work:
 
 ## Phase 4: Regression and Stress Tests
 
-### 4.1 VFAT LFN stress test
+### 4.1 Deliberate corruption self-tests
+
+Add boot-time or shell-runnable self-tests that prove each detector halts,
+rather than only checking that normal workloads still pass. Gate them behind
+the same runtime-check variables so release builds do not run them.
+
+Self-test candidates:
+
+- `KMALLOC_DEBUG=1`: double free, freeing a wrong magic, and writing past the
+  requested size.
+- `PAGE_ALLOC_DEBUG=1`: freeing a live page and double-freeing a page.
+- `STACK_PROTECTOR=1`: overflow a small stack buffer and verify
+  `__stack_chk_fail()` is reached.
+- `UBSAN=1`: a deliberate `__builtin_unreachable()`-free out-of-bounds or
+  pointer-overflow case that reaches a UBSan handler.
+
+Acceptance:
+
+- With the relevant check enabled, each self-test stops in the expected
+  detector and prints a fatal diagnostic.
+- With the check disabled, the self-test is not linked or is skipped.
+
+### 4.2 VFAT LFN stress test
 
 Add `tests/shell/vfat.lfn.stress.test`:
 
@@ -517,12 +683,13 @@ Acceptance:
 
 - The test fails before the hardening fixes and passes after them.
 
-### 4.2 Allocator stress
+### 4.3 Allocator stress
 
 Run the existing stress tests repeatedly and under SMP:
 
 ```sh
-make test-all
+make SMP=1 LIT_JOBS=1 test
+make SMP=8 LIT_JOBS=1 test
 ```
 
 Targeted validation:
@@ -538,38 +705,86 @@ Acceptance:
 
 ## Phase 5: Documentation and Process
 
-- Keep `doc/VFAT_LFN_STACK_CORRUPTION_FIX.md` as the worked example.
-- Add a short “memory corruption debugging” checklist that references:
-  - initial-state audit,
-  - allocator invariant assertions,
-  - GDB watchpoints on the overwritten saved register,
-  - canary and redzone options.
-- Record every new make variable, C macro, and validation command in this
-  plan.
+Keep `doc/VFAT_LFN_STACK_CORRUPTION_FIX.md` as the worked example and
+`doc/STACK_DUMP_PLAN.md` as the fatal-site register/backtrace reference. The
+following checklist is the repeatable process for a new corruption report.
+
+### Memory Corruption Debugging Checklist
+
+1. **Capture the first fault, not the allocator symptom.**
+   - Run `make run` and keep the COM1 serial log.
+   - `panic_hang()` in `src/kernel/panic.c` already prints the trapping CPU's
+     registers and a bounded EBP backtrace before halting.
+   - Treat a page/buddy assertion as a symptom; look above it for the first
+     bad store or faulting return address.
+
+2. **Audit initial state.**
+   - `rg -n "struct .*\\{|char .*\\[|int len|unsigned long len|size_t len" src --glob '*.[ch]'`
+   - Every stateful local object must be `= {0}`, `kzalloc()`, or explicitly
+     `memset()` before the field that controls a later read/write is used.
+
+3. **Run allocator invariants first.**
+   - `make kernel DEBUG=1`
+   - `make SMP=1 LIT_JOBS=1 test` and repeat the failing test.
+   - The `KMALLOC_DEBUG` magic/redzone and `PAGE_ALLOC_DEBUG` owner/poison
+     checks report misuse at the allocator boundary.
+
+4. **Use GDB watchpoints on the overwritten value.**
+   - Start `make debug`, then set a hardware watchpoint on the saved EBP/EIP
+     or the corrupted `struct page` field seen in step 1.
+   - The watchpoint's write is often the real defect, not the later `kfree`
+     or buddy-merge that notices the damage.
+
+5. **Enable the closest detector and let it stop at the source.**
+   - Stack overwrite: `make kernel STACK_PROTECTOR=1`.
+   - Uninitialized automatic variable:
+     `make kernel AUTO_VAR_INIT=1` plus `OPTIMIZE=-O3` and the warning flags.
+   - Undefined arithmetic/bounds/pointer misuse: `make kernel UBSAN=1`.
+   - Static path bugs: `make analyze-kernel`.
+
+6. **Prove the detector works.**
+   - `make selftest-kmalloc`, `make selftest-page`,
+     `make selftest-stack`, `make selftest-ubsan`
+   - Each self-test must stop in its expected detector, not merely compile.
+
+7. **Run the regression and rollout gates.**
+   - `make test-all LIT_JOBS=1`
+   - `make precommit-all`
+   - `make SMP=1 LIT_JOBS=1 test`, `make SMP=4 LIT_JOBS=1 test`,
+     `make SMP=16 LIT_JOBS=1 test`
+
+### Make Variables and C Macros
+
+The table in [Build Configuration Model](#build-configuration-model) records
+every runtime-check and analysis variable. Quick reference:
+
+| Make variable | Default | C macro / effect |
+| --- | --- | --- |
+| `AUTO_VAR_INIT` | follows `DEBUG` | `-ftrivial-auto-var-init=pattern` |
+| `KMALLOC_DEBUG` | follows `DEBUG` | `CONFIG_KMALLOC_DEBUG` |
+| `PAGE_ALLOC_DEBUG` | follows `DEBUG` | `CONFIG_PAGE_ALLOC_DEBUG` |
+| `STACK_PROTECTOR` | follows `DEBUG` | guarded `util/cc` path |
+| `UBSAN` | `0` | `CONFIG_UBSAN` + focused sanitizer flags |
+| `ANALYZE` | `0` | `-fanalyzer` |
+
+Self-test macros are internal to the self-test targets:
+`KMALLOC_SELF_TEST`, `PAGE_ALLOC_SELF_TEST`,
+`STACK_PROTECTOR_SELF_TEST`, and `UBSAN_SELF_TEST`.
 
 ## Suggested Commit Sequence
 
 Already landed:
 
 - `0201c63 fat: initialize LFN state before directory lookup`
+- `9653dfa fs/fat: initialize index in fat_delete_entry_at`
 - `601a48a mm: add page allocator invariant assertions`
 - `51fe07d build: add clang-tidy hook and fix findings`
+- `8a3ba56 Add fatal stack diagnostics and filesystem fixes`
 - `7cd1ea0 smp: keep wakeups on the task's current CPU`
 - `b33e481 ahci: recover from missed shared completion IRQs`
 
-Remaining commits, each buildable and testable on its own:
-
-1. `fat: make LFN fragment append self-initializing`
-2. `fs: initialize stateful lookup/scan objects`
-3. `mm: add kzalloc() and use it for metadata`
-4. `mm: add KMALLOC_DEBUG canary and double-free checks`
-5. `mm: add PAGE_ALLOC_DEBUG owner/poison checks`
-6. `kernel: add STACK_PROTECTOR support`
-7. `kernel: add UBSAN instrumentation and freestanding handlers`
-8. `build: add memory-corruption warning flags`
-9. `build: add make analyze-kernel`
-10. `test: add VFAT LFN stress and SMP allocator stress`
-11. `doc: record memory-corruption debugging checklist and validation gate`
+Remaining commits, each buildable and testable on its own: none. The rollout
+commits are listed in [Current State](#current-state).
 
 ## Rollout Gate
 
@@ -577,6 +792,7 @@ Before enabling a runtime check in non-debug builds:
 
 1. `make kernel` is warning-clean.
 2. `make precommit-all` passes.
-3. `make test SMP=1` and `make test SMP=4` pass.
-4. `make test-all` passes.
+3. `make SMP=1 LIT_JOBS=1 test`, `make SMP=4 LIT_JOBS=1 test`, and
+   `make SMP=16 LIT_JOBS=1 test` pass.
+4. The CI matrix passes for the relevant build-image/flags combinations.
 5. The measured overhead is documented and acceptable.
