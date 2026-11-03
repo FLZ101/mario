@@ -2,6 +2,7 @@ SHELL := /bin/bash
 
 RM	:=rm -f
 OPTIMIZE ?= -O0
+AUTO_VAR_INIT ?= 1
 NASM	:=nasm
 MAKE	:=make -R
 
@@ -14,6 +15,10 @@ CFLAGS	:=-c -D__KERNEL__ $(INCLUDE) \
 	-std=gnu11 -Wall -Werror \
 	-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
 	-MMD -MP
+
+ifeq ($(AUTO_VAR_INIT),1)
+CFLAGS	+= -ftrivial-auto-var-init=pattern
+endif
 LDFLAGS	:=-T kernel.ld
 
 .PHONY:	all clean FORCE

@@ -24,6 +24,7 @@ DEBUG ?= 1
 unexport DEBUG
 
 DEBUG_TRUE := $(filter 1 true TRUE True,$(DEBUG))
+AUTO_VAR_INIT ?= $(if $(DEBUG_TRUE),1,0)
 ifeq ($(DEBUG_TRUE),)
 KMALLOC_DEBUG ?= 0
 PAGE_ALLOC_DEBUG ?= 0
@@ -63,6 +64,7 @@ compiler-rt:
 
 kernel: compiler-rt
 	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld \
+		AUTO_VAR_INIT=$(AUTO_VAR_INIT) \
 		KMALLOC_DEBUG=$(KMALLOC_DEBUG) \
 		PAGE_ALLOC_DEBUG=$(PAGE_ALLOC_DEBUG) \
 		STACK_PROTECTOR=$(STACK_PROTECTOR) -C src

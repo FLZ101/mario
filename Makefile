@@ -66,9 +66,11 @@ clean-containers:
 
 DEBUG ?= 1
 OPTIMIZE ?= -O0
+AUTO_VAR_INIT ?= $(if $(filter 1 true TRUE True,$(DEBUG)),1,0)
 
 kernel app:
-	make -f Makefile.build.mk DEBUG=$(DEBUG) OPTIMIZE=$(OPTIMIZE) $@
+	make -f Makefile.build.mk DEBUG=$(DEBUG) OPTIMIZE=$(OPTIMIZE) \
+		AUTO_VAR_INIT=$(AUTO_VAR_INIT) $@
 
 clean-build clean-kernel clean-app clean-src:
 	make -f Makefile.build.mk $@
