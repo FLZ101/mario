@@ -38,13 +38,13 @@ try:
 		if (entry[i].data == MARIO_FREE_ENTRY)
 			continue;
 		if (!strncmp(name, entry[i].name, len) && !entry[i].name[len]) {
-			brelse(bh);	/* !!! */
-
 			ino_t ino = block * dir->i_block_size + i * MARIO_ENTRY_SIZE;
+			/* Read directory metadata before brelse() can recycle bh. */
 			// For "." and ".." directory entries, the data field is the inode number
 			if (len == 2 && name[0] == '.' && name[1] == '.') {
 				ino = entry[i].data;
 			}
+			brelse(bh); /* !!! */
 			return ino;
 		}
 	}

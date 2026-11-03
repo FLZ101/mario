@@ -3,6 +3,7 @@
 
 #include <types.h>
 #include <lib/stdarg.h>
+#include <panic.h>
 
 int printk(const char *fmt, ...);
 int sprintk(char *buf, const char *fmt, ...);
@@ -47,8 +48,12 @@ int vsprintkn(char *buf, size_t size, const char *fmt, va_list ap);
 	pr_debug("pid %d %s: " fmt, current->pid, current->comm, ##__VA_ARGS__)
 
 #define hang(...) do { \
-	printk(KERN_CRIT __VA_ARGS__); \
-	__asm__ __volatile__ ("cli; 1:hlt; jmp 1b"); \
+	struct panic_regs __panic_regs; \
+	const struct panic_site __panic_site = { \
+		.file = __FILE__, .function = __func__, .line = __LINE__, \
+	}; \
+	panic_capture_regs(__panic_regs); \
+	panic_hang(&__panic_regs, &__panic_site, __VA_ARGS__); \
 	__builtin_unreachable(); \
 } while (0)
 

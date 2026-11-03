@@ -3,6 +3,7 @@
 #include <time.h>
 #include <misc.h>
 #include <irq.h>
+#include <panic.h>
 #include <smp.h>
 #include <futex.h>
 
@@ -73,6 +74,8 @@ void printk_init(struct multiboot_info *m);
 void mario(struct multiboot_info *m)
 {
 	percpu_init();
+	/* Make fatal diagnostics available before normal serial tty setup. */
+	panic_serial_init();
 	printk_init(m);
 	setup_memory_region(m);
 	fb_early_init(m);

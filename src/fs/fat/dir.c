@@ -1197,6 +1197,7 @@ static int fat_lookup(struct inode *dir, char *name, int len,
 	uint32_t offset;
 	uint32_t cluster_size;
 	uint32_t cluster_index = 0;
+	uint32_t slow_cluster;
 	uint8_t *buf;
 	struct fat_lfn lfn;
 	int lfn_pending;
@@ -1229,6 +1230,7 @@ static int fat_lookup(struct inode *dir, char *name, int len,
 	sb = dir->i_sb;
 	cluster_size = FAT_CLUSTER_SIZE(sb);
 	cluster = FAT_INODE(dir).start_cluster;
+	slow_cluster = cluster;
 	/*
 	 * fat_lfn_finish() writes the terminating NUL at lfn->name[lfn->len].
 	 * If this stack object is not zeroed first, lfn->len can contain stale
@@ -1316,6 +1318,22 @@ static int fat_lookup(struct inode *dir, char *name, int len,
 			return error;
 		}
 		cluster = next;
+		/* The fast cursor moves every iteration; this cursor moves every two. */
+		if (!(cluster_index & 1)) {
+			error = fat_dir_next_cluster(dir, slow_cluster, &slow_cluster);
+			if (error == -ENOENT) {
+				iput(dir);
+				return -ENOENT;
+			}
+			if (error) {
+				iput(dir);
+				return error;
+			}
+		}
+		if (cluster == slow_cluster) {
+			iput(dir);
+			return -EIO;
+		}
 	}
 }
 

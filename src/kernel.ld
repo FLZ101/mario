@@ -25,6 +25,7 @@ SECTIONS
 		*(.rodata.*)
 		. = ALIGN(0x1000);
 	}
+	_etext = .;
 
 	.data : AT(ADDR(.data) - ADDR(.text) + PHY_BASE)
 	{
