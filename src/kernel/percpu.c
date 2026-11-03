@@ -2,6 +2,7 @@
 #include <misc.h>
 #include <smp.h>
 #include <task.h>
+#include <stack_protector.h>
 
 struct cpu_info cpu_info[NR_CPUS];
 
@@ -34,6 +35,7 @@ void percpu_init(void)
 	cpu_info[0].id = 0;
 	cpu_info[0].online = 1;
 	cpu_info[0].current_task = &init_task;
+	cpu_info[0].stack_canary = __stack_chk_guard;
 
 	set_percpu_gdt_base((unsigned long)&cpu_info[0]);
 	__asm__ __volatile__(

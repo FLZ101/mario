@@ -8,6 +8,7 @@
 #include <time.h>
 #include <printk.h>
 #include <lib/string.h>
+#include <stack_protector.h>
 
 #include <mm/mm.h>
 #include <mm/page_alloc.h>
@@ -447,6 +448,7 @@ static void apic_startup_ipi(int apic_id)
 	apic_write(APIC_ICR_LOW, APIC_DM_STARTUP | vector);
 }
 
+__attribute__((no_stack_protector))
 static void ap_gdt_install(int cpu)
 {
 	struct {
@@ -526,12 +528,14 @@ static void ap_gdt_install(int cpu)
 	__asm__ __volatile__("ltr %0" : : "r"((unsigned short)0x08) : "memory");
 }
 
+__attribute__((no_stack_protector))
 void smp_ap_entry(void)
 {
 	int apic_id = lapic_id();
 	int cpu = apicid_to_cpu[apic_id];
 	struct task_struct *idle = &idle_tasks[cpu];
 
+	cpu_info[cpu].stack_canary = __stack_chk_guard;
 	ap_gdt_install(cpu);
 
 	memset(idle, 0, sizeof(*idle));

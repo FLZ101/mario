@@ -1,6 +1,7 @@
 #ifndef _SMP_H
 #define _SMP_H
 
+#include <types.h>
 #include <tss.h>
 
 /* Maximum number of CPUs supported by this SMP bring-up phase. */
@@ -20,6 +21,14 @@ struct cpu_info {
 	int id;
 	int online;
 	struct task_struct *current_task;
+	/*
+	 * GCC's i386 -fstack-protector reads the canary from %gs:0x14.
+	 * Pad the per-CPU object so that offset is a real field and keep it
+	 * identical on every CPU.  Without this the canary changes when a
+	 * thread migrates, producing false stack-smashing faults.
+	 */
+	uint32_t __pad[2];
+	uint32_t stack_canary;
 };
 
 extern struct cpu_info cpu_info[NR_CPUS];

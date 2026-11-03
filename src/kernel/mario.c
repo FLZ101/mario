@@ -17,6 +17,7 @@
 #include <video/fbcon.h>
 
 #include <fs/fs.h>
+#include <stack_protector.h>
 
 #include <syscall_trace.h>
 
@@ -70,8 +71,6 @@ void cpu_idle(void)
 }
 
 void printk_init(struct multiboot_info *m);
-
-extern uint32_t __stack_chk_guard;
 
 __attribute__((no_stack_protector))
 void mario(struct multiboot_info *m)

@@ -1,5 +1,6 @@
 #include <types.h>
 #include <printk.h>
+#include <stack_protector.h>
 
 uint32_t __stack_chk_guard;
 
