@@ -97,13 +97,20 @@ clean-disk-image:
 
 # ------
 
-.PHONY: test
+.PHONY: test test-all
 
 SMP ?= 1
 LIT_JOBS ?= 4
+TEST_SMPS ?= 1 2 4 8 16
 
 test: venv disk-image-vbe_1024x768
 	make -f Makefile.run.mk SMP=$(SMP) LIT_JOBS=$(LIT_JOBS) $@
+
+test-all:
+	@set -e; for smp in $(TEST_SMPS); do \
+		echo "==> make test SMP=$$smp"; \
+		$(MAKE) SMP=$$smp LIT_JOBS=$(LIT_JOBS) test; \
+	done
 
 # ------
 
