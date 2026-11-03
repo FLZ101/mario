@@ -30,7 +30,7 @@ ifeq ($(PAGE_ALLOC_DEBUG),1)
 CFLAGS	+= -DCONFIG_PAGE_ALLOC_DEBUG
 endif
 ifeq ($(UBSAN),1)
-UBSAN_FLAGS ?= -fsanitize=undefined
+UBSAN_FLAGS ?= -fsanitize=bounds,object-size,pointer-overflow,shift
 UBSAN_FLAGS += -fno-sanitize-recover=undefined
 CFLAGS	+= $(UBSAN_FLAGS) -DCONFIG_UBSAN
 endif
