@@ -3,6 +3,10 @@ SHELL := /bin/bash
 RM	:=rm -f
 OPTIMIZE ?= -O0
 AUTO_VAR_INIT ?= 1
+KMALLOC_DEBUG ?= 1
+PAGE_ALLOC_DEBUG ?= 1
+STACK_PROTECTOR ?= 1
+UBSAN ?= 0
 NASM	:=nasm
 MAKE	:=make -R
 
@@ -18,6 +22,17 @@ CFLAGS	:=-c -D__KERNEL__ $(INCLUDE) \
 
 ifeq ($(AUTO_VAR_INIT),1)
 CFLAGS	+= -ftrivial-auto-var-init=pattern
+endif
+ifeq ($(KMALLOC_DEBUG),1)
+CFLAGS	+= -DCONFIG_KMALLOC_DEBUG
+endif
+ifeq ($(PAGE_ALLOC_DEBUG),1)
+CFLAGS	+= -DCONFIG_PAGE_ALLOC_DEBUG
+endif
+ifeq ($(UBSAN),1)
+UBSAN_FLAGS ?= -fsanitize=undefined
+UBSAN_FLAGS += -fno-sanitize-recover=undefined
+CFLAGS	+= $(UBSAN_FLAGS) -DCONFIG_UBSAN
 endif
 LDFLAGS	:=-T kernel.ld
 

@@ -66,11 +66,21 @@ clean-containers:
 
 DEBUG ?= 1
 OPTIMIZE ?= -O0
-AUTO_VAR_INIT ?= $(if $(filter 1 true TRUE True,$(DEBUG)),1,0)
+DEBUG_TRUE := $(filter 1 true TRUE True,$(DEBUG))
+AUTO_VAR_INIT ?= $(if $(DEBUG_TRUE),1,0)
+KMALLOC_DEBUG ?= $(if $(DEBUG_TRUE),1,0)
+PAGE_ALLOC_DEBUG ?= $(if $(DEBUG_TRUE),1,0)
+STACK_PROTECTOR ?= $(if $(DEBUG_TRUE),1,0)
+UBSAN ?= 0
+export STACK_PROTECTOR
 
 kernel app:
 	make -f Makefile.build.mk DEBUG=$(DEBUG) OPTIMIZE=$(OPTIMIZE) \
-		AUTO_VAR_INIT=$(AUTO_VAR_INIT) $@
+		AUTO_VAR_INIT=$(AUTO_VAR_INIT) \
+		KMALLOC_DEBUG=$(KMALLOC_DEBUG) \
+		PAGE_ALLOC_DEBUG=$(PAGE_ALLOC_DEBUG) \
+		STACK_PROTECTOR=$(STACK_PROTECTOR) \
+		UBSAN=$(UBSAN) $@
 
 clean-build clean-kernel clean-app clean-src:
 	make -f Makefile.build.mk $@

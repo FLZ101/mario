@@ -34,6 +34,9 @@ KMALLOC_DEBUG ?= 1
 PAGE_ALLOC_DEBUG ?= 1
 STACK_PROTECTOR ?= 1
 endif
+UBSAN ?= 0
+
+export STACK_PROTECTOR
 
 BUILD_ENV_FILE := $(ROOT)/.build-env
 override BUILD_IMAGE := $(if $(wildcard $(BUILD_ENV_FILE)),$(shell cat $(BUILD_ENV_FILE)))
@@ -67,7 +70,8 @@ kernel: compiler-rt
 		AUTO_VAR_INIT=$(AUTO_VAR_INIT) \
 		KMALLOC_DEBUG=$(KMALLOC_DEBUG) \
 		PAGE_ALLOC_DEBUG=$(PAGE_ALLOC_DEBUG) \
-		STACK_PROTECTOR=$(STACK_PROTECTOR) -C src
+		STACK_PROTECTOR=$(STACK_PROTECTOR) \
+		UBSAN=$(UBSAN) -C src
 
 musl: compiler-rt
 	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(ROOT)/util/mario-cc COMPILE_COMMANDS_JSON= -C musl
