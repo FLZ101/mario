@@ -7,7 +7,7 @@ export SHELL
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: all kernel musl app compiler-rt
+.PHONY: all kernel musl app compiler-rt analyze-kernel
 .PHONY: clean-all clean-build clean-src clean-compiler-rt clean-kernel \
 	clean-app clean-app-example clean-app-usr clean-app-usr-src \
 	clean-musl clean-musl-src
@@ -35,6 +35,7 @@ PAGE_ALLOC_DEBUG ?= 1
 STACK_PROTECTOR ?= 1
 endif
 UBSAN ?= 0
+ANALYZE ?= 0
 
 export STACK_PROTECTOR
 
@@ -72,6 +73,11 @@ kernel: compiler-rt
 		PAGE_ALLOC_DEBUG=$(PAGE_ALLOC_DEBUG) \
 		STACK_PROTECTOR=$(STACK_PROTECTOR) \
 		UBSAN=$(UBSAN) -C src
+
+analyze-kernel: compiler-rt
+	$(PODMAN_RUN) $(MAKE) OPTIMIZE=-O0 CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld \
+		AUTO_VAR_INIT=0 KMALLOC_DEBUG=0 PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 \
+		UBSAN=0 ANALYZE=1 -C src
 
 musl: compiler-rt
 	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(ROOT)/util/mario-cc COMPILE_COMMANDS_JSON= -C musl

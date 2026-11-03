@@ -61,7 +61,7 @@ clean-containers:
 
 # ------
 
-.PHONY: kernel app
+.PHONY: kernel app analyze-kernel
 .PHONY: clean-build clean-kernel clean-app clean-src
 
 DEBUG ?= 1
@@ -81,6 +81,9 @@ kernel app:
 		PAGE_ALLOC_DEBUG=$(PAGE_ALLOC_DEBUG) \
 		STACK_PROTECTOR=$(STACK_PROTECTOR) \
 		UBSAN=$(UBSAN) $@
+
+analyze-kernel:
+	make -f Makefile.build.mk DEBUG=0 OPTIMIZE=-O0 ANALYZE=1 analyze-kernel
 
 clean-build clean-kernel clean-app clean-src:
 	make -f Makefile.build.mk $@

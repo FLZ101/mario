@@ -37,6 +37,12 @@ UBSAN_FLAGS ?= -fsanitize=bounds,object-size,pointer-overflow,shift
 UBSAN_FLAGS += -fno-sanitize-recover=undefined
 CFLAGS	+= $(UBSAN_FLAGS) -DCONFIG_UBSAN
 endif
+ANALYZE ?= 0
+ifeq ($(ANALYZE),1)
+# -fanalyzer is an opt-in diagnostics pass; keep findings visible instead of
+# letting them abort the reviewable build.
+CFLAGS	+= -fanalyzer -Wno-error=analyzer-too-complex -Wno-error
+endif
 LDFLAGS	:=-T kernel.ld
 
 .PHONY:	all clean FORCE
