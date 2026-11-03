@@ -1,0 +1,56 @@
+# Repeated VFAT long-file-name create/rename/read/unlink cycles.  The test
+# runner uses -snapshot, so the checked-in FAT image is not modified.
+
+RUN: export PATH=/bin/toybox:/bin:/usr/bin
+RUN: mount -t vfat /dev/hdc2 /mnt; echo mount-status:$?
+CHECK: mount-status:0
+
+RUN: python <<'PYEOF'
+import os
+
+base = '/mnt/lfn-stress'
+os.mkdir(base)
+
+for i in range(6):
+    stem = 'long-name-%02d-' % i
+    source = os.path.join(base, stem + 'x' * 170 + '.txt')
+    dest_dir = os.path.join(base, 'd%02d' % i)
+    dest = os.path.join(dest_dir, stem + 'y' * 170 + '.txt')
+    os.mkdir(dest_dir)
+
+    data = ('lfn-%02d\n' % i).encode() * 2048
+    fd = os.open(source, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    written = 0
+    while written < len(data):
+        count = os.write(fd, data[written:])
+        if count <= 0:
+            raise RuntimeError('short write')
+        written += count
+    os.close(fd)
+
+    os.rename(source, dest)
+    assert not os.path.exists(source)
+
+    fd = os.open(dest, os.O_RDONLY)
+    got = b''
+    while len(got) < len(data):
+        chunk = os.read(fd, len(data) - len(got))
+        if not chunk:
+            break
+        got += chunk
+    os.close(fd)
+    assert got == data
+
+    assert os.listdir(dest_dir) == [os.path.basename(dest)]
+    os.unlink(dest)
+    os.rmdir(dest_dir)
+
+assert os.listdir(base) == []
+os.rmdir(base)
+print('vfat-lfn-stress-ok')
+PYEOF
+
+CHECK: vfat-lfn-stress-ok
+
+RUN: umount /mnt; echo umount-status:$?
+CHECK: umount-status:0
