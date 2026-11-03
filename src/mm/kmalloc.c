@@ -4,6 +4,7 @@
 #include <mm/kmalloc.h>
 #include <lib/spinlock.h>
 #include <lib/string.h>
+#include <task.h>
 
 /*
  * kmalloc bucket lock.  As with the buddy allocator, interrupts disabled on
@@ -15,11 +16,28 @@ static spinlock_t kmalloc_lock = SPINLOCK_UNLOCKED;
 
 struct board_header;
 struct block_header {
+#ifdef CONFIG_KMALLOC_DEBUG
+	uint32_t magic;
+	int owner;
+	size_t size;
+#endif
 	/* the board this block belongs to */
 	struct board_header *board;
 	/* the next free block in a board */
 	struct block_header *next;
 } __attribute__((gcc_struct, packed));
+
+#ifdef CONFIG_KMALLOC_DEBUG
+/* The allocator keeps the user pointer at &block->next in both layouts. */
+#define KMALLOC_USER_OFFSET	__builtin_offsetof(struct block_header, next)
+#define KMALLOC_REDZONE_SIZE	sizeof(uint32_t)
+#define KMALLOC_MAGIC_ALLOC	0x6d6b616cU /* "mlak" */
+#define KMALLOC_MAGIC_FREED	0x6d6b6672U /* "mfrk" */
+#define KMALLOC_REDZONE_VALUE	0x7265647aU /* "redz" */
+#else
+#define KMALLOC_USER_OFFSET	4
+#define KMALLOC_REDZONE_SIZE	0
+#endif
 
 struct bucket;
 struct board_header {
@@ -105,7 +123,8 @@ void *kmalloc(size_t size)
 
 	struct bucket_desc *bucket;
 	for (bucket = buckets; bucket->block_size; bucket++)
-		if (bucket->block_size - 4 >= size)
+		if (bucket->block_size - KMALLOC_USER_OFFSET >=
+		    size + KMALLOC_REDZONE_SIZE)
 			break;
 	if (!bucket->block_size)
 		goto fail;
@@ -118,10 +137,21 @@ void *kmalloc(size_t size)
 	struct board_header *board = bucket->firstfree;
 	struct block_header *block = board->firstfree;
 
+#ifdef CONFIG_KMALLOC_DEBUG
+	block->magic = KMALLOC_MAGIC_ALLOC;
+	block->owner = current->pid;
+	block->size = size;
+#endif
+
 	if (!--board->nfree)
 		bucket->firstfree = board->next;
 
 	board->firstfree = block->next;
+
+#ifdef CONFIG_KMALLOC_DEBUG
+	*(uint32_t *)((unsigned long)&block->next + size) =
+		KMALLOC_REDZONE_VALUE;
+#endif
 
 	spin_unlock_irqrestore(&kmalloc_lock, flags);
 	return &block->next;
@@ -146,8 +176,20 @@ void kfree(void *ptr)
 
 	spin_lock_irqsave(&kmalloc_lock, flags);
 
+#ifdef CONFIG_KMALLOC_DEBUG
+	assert(ptr);
+	struct block_header *block =
+		(struct block_header *)((unsigned long)ptr -
+			KMALLOC_USER_OFFSET);
+	assert(block->magic == KMALLOC_MAGIC_ALLOC);
+	assert(*(uint32_t *)((unsigned long)ptr + block->size) ==
+	       KMALLOC_REDZONE_VALUE);
+	memset(ptr, 0xcc, block->size);
+	block->magic = KMALLOC_MAGIC_FREED;
+#else
 	struct block_header *block =
 		(struct block_header *)((unsigned long)ptr - 4);
+#endif
 	struct board_header *board = block->board;
 	struct bucket_desc *bucket = board->bucket;
 
