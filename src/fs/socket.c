@@ -130,11 +130,10 @@ static void socket_destroy(struct unix_socket *socket)
 
 static struct unix_socket *socket_alloc(void)
 {
-	struct unix_socket *socket = kmalloc(sizeof(*socket));
+	struct unix_socket *socket = kzalloc(sizeof(*socket));
 
 	if (!socket)
 		return NULL;
-	memset(socket, 0, sizeof(*socket));
 	if (ring_buffer_init(&socket->receive)) {
 		kfree(socket);
 		return NULL;
@@ -149,11 +148,10 @@ static struct unix_socket *socket_alloc(void)
 static struct unix_socket_pair *socket_pair_alloc(struct unix_socket *first,
 						    struct unix_socket *second)
 {
-	struct unix_socket_pair *pair = kmalloc(sizeof(*pair));
+	struct unix_socket_pair *pair = kzalloc(sizeof(*pair));
 
 	if (!pair)
 		return NULL;
-	memset(pair, 0, sizeof(*pair));
 	INIT_LOCK(&pair->lock);
 	pair->endpoint[0] = first;
 	pair->endpoint[1] = second;

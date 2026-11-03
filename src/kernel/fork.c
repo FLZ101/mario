@@ -86,13 +86,13 @@ int do_fork(struct trap_frame *tr, int vfork)
 	p->syscall_trace_last_tsc = 0;
 	p->syscall_trace_active = 0;
 
-	p->mm = (struct mm_struct *)kmalloc(sizeof(struct mm_struct));
+	p->mm = kzalloc(sizeof(struct mm_struct));
 	if (!p->mm)
 		goto fail_1;
-	p->fs = (struct fs_struct *)kmalloc(sizeof(struct fs_struct));
+	p->fs = kzalloc(sizeof(struct fs_struct));
 	if (!p->fs)
 		goto fail_2;
-	p->files = (struct files_struct *)kmalloc(sizeof(struct files_struct));
+	p->files = kzalloc(sizeof(struct files_struct));
 	if (!p->files)
 		goto fail_3;
 
@@ -215,19 +215,19 @@ int do_clone(struct trap_frame *tr, unsigned long flags,
 	if (shared_mm) {
 		p->mm = current->mm;
 		atomic_inc(&p->mm->mm_users);
-	} else if (!(p->mm = kmalloc(sizeof(struct mm_struct)))) {
+	} else if (!(p->mm = kzalloc(sizeof(struct mm_struct)))) {
 		goto fail_1;
 	}
 
 	if (shared_fs) {
 		p->fs = current->fs;
-	} else if (!(p->fs = kmalloc(sizeof(struct fs_struct)))) {
+	} else if (!(p->fs = kzalloc(sizeof(struct fs_struct)))) {
 		goto fail_2;
 	}
 
 	if (shared_files) {
 		p->files = current->files;
-	} else if (!(p->files = kmalloc(sizeof(struct files_struct)))) {
+	} else if (!(p->files = kzalloc(sizeof(struct files_struct)))) {
 		goto fail_3;
 	}
 

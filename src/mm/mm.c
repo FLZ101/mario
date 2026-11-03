@@ -533,7 +533,7 @@ static struct vm_area_struct *alloc_vma(unsigned long addr, unsigned long len,
 {
 	struct vm_area_struct *vma;
 
-	vma = (struct vm_area_struct *)kmalloc(sizeof(*vma));
+	vma = kzalloc(sizeof(*vma));
 	if (!vma)
 		return NULL;
 

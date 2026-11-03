@@ -3,6 +3,7 @@
 #include <mm/page_alloc.h>
 #include <mm/kmalloc.h>
 #include <lib/spinlock.h>
+#include <lib/string.h>
 
 /*
  * kmalloc bucket lock.  As with the buddy allocator, interrupts disabled on
@@ -128,6 +129,15 @@ fail:
 	spin_unlock_irqrestore(&kmalloc_lock, flags);
 	pr_err("kmalloc size=%u failed\n", (unsigned int)size);
 	return NULL;
+}
+
+void *kzalloc(size_t size)
+{
+	void *ptr = kmalloc(size);
+
+	if (ptr)
+		memset(ptr, 0, size);
+	return ptr;
 }
 
 void kfree(void *ptr)
