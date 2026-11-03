@@ -9,6 +9,10 @@
 struct page {
 	atomic_t count;
 	struct list_head list;
+#ifdef CONFIG_PAGE_ALLOC_DEBUG
+	uint32_t state;
+	pid_t owner;
+#endif
 };
 
 extern struct page *mem_map;

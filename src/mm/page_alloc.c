@@ -9,11 +9,18 @@
 #include <mm/bootmem.h>
 #include <mm/e820.h>
 #include <lib/spinlock.h>
+#include <task.h>
 
 #define MAX_ORDER 11
 
 #define ORDER_PAGES(order)	(1UL << (order))
 #define ORDER_MASK(order)	(ORDER_PAGES(order) - 1)
+
+#ifdef CONFIG_PAGE_ALLOC_DEBUG
+#define PG_FREE			1
+#define PG_ALLOC		2
+#define PAGE_POISON_BYTE	0xcc
+#endif
 
 struct free_area {
 	struct list_head free_list;
@@ -122,13 +129,21 @@ void page_alloc_init(void)
 			len = 0x100000 + len - addr;
 		}
 
-		for (j = PFN_UP(addr); j < PFN_DOWN(addr + len); j++)
+		for (j = PFN_UP(addr); j < PFN_DOWN(addr + len); j++) {
+#ifdef CONFIG_PAGE_ALLOC_DEBUG
+			mem_map[j].state = PG_ALLOC;
+#endif
 			free_page(mem_map + j);
+		}
 	}
 
 	// free unused boot-time memory
-	for (j = PFN_UP(bootmem_j - KERNEL_BASE); j < PFN_DOWN(bootmem_end - KERNEL_BASE); j++)
+	for (j = PFN_UP(bootmem_j - KERNEL_BASE); j < PFN_DOWN(bootmem_end - KERNEL_BASE); j++) {
+#ifdef CONFIG_PAGE_ALLOC_DEBUG
+		mem_map[j].state = PG_ALLOC;
+#endif
 		free_page(mem_map + j);
+	}
 }
 
 struct page *alloc_pages(unsigned long order)
@@ -157,6 +172,11 @@ struct page *alloc_pages(unsigned long order)
 	assert((pfn & ORDER_MASK(n)) == 0);
 	assert(free_area[n].free_list.next == &page->list);
 	__free_list_del(page);
+#ifdef CONFIG_PAGE_ALLOC_DEBUG
+	assert(page->state == PG_FREE);
+	page->state = PG_ALLOC;
+	page->owner = current->pid;
+#endif
 	while (1) {
 		assert((pfn >> (n + 1)) < __free_area_bitmap_bits(n));
 		change_bit(pfn >> (n + 1), free_area[n].map);
@@ -234,6 +254,13 @@ void free_pages(struct page *page, unsigned long order)
 	assert((PAGE_TO_PFN(page) & ORDER_MASK(order)) == 0);
 
 	spin_lock_irqsave(&page_alloc_lock, flags);
+#ifdef CONFIG_PAGE_ALLOC_DEBUG
+	assert(page->state == PG_ALLOC);
+	page->state = PG_FREE;
+	page->owner = current->pid;
+	memset((void *)PAGE_TO_VIR(page), PAGE_POISON_BYTE,
+	       PAGE_SIZE << order);
+#endif
 	// int free_before = get_free_area_size();
 	// int free_expected = free_before + (1 << order);
 
