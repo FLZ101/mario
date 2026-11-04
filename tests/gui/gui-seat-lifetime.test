@@ -1,0 +1,29 @@
+# Duplicate and forked framebuffer/GUI descriptions retain the graphics seat.
+# The last parent close returns to tty6, and F8 cannot reenter graphics without
+# a new owner.
+SERIAL: <<TTY6
+{
+    printf '\033[2J\033[H\033[8;20HVT6-MARKER'
+    for row in 1 2 3; do
+        printf "\033[${row};1H\033[46m                    \033[${row};60H\033[42m                    "
+    done
+    for row in 23 24 25; do
+        printf "\033[${row};1H\033[45m                    \033[${row};60H\033[43m                    "
+    done
+    printf '\033[0m\033[8;20HVT6-MARKER'
+} > /dev/tty6
+TTY6
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+SERIAL: /usr/bin/test/gui-seat-lifetime.exe >/tmp/gui-seat-lifetime.log 2>&1 &
+SERIAL: sleep 1; cat /tmp/gui-seat-lifetime.log
+SERIAL-CHECK: gui-seat-lifetime: ready
+GUI-SEND-KEY: f8
+GUI-CHECK-RECT: 0 0 1024 768 0 0 0
+GUI-TYPE: x
+SERIAL: sleep 1; cat /tmp/gui-seat-lifetime.log
+SERIAL-CHECK: gui-seat-lifetime: released
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+EXIT:
