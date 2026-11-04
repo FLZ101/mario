@@ -13,6 +13,9 @@ static unsigned long fb_console_generation;
 static spinlock_t fb_lock = SPINLOCK_UNLOCKED;
 static wait_queue_t fb_console_wait;
 
+static int fb_read_at(struct inode *i, struct file *f, char *buf, int count,
+		      off64_t *position);
+
 static int fb_open(struct inode *i, struct file *f)
 {
 	unsigned long flags;
@@ -75,23 +78,36 @@ static int fb_lseek(struct inode *i, struct file *f, off_t offset, int origin)
 
 static int fb_read(struct inode *i, struct file *f, char *buf, int count)
 {
+	off64_t position = f->f_pos;
+	int result;
+
+	result = fb_read_at(i, f, buf, count, &position);
+	if (result > 0)
+		f->f_pos = position;
+	return result;
+}
+
+static int fb_read_at(struct inode *i, struct file *f, char *buf, int count,
+		      off64_t *position)
+{
 	const struct fb_info *info = fb_get_info();
-	if (count < 0)
+	if (!position || *position < 0 || count < 0)
 		return -EINVAL;
-	if (f->f_pos >= info->size)
+	if (*position >= info->size)
 		return 0;
-	if (count > info->size - f->f_pos)
-		count = info->size - f->f_pos;
-	memcpy_tofs(buf, (char *)info->virt_addr + f->f_pos, count);
-	f->f_pos += count;
+	if (count > info->size - *position)
+		count = info->size - *position;
+	memcpy_tofs(buf, (char *)info->virt_addr + *position, count);
+	*position += count;
 	return count;
 }
 
-static int fb_write(struct inode *i, struct file *f, char *buf, int count)
+static int fb_write_at(struct inode *i, struct file *f, char *buf, int count,
+		       off64_t *position)
 {
 	const struct fb_info *info = fb_get_info();
 	unsigned long flags;
-	if (count < 0)
+	if (!position || *position < 0 || count < 0)
 		return -EINVAL;
 	spin_lock_irqsave(&fb_lock, flags);
 	/* A text repaint owns scanout from the first foreground transition. */
@@ -99,16 +115,27 @@ static int fb_write(struct inode *i, struct file *f, char *buf, int count)
 		spin_unlock_irqrestore(&fb_lock, flags);
 		return -EBUSY;
 	}
-	if (f->f_pos >= info->size) {
+	if (*position >= info->size) {
 		spin_unlock_irqrestore(&fb_lock, flags);
 		return count ? -ENOSPC : 0;
 	}
-	if (count > info->size - f->f_pos)
-		count = info->size - f->f_pos;
-	memcpy_fromfs((char *)info->virt_addr + f->f_pos, buf, count);
-	f->f_pos += count;
+	if (count > info->size - *position)
+		count = info->size - *position;
+	/* Both write entry points pass through this foreground ownership gate. */
+	memcpy_fromfs((char *)info->virt_addr + *position, buf, count);
+	*position += count;
 	spin_unlock_irqrestore(&fb_lock, flags);
 	return count;
+}
+
+static int fb_write(struct inode *i, struct file *f, char *buf, int count)
+{
+	off64_t position = f->f_pos;
+	int result = fb_write_at(i, f, buf, count, &position);
+
+	if (result > 0)
+		f->f_pos = position;
+	return result;
 }
 
 static int fb_ioctl(struct inode *i, struct file *f, unsigned int cmd,
