@@ -416,7 +416,9 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                 last_serial = run_serial_script(child, value, timeout, "SERIAL heredoc")
             elif action == "serial-check":
                 if value not in last_serial:
-                    failures.append(f"SERIAL-CHECK: {value!r}")
+                    failures.append(
+                        f"SERIAL-CHECK: {value!r}; last output: {last_serial!r}"
+                    )
             elif action == "send-key":
                 send_key(qmp, value)
             elif action == "type":

@@ -1,0 +1,16 @@
+# The GUI endpoint receives complete Set-1 records only while F8 owns the
+# foreground.  QMP's GUI-TYPE sends a make/break pair for 'a' and Return;
+# F7 is reserved and must neither wake poll nor consume a queue slot.
+SERIAL: /usr/bin/test/gui-input.exe >/tmp/gui-input.log 2>&1 &
+SERIAL: sleep 1; cat /tmp/gui-input.log
+SERIAL-CHECK: gui-input: ready
+GUI-SEND-KEY: f8
+GUI-SEND-KEY: f7
+GUI-TYPE: a
+SERIAL: sleep 1; cat /tmp/gui-input.log
+SERIAL-CHECK: gui-input: poll
+SERIAL-CHECK: gui-input: 1e 1
+SERIAL-CHECK: gui-input: 1e 0
+SERIAL-CHECK: gui-input: 1c 1
+SERIAL-CHECK: gui-input: 1c 0
+EXIT:
