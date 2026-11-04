@@ -5,36 +5,9 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-#define FBIOGET_VSCREENINFO 0x4600
-#define FBIOGET_FSCREENINFO 0x4602
+#include <mario/fb.h>
+
 #define BLOCK_SIZE 8
-
-struct fb_bitfield {
-	uint32_t offset;
-	uint32_t length;
-};
-
-/* Mirror of src/include/video/fb.h. */
-struct fb_var_screeninfo {
-	uint32_t xres, yres, xres_virtual, yres_virtual;
-	uint32_t xoffset, yoffset;
-	uint32_t bits_per_pixel, grayscale;
-	struct fb_bitfield red, green, blue, transp;
-	uint32_t nonstd, activate, height, width, accel_flags;
-	uint32_t pixclock, left_margin, right_margin, upper_margin, lower_margin;
-	uint32_t hsync_len, vsync_len, sync, vmode, rotate, colorspace;
-	uint32_t reserved[4];
-};
-
-struct fb_fix_screeninfo {
-	char id[16];
-	uint64_t smem_start;
-	uint32_t smem_len, type, type_aux, visual;
-	uint16_t xpanstep, ypanstep, ywrapstep;
-	uint32_t line_length, mmio_start, mmio_len, accel;
-	uint16_t capabilities;
-	uint16_t reserved[2];
-};
 
 int main(void)
 {
