@@ -1,0 +1,6 @@
+# Corrupt a stack canary before normal boot to verify stack protection.
+REBUILD-KERNEL: selftest-stack
+EXPECT-HALT: kernel stack smashing detected
+CHECK: === MARIO FATAL HANG ===
+CHECK: reason: kernel stack smashing detected
+CHECK: halted

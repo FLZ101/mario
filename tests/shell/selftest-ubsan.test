@@ -1,0 +1,6 @@
+# Overflow a pointer before normal boot to verify the UBSan handler path.
+REBUILD-KERNEL: selftest-ubsan
+EXPECT-HALT: ubsan: pointer overflow
+CHECK: === MARIO FATAL HANG ===
+CHECK: reason: ubsan: pointer overflow
+CHECK: halted

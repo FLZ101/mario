@@ -82,22 +82,24 @@ analyze-kernel: compiler-rt
 
 SELF_TEST_FLAGS := OPTIMIZE=-O0 CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld
 
-selftest-kmalloc: compiler-rt
+# Self-test macros change CFLAGS but are not object dependencies, so each
+# target must discard objects compiled for a different kernel configuration.
+selftest-kmalloc: clean-kernel compiler-rt
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=1 \
 		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 UBSAN=0 \
 		KMALLOC_SELF_TEST=1 -C src
 
-selftest-page: compiler-rt
+selftest-page: clean-kernel compiler-rt
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
 		PAGE_ALLOC_DEBUG=1 STACK_PROTECTOR=0 UBSAN=0 \
 		PAGE_ALLOC_SELF_TEST=1 -C src
 
-selftest-stack: compiler-rt
+selftest-stack: clean-kernel compiler-rt
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
 		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=1 UBSAN=0 \
 		STACK_PROTECTOR_SELF_TEST=1 -C src
 
-selftest-ubsan: compiler-rt
+selftest-ubsan: clean-kernel compiler-rt
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
 		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 UBSAN=1 \
 		UBSAN_SELF_TEST=1 -C src

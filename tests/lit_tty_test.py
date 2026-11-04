@@ -2,6 +2,8 @@ r"""Run Mario full-screen terminal tests through a host tmux pane.
 
 Test files use a small lit-style directive set:
 
+    REBUILD-KERNEL: selftest-kmalloc
+    EXPECT-HALT: Assertion 'block->magic == KMALLOC_MAGIC_ALLOC' failed
     TTY-SEND: vim /etc/welcome.txt
     TTY-SEND-RAW: gg0
     TTY-SEND-KEY: C-b
@@ -19,6 +21,11 @@ Test files use a small lit-style directive set:
 QEMU exposes serial0 through a Unix socket.  A dedicated tmux server runs the
 local tty_serial_bridge.py client in an 80x25 pane.  This makes tmux's rendered
 pane grid the visual/text oracle instead of a VGA screendump.
+
+REBUILD-KERNEL must be the first directive.  It exclusively rebuilds and
+boots a supported self-test kernel, then restores the normal kernel before a
+following test can boot.  It isolates artifacts; ordinary TTY-CHECK directives
+still determine whether the following test is correct.
 """
 
 from __future__ import annotations
@@ -34,6 +41,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from lit_kernel import kernel_artifacts, validate_rebuild_kernel
 
 ROOT = Path(__file__).resolve().parent.parent
 QEMU = os.environ.get("QEMU", "qemu-system-i386")
@@ -105,16 +114,46 @@ def resolve_test_path(test: Path, value: str) -> Path:
 class TtyLitTest:
     path: Path
     requires_smp: tuple | None = None
+    rebuild_kernel: str | None = None
+    expect_halt: str | None = None
     actions: list[tuple[str, object]] = field(default_factory=list)
 
     def parse(self) -> "TtyLitTest":
+        # Keep a rebuild request ahead of every terminal interaction and QEMU
+        # startup-related directive.
+        saw_instruction = False
         with self.path.open(encoding="utf-8") as source:
             for raw_line in source:
                 line = raw_line.rstrip("\n")
                 body = line[1:] if line.startswith("#") else line
                 if body.startswith("EXIT:"):
                     break
-                if body.startswith("TTY-SEND-RAW:"):
+                if not body.startswith("REBUILD-KERNEL:") and body.startswith(
+                    ("TTY-", "SLEEP:", "TIMEOUT:", "REQUIRES-SMP:", "EXPECT-HALT:")
+                ):
+                    saw_instruction = True
+                if body.startswith("REBUILD-KERNEL:"):
+                    if self.rebuild_kernel is not None:
+                        raise ValueError(f"{self.path}: duplicate REBUILD-KERNEL")
+                    if saw_instruction:
+                        raise ValueError(
+                            f"{self.path}: REBUILD-KERNEL must be the first directive"
+                        )
+                    self.rebuild_kernel = validate_rebuild_kernel(
+                        body.split(":", 1)[1].strip(), self.path
+                    )
+                    saw_instruction = True
+                elif body.startswith("EXPECT-HALT:"):
+                    if self.actions:
+                        raise ValueError(
+                            f"{self.path}: EXPECT-HALT must precede test actions"
+                        )
+                    if self.expect_halt is not None:
+                        raise ValueError(f"{self.path}: duplicate EXPECT-HALT")
+                    self.expect_halt = body.split(":", 1)[1].strip()
+                    if not self.expect_halt:
+                        raise ValueError(f"{self.path}: empty EXPECT-HALT value")
+                elif body.startswith("TTY-SEND-RAW:"):
                     self.actions.append(
                         ("send_raw", decode_raw(body.split(":", 1)[1].strip()))
                     )
@@ -147,6 +186,14 @@ class TtyLitTest:
                     self.requires_smp = parse_smp_requirement(
                         body.split(":", 1)[1].strip()
                     )
+        if self.rebuild_kernel is not None and self.expect_halt is None:
+            raise ValueError(f"{self.path}: REBUILD-KERNEL requires EXPECT-HALT")
+        if self.expect_halt is not None:
+            disallowed = {"send", "send_raw", "send_key", "sleep", "timeout"}
+            if any(action in disallowed for action, _value in self.actions):
+                raise ValueError(
+                    f"{self.path}: EXPECT-HALT tests may only use TTY-CHECK directives"
+                )
         return self
 
 
@@ -197,7 +244,7 @@ class TmuxSerialSession:
             f"{self.qemu_diagnostics()}"
         )
 
-    def start(self) -> None:
+    def start(self, expect_halt: str | None = None) -> None:
         if shutil.which("tmux") is None:
             raise TtyTestError("tmux is required for tty integration tests")
         if not BRIDGE.is_file():
@@ -269,6 +316,19 @@ class TmuxSerialSession:
             str(BRIDGE),
             str(self.serial_socket),
         )
+        if expect_halt is not None:
+            self._wait(
+                lambda panel: "=== MARIO FATAL HANG ===" in panel,
+                DEFAULT_TIMEOUT,
+                "fatal halt",
+            )
+            self._wait(
+                lambda panel: expect_halt in panel,
+                10,
+                "fatal halt reason",
+            )
+            self._wait(lambda panel: "halted" in panel, 10, "fatal halt completion")
+            return
         self._wait(lambda panel: "/ #" in panel, DEFAULT_TIMEOUT, "boot prompt")
         self.send("export TERM=screen; PS1='MARIO_TTY_PROMPT> '; clear")
         self._wait(lambda panel: PROMPT in panel, 10, "tty test prompt")
@@ -359,62 +419,63 @@ class TmuxSerialSession:
 
 def run_test(test: TtyLitTest, qemu: str, smp: int, index: int):
     started = time.monotonic()
-    session = TmuxSerialSession(qemu, smp, index)
-    timeout = DEFAULT_TIMEOUT
-    failures: list[str] = []
-    report_panel = ""
-    try:
-        session.start()
-        for action, value in test.actions:
-            if action == "send":
-                session.send(str(value))
-            elif action == "send_raw":
-                session.send_raw(str(value))
-            elif action == "send_key":
-                session.send_key(str(value))
-            elif action == "check":
-                try:
-                    session.wait_contains(str(value), timeout)
-                except TtyTestError as error:
-                    failures.append(f"TTY-CHECK: {value!r}\n{error}")
-            elif action == "check_not":
-                try:
-                    session.wait_not_contains(str(value), timeout)
-                except TtyTestError as error:
-                    failures.append(f"TTY-CHECK-NOT: {value!r}\n{error}")
-            elif action == "check_regex":
-                try:
-                    session.wait_regex(str(value), timeout, True)
-                except TtyTestError as error:
-                    failures.append(f"TTY-CHECK-REGEX: {value!r}\n{error}")
-            elif action == "check_not_regex":
-                try:
-                    session.wait_regex(str(value), timeout, False)
-                except TtyTestError as error:
-                    failures.append(f"TTY-CHECK-NOT-REGEX: {value!r}\n{error}")
-            elif action == "dump_panel":
-                resolve_test_path(test.path, str(value)).write_text(
-                    session.capture_panel(), encoding="utf-8"
-                )
-            elif action == "check_panel":
-                expected_path = resolve_test_path(test.path, str(value))
-                expected = normalize_panel(expected_path.read_text(encoding="utf-8"))
-                actual = session.capture_panel()
-                if actual != expected:
-                    failures.append(
-                        f"TTY-CHECK-PANEL: {value!r}\nExpected:\n{expected}\nActual:\n{actual}"
+    with kernel_artifacts(test.rebuild_kernel):
+        session = TmuxSerialSession(qemu, smp, index)
+        timeout = DEFAULT_TIMEOUT
+        failures: list[str] = []
+        report_panel = ""
+        try:
+            session.start(test.expect_halt)
+            for action, value in test.actions:
+                if action == "send":
+                    session.send(str(value))
+                elif action == "send_raw":
+                    session.send_raw(str(value))
+                elif action == "send_key":
+                    session.send_key(str(value))
+                elif action == "check":
+                    try:
+                        session.wait_contains(str(value), timeout)
+                    except TtyTestError as error:
+                        failures.append(f"TTY-CHECK: {value!r}\n{error}")
+                elif action == "check_not":
+                    try:
+                        session.wait_not_contains(str(value), timeout)
+                    except TtyTestError as error:
+                        failures.append(f"TTY-CHECK-NOT: {value!r}\n{error}")
+                elif action == "check_regex":
+                    try:
+                        session.wait_regex(str(value), timeout, True)
+                    except TtyTestError as error:
+                        failures.append(f"TTY-CHECK-REGEX: {value!r}\n{error}")
+                elif action == "check_not_regex":
+                    try:
+                        session.wait_regex(str(value), timeout, False)
+                    except TtyTestError as error:
+                        failures.append(f"TTY-CHECK-NOT-REGEX: {value!r}\n{error}")
+                elif action == "dump_panel":
+                    resolve_test_path(test.path, str(value)).write_text(
+                        session.capture_panel(), encoding="utf-8"
                     )
-            elif action == "sleep":
-                time.sleep(float(value))
-            elif action == "timeout":
-                timeout = float(value)
-        report_panel = session.capture_panel()
-    except Exception as error:
-        failures.append(str(error))
-        report_panel = session.capture_panel()
-    finally:
-        diagnostics = session.qemu_diagnostics()
-        session.close()
+                elif action == "check_panel":
+                    expected_path = resolve_test_path(test.path, str(value))
+                    expected = normalize_panel(expected_path.read_text(encoding="utf-8"))
+                    actual = session.capture_panel()
+                    if actual != expected:
+                        failures.append(
+                            f"TTY-CHECK-PANEL: {value!r}\nExpected:\n{expected}\nActual:\n{actual}"
+                        )
+                elif action == "sleep":
+                    time.sleep(float(value))
+                elif action == "timeout":
+                    timeout = float(value)
+            report_panel = session.capture_panel()
+        except Exception as error:
+            failures.append(str(error))
+            report_panel = session.capture_panel()
+        finally:
+            diagnostics = session.qemu_diagnostics()
+            session.close()
     return time.monotonic() - started, failures, report_panel, diagnostics
 
 

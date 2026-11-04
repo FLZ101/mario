@@ -2,6 +2,8 @@ r"""A very small lit-style runner for Mario shell behavior tests.
 
 Test files use a tiny subset of lit syntax:
 
+    REBUILD-KERNEL: selftest-kmalloc
+    EXPECT-HALT: Assertion 'block->magic == KMALLOC_MAGIC_ALLOC' failed
     RUN: echo hello > /root/lit.txt
     RUN: cat /root/lit.txt
     CHECK: hello
@@ -17,6 +19,11 @@ Test files use a tiny subset of lit syntax:
 Run:
 
     python3 tests/lit_shell_test.py tests/shell
+
+REBUILD-KERNEL must be the first directive.  It exclusively rebuilds and
+boots a supported self-test kernel, then restores the normal kernel before a
+following test can boot.  It isolates artifacts; ordinary CHECK directives
+still determine whether the following test is correct.
 """
 
 import argparse
@@ -33,6 +40,7 @@ except ImportError:
     sys.exit(2)
 
 from pexpect_utils import make_pexpect_raw, send_line, send_text
+from lit_kernel import kernel_artifacts, validate_rebuild_kernel
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -123,6 +131,8 @@ class LitTest:
     def __init__(self, path):
         self.path = path
         self.requires_smp = None
+        self.rebuild_kernel = None
+        self.expect_halt = None
         self.runs = []
         self.actions = []
 
@@ -130,6 +140,9 @@ class LitTest:
         heredoc_delimiter = None
         heredoc_command = None
         heredoc_lines = []
+        # A rebuild replaces the shared kernel, so it must be requested before
+        # any directive that could otherwise lead to a QEMU boot.
+        saw_instruction = False
 
         with open(self.path, encoding="utf-8") as f:
             for line in f:
@@ -150,7 +163,30 @@ class LitTest:
                     continue
 
                 body = line[1:] if line.startswith("#") else line
-                if body.startswith("RUN:"):
+                if body.startswith("REBUILD-KERNEL:"):
+                    if self.rebuild_kernel is not None:
+                        raise ValueError(f"{self.path}: duplicate REBUILD-KERNEL")
+                    if saw_instruction:
+                        raise ValueError(
+                            f"{self.path}: REBUILD-KERNEL must be the first directive"
+                        )
+                    target = body[len("REBUILD-KERNEL:") :].strip()
+                    self.rebuild_kernel = validate_rebuild_kernel(target, self.path)
+                    saw_instruction = True
+                elif body.startswith("EXPECT-HALT:"):
+                    saw_instruction = True
+                    if self.actions:
+                        raise ValueError(
+                            f"{self.path}: EXPECT-HALT must precede test actions"
+                        )
+                    reason = body[len("EXPECT-HALT:") :].strip()
+                    if not reason:
+                        raise ValueError(f"{self.path}: empty EXPECT-HALT value")
+                    if self.expect_halt is not None:
+                        raise ValueError(f"{self.path}: duplicate EXPECT-HALT")
+                    self.expect_halt = reason
+                elif body.startswith("RUN:"):
+                    saw_instruction = True
                     command = body[len("RUN:") :]
                     if command.startswith(" "):
                         command = command[1:]
@@ -163,6 +199,7 @@ class LitTest:
                         self.runs.append(command)
                         self.actions.append(("run", command))
                 elif body.startswith("SEND-RAW:"):
+                    saw_instruction = True
                     data = (
                         body[len("SEND-RAW:") :]
                         .strip()
@@ -171,56 +208,87 @@ class LitTest:
                     )
                     self.actions.append(("send-raw", data))
                 elif body.startswith("SEND:"):
+                    saw_instruction = True
                     data = body[len("SEND:") :].strip()
                     self.actions.append(("send", data))
                 elif body.startswith("EXPECT:"):
+                    saw_instruction = True
                     needle = body[len("EXPECT:") :].strip()
                     self.actions.append(("expect", needle))
                 elif body.startswith("SLEEP:"):
+                    saw_instruction = True
                     seconds = float(body[len("SLEEP:") :].strip())
                     self.actions.append(("sleep", seconds))
                 elif body.startswith("TIMEOUT:"):
+                    saw_instruction = True
                     seconds = float(body[len("TIMEOUT:") :].strip())
                     if seconds <= 0:
                         raise ValueError(f"{self.path}: TIMEOUT must be positive")
                     self.actions.append(("set-timeout", seconds))
                 elif body.startswith("PUSH-PROMPT:"):
+                    saw_instruction = True
                     prompt = body[len("PUSH-PROMPT:") :].strip()
                     if not prompt:
                         raise ValueError(f"{self.path}: empty PUSH-PROMPT value")
                     self.actions.append(("push-prompt", prompt))
                 elif body.startswith("POP-PROMPT:"):
+                    saw_instruction = True
                     self.actions.append(("pop-prompt", None))
                 elif body.startswith("REQUIRES-SMP:"):
+                    saw_instruction = True
                     spec = body[len("REQUIRES-SMP:") :].strip()
                     self.requires_smp = parse_smp_requirement(spec)
                 elif body.startswith("EXIT:"):
                     break
                 elif body.startswith("CHECK-REGEX:"):
+                    saw_instruction = True
                     self.actions.append(
                         ("check-regex", body[len("CHECK-REGEX:") :].strip())
                     )
                 elif body.startswith("CHECK-NOT:"):
+                    saw_instruction = True
                     self.actions.append(
                         ("check-not", body[len("CHECK-NOT:") :].strip())
                     )
                 elif body.startswith("CHECK:"):
+                    saw_instruction = True
                     self.actions.append(("check", body[len("CHECK:") :].strip()))
 
         if heredoc_delimiter is not None:
             raise ValueError(f"{self.path}: unterminated heredoc {heredoc_delimiter!r}")
 
+        if self.rebuild_kernel is not None and self.expect_halt is None:
+            raise ValueError(f"{self.path}: REBUILD-KERNEL requires EXPECT-HALT")
+        if self.expect_halt is not None:
+            disallowed = {
+                "run",
+                "send",
+                "send-raw",
+                "expect",
+                "sleep",
+                "set-timeout",
+                "push-prompt",
+                "pop-prompt",
+            }
+            if any(action in disallowed for action, _value in self.actions):
+                raise ValueError(
+                    f"{self.path}: EXPECT-HALT tests may only use CHECK directives"
+                )
+
         return self
 
 
-def require_files():
-    missing = [p for p in (KERNEL, INITRD) if not os.path.exists(p)]
+def require_files(require_kernel):
+    required = [INITRD]
+    if require_kernel:
+        required.insert(0, KERNEL)
+    missing = [path for path in required if not os.path.exists(path)]
     if missing:
         print("Missing build outputs:", ", ".join(missing), file=sys.stderr)
         sys.exit(2)
 
 
-def start_qemu(qemu, realtime=False, smp=1):
+def start_qemu(qemu, realtime=False, smp=1, expect_halt=None):
     cmd = [
         qemu,
         "-smp",
@@ -260,17 +328,30 @@ def start_qemu(qemu, realtime=False, smp=1):
     make_pexpect_raw(child)
     if realtime:
         child.logfile_read = RealtimeOutput(sys.stdout)
+    if expect_halt is not None:
+        output = []
+        _pexpect_expect(child, "=== MARIO FATAL HANG ===", 30, "wait for fatal halt")
+        output.append(child.before + child.after)
+        _pexpect_expect(child, re.escape(expect_halt), 10, "wait for fatal halt reason")
+        output.append(child.before + child.after)
+        _pexpect_expect(child, "halted", 10, "wait for fatal halt completion")
+        output.append(child.before + child.after)
+        return child, output
     _pexpect_expect(child, BOOT_PROMPT, 30, "wait for boot prompt")
     send_line(child, "PS1='MARIO_TEST_PROMPT> '")
     _pexpect_expect(child, PROMPT, 10, "wait for MARIO_TEST_PROMPT")
-    return child
+    return child, []
 
 
 def run_lit_test(test, qemu, realtime=False, smp=1):
     # Start a fresh QEMU for this test so an SMP configuration from one case
     # cannot leak into the next case.
-    child = start_qemu(qemu, realtime, smp)
-    output = []
+    with kernel_artifacts(test.rebuild_kernel):
+        return _run_lit_test_locked(test, qemu, realtime, smp)
+
+
+def _run_lit_test_locked(test, qemu, realtime, smp):
+    child, output = start_qemu(qemu, realtime, smp, test.expect_halt)
     prompts = [PROMPT]
     timeout = DEFAULT_TIMEOUT
     failures = []
@@ -348,7 +429,8 @@ def run_lit_test(test, qemu, realtime=False, smp=1):
                         saw_failure = True
                     failures.append(f"CHECK-REGEX: {value!r}")
     finally:
-        send_line(child, "halt")
+        if test.expect_halt is None:
+            send_line(child, "halt")
         child.close(force=True)
 
     return failures, captured_text(), report_start
@@ -444,7 +526,6 @@ def main():
     if args.jobs < 1:
         parser.error("--jobs must be at least 1")
 
-    require_files()
     test_paths = []
     for path in args.paths:
         if os.path.isdir(path):
@@ -473,6 +554,10 @@ def main():
     if not tests:
         print(f"No .test files found in: {' '.join(args.paths)}", file=sys.stderr)
         sys.exit(2)
+
+    # A rebuild-only selection creates kernel.exe before QEMU starts.  Mixed
+    # selections still need an existing normal kernel for ordinary tests.
+    require_files(any(test.rebuild_kernel is None for test in tests))
 
     missing_hd_images = [
         path for path in (HD1_IMAGE, HD2_IMAGE, HD3_IMAGE) if not os.path.exists(path)

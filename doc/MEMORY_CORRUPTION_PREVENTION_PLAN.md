@@ -746,6 +746,16 @@ following checklist is the repeatable process for a new corruption report.
    - `make selftest-kmalloc`, `make selftest-page`,
      `make selftest-stack`, `make selftest-ubsan`
    - Each self-test must stop in its expected detector, not merely compile.
+   - Lit self-tests declare both the isolated rebuild and the fatal reason:
+     ```text
+     REBUILD-KERNEL: selftest-kmalloc
+     EXPECT-HALT: Assertion 'block->magic == KMALLOC_MAGIC_ALLOC' failed
+     ```
+     `REBUILD-KERNEL` accepts only the four `selftest-*` targets above and must
+     be the first test directive.  The runner serializes access to shared
+     kernel artifacts, rebuilds the selected kernel before QEMU starts, waits
+     for the fatal serial report instead of a shell prompt, and restores the
+     ordinary kernel before any other test can boot it.
 
 7. **Run the regression and rollout gates.**
    - `make test-all LIT_JOBS=1`

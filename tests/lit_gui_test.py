@@ -1,6 +1,8 @@
 r"""Run framebuffer tests through QMP against the GRUB4DOS VBE boot path.
 
 Directives:
+  REBUILD-KERNEL: selftest-kmalloc
+  EXPECT-HALT: Assertion 'block->magic == KMALLOC_MAGIC_ALLOC' failed
   SERIAL: <shell command>
   SERIAL: <<END
   <multiline shell script>
@@ -11,6 +13,11 @@ Directives:
   GUI-CHECK-SCREEN: golden.ppm
   TIMEOUT: seconds
   EXIT:
+
+REBUILD-KERNEL must be the first directive.  It exclusively rebuilds the
+kernel and the VBE boot image, then restores both before a following test can
+boot.  It isolates artifacts; SERIAL-CHECK and GUI-CHECK-SCREEN still determine
+whether the following test is correct.
 """
 
 from __future__ import annotations
@@ -29,6 +36,7 @@ from pathlib import Path
 import pexpect
 from PIL import Image, ImageChops
 
+from lit_kernel import kernel_artifacts, validate_rebuild_kernel
 from pexpect_utils import make_pexpect_raw, send_line, send_text
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -50,17 +58,47 @@ class GuiTestError(RuntimeError):
 @dataclass
 class GuiTest:
     path: Path
+    rebuild_kernel: str | None = None
+    expect_halt: str | None = None
     actions: list[tuple[str, object]] = field(default_factory=list)
 
     def parse(self) -> "GuiTest":
         lines = self.path.read_text(encoding="utf-8").splitlines()
         index = 0
+        # The disk image is restaged for a rebuild, before the GUI runner can
+        # launch QEMU or connect QMP.
+        saw_instruction = False
         while index < len(lines):
             raw = lines[index]
             line = raw[1:] if raw.startswith("#") else raw
             if line.startswith("EXIT:"):
                 break
-            if line.startswith("SERIAL-CHECK:"):
+            if not line.startswith("REBUILD-KERNEL:") and line.startswith(
+                ("SERIAL-CHECK:", "SERIAL:", "GUI-", "TIMEOUT:", "EXPECT-HALT:")
+            ):
+                saw_instruction = True
+            if line.startswith("REBUILD-KERNEL:"):
+                if self.rebuild_kernel is not None:
+                    raise GuiTestError(f"{self.path}: duplicate REBUILD-KERNEL")
+                if saw_instruction:
+                    raise GuiTestError(
+                        f"{self.path}: REBUILD-KERNEL must be the first directive"
+                    )
+                self.rebuild_kernel = validate_rebuild_kernel(
+                    line.split(":", 1)[1].strip(), self.path
+                )
+                saw_instruction = True
+            elif line.startswith("EXPECT-HALT:"):
+                if self.actions:
+                    raise GuiTestError(
+                        f"{self.path}: EXPECT-HALT must precede test actions"
+                    )
+                if self.expect_halt is not None:
+                    raise GuiTestError(f"{self.path}: duplicate EXPECT-HALT")
+                self.expect_halt = line.split(":", 1)[1].strip()
+                if not self.expect_halt:
+                    raise GuiTestError(f"{self.path}: empty EXPECT-HALT value")
+            elif line.startswith("SERIAL-CHECK:"):
                 self.actions.append(("serial-check", line.split(":", 1)[1].strip()))
             elif line.startswith("SERIAL:"):
                 value = line.split(":", 1)[1].strip()
@@ -99,6 +137,21 @@ class GuiTest:
             elif line.startswith("GUI-"):
                 raise GuiTestError(f"{self.path}: unsupported directive {line!r}")
             index += 1
+        if self.rebuild_kernel is not None and self.expect_halt is None:
+            raise GuiTestError(f"{self.path}: REBUILD-KERNEL requires EXPECT-HALT")
+        if self.expect_halt is not None:
+            disallowed = {
+                "serial",
+                "serial-script",
+                "send-key",
+                "type",
+                "screen",
+                "timeout",
+            }
+            if any(action in disallowed for action, _value in self.actions):
+                raise GuiTestError(
+                    f"{self.path}: EXPECT-HALT tests may only use SERIAL-CHECK"
+                )
         return self
 
 
@@ -273,6 +326,11 @@ def run_serial_script(
 
 
 def run_test(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
+    with kernel_artifacts(test.rebuild_kernel, "disk-image-vbe_1024x768"):
+        return _run_test_locked(test, qemu, index, smp)
+
+
+def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
     qmp_path = f"/tmp/mario-gui-qmp-{os.getpid()}-{index}.sock"
     try:
         os.unlink(qmp_path)
@@ -290,11 +348,21 @@ def run_test(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
     timeout = DEFAULT_TIMEOUT
     try:
         time.sleep(BOOT_MENU_DELAY)
-        child.expect(BOOT_PROMPT, timeout=30)
-        send_line(child, f"PS1='{PROMPT}'")
-        expect_prompt(child, 10, "set GUI prompt")
-        qmp.connect()
-        last_serial = ""
+        if test.expect_halt is not None:
+            output = []
+            child.expect("=== MARIO FATAL HANG ===", timeout=30)
+            output.append(child.before + child.after)
+            child.expect(re.escape(test.expect_halt), timeout=10)
+            output.append(child.before + child.after)
+            child.expect("halted", timeout=10)
+            output.append(child.before + child.after)
+            last_serial = "".join(output)
+        else:
+            child.expect(BOOT_PROMPT, timeout=30)
+            send_line(child, f"PS1='{PROMPT}'")
+            expect_prompt(child, 10, "set GUI prompt")
+            qmp.connect()
+            last_serial = ""
         for action, value in test.actions:
             if action == "serial":
                 send_line(child, value)
@@ -318,7 +386,8 @@ def run_test(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
                 timeout = value
     finally:
         try:
-            send_line(child, "halt")
+            if test.expect_halt is None:
+                send_line(child, "halt")
         finally:
             child.close(force=True)
             qmp.close()
