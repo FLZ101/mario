@@ -29,6 +29,8 @@ from pathlib import Path
 import pexpect
 from PIL import Image, ImageChops
 
+from pexpect_utils import make_pexpect_raw, send_line, send_text
+
 ROOT = Path(__file__).resolve().parent.parent
 QEMU = os.environ.get("QEMU", "qemu-system-i386")
 HD_IMAGES = [ROOT / "qemu" / f"hd{index}.img" for index in range(1, 4)]
@@ -264,9 +266,9 @@ def run_serial_script(
     delimiter = "__MARIO_SERIAL_EOF__"
     if delimiter in script:
         raise GuiTestError(f"{description}: reserved heredoc delimiter")
-    child.sendline(f"/bin/oksh <<'{delimiter}'")
-    child.send(script)
-    child.sendline(delimiter)
+    send_line(child, f"/bin/oksh <<'{delimiter}'")
+    send_text(child, script)
+    send_line(child, delimiter)
     return expect_prompt(child, timeout, description)
 
 
@@ -282,19 +284,20 @@ def run_test(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
         encoding="latin-1",
         timeout=DEFAULT_TIMEOUT,
     )
+    make_pexpect_raw(child)
     qmp = Qmp(qmp_path)
     failures: list[str] = []
     timeout = DEFAULT_TIMEOUT
     try:
         time.sleep(BOOT_MENU_DELAY)
         child.expect(BOOT_PROMPT, timeout=30)
-        child.sendline(f"PS1='{PROMPT}'")
+        send_line(child, f"PS1='{PROMPT}'")
         expect_prompt(child, 10, "set GUI prompt")
         qmp.connect()
         last_serial = ""
         for action, value in test.actions:
             if action == "serial":
-                child.sendline(value)
+                send_line(child, value)
                 last_serial = expect_prompt(child, timeout, f"SERIAL {value!r}")
             elif action == "serial-script":
                 last_serial = run_serial_script(child, value, timeout, "SERIAL heredoc")
@@ -315,7 +318,7 @@ def run_test(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
                 timeout = value
     finally:
         try:
-            child.sendline("halt")
+            send_line(child, "halt")
         finally:
             child.close(force=True)
             qmp.close()

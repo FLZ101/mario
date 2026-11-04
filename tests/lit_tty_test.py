@@ -46,6 +46,8 @@ DEFAULT_TIMEOUT = 60.0
 PANEL_WIDTH = 80
 PANEL_HEIGHT = 25
 PROMPT = "MARIO_TTY_PROMPT>"
+TTY_SEND_CHUNK_SIZE = 200
+TTY_SEND_CHUNK_DELAY = 0.02
 
 
 class TtyTestError(RuntimeError):
@@ -272,7 +274,16 @@ class TmuxSerialSession:
         self._wait(lambda panel: PROMPT in panel, 10, "tty test prompt")
 
     def send(self, text: str) -> None:
-        self._tmux("send-keys", "-t", self.tmux_target, "-l", text)
+        for offset in range(0, len(text), TTY_SEND_CHUNK_SIZE):
+            self._tmux(
+                "send-keys",
+                "-t",
+                self.tmux_target,
+                "-l",
+                text[offset : offset + TTY_SEND_CHUNK_SIZE],
+            )
+            if offset + TTY_SEND_CHUNK_SIZE < len(text):
+                time.sleep(TTY_SEND_CHUNK_DELAY)
         self._tmux("send-keys", "-t", self.tmux_target, "Enter")
 
     def send_raw(self, text: str) -> None:

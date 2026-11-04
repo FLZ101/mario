@@ -32,6 +32,8 @@ except ImportError:
     print("pexpect is required: pip install pexpect", file=sys.stderr)
     sys.exit(2)
 
+from pexpect_utils import make_pexpect_raw, send_line, send_text
+
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QEMU = os.environ.get("QEMU", "qemu-system-i386")
@@ -255,10 +257,11 @@ def start_qemu(qemu, realtime=False, smp=1):
     ]
 
     child = pexpect.spawn(" ".join(cmd), encoding="latin-1", timeout=30)
+    make_pexpect_raw(child)
     if realtime:
         child.logfile_read = RealtimeOutput(sys.stdout)
     _pexpect_expect(child, BOOT_PROMPT, 30, "wait for boot prompt")
-    child.sendline("PS1='MARIO_TEST_PROMPT> '")
+    send_line(child, "PS1='MARIO_TEST_PROMPT> '")
     _pexpect_expect(child, PROMPT, 10, "wait for MARIO_TEST_PROMPT")
     return child
 
@@ -282,14 +285,14 @@ def run_lit_test(test, qemu, realtime=False, smp=1):
     try:
         for action, value in test.actions:
             if action == "run":
-                child.sendline(value)
+                send_line(child, value)
                 _pexpect_expect(child, prompts[-1], timeout, f"RUN {value!r}")
                 output.append(child.before)
             elif action == "send":
-                child.sendline(value)
+                send_line(child, value)
                 output.append(child.before)
             elif action == "send-raw":
-                child.send(value)
+                send_text(child, value)
                 output.append(child.before)
             elif action == "expect":
                 if value:
@@ -345,7 +348,7 @@ def run_lit_test(test, qemu, realtime=False, smp=1):
                         saw_failure = True
                     failures.append(f"CHECK-REGEX: {value!r}")
     finally:
-        child.sendline("halt")
+        send_line(child, "halt")
         child.close(force=True)
 
     return failures, captured_text(), report_start
