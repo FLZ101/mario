@@ -13,6 +13,7 @@ extern void mem_init(void);
 extern void tty_init(void);
 extern void fbdev_init(void);
 extern void gui_init(void);
+extern void psaux_init(void);
 
 void chrdev_init(void)
 {
@@ -22,6 +23,8 @@ void chrdev_init(void)
 		chrdevs[i].chrdev_fops = NULL;
 
 	mem_init();
+	/* The controller enables IRQ12 during tty_init(), before sti(). */
+	psaux_init();
 	tty_init();
 	fbdev_init();
 	gui_init();

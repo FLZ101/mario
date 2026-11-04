@@ -5,23 +5,87 @@
 #include <fs/tty/tty.h>
 #include <fs/tty/console.h>
 #include <fs/gui.h>
+#include <fs/psaux.h>
 
-static void wait_input_empty(void)
+#define PS2_WAIT_LIMIT 100000
+
+static int wait_input_empty(void)
 {
-	char c;
+	unsigned int index;
 
-	do {
-		c = inb(0x64);
-	} while (c & 0x02);
+	for (index = 0; index < PS2_WAIT_LIMIT; index++)
+		if (!(inb(0x64) & 0x02))
+			return 0;
+	return -ETIMEDOUT;
 }
 
-static void wait_output_full(void)
+static int wait_output_full(unsigned char *value)
 {
-	char c;
+	unsigned int index;
 
-	do {
-		c = inb(0x64);
-	} while (!(c & 0x01));
+	for (index = 0; index < PS2_WAIT_LIMIT; index++)
+		if (inb(0x64) & 0x01) {
+			*value = inb(0x60);
+			return 0;
+		}
+	return -ETIMEDOUT;
+}
+
+static int ps2_command(unsigned char command)
+{
+	if (wait_input_empty())
+		return -ETIMEDOUT;
+	outb(0x64, command);
+	return 0;
+}
+
+static int ps2_data(unsigned char value)
+{
+	if (wait_input_empty())
+		return -ETIMEDOUT;
+	outb(0x60, value);
+	return 0;
+}
+
+static int ps2_read(unsigned char *value)
+{
+	return wait_output_full(value);
+}
+
+static int ps2_write_config(unsigned char config)
+{
+	int error = ps2_command(0x60);
+
+	if (error)
+		return error;
+	return ps2_data(config);
+}
+
+static int ps2_aux_command(unsigned char command)
+{
+	unsigned int index;
+	unsigned char status;
+	unsigned char response;
+
+	if (ps2_command(0xd4) || ps2_data(command))
+		return -ETIMEDOUT;
+	for (index = 0; index < PS2_WAIT_LIMIT; index++) {
+		status = inb(0x64);
+		if (!(status & 0x01))
+			continue;
+		response = inb(0x60);
+		if (status & 0x20)
+			return response == 0xfa ? 0 : -EIO;
+	}
+	return -ETIMEDOUT;
+}
+
+static void ps2_flush_output(void)
+{
+	unsigned int index;
+
+	for (index = 0; index < PS2_WAIT_LIMIT && (inb(0x64) & 0x01); index++)
+		inb(0x60);
 }
 
 /* Function Keys */
@@ -481,20 +545,44 @@ void irq_PS2(void)
 
 void ps2_init(void)
 {
-	unsigned char c;
+	unsigned char config;
+	unsigned char result;
+	int have_config = 0;
 
-	wait_input_empty();
-	outb(0x64, 0xad);	/* disable port 1 (keyboard) */
-	wait_input_empty();
-	outb(0x64, 0xa7);	/* disable port 2 (mouse) */
-	wait_input_empty();
-	outb(0x64, 0x20);
-	wait_output_full();
-	c = 0xbf & inb(0x60);
-	wait_input_empty();
-	outb(0x64, 0x60);
-	wait_input_empty();
-	outb(0x60, c);		/* disable the first PS/2 port translation */
-	wait_input_empty();
-	outb(0x64, 0xae);
+	/* Every controller wait is bounded so a missing mouse cannot stall boot. */
+	if (ps2_command(0xad) || ps2_command(0xa7))
+		goto failed;
+	ps2_flush_output();
+	if (ps2_command(0x20) || ps2_read(&config))
+		goto failed;
+	have_config = 1;
+	/* Disable IRQs, enable both clocks, and keep the keyboard in Set-2 mode. */
+	config &= ~(0x73);
+	if (ps2_write_config(config) || ps2_command(0xae))
+		goto failed;
+	config |= 0x01;
+	if (ps2_write_config(config))
+		goto failed;
+	if (ps2_command(0xa9) || ps2_read(&result) || result)
+		goto failed;
+	if (ps2_command(0xa8) || ps2_aux_command(0xf6) ||
+	    ps2_aux_command(0xf4))
+		goto failed;
+	/* Enable IRQ12 only after defaults and streaming mode were acknowledged. */
+	config |= 0x02;
+	if (ps2_write_config(config))
+		goto failed;
+	psaux_controller_ready();
+	return;
+
+failed:
+	ps2_command(0xa7);
+	/* An auxiliary failure must leave the existing keyboard usable. */
+	ps2_command(0xae);
+	if (have_config) {
+		config &= ~(0x72);
+		config |= 0x01;
+		ps2_write_config(config);
+	}
+	psaux_controller_failed();
 }

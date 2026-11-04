@@ -1,0 +1,13 @@
+# QMP injects real PS/2 relative and button events through IRQ12.
+SERIAL: /usr/bin/test/psaux.exe >/tmp/psaux.log 2>&1 &
+SERIAL: sleep 1; cat /tmp/psaux.log
+SERIAL-CHECK: psaux: ready
+# QEMU's host-coordinate Y grows down; the raw PS/2 report grows up.
+GUI-MOUSE-MOVE: 12,7
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+SERIAL: sleep 1; cat /tmp/psaux.log
+SERIAL-CHECK: psaux: 12 -7 0
+SERIAL-CHECK: psaux: 0 0 1
+SERIAL-CHECK: psaux: 0 0 0
+EXIT:

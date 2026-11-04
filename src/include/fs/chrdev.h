@@ -30,6 +30,9 @@ int register_chrdev(unsigned int, struct file_operations *);
 #define GUI_MAJOR	11
 #define GUI_MINOR	0
 
+#define PSAUX_MAJOR	10
+#define PSAUX_MINOR	1
+
 #define PTY_MAJOR	4
 #define NR_PTYS		32
 #define PTMX_MINOR	255

@@ -10,6 +10,8 @@ Directives:
   SERIAL-CHECK: <serial output substring>
   GUI-SEND-KEY: f1
   GUI-TYPE: command
+  GUI-MOUSE-MOVE: dx,dy
+  GUI-MOUSE-BUTTON: left,down
   GUI-CHECK-SCREEN: golden.ppm
   GUI-CHECK-RECT: x y width height red green blue
   TIMEOUT: seconds
@@ -128,6 +130,28 @@ class GuiTest:
                 if not value:
                     raise GuiTestError(f"{self.path}: empty GUI-TYPE")
                 self.actions.append(("type", value))
+            elif line.startswith("GUI-MOUSE-MOVE:"):
+                values = line.split(":", 1)[1].strip().split(",")
+                if len(values) != 2:
+                    raise GuiTestError(f"{self.path}: invalid GUI-MOUSE-MOVE")
+                try:
+                    move = (int(values[0]), int(values[1]))
+                except ValueError as exc:
+                    raise GuiTestError(
+                        f"{self.path}: invalid GUI-MOUSE-MOVE"
+                    ) from exc
+                self.actions.append(("mouse-move", move))
+            elif line.startswith("GUI-MOUSE-BUTTON:"):
+                values = line.split(":", 1)[1].strip().split(",")
+                if (
+                    len(values) != 2
+                    or values[0] not in {"left", "middle", "right"}
+                ):
+                    raise GuiTestError(f"{self.path}: invalid GUI-MOUSE-BUTTON")
+                state = values[1].strip()
+                if state not in {"down", "up"}:
+                    raise GuiTestError(f"{self.path}: invalid GUI-MOUSE-BUTTON")
+                self.actions.append(("mouse-button", (values[0], state == "down")))
             elif line.startswith("GUI-CHECK-SCREEN:"):
                 golden = (self.path.parent / line.split(":", 1)[1].strip()).resolve()
                 if not golden.is_file():
@@ -164,6 +188,8 @@ class GuiTest:
                 "serial-script",
                 "send-key",
                 "type",
+                "mouse-move",
+                "mouse-button",
                 "screen",
                 "rect",
                 "timeout",
@@ -180,6 +206,7 @@ class Qmp:
         self.path = path
         self.socket: socket.socket | None = None
         self.buffer = b""
+        self.mouse_buttons = 0
 
     def connect(self) -> None:
         deadline = time.monotonic() + DEFAULT_TIMEOUT
@@ -358,6 +385,26 @@ def type_text(qmp: Qmp, text: str) -> None:
     send_key(qmp, "ret")
 
 
+def send_mouse_move(qmp: Qmp, dx: int, dy: int) -> None:
+    # HMP targets QEMU's active PS/2 mouse, unlike unstable frontend device IDs.
+    qmp.command(
+        "human-monitor-command", {"command-line": f"mouse_move {dx} {dy}"}
+    )
+
+
+def send_mouse_button(qmp: Qmp, button: str, down: bool) -> None:
+    masks = {"left": 1, "middle": 2, "right": 4}
+
+    if down:
+        qmp.mouse_buttons |= masks[button]
+    else:
+        qmp.mouse_buttons &= ~masks[button]
+    qmp.command(
+        "human-monitor-command",
+        {"command-line": f"mouse_button {qmp.mouse_buttons}"},
+    )
+
+
 def run_serial_script(
     child: pexpect.spawn, script: str, timeout: float, description: str
 ) -> str:
@@ -423,6 +470,10 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                 send_key(qmp, value)
             elif action == "type":
                 type_text(qmp, value)
+            elif action == "mouse-move":
+                send_mouse_move(qmp, *value)
+            elif action == "mouse-button":
+                send_mouse_button(qmp, *value)
             elif action == "screen":
                 time.sleep(SCREEN_SETTLE_DELAY)
                 if not wait_for_screen(qmp, value, timeout):

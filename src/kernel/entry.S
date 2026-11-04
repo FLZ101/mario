@@ -398,7 +398,6 @@ irq7:
 
 irq8:
 irq9:
-irqc:
 irqd:
 irqe:
 	pushl %eax
@@ -406,6 +405,14 @@ irqe:
 	EOI_SLAVE
 	popl %eax
 	iret
+
+irqc:
+	pushl $-1
+	SAVE_ALL
+	call irq_PS2_aux
+	EOI_MASTER
+	EOI_SLAVE
+	jmp ret_from_intr
 
 irqa:
 irqb:
