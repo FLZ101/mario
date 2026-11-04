@@ -142,6 +142,11 @@ static int fb_write_at(struct inode *i, struct file *f, char *buf, int count,
 	const struct fb_info *info = fb_get_info();
 	unsigned long generation;
 	unsigned long flags;
+	int completed = 0;
+	int remaining;
+#ifdef CONFIG_FB_WRITE_CHUNK_SELF_TEST
+	int inject_generation_change = 1;
+#endif
 	if (!position || *position < 0 || count < 0)
 		return -EINVAL;
 	if (fb_write_generation_snapshot(&generation))
@@ -159,11 +164,38 @@ static int fb_write_at(struct inode *i, struct file *f, char *buf, int count,
 	}
 	if (count > info->size - *position)
 		count = info->size - *position;
-	/* Both write entry points pass through this foreground ownership gate. */
-	memcpy_fromfs((char *)info->virt_addr + *position, buf, count);
-	*position += count;
 	spin_unlock_irqrestore(&fb_lock, flags);
-	return count;
+	if (!info->pitch)
+		return -EINVAL;
+	remaining = count;
+	while (remaining) {
+		int chunk = info->pitch - *position % info->pitch;
+
+		if (chunk > remaining)
+			chunk = remaining;
+		spin_lock_irqsave(&fb_lock, flags);
+		/* Each scanline starts only while the original frame is current. */
+		if (!fb_write_generation_valid(fb_console_state,
+					       fb_console_transitioning,
+					       fb_console_generation, generation)) {
+			spin_unlock_irqrestore(&fb_lock, flags);
+			return completed ? completed : -EBUSY;
+		}
+		memcpy_fromfs((char *)info->virt_addr + *position, buf + completed,
+				      chunk);
+#ifdef CONFIG_FB_WRITE_CHUNK_SELF_TEST
+		/* The rebuilt test kernel invalidates exactly one multi-row write. */
+		if (inject_generation_change && remaining > chunk) {
+			fb_console_generation++;
+			inject_generation_change = 0;
+		}
+#endif
+		spin_unlock_irqrestore(&fb_lock, flags);
+		*position += chunk;
+		completed += chunk;
+		remaining -= chunk;
+	}
+	return completed;
 }
 
 static int fb_write(struct inode *i, struct file *f, char *buf, int count)

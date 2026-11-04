@@ -1,0 +1,9 @@
+# A compile-time-only generation change interrupts the second scanline.
+REBUILD-KERNEL: selftest-fb-write-chunks
+SERIAL: /usr/bin/test/fb-write-chunks.exe >/tmp/fb-write-chunks.log 2>&1 &
+SERIAL: sleep 1; cat /tmp/fb-write-chunks.log
+SERIAL-CHECK: fb-write-chunks: ready
+GUI-SEND-KEY: f8
+SERIAL: sleep 1; cat /tmp/fb-write-chunks.log
+SERIAL-CHECK: fb-write-chunks: completed=4096
+EXIT:

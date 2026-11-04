@@ -42,6 +42,7 @@ REBUILD_KERNEL_TARGETS = frozenset(
         "selftest-stack",
         "selftest-ubsan",
         "selftest-fb-write-generation",
+        "selftest-fb-write-chunks",
     }
 )
 

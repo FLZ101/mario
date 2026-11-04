@@ -9,7 +9,7 @@ ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 .PHONY: all kernel musl app compiler-rt analyze-kernel \
 	selftest-kmalloc selftest-page selftest-stack selftest-ubsan \
-	selftest-fb-write-generation
+	selftest-fb-write-generation selftest-fb-write-chunks
 .PHONY: clean-all clean-build clean-src clean-compiler-rt clean-kernel \
 	clean-app clean-app-example clean-app-usr clean-app-usr-src \
 	clean-musl clean-musl-src
@@ -109,6 +109,11 @@ selftest-fb-write-generation: clean-kernel compiler-rt
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
 		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 UBSAN=0 \
 		FB_WRITE_GENERATION_SELF_TEST=1 -C src
+
+selftest-fb-write-chunks: clean-kernel compiler-rt
+	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
+		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 UBSAN=0 \
+		FB_WRITE_CHUNK_SELF_TEST=1 -C src
 
 musl: compiler-rt
 	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(ROOT)/util/mario-cc COMPILE_COMMANDS_JSON= -C musl

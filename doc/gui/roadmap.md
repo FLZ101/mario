@@ -354,7 +354,7 @@ video: map VBE linear framebuffer and add /dev/fb0
   generation before a user framebuffer copy and reject the operation if it is
   no longer current before its first byte. Unit test the state helper without a
   long copy. Commit: `fb: snapshot write generation`.
-- [ ] **M1.10.2 — bound framebuffer copy chunks.** Copy user data in at most
+- [x] **M1.10.2 — bound framebuffer copy chunks.** Copy user data in at most
   one scanline per lock hold, check the generation between chunks, and return
   the completed byte count rather than copying stale bytes. Test short final
   rows and an injected generation change. Commit: `fb: bound framebuffer write

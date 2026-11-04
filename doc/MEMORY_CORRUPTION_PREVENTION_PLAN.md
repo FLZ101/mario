@@ -744,7 +744,9 @@ following checklist is the repeatable process for a new corruption report.
 
 6. **Prove the detector works.**
    - `make selftest-kmalloc`, `make selftest-page`,
-     `make selftest-stack`, `make selftest-ubsan`
+     `make selftest-stack`, `make selftest-ubsan`,
+     `make selftest-fb-write-generation`, and
+     `make selftest-fb-write-chunks`
    - Each self-test must stop in its expected detector, not merely compile.
    - Lit self-tests declare both the isolated rebuild and the fatal reason:
      ```text
@@ -781,7 +783,7 @@ every runtime-check and analysis variable. Quick reference:
 Self-test macros are internal to the self-test targets:
 `KMALLOC_SELF_TEST`, `PAGE_ALLOC_SELF_TEST`,
 `STACK_PROTECTOR_SELF_TEST`, `UBSAN_SELF_TEST`, and
-`FB_WRITE_GENERATION_SELF_TEST`.
+`FB_WRITE_GENERATION_SELF_TEST`, and `FB_WRITE_CHUNK_SELF_TEST`.
 
 ## Suggested Commit Sequence
 
