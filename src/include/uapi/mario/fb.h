@@ -71,6 +71,11 @@ struct fb_fix_screeninfo {
 #define FBIOGET_VSCREENINFO 0x4600
 #define FBIOGET_FSCREENINFO 0x4602
 
+/* Returned by FBIOGET_CONSOLE_STATE and observed through fb0 POLLPRI. */
+#define FB_CONSOLE_TEXT 0
+#define FB_CONSOLE_GRAPHICS 1
+#define FBIOGET_CONSOLE_STATE 0x4d01
+
 /* Catch ABI drift in both kernel and userspace builds. */
 _Static_assert(sizeof(struct fb_bitfield) == 8, "fb_bitfield ABI size");
 _Static_assert(sizeof(struct fb_var_screeninfo) == 144,

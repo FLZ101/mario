@@ -1,20 +1,25 @@
 #include <fs/fs.h>
+#include <fs/fbdev.h>
 #include <fs/gui.h>
 #include <video/fb.h>
 
 #define FMODE_FB_WRITER 0x800
+#define FMODE_FB_OPEN 0x1000
 
 static unsigned int fb_writer_refs;
+static unsigned int fb_console_state;
+static unsigned long fb_console_generation;
 static spinlock_t fb_lock = SPINLOCK_UNLOCKED;
+static wait_queue_t fb_console_wait;
 
 static int fb_open(struct inode *i, struct file *f)
 {
 	unsigned long flags;
 	if (!fb_is_enabled())
 		return -ENODEV;
-	if (!(f->f_mode & 2))
-		return 0;
-	if (f->f_mode & FMODE_FB_WRITER) {
+	if (f->f_mode & FMODE_FB_OPEN) {
+		if (!(f->f_mode & FMODE_FB_WRITER))
+			return 0;
 		spin_lock_irqsave(&fb_lock, flags);
 		fb_writer_refs++;
 		spin_unlock_irqrestore(&fb_lock, flags);
@@ -22,6 +27,12 @@ static int fb_open(struct inode *i, struct file *f)
 		return 0;
 	}
 	spin_lock_irqsave(&fb_lock, flags);
+	f->private_data = (void *)fb_console_generation;
+	f->f_mode |= FMODE_FB_OPEN;
+	if (!(f->f_mode & 2)) {
+		spin_unlock_irqrestore(&fb_lock, flags);
+		return 0;
+	}
 	if (fb_writer_refs) {
 		spin_unlock_irqrestore(&fb_lock, flags);
 		return -EBUSY;
@@ -119,7 +130,48 @@ static int fb_ioctl(struct inode *i, struct file *f, unsigned int cmd,
 		memcpy_tofs((void *)arg, &fix, sizeof(fix));
 		return 0;
 	}
+	if (cmd == FBIOGET_CONSOLE_STATE) {
+		unsigned long flags;
+		uint32_t state;
+
+		if (verify_area(VERIFY_WRITE, (void *)arg, sizeof(state)))
+			return -EFAULT;
+		spin_lock_irqsave(&fb_lock, flags);
+		state = fb_console_state;
+		f->private_data = (void *)fb_console_generation;
+		spin_unlock_irqrestore(&fb_lock, flags);
+		memcpy_tofs((void *)arg, &state, sizeof(state));
+		return 0;
+	}
 	return -EINVAL;
+}
+
+static int fb_poll(struct file *f, struct poll_context *ctx)
+{
+	unsigned long flags;
+	int mask = 0;
+
+	poll_wait(f, &fb_console_wait, ctx);
+	spin_lock_irqsave(&fb_lock, flags);
+	if ((unsigned long)f->private_data != fb_console_generation)
+		mask = POLLPRI;
+	spin_unlock_irqrestore(&fb_lock, flags);
+	return mask;
+}
+
+void fbdev_console_state_changed(int graphics)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&fb_lock, flags);
+	if (fb_console_state != (unsigned int)graphics) {
+		fb_console_state = graphics;
+		fb_console_generation++;
+		spin_unlock_irqrestore(&fb_lock, flags);
+		wake_up_all(&fb_console_wait);
+		return;
+	}
+	spin_unlock_irqrestore(&fb_lock, flags);
 }
 
 static struct file_operations fb_fops = {
@@ -129,10 +181,13 @@ static struct file_operations fb_fops = {
 	.read = fb_read,
 	.write = fb_write,
 	.ioctl = fb_ioctl,
+	.poll = fb_poll,
 };
 
 void fbdev_init(void)
 {
-	if (fb_is_enabled())
+	if (fb_is_enabled()) {
+		init_wait_queue(&fb_console_wait);
 		register_chrdev(FB_MAJOR, &fb_fops);
+	}
 }

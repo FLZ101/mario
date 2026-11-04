@@ -1,4 +1,5 @@
 #include <fs/tty/console.h>
+#include <fs/fbdev.h>
 #include <lib/string.h>
 #include <lib/spinlock.h>
 #include <sched.h>
@@ -321,6 +322,7 @@ static void fbcon_thread(void *arg)
 			fbcon_clear_graphics();
 		else
 			fbcon_paint(full);
+		fbdev_console_state_changed(graphics);
 	}
 }
 

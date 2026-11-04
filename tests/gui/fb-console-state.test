@@ -1,0 +1,10 @@
+# fb0 reports a completed graphics/text foreground transition through POLLPRI.
+SERIAL: /usr/bin/test/fb-console-state.exe >/tmp/fb-state.log 2>&1 &
+SERIAL: sleep 1; cat /tmp/fb-state.log
+SERIAL-CHECK: fb-state: ready
+GUI-SEND-KEY: f8
+GUI-SEND-KEY: f6
+SERIAL: sleep 1; cat /tmp/fb-state.log
+SERIAL-CHECK: fb-state: 1
+SERIAL-CHECK: fb-state: 0
+EXIT:
