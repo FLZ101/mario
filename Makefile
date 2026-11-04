@@ -63,7 +63,8 @@ clean-containers:
 
 .PHONY: kernel app analyze-kernel \
 	selftest-kmalloc selftest-page selftest-stack selftest-ubsan \
-	selftest-fb-write-generation selftest-fb-write-chunks
+	selftest-fb-write-generation selftest-fb-write-chunks \
+	selftest-fb-transition-race
 .PHONY: clean-build clean-kernel clean-app clean-src
 
 DEBUG ?= 1
@@ -88,7 +89,8 @@ analyze-kernel:
 	make -f Makefile.build.mk DEBUG=0 OPTIMIZE=-O0 ANALYZE=1 analyze-kernel
 
 selftest-kmalloc selftest-page selftest-stack selftest-ubsan \
-selftest-fb-write-generation selftest-fb-write-chunks:
+selftest-fb-write-generation selftest-fb-write-chunks \
+selftest-fb-transition-race:
 	make -f Makefile.build.mk $@
 
 clean-build clean-kernel clean-app clean-src:

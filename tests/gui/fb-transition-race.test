@@ -1,0 +1,31 @@
+# Prepare a recognizable text frame before a paused first graphics scanline.
+REBUILD-KERNEL: selftest-fb-transition-race
+SERIAL: <<TTY1
+{
+    printf '\033[2J\033[H\033[8;20HVT6-MARKER'
+    for row in 1 2 3; do
+        printf "\033[${row};1H\033[46m                    \033[${row};60H\033[42m                    "
+    done
+    for row in 23 24 25; do
+        printf "\033[${row};1H\033[45m                    \033[${row};60H\033[43m                    "
+    done
+    printf '\033[0m\033[8;20HVT6-MARKER'
+} > /dev/tty1
+TTY1
+SERIAL: /usr/bin/test/fb-transition-race.exe >/tmp/fb-transition-race.log 2>&1 &
+SERIAL: sleep 1; cat /tmp/fb-transition-race.log
+SERIAL-CHECK: fb-transition-race: ready
+GUI-SEND-KEY: f8
+# The test-only pause holds the write immediately after this first red row.
+GUI-CHECK-RECT: 0 0 1024 1 255 0 0
+GUI-SEND-KEY: f1
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+SERIAL: sleep 1; cat /tmp/fb-transition-race.log
+SERIAL-CHECK: fb-transition-race: stale=4096
+SERIAL-CHECK: fb-transition-race: fresh
+# The completed replacement frame overwrites upper, middle, and lower text rows.
+GUI-CHECK-RECT: 0 0 1024 1 0 255 0
+GUI-CHECK-RECT: 0 384 1024 1 0 255 0
+GUI-CHECK-RECT: 0 767 1024 1 0 255 0
+EXIT:

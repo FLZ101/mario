@@ -359,7 +359,7 @@ video: map VBE linear framebuffer and add /dev/fb0
   the completed byte count rather than copying stale bytes. Test short final
   rows and an injected generation change. Commit: `fb: bound framebuffer write
   chunks`.
-- [ ] **M1.10.3 — add the transition-race regression.** Drive a large write,
+- [x] **M1.10.3 — add the transition-race regression.** Drive a large write,
   inject F1 then F8 at deterministic chunk boundaries, and prove text repaint
   wins on switch-away while the following completed GUI frame has no stale text
   rows. Commit: `test: cover framebuffer transition races`.

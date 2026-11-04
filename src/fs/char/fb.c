@@ -12,6 +12,9 @@ static int fb_console_transitioning;
 static unsigned long fb_console_generation;
 static spinlock_t fb_lock = SPINLOCK_UNLOCKED;
 static wait_queue_t fb_console_wait;
+#ifdef CONFIG_FB_TRANSITION_RACE_SELF_TEST
+static int fb_transition_race_paused;
+#endif
 
 static int fb_read_at(struct inode *i, struct file *f, char *buf, int count,
 		      off64_t *position);
@@ -144,6 +147,9 @@ static int fb_write_at(struct inode *i, struct file *f, char *buf, int count,
 	unsigned long flags;
 	int completed = 0;
 	int remaining;
+#ifdef CONFIG_FB_TRANSITION_RACE_SELF_TEST
+	int wait_for_transition = 0;
+#endif
 #ifdef CONFIG_FB_WRITE_CHUNK_SELF_TEST
 	int inject_generation_change = 1;
 #endif
@@ -194,6 +200,22 @@ static int fb_write_at(struct inode *i, struct file *f, char *buf, int count,
 		*position += chunk;
 		completed += chunk;
 		remaining -= chunk;
+#ifdef CONFIG_FB_TRANSITION_RACE_SELF_TEST
+		/* Pause after one visible row so QMP can switch to text deterministically. */
+		spin_lock_irqsave(&fb_lock, flags);
+		if (!fb_transition_race_paused && remaining) {
+			fb_transition_race_paused = 1;
+			wait_for_transition = 1;
+		}
+		spin_unlock_irqrestore(&fb_lock, flags);
+		while (wait_for_transition) {
+			spin_lock_irqsave(&fb_lock, flags);
+			wait_for_transition = !fb_console_transitioning;
+			spin_unlock_irqrestore(&fb_lock, flags);
+			if (wait_for_transition)
+				safe_halt();
+		}
+#endif
 	}
 	return completed;
 }
