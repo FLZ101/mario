@@ -3,13 +3,40 @@
 Part of the [GUI platform plan](README.md). This document defines the kernel
 services required before userspace can draw and manage windows.
 
+## Scope and Authority
+
+This is the normative contract for kernel-owned GUI behavior: boot handoff
+validation, UAPI structure layout, device ownership, syscall semantics,
+foreground transitions, and synchronization. Userspace documents may depend
+on these interfaces but must not redefine them. The
+[implementation roadmap](roadmap.md) owns implementation order, completion
+state, and test/commit sequencing; update it when this contract adds a new
+prerequisite or validation requirement.
+
+### Kernel/Userspace Handoff
+
+The availability of each interface is staged and must be consumed only after
+its owning milestone is green:
+
+| Interface | First consumer | Contract owner |
+| --- | --- | --- |
+| `/dev/fb0` metadata, bounded I/O, and framebuffer text VTs | M0 probes and text tests | this document |
+| `/dev/gui`, `/dev/psaux`, F8, `FBIOGET_CONSOLE_STATE`, and `POLLPRI` | M1 graphics-seat tests | this document |
+| `pread64()`/`pwrite64()` framebuffer semantics | M1.9 positional probe, then M2/M3 flushing | this document |
+| Unix98 PTY behavior | M4 gate and M5 terminal | `doc/PTY_TMUX_PLAN.md` |
+| `AF_UNIX` stream transport | M3 window-manager protocol | this document |
+
+An application must not infer an interface from a nearby implementation detail
+or use a future fallback path early. In particular, direct framebuffer mapping,
+per-client framebuffer access, and GUI-private socket transports are outside
+this contract.
+
 ## 1. Request a Multiboot Video Mode
 
 **Ownership boundary:** GRUB4DOS chooses and sets the VBE mode for the image.
-The kernel
-does not enumerate VBE modes: BIOS interfaces are unavailable and inappropriate
-after entering protected mode. The kernel validates the resulting Multiboot
-framebuffer record and either maps it or stays in text mode.
+The kernel does not enumerate VBE modes: BIOS interfaces are unavailable and
+inappropriate after entering protected mode. It validates one of the supported
+Multiboot/VBE/GRUB4DOS handoffs and either maps it or stays in text mode.
 
 In `src/include/multiboot.h`:
 
@@ -43,6 +70,22 @@ kernel. GRUB4DOS appends `video=1024x768x32@<physical-base>,<byte-pitch>` to
 the Multiboot command line; the kernel validates that form and uses the QEMU
 stdvga `xrgb8888` layout. A direct Multiboot framebuffer or legacy VBE record
 remains preferred when present.
+
+The GRUB4DOS command-line fallback is a stable, deliberately narrow Mario boot
+ABI, not a generic `video=` option parser:
+
+- Match `video=` only at the beginning of the command line or immediately after
+  ASCII whitespace. A substring such as `novideo=` must not match.
+- Accept exactly decimal `widthxheightxbpp`, `@0x` followed by hexadecimal
+  physical base, a decimal comma-separated pitch, and then end-of-token.
+  Reject signs, omitted fields, trailing garbage, and additional `video=`
+  tokens rather than silently accepting the first ambiguous value.
+- Parse every field with checked arithmetic before narrowing it. The resulting
+  base, pitch, dimensions, and derived mapping range pass the same validation
+  as a Multiboot framebuffer record.
+- Keep this fallback below direct Multiboot framebuffer and legacy VBE records
+  in priority order. Tests cover all three accepted handoffs and malformed
+  command-line values that must leave Mario in text mode.
 
 The preferred mode is a request. For "always use the highest supported mode",
 the *custom bootloader* must enumerate VBE modes before protected mode:
@@ -114,17 +157,28 @@ Lifecycle:
 3. Use the explicit `0xF0400000` framebuffer window. It is deliberately in a
    different page-directory entry from AHCI's single-slot `ioremap()` aperture
    at `0xF0000000`.
-4. If VBE data is absent or invalid, leave `fb_info.enabled == 0` and continue
-   with text mode.
+4. If no graphics mode was selected and VBE data is absent, leave
+   `fb_info.enabled == 0` and continue with legacy text. If a loader already
+   selected VBE but its handoff is invalid, leave the framebuffer disabled and
+   report the fault through serial; protected mode does not attempt an unsafe
+   legacy-VGA mode restore.
 
 Validation and mapping rules:
 
 - Accept only direct-color/packed-pixel framebuffer records with nonzero base,
   width, height, stride, and bpp. Reject text-mode, planar, banked-only, and
-  palette-only records in phase 0.
+  palette-only records in M0.
 - Compute `size = stride * height` with checked 64-bit arithmetic. Reject a
   size of zero, a size above the reserved framebuffer virtual-window capacity,
   or an address range that wraps `phys_base + size`.
+- Mario is an i386 kernel: reject a direct Multiboot physical base with any
+  nonzero high 32 bits, and reject a page-aligned end above the address range
+  that `fb_map()` can represent. Also reject a handoff that overlaps usable RAM
+  or a boot module instead of treating ordinary reclaimable memory as MMIO.
+- Require `stride >= ceil(width * bpp / 8)`. Reject color fields whose length
+  is zero, whose offset plus length exceeds `bpp`, or whose red, green, and blue
+  bit ranges overlap. The accepted direct-color layout is reported verbatim;
+  only the GRUB4DOS QEMU fallback supplies its fixed XRGB8888 fields.
 - Page-align the physical start downward and the end upward. Keep both the
   original `phys_base` and the page-aligned map base so `/dev/fb0` offsets are
   relative to the first visible pixel, not the mapping padding.
@@ -156,10 +210,28 @@ Initial operations:
 - `read`: copy from `fb.virt_base + pos` into the user buffer.
 - `write`: copy from the user buffer into the framebuffer.
 - `release`: no-op.
-- `ioctl`: implement `FBIOGET_VSCREENINFO`, `FBIOGET_FSCREENINFO`, and return
-  `-EINVAL` for `FBIOPUT_VSCREENINFO` until mode switching is supported.
+- `ioctl`: implement `FBIOGET_VSCREENINFO` and `FBIOGET_FSCREENINFO`; return
+  `-EINVAL` for unrecognized or mode-setting requests because the initial ABI
+  exposes no mode-setting ioctl.
 - `mmap`: not implemented in the initial GUI ABI. The compositor flushes with
   bounded `pwrite()` calls instead.
+
+`pwrite64()` is an explicit prerequisite for the desktop compositor, not an
+assumption supplied by libc. Before M3, implement and test `pread64()` and
+`pwrite64()` in the i386 syscall table. Their positional file-operation path
+must not change the shared file description's `f_pos`, must retain normal
+user-copy/error semantics, and must not implement positional I/O by a visible
+`lseek()`/I/O/restore sequence. M0's simple framebuffer probe may use
+`lseek()` plus `read()`/`write()` until this gate is complete.
+
+Add explicit `read_at`/`write_at` file-operation callbacks which receive a
+caller-local `off64_t` and advance only that local value. Regular `read()` and
+`write()` use the same underlying helpers with `f_pos`; `pread64()` and
+`pwrite64()` call only the positional callbacks. Non-seekable devices return
+`-ESPIPE`. Decode the i386 low/high offset pair with checked signed 64-bit
+arithmetic, reject negative/out-of-range offsets before user access, and route
+framebuffer positional writes through the same foreground-generation gate as
+ordinary writes.
 
 Use `verify_area()` and `memcpy_tofs()`/`memcpy_fromfs()` for all user copies.
 
@@ -177,18 +249,30 @@ File semantics:
 
 Framebuffer ioctl ABI:
 
-- Define Mario's own small `FBIOGET_VSCREENINFO` and `FBIOGET_FSCREENINFO`
-  structures in `src/include/video/fb.h`; do not require Linux's exact struct
-  layout.
-- `struct fb_var_screeninfo` fields: `xres`, `yres`, `xres_virtual`,
-  `yres_virtual`, `bits_per_pixel`, `red_offset`, `red_length`,
-  `green_offset`, `green_length`, `blue_offset`, `blue_length`.
-- `struct fb_fix_screeninfo` fields: `id[16]`, `smem_start`, `smem_len`,
-  `type`, `visual`, `line_length`.
-- `FBIOPUT_VSCREENINFO` returns `-EINVAL` in M0. Add a separate
-  `FBIOGET_CONSOLE_STATE` value in M1.
+- Define Mario's fixed-width `FBIOGET_VSCREENINFO` and
+  `FBIOGET_FSCREENINFO` payloads in `src/include/uapi/mario/fb.h`, copied into
+  the userspace include tree as `mario/fb.h`. The source spellings
+  `struct fb_bitfield`, `struct fb_var_screeninfo`, and
+  `struct fb_fix_screeninfo` are conventional names only; programs must use
+  Mario's installed header rather than assume binary compatibility with a host
+  Linux header. Kernel-private framebuffer state remains outside that header.
+- `struct fb_bitfield` is exactly 8 bytes. `struct fb_var_screeninfo` is
+  exactly 144 bytes: it contains visible/virtual geometry, offsets, bpp,
+  grayscale, four color bitfields, timing/mode metadata, and four reserved
+  words. `struct fb_fix_screeninfo` is exactly 72 bytes: it contains `id[16]`,
+  a `uint64_t smem_start`, memory/type/visual metadata, panning steps, line
+  length, MMIO metadata, acceleration, capabilities, and reserved words.
+- M0 publishes only the three defined getters:
+  `FBIOGET_VSCREENINFO`, `FBIOGET_FSCREENINFO`, and, after M1,
+  `FBIOGET_CONSOLE_STATE`. Unrecognized or mode-setting ioctl values return
+  `-EINVAL`; no `FBIOPUT_VSCREENINFO` request is published in the ABI.
 - Keep these ioctl numbers stable in the header; changing them after a
   userspace build would break the GUI binaries.
+- Use fixed-width integer fields and compile-time size assertions in both
+  kernel and userspace builds. Programs include this shared header rather than
+  duplicating framebuffer definitions locally. The Linux-looking ioctl and
+  structure names are compatibility names, not a promise that Linux headers
+  can be used unchanged.
 
 Framebuffer format contract:
 
@@ -203,11 +287,10 @@ Framebuffer format contract:
 
 Device ownership and access:
 
-- In Phase 1 the GUI process is the only writable opener of `/dev/fb0`;
-  normal applications never draw directly to it. Read-only diagnostic opens
-  remain allowed.
-- In Phase 2 the window-manager server keeps `/dev/fb0` open and never passes
-  the fd to clients. Client surfaces are composited by the server.
+- From M3 onward `mario-wm` is the only writable opener of `/dev/fb0`; normal
+  applications never draw directly to it. Read-only diagnostic opens remain
+  allowed. The server never passes the fd to clients; client surfaces are
+  composited by the server.
 - Create `/dev/fb0` with root-only permissions (0600 initially). If Mario
   gains a permission system later, add a dedicated `video` group.
 - M0 permits its one exclusive raw `/dev/fb0` writer so `fb.test` can prove
@@ -215,11 +298,11 @@ Device ownership and access:
   `-EBUSY` unless graphics is foreground; the kernel `fbcon` presenter is not a
   file-operation client and is unaffected by that gate. The desktop redraws
   after switch-back.
-- A framebuffer write copies in bounded scanline-sized chunks and rechecks the
-  foreground generation between chunks. A switch to text invalidates the old
-  generation, stops a later chunk with a short count or `-EBUSY`, and queues a
-  newer full text repaint. An in-flight GUI write therefore cannot overwrite a
-  restored text VT after the repaint completes.
+- M1.10 replaces the initial single-copy write path with bounded
+  scanline-sized chunks that recheck the foreground generation between chunks.
+  A switch to text then invalidates the old generation, stops a later chunk
+  with a short count or `-EBUSY`, and queues a newer full text repaint. M2/M3
+  must not rely on a large-write transition guarantee until M1.10.3 is green.
 - Reads are allowed for debugging and screen captures, but they do not grant
   ownership or bypass the switch state.
 
@@ -296,28 +379,26 @@ before any userspace process starts.
   text cannot be preserved because `setvbe` replaces the bootloader text mode
   before the kernel starts.
 
-Refactor the current direct `VIDEO_MEM` mirrors into one presentation boundary:
+The M0 presenter uses one explicit presentation boundary. A console write
+updates its normal cell buffer while holding `console_lock`, releases that
+lock, and then wakes the `fbcon` worker if the changed console is foreground.
+The worker sleeps on `fbcon_wait`, snapshots the complete foreground 80x25
+buffer and cursor under `console_lock`, releases the lock, then compares that
+snapshot with its previous one. It repaints changed cells and cursor changes;
+a foreground-VT switch forces a full scanout repaint. This avoids framebuffer
+pixel writes under `console_lock`, but it deliberately scans the 80x25 cell
+grid rather than maintaining dirty rectangles in M0. Do not use the current
+bottom-half mechanism for this work: it runs with interrupts disabled.
 
-- normal output and erase operations present a changed cell or cell span;
-- insert/delete operations repaint the affected tail of one row;
-- scrolling repaints the changed row range;
-- clear, alternate-screen changes, and F1-F6 selection present the whole
-  80x25 canvas.
-
-Do not repaint the whole framebuffer for every character. A console update
-marks the smallest changed cell rectangle and cursor cells while holding
-`console_lock`, then wakes the one `fbcon` kernel thread. That thread starts
-after `sched_init_smp()`, sleeps on an `fbcon_wait` queue, and is the only
-context that writes framebuffer text pixels. It snapshots the marked cells and
-display generation under `console_lock`, releases the lock, then writes pixels.
-Updates that arrive during a paint remain dirty and are drained by the same
-thread before it sleeps again; a foreground-console switch increments the
-generation and forces a full snapshot. This prevents stale paints without
-doing large linear-framebuffer copies while holding `console_lock`. Do not use
-the current bottom-half mechanism for this work: it runs with interrupts
-disabled. `fbcon_start()` marks the current `tty1` foreground state fully dirty
-before waking the thread, so the first VBE frame is the text console rather
-than uninitialized scanout memory.
+`fbcon_start()` starts after the init task has been created so init retains PID
+1. It queues the first full repaint after the worker starts; the first VBE
+frame is therefore the prepared text console rather than uninitialized scanout
+memory. M0 currently relies on successful worker creation. The required
+failure policy is fail-closed: once the kernel has selected the framebuffer
+text path, an inability to create its sole presenter prints one concise serial
+diagnostic and halts the kernel. It must not attempt legacy-VGA restoration or
+a synchronous fallback presenter. M1.12 adds a checked worker-spawn result and
+an expected-halt regression for this path.
 
 Writes to a non-foreground text VT update only that VT's `con->mem`; they do
 not wake `fbcon`. Selecting that VT later forces the full snapshot, so background
@@ -369,8 +450,9 @@ are converted.
   it; without a framebuffer or GUI owner, F8 is a no-op.
 - F7 and F9-F12 are reserved for future kernel console actions; initially they
   leave the foreground console unchanged.
-- Switching away from F8 notifies the GUI process that it no longer owns the
-  framebuffer; switching back notifies it to redraw.
+- Switching away from F8 preserves the GUI process's open descriptors but
+  gates framebuffer writes and input delivery while text is foreground.
+  Switching back reports the completed transition so the process redraws.
 - Add `FBIOGET_CONSOLE_STATE` to `/dev/fb0`. It returns `0` while a text
   console is foreground and `1` while the graphics console is foreground.
 - `poll()` on `/dev/fb0` wakes with `POLLPRI` when the state changes. The GUI
@@ -381,10 +463,13 @@ are converted.
   not expose termios or the tty line discipline, and is not associated with a
   tty minor. All F1-F12 keys remain kernel-owned and are not delivered as
   ordinary input.
-- The graphics mode remembers the last selected text console. If the `/dev/gui`
-  owner or framebuffer writer closes, the kernel clears pending GUI and mouse
-  events, restores that text console, and emits `POLLPRI` before releasing
-  either device owner. The desktop must close both fds during normal shutdown.
+- The graphics mode remembers the last selected text console. When the final
+  reference to either exclusive `/dev/gui` or writable `/dev/fb0` open file
+  description closes, the kernel clears pending GUI and mouse events, restores
+  that text console, and emits `POLLPRI` before releasing either device owner.
+  `dup()` and `fork()` references therefore retain the seat; closing only one
+  duplicate must not switch displays. The desktop closes both original fds
+  during normal shutdown and must not leak them into child applications.
 
 `is_fg(con)` is true only when `foreground_console == FOREGROUND_TEXT` and
 `con` is `fg_text_console`. The PS/2 keyboard path handles F1-F12 before it
@@ -400,24 +485,29 @@ consoles. The GUI adds a separate fixed-record input queue for `/dev/gui`;
 the keyboard IRQ routes events to that queue only while the graphics console
 is foreground. It must not feed GUI keys through the tty line discipline.
 
-`read()` from `/dev/gui` returns only complete records in this Mario ABI:
+`read()` from `/dev/gui` returns only complete records defined in the shared
+`src/include/uapi/mario/input.h` header, installed for userspace as
+`mario/input.h`:
 
 ```c
-struct gui_key_event {
+struct mario_gui_key_event {
     uint16_t scancode; /* set-1 code; extended codes have bit 8 set */
     uint8_t pressed;   /* 1 for make, 0 for break */
     uint8_t flags;
     uint32_t ticks;    /* monotonic kernel tick captured at IRQ time */
-} __attribute__((packed));
+};
 ```
 
 `flags & GUI_KEY_EVENT_OVERFLOW` means one or more older records were dropped
 before this record. `GUI_KEY_EVENT_OVERFLOW` is `0x01`; all other flag bits are
 zero in the first ABI.
 
-`read()` with a buffer smaller than one record returns `-EINVAL`; nonblocking
-empty reads return `-EAGAIN`; `poll()` reports `POLLIN` while records are
-queued. `/dev/gui` permits one `O_RDONLY` opener; a concurrent open returns
+`sizeof(struct mario_gui_key_event)` is exactly 8 bytes. `read()` with a
+zero-length buffer returns zero; a nonzero buffer smaller than one record or
+not an exact record multiple returns `-EINVAL`. A successful read returns as
+many queued records as fit, but at least one; nonblocking empty reads return
+`-EAGAIN`; `poll()` reports `POLLIN` while records are queued. `/dev/gui`
+permits one `O_RDONLY` opener; a concurrent open returns
 `-EBUSY`, and writable opens return `-EACCES`. When graphics mode is not
 foreground, the kernel does not enqueue new GUI key events and the desktop
 resets its modifier/repeat state after observing the `/dev/fb0` `POLLPRI`
@@ -456,6 +546,12 @@ Kernel work:
   - left/middle/right buttons;
   - signed X/Y deltas;
   - `dz` fixed to zero in the first ABI.
+- Synchronize packet framing on the mandatory first-byte bit 3. Discard bytes
+  until that bit appears, discard packets reporting PS/2 X/Y overflow rather
+  than applying wrapped deltas, and mark the next queued event with the normal
+  overflow flag so userspace clears button/grab state. Controller command/ACK
+  waits have bounded timeouts; a failed auxiliary-port probe leaves the desktop
+  keyboard-only instead of delaying boot.
 - Expose relative movement only through `/dev/psaux` in the first GUI
   milestone; `/dev/input/mouse0` and IntelliMouse wheel negotiation are
   deferred.
@@ -474,10 +570,11 @@ Userspace work:
 The initial implementation only supports one pointer. Multi-touch is out of
 scope.
 
-`/dev/psaux` read format:
+`/dev/psaux` uses the same shared UAPI header and read-count rules. Its event
+format is:
 
 ```c
-struct psaux_event {
+struct mario_psaux_event {
     int16_t dx;
     int16_t dy;
     int8_t  dz;      /* always 0 in the first ABI */
@@ -485,8 +582,12 @@ struct psaux_event {
     uint8_t flags;
     uint8_t reserved;
     uint32_t ticks;  /* monotonic kernel tick captured at IRQ time */
-} __attribute__((packed));
+};
 ```
+
+`sizeof(struct mario_psaux_event)` is exactly 12 bytes. The ABI reserves the
+final byte and all unknown flag bits as zero; userspace rejects a future value
+until it explicitly supports that version.
 
 - This is Mario's stable mouse-event ABI, not the Linux byte-stream `psaux`
   protocol. Each `read()` returns one complete 12-byte event or `EAGAIN` when
@@ -561,32 +662,57 @@ Test cases:
 ## 8. GUI Inter-Process Communication
 
 Mario already provides the required `AF_UNIX/SOCK_STREAM`, `socketpair`,
-`poll`, and one-FD `SCM_RIGHTS` transport. The window manager protocol uses
+`poll`, and one-FD `SCM_RIGHTS` transport. The M3 window-manager protocol uses
 that implementation directly; do not create a GUI-private socket layer.
-Datagrams and abstract names remain out of scope. The first single-process
-desktop still ships independently, but the multi-process phase is no longer
-blocked on kernel socket work.
+Datagrams and abstract names remain out of scope. The first desktop is
+multi-process from its first visible frame, so no later transport migration is
+required.
 
 GUI protocol message families:
 
 - `WINDOW_CREATE`/`WINDOW_DESTROY`;
+- `WINDOW_CLOSE_REQUEST` for a cooperative server-to-client close request;
+- `DESKTOP_CREATE` for the one shell-owned, non-decorated bottom surface;
 - `WINDOW_MOVE`/`WINDOW_RESIZE`;
+- `WINDOW_CONFIGURE`;
 - `WINDOW_SET_TITLE`;
-- `SURFACE_UPDATE` carrying a dirty rectangle and its pixels;
-- `INPUT_EVENT`;
+- `SURFACE_BEGIN`/`SURFACE_DATA`/`SURFACE_COMMIT` for one atomic dirty
+  rectangle transaction;
+- `INPUT_EVENT` and `INPUT_RESET`;
 - `WINDOW_FOCUS`/`WINDOW_RAISE`;
+- `WINDOW_LIST_SNAPSHOT`/`WINDOW_LIST_ADD`/`WINDOW_LIST_CHANGE`/
+  `WINDOW_LIST_REMOVE` and `SHELL_ACTIVATE_WINDOW` for the shell taskbar;
+- `LAUNCH_REQUEST`/`LAUNCH_RESULT` for approved application launches;
 - `APP_READY`/`APP_EXIT`.
 
 The server owns the framebuffer and input devices. Clients never write to
-`/dev/fb0` directly in the multi-process model.
+`/dev/fb0` directly.
 
 Socket and message details:
 
-- Phase 2 server creates `/tmp/.mario-wm` itself with mode `0700`, validates
+- The M3 server creates `/tmp/.mario-wm` itself with mode `0700`, validates
   that it is a root-owned directory, and listens on
   `/tmp/.mario-wm/socket` with mode `0600`. At startup it removes only a stale
   socket owned by root; any other existing path is a fatal startup error.
-- Backlog is fixed at 8. Reject additional connects with `ECONNREFUSED` until
+- The first desktop is explicitly single-UID: init, `mario-wm`, and its
+  clients run with init's uid, so the `0700`/`0600` endpoint is intentional.
+  If Mario later runs GUI clients under another uid, that is a separate
+  credential-and-seat design with an authenticated connection policy and tests;
+  it must not be enabled merely by relaxing the socket mode bits.
+- After binding the public pathname listener, `mario-wm` creates one ordinary
+  `AF_UNIX/SOCK_STREAM` `socketpair()` and forks `/usr/bin/mario-desktop` with
+  one endpoint duplicated to fd 3 and preserved across `exec` as
+  `mario-desktop --wm-fd=3`. That connected endpoint is marked as the shell
+  capability before any bytes are read. It is not reachable through
+  `/tmp/.mario-wm/socket`, is not selected by a `HELLO` field, and carries no
+  raw-device descriptor. The child closes every other inherited descriptor;
+  all later application clients connect through the public listener.
+- A shell becomes ready after its accepted `HELLO` and the first full current-
+  serial commit for its `DESKTOP_CREATE` surface. This is valid while text is
+  foreground and is distinct from `/tmp/mario-wm.ready`, which the server
+  creates only after an F8 foreground framebuffer flush.
+- Admit at most eight ordinary public clients in addition to the one private
+  shell endpoint. Reject additional public connects with `ECONNREFUSED` until
   a client disconnects.
 - The socket namespace is ordinary filesystem pathnames only; no Linux
   abstract-socket namespace because Mario's pathname lookup does not support it.
@@ -604,25 +730,138 @@ Socket and message details:
   Receivers buffer stream bytes until a whole message is available, reject an
   invalid length or nonzero header flags with `EPROTO`, and process at most
   eight complete messages from one client before returning to `poll()`.
+- Each endpoint owns one FIFO send queue and serializes complete headers and
+  payloads onto the stream. A short `send()` retains the unsent suffix and
+  resumes only after `POLLOUT`; no second writer may interleave bytes into that
+  stream. Server-to-client queues use the output-byte limit: coalesce pending
+  pointer-motion events, preserve key/button/reset events in order, and close a
+  client that cannot drain the bounded queue without dropping a state-changing
+  event.
 - Before implementing clients, add `include/gui/protocol.h` with a protocol
   version constant, a complete message-type enum, and packed payload structs.
-  `WINDOW_CREATE` carries a client request ID, dimensions, and a length-bounded
-  UTF-8 title; its reply returns that request ID plus the server-assigned
-  window ID and accepted dimensions. Every later client message begins with
-  that window ID. The server rejects an unknown window ID or one owned by
-  another client with `EPROTO` and disconnects the sender.
-- `SURFACE_UPDATE` carries a dirty rectangle and uncompressed premultiplied
-  `ARGB8888` pixel rows. Its packed payload starts with four little-endian
-  `uint32_t` values: `window_id`, `x`, `y`, and `width`, followed by
-  `uint32_t rows`; the remaining bytes are exactly `width * rows * 4` pixels.
-  The server requires the rectangle to be within the window surface. Each
-  update must fit the 64 KiB bound; larger rectangles are split into
-  top-to-bottom row-aligned chunks, sent contiguously by a client, and applied
-  in message order. All wire payloads use fixed-width little-endian fields;
-  no raw C structs containing pointers, `size_t`, or `gui_event` are sent.
-  RLE is deferred until profiling shows socket copies dominate.
-- GUI messages do not use `SCM_RIGHTS` in the first multi-process phase.
+  A new stream begins with `HELLO { uint16_t major, uint16_t minor; }`; the
+  server replies with its accepted version or closes an incompatible client
+  with `EPROTONOSUPPORT`; the endpoint's server-assigned role is not present
+  in `HELLO`. `WINDOW_CREATE` carries a client request ID,
+  dimensions, and a validated UTF-8 title no longer than 256 bytes; its reply
+  returns that request ID plus the server-assigned window ID, accepted
+  dimensions, and initial `configure_serial` 1. Every later client message
+  begins with that window ID. The server
+  rejects an unknown window ID or one owned by another client with `EPROTO` and
+  disconnects the sender. Any message before `HELLO`, a second `HELLO`, or a
+  serial that is zero or not newer than the last committed serial for its window
+  is likewise a protocol error and closes that client.
+- Only the shell-capability endpoint may issue one `DESKTOP_CREATE`. Its reply
+  returns a server-assigned window ID and current scanout-sized configure
+  serial; it receives the same bounded `SURFACE_BEGIN`/`SURFACE_DATA`/
+  `SURFACE_COMMIT` transactions as an ordinary window, but has no decorations,
+  always occupies the bottom layer, cannot be moved/resized/closed by normal
+  window interaction, and is never reported as an application window. A public
+  endpoint that sends `DESKTOP_CREATE`, `SHELL_ACTIVATE_WINDOW`, or a
+  window-list-control message receives `EPERM` with no state change.
+- After its accepted `HELLO`, the shell receives one ordered
+  `WINDOW_LIST_SNAPSHOT`, then `WINDOW_LIST_ADD`, `WINDOW_LIST_CHANGE`, and
+  `WINDOW_LIST_REMOVE` notifications for each ordinary window. Each record
+  includes the server window ID, title, rectangle, focus state, and
+  stable ordering needed for taskbar buttons; it never includes client fds or
+  surface pixels. The shell asks the server to activate/raise a taskbar target
+  with `SHELL_ACTIVATE_WINDOW`; the server validates that the target still
+  exists. Any accepted same-UID client may issue a typed `LAUNCH_REQUEST`; it
+  is not a shell capability. The request identifies one approved initial
+  application and its bounded argument form; the server, not a client,
+  forks/execs and reaps it. It replies with `LAUNCH_RESULT { request_id,
+  status }`: `status` is zero only after a child is started, otherwise the
+  negative launch error. A later child exec or connection failure is reported
+  with the existing `APP_EXIT` status notification.
+- `LAUNCH_REQUEST` has a fixed enum rather than a command string:
+  `LAUNCH_TERMINAL` carries no argument; `LAUNCH_FILE_MANAGER` and
+  `LAUNCH_IMAGE_VIEWER` carry one absolute UTF-8 path of at most 1024 bytes;
+  `LAUNCH_OPEN_TEXT` and `LAUNCH_EXECUTABLE` carry one absolute UTF-8 path of
+  at most 1024 bytes for a terminal client to handle. Embedded NUL, relative,
+  or overlong paths are rejected. The server returns `ENOSYS` until the
+  corresponding M5, M6, or M7 client binary is installed. It passes no
+  framebuffer, input, listener, or client socket fd to the child; the child
+  connects normally through the public pathname listener.
+- A title-bar close hit or Super-W makes the server send one ordered
+  `WINDOW_CLOSE_REQUEST { window_id }` to the focused window's owner after any
+  preceding input event. It is cooperative: the client may discard state and
+  send `WINDOW_DESTROY`, retain the window while it asks the user to resolve
+  unsaved work, or ignore the request. M3 has no forced-close timeout and the
+  server never kills/disconnects a healthy client merely because it retains its
+  window. The server destroys all windows owned by a disconnected ordinary
+  client. On shell disconnect it destroys the shell's normal windows but keeps
+  only the last committed `DESKTOP_CREATE` surface as an input-inert snapshot
+  until one replacement shell commits a new desktop surface or the server ends
+  the session; it then frees the retained snapshot.
+- Window geometry is server-owned. A move changes compositor position only and
+  never invalidates a surface. When a user resize or server-side constraint
+  changes content dimensions, the server sends
+  `WINDOW_CONFIGURE { window_id, uint64_t configure_serial, width, height }`.
+  A client tags every `SURFACE_BEGIN` with the current `configure_serial`; an
+  older or unknown serial is rejected. A new configure serial cancels any
+  staging transaction for that window. Until a full-surface
+  `0,0,width,height` transaction for the current serial commits, the compositor
+  keeps the prior committed surface clipped and padded to the new geometry
+  rather than exposing uninitialized pixels. A newer configure serial
+  supersedes the prior one without waiting for a client acknowledgement.
+  A newly created window has no prior surface, so the server shows only its
+  opaque theme background until the first required full-surface commit.
+- `SURFACE_BEGIN` carries `window_id`, the current nonzero little-endian
+  `uint64_t configure_serial`, a nonzero `uint64_t frame_serial`, and one
+  `x`, `y`, `width`, `height` rectangle. It reserves a staging bitmap for
+  exactly that rectangle. `SURFACE_DATA` carries the same window/configure/
+  frame serial tuple plus `row_offset` and `rows`; its remaining bytes are
+  exactly `width * rows * 4` premultiplied `ARGB8888` pixels. Chunks are
+  strictly increasing, contiguous, and fully cover the declared rows.
+  `SURFACE_COMMIT` carries the window/configure/frame serial tuple only. All
+  wire payloads use fixed-width little-endian fields; no raw C structs
+  containing pointers, `size_t`, or `gui_event` are sent. RLE is deferred until
+  profiling shows socket copies dominate.
+- Validate every wire equation with checked 64-bit arithmetic before allocating
+  or copying. In particular, a data message has
+  `length == sizeof(header) + 20 + width * rows * 4`; `row_offset + rows` must
+  not overflow or exceed the declared height. Reject zero/overflowing
+  dimensions, rectangles outside the target surface, and messages that exceed
+  the received-byte quota. Never trust a client-sized multiplication performed
+  in 32-bit arithmetic.
+- Each window has at most one in-flight transaction. The server writes data
+  only to its staging bitmap and copies it into the live window surface after
+  the matching commit. A newer serial first discards the older staging bitmap;
+  a disconnect does the same. The compositor reads only committed live pixels,
+  so a partial update can never corrupt the previously visible frame.
+- A transaction expires one second after `SURFACE_BEGIN` unless its complete
+  ordered data and matching commit arrive first. Expiry frees the staging
+  bitmap, preserves the prior live pixels, and reports a recoverable protocol
+  error to the client. This prevents an idle but connected client from holding
+  the global staging budget indefinitely.
+- `WINDOW_DESTROY` immediately cancels the target window's staging transaction,
+  frees its live surface, ends any focus/grab state through `INPUT_RESET`, and
+  removes queued server-to-client events for that window. Later surface or
+  input messages naming the destroyed ID are protocol errors.
+- `INPUT_EVENT` is server-to-client only. It carries translated Mario keysyms,
+  modifiers, and ticks rather than raw PS/2 scancodes. Pointer coordinates are
+  signed content-local coordinates relative to the target window; a held
+  client-side grab may therefore receive values outside its content rectangle.
+  The server keeps desktop-global pointer coordinates and owns all window
+  move/resize grabs. `INPUT_RESET` has no key/button payload and invalidates
+  all client input state as defined by the event-loop contract.
+- Bound untrusted client state before the first client is accepted: at most
+  eight active clients and four windows per client; no live surface exceeds one
+  `gui_frame_bytes` in ARGB pixels. Charge both live surfaces and staging
+  bitmaps against a per-client budget of two `gui_frame_bytes` and a global
+  budget of the smaller of six `gui_frame_bytes` or 48 MiB. Limit incomplete
+  input and queued output independently to 64 KiB per client. The server
+  refuses a request that exceeds an allocation
+  limit, coalesces pending mouse-move notifications, and disconnects a client
+  that exceeds either byte quota; it never lets a blocked client grow an
+  unbounded queue.
+- GUI messages do not use `SCM_RIGHTS` in the first protocol version.
   Clients never receive `/dev/fb0`; a later file-picker protocol may pass
   ordinary file descriptors only after explicit lifetime tests.
 - On disconnect, the server releases all window surfaces, input grabs, and
   file descriptors associated with that client.
+- Protocol tests use `socketpair()` to cover split headers, oversized lengths,
+  arithmetic-overflow rectangles, allocation and output-quota exhaustion,
+  duplicate/gapped rows, stale serials, disconnects in a staged update, and
+  preserving the last committed pixels before pathname-socket tests are
+  enabled.

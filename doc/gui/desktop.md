@@ -3,26 +3,68 @@
 Part of the [GUI platform plan](README.md). This document defines the
 compositor, terminal integration, initial applications, and source layout.
 
+## Scope and Authority
+
+This is the normative behavior contract for the desktop shell, compositor,
+terminal, and first applications. Kernel ABI and synchronization rules remain
+owned by [Kernel foundations](kernel-foundations.md); shared drawing/event API
+rules remain owned by [UI toolkit](ui-toolkit.md). The
+[implementation roadmap](roadmap.md) alone defines implementation order,
+completion state, test gates, and commit boundaries.
+
+### Session State
+
+`mario-wm` has one explicit foreground-session lifecycle:
+
+1. **Dormant:** init has started the server, but F8 has not produced a
+   graphics foreground transition. It has already reserved writable
+   `/dev/fb0` and read-only `/dev/gui`, so F8 is eligible, but performs no
+   framebuffer write and exposes no readiness file. It listens for clients;
+   `mario-desktop` connects as the first shell client.
+2. **Active:** after F8 and the corresponding `/dev/fb0` `POLLPRI`, graphics
+   is foreground; the server composes committed client surfaces and flushes
+   frames. It creates
+   `/tmp/mario-wm.ready` only after the first completed frame.
+3. **Suspended:** F1–F6 makes text foreground. The process keeps retained
+   client/window state, the reserved seat, and accumulated damage; removes
+   `ready`; and does not publish a completed frame until a later F8 transition
+   succeeds.
+4. **Shell recovery:** if the private shell endpoint closes, the server removes
+   its normal shell windows but retains the last committed desktop surface as an
+   input-inert snapshot. Ordinary application windows and clients remain live.
+   The server immediately starts one replacement shell; the replacement gets a
+   fresh window-list snapshot and atomically replaces the retained desktop
+   pixels after its first desktop-surface commit. If that replacement cannot
+   become shell-ready (`HELLO` plus a full desktop-surface commit), the server
+   ends the session rather than retrying in a loop.
+5. **Shutdown/error:** it removes all status files, closes the original seat
+   descriptors and client connections, and leaves the kernel to restore the
+   remembered text VT.
+
+The server never treats a `POLLPRI` wakeup alone as an instruction to draw; it
+first reads `FBIOGET_CONSOLE_STATE`. Clients never open `/dev/fb0` or use
+foreground state as a rendering permission.
 
 ## Process Model
 
-Phase 1:
-
-- `mario-desktop` is a single process.
-- It owns the framebuffer and input devices.
-- It creates windows directly. M3 provides built-in desktop diagnostic views;
-  later milestones add the terminal, image viewer, and file manager as
-  internal views. The initial desktop uses one `poll()` loop and no worker
-  threads.
-
-Phase 2:
-
 - `mario-wm` is the GUI server and compositor.
-- Applications are separate processes connected by `AF_UNIX` sockets.
-- `mario-desktop` is the shell/panel/launcher client.
-
-This document uses the Phase 2 layout as the target, with Phase 1 as the first
-shippable integration point.
+- It owns the framebuffer, raw-input devices, foreground transitions, and the
+  pathname `AF_UNIX` listener.
+- Applications are separate processes connected to the public `AF_UNIX`
+  listener.
+- `mario-desktop` is the sole shell/panel/launcher client. The server creates
+  a private `socketpair()` endpoint for it before `exec`, which is the only
+  shell capability; `HELLO` never carries a client-claimed shell role.
+- The shell owns one non-decorated, bottom-layer desktop surface covering the
+  scanout. It draws the background, panel, taskbar, launcher, and fixed clock
+  into that surface; normal windows remain server-composited above it.
+- On shell exit, the server keeps ordinary clients/windows and the last
+  committed desktop snapshot while it starts one replacement shell. The
+  replacement uses a new private endpoint and never inherits the old one.
+- M3 starts the server and shell client together; M5–M7 add terminal,
+  image-viewer, and file-manager clients without a later transport migration.
+- The initial server and clients each use one `poll()` loop and no worker
+  threads.
 
 ## Window Manager Responsibilities
 
@@ -32,8 +74,10 @@ shippable integration point.
 - Provide window move, resize, raise, close, and title-bar hit testing.
 - Clip dirty rectangles to the visible region of each window.
 - Render window chrome and the mouse cursor.
-- Send close/resize events to applications.
+- Send cooperative close requests and resize events to applications.
 - Redraw the whole desktop on GUI-console activation.
+- Intercept Alt-Tab and Super-W before client input, and publish ordered
+  window-list add/change/remove notifications only to the shell capability.
 
 Focus, raising, and input routing:
 
@@ -51,10 +95,12 @@ Focus, raising, and input routing:
   are drawn with an inactive title color. Focus highlight never changes
   application content, only chrome.
 - Alt-Tab cycles through the most-recently-used order, not z-order. Super-W
-  sends `WINDOW_CLOSE` to the focused window.
+  sends one cooperative `WINDOW_CLOSE_REQUEST` to the focused window. The
+  client keeps the window until it sends `WINDOW_DESTROY` or disconnects; M3
+  has no forced-close timeout.
 - Input not claimed by a popup/modal grab goes to the window under the
-  pointer. Modal dialogs are deferred to Phase 2; Phase 1 has no modal
-  windows.
+  pointer. Modal dialogs are deferred beyond the first desktop; initial
+  clients have no modal windows.
 
 ## Desktop Shell
 
@@ -64,34 +110,36 @@ The desktop client provides:
 - a bottom panel with app launcher, window list, and a fixed `--:--` clock
   placeholder;
 - taskbar buttons for open windows;
-- Alt-Tab and Super-W keyboard shortcuts; Super-Return begins launching or
-  raising the terminal only in M5;
+- taskbar-driven activate/raise requests and Super-Return launch requests;
+  `mario-wm`, not the shell, owns Alt-Tab and Super-W;
 - desktop icons and wallpaper configuration are deferred beyond the first
   desktop milestone.
 
 The first desktop uses a fixed testable theme: background `#1f2933`, 28-pixel
 bottom panel `#111827`, 24-pixel title bars, 1-pixel borders `#0f172a`, active
-title bars `#2563eb`, and inactive title bars `#475569`. The bundled 16x16
-arrow cursor is the topmost layer. The static `--:--` panel clock avoids
+title bars `#2563eb`, and inactive title bars `#475569`. `mario-wm` owns the
+bundled 16x16 arrow cursor as the topmost layer. The static `--:--` panel clock avoids
 depending on an RTC or test-only environment setup; real time is deferred.
 
-M3 creates two real built-in diagnostic windows on every fresh desktop start:
+On every fresh desktop start, the `mario-desktop` shell client creates two real
+diagnostic windows through `mario-wm`'s normal protocol framing:
 
 - `Welcome` at `(96, 96)`, sized `360x220`, with the desktop name and shortcut
   summary;
 - `Display` at `(480, 220)`, sized `320x192`, with the framebuffer dimensions
   and the current focus state.
 
-They use the normal window-manager, compositor, focus, move, resize, and
-close paths; they are not a test-only input or framebuffer bypass. Their fixed
-initial geometry makes `gui.desktop.test` and `gui.window.test` meaningful
-before the terminal and other applications arrive. Before M5 the launcher
-contains only `Welcome` and `Display`; it raises an existing diagnostic window
-or recreates a closed one through the same normal window-creation path.
+They use the normal server composition, focus, move, resize, and close paths;
+they are not a test-only input or framebuffer bypass. Their fixed initial
+geometry makes `gui-desktop.test` and `gui-window.test` meaningful before the
+terminal and other applications arrive. Before M5 the launcher contains only
+`Welcome` and `Display`; it asks the shell client to raise an existing
+diagnostic window or create a replacement through the same protocol framing.
 
 ## Compositing Strategy
 
-The first compositor is simple:
+The first `mario-wm` compositor is simple. It paints the shell desktop surface
+first, then normal windows/chrome, then the cursor:
 
 1. Collect dirty rectangles.
 2. Clip each dirty rectangle to each visible window from back to front.
@@ -99,13 +147,15 @@ The first compositor is simple:
 4. Blit the cursor sprite last.
 5. Flush through `pwrite()` to `/dev/fb0`.
 
-The compositor composes at most once per 16 ms timer tick and only when it has
+`mario-wm` composes at most once per 16 ms timer tick and only when it has
 damage. It may use a full-screen composite in M3, but the flush routine must
 write each damaged scanline with a retrying `pwrite()` loop that handles short
 writes and `EINTR`. If a flush returns `-EBUSY` because graphics mode was
 switched away, it abandons that frame, keeps the accumulated damage, and waits
 for `/dev/fb0` `POLLPRI`; it never advances the completed-frame marker for an
-abandoned composition. Vsync is not required.
+abandoned composition. Vsync is not required. M3 does not begin until the
+kernel's positional-I/O gate is green: `pwrite64()` must preserve `f_pos`,
+handle short writes, and pass the framebuffer-specific regression tests.
 
 ## Terminal Window and PTY Integration
 
@@ -115,20 +165,25 @@ Add:
 - `app/usr/terminal/term.c`
 - `app/usr/terminal/vt.c`
 
-The terminal app:
+The terminal client:
 
-1. Opens `/dev/ptmx`.
-2. Calls `grantpt`/`unlockpt` equivalents via `TIOCSPTLCK` and `TIOCGPTN`.
-3. Opens `/dev/pts/N`.
-4. Forks a shell child. The child calls `setsid`, opens the slave as its
+1. Connects to `mario-wm`, creates its window, and submits surface transactions.
+2. Opens `/dev/ptmx`.
+3. Calls `grantpt`/`unlockpt` equivalents via `TIOCSPTLCK` and `TIOCGPTN`.
+4. Opens `/dev/pts/N`.
+5. Forks a shell child. The child calls `setsid`, opens the slave as its
    controlling tty, duplicates it to stdin/stdout/stderr, and execs
-   `/bin/oksh`.
-5. The GUI process keeps the master fd in its `poll()` set.
-6. Master bytes are parsed by the VT emulator and written to the terminal
+   `/bin/oksh`. Before `exec`, it closes every inherited framebuffer, raw-input,
+   mouse, and unrelated PTY descriptor; a shell must never keep the graphics
+   seat alive after the desktop or terminal exits.
+6. The terminal client keeps the master and `mario-wm` socket fds in its
+   `poll()` set.
+7. Master bytes are parsed by the VT emulator and written to the terminal
    window surface.
-7. Key events are translated into escape sequences and written to the master.
-8. Window resizes send `TIOCSWINSZ` to the retained master and redraw the
-   terminal grid.
+8. Server-delivered key events are translated into escape sequences and written
+   to the master.
+9. Server-delivered window resizes send `TIOCSWINSZ` to the retained master and
+   redraw the terminal grid.
 
 ## VT Emulator Scope
 
@@ -257,9 +312,11 @@ File-operation policy:
 - Refresh the directory listing after every create, rename, delete, and
   successful copy. Refresh also after a child app exits and after the manual
   Refresh command.
-- Text files open in the terminal app with `less` by default; image files open
-  in the image viewer; executables run in a new terminal window with a shell
-  command line quoted for `oksh`.
+- Text files request a terminal app with `less` by default; image files request
+  the image viewer; executables request a new terminal with a shell command
+  line quoted for `oksh`. `mario-wm` validates the bounded request, forks the
+  approved client binary, and reaps it; the file manager never directly forks
+  another GUI client.
 - When a launch target cannot be executed, keep the file manager open and show
   the failure in a status line/message rather than silently closing.
 
@@ -279,27 +336,37 @@ Add a simple launcher to the desktop panel:
 - about box;
 - reboot/halt if the kernel exposes the existing reboot path to userspace.
 
-The launcher is a grid of buttons above the panel.
+The launcher is a grid of buttons above the panel. It sends typed launch
+requests to `mario-wm`; the server starts only the approved initial client
+binaries and reaps them. A shell child never inherits raw-seat, listener, or
+shell-capability fds. File-manager launches use the same server request path.
 
 Session lifecycle and configuration:
 
-- Phase 1 extends `app/system/init/main.c`: after `/usr` is mounted, init
-  checks for `/usr/bin/mario-desktop`, forks it, and records its pid alongside
-  the gettys. The child calls `setsid()` before `exec`; init waits three
-  seconds before restarting a reaped desktop child. The common image always
-  contains the desktop binary; if `/dev/fb0` is unavailable, it exits with
-  status 77 and init leaves the text session running without respawning it.
-- `mario-desktop` opens `/dev/fb0` for exclusive write access, then claims the
-  exclusive read-only `/dev/gui` seat, then opens `/dev/psaux`. On any later
-  failure it closes already-opened fds and exits before enabling F8. It then
-  remains dormant while a text VT is foreground; F8 makes it redraw the
-  desktop after the `POLLPRI` notification. The desktop process is the session
-  leader for GUI apps.
-- Phase 2 installs `/usr/bin/mario-wm`. Init prefers that session binary over
-  `/usr/bin/mario-desktop`; `mario-wm` then binds the socket, owns the raw
-  devices, and spawns `mario-desktop` as its first client. App exit does not
-  terminate the WM; WM exit or a killed server closes all client windows and
-  returns to the text console.
+- M3 extends `app/system/init/main.c`: after `/usr` is mounted, init checks for
+  `/usr/bin/mario-wm`, forks it, and records its pid alongside the gettys. The
+  child calls `setsid()` before `exec`; init waits three seconds before
+  restarting a reaped server. The common image always contains the server; if
+  `/dev/fb0` is unavailable, it exits with status 77 and init leaves the text
+  session running without respawning it.
+- `mario-wm` opens `/dev/fb0` for exclusive write access, claims the exclusive
+  read-only `/dev/gui` seat, then opens `/dev/psaux` and binds
+  `/tmp/.mario-wm/socket`. On any later failure it closes already-opened fds,
+  removes the socket/status files, and exits before enabling F8. It remains
+  dormant while text is foreground; F8 makes the server composite committed
+  client surfaces after the `POLLPRI` notification.
+- After binding the public listener, the server creates a private `socketpair()`,
+  forks `/usr/bin/mario-desktop --wm-fd=3`, and passes only one connected
+  endpoint at fd 3 to the child. That endpoint grants the shell capability;
+  public-listener clients can never request it. A normal application exit or
+  launch failure does not terminate the server; `LAUNCH_RESULT` reports the
+  error to the requesting client. If the initial shell cannot become shell-ready
+  (`HELLO` plus a full desktop commit), or if a replacement shell fails, the
+  server exits to text. On later shell exit,
+  the server retains ordinary clients plus the last desktop snapshot and
+  immediately starts one fresh shell endpoint. Server exit or a killed server
+  closes all client windows and returns to the text console. Children inherit
+  no framebuffer, raw-input, listener, or unrelated client fd.
 - Keep initial settings in `/etc/mario-gui.conf` as `key=value` lines:
   background color, font paths, terminal command, panel position, and
   default image viewer/file manager paths. Missing keys use compiled-in
@@ -335,7 +402,11 @@ Userspace:
 
 ```text
 app/gui/libmario-ui/
-app/gui/desktop/
+app/gui/desktop/wm_main.c
+app/gui/desktop/wm_*.c
+app/gui/desktop/shell_main.c
+app/gui/desktop/shell_*.c
+app/gui/libmario-ui/include/gui/protocol.h
 app/usr/terminal/
 app/usr/imageviewer/
 app/usr/filemanager/
@@ -352,11 +423,11 @@ Test:
 
 ```text
 tests/gui/fb.test
-tests/gui/gui.desktop.test
-tests/gui/gui.terminal.test
-tests/gui/gui.imageviewer.test
-tests/gui/gui.filemanager.test
-tests/gui/gui.font.test
+tests/gui/gui-desktop.test
+tests/gui/gui-terminal.test
+tests/gui/gui-imageviewer.test
+tests/gui/gui-filemanager.test
+tests/gui/gui-font.test
 tests/shell/pty.test
 tests/shell/mouse.test     # read-only packet smoke test if device present
 ```

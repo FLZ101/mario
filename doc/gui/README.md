@@ -12,6 +12,62 @@ documents that can be implemented and reviewed independently:
 - [Implementation roadmap](roadmap.md): ordered checkpoints, validation, risks,
   and rollback guidance.
 
+## Document Authority and Reading Order
+
+Read these documents in this order when planning or reviewing GUI work:
+
+1. This overview fixes product-wide constraints, supported libraries, and
+   compatibility policy.
+2. [Kernel foundations](kernel-foundations.md) is authoritative for kernel ABI,
+   UAPI layout, ownership, state transitions, and locking rules.
+3. [UI toolkit](ui-toolkit.md) is authoritative for public `libmario-ui`
+   contracts and deterministic userspace rendering behavior.
+4. [Desktop and applications](desktop.md) is authoritative for desktop,
+   application, and process behavior built on those interfaces.
+5. [Implementation roadmap](roadmap.md) is the sole authority for milestone
+   order, work-item boundaries, current completion state, test gates, and
+   commit subjects.
+
+If documents disagree, the more specific contract wins for its owned surface;
+the roadmap must then be corrected to use that contract before implementation
+continues. Supporting documents describe the target design, not implementation
+progress. GUI test file names use lowercase hyphenated stems such as
+`gui-console.test`; the roadmap reserves names before the corresponding test
+exists.
+
+Roadmap milestones (`M0` through `M8`) are delivery order. The desktop is
+client/server from M3 onward: `mario-wm` owns the seat and every visible
+component uses the same protocol; M8 hardens that established architecture.
+
+## Shared Vocabulary
+
+- **Common image:** the one disk/ramdisk image used by shell, TTY, and GUI
+  tests. Entering graphics is a foreground-console transition within that
+  image, never a different build profile.
+- **Graphics seat:** the exclusive graphics-session ownership of writable
+  `/dev/fb0` and `/dev/gui`. The session reserves both before F8 so the kernel
+  can enter graphics; text may remain foreground while the reserved seat is
+  dormant. `dup()` and `fork()` references retain ownership until the last
+  reference to each required open file description is closed.
+- **Completed frame:** a window-manager composition whose damaged framebuffer writes
+  all succeeded while graphics remained foreground. Only a completed frame may
+  advance `/tmp/mario-wm.frame` or make a new visual state observable to
+  a GUI test.
+- **Foreground transition:** F1–F6 or F8 changes display/input routing. It is
+  complete only after the kernel has finished the required clear or text redraw
+  and reports the new state through `/dev/fb0` `POLLPRI`.
+- **Shell capability:** the one private connected `AF_UNIX` socket that
+  `mario-wm` passes to the `mario-desktop` child it starts. It authorizes the
+  shell's desktop surface and window-list notifications; it is not a wire
+  claim that a public client can spoof and grants no raw-device access.
+- **Shell-ready:** the shell has completed `HELLO` and one full current-serial
+  `DESKTOP_CREATE` surface commit. It is independent of foreground mode and
+  must not be confused with `/tmp/mario-wm.ready`, which exists only after a
+  completed framebuffer flush while F8 is foreground.
+- **Visual assertion:** a QMP `screendump` comparison. Every desktop or
+  application test from M3 onward declares `GUI-VISUAL-TEST:` and includes one;
+  raw QMP device/ABI tests may remain serial/QMP checks without a screenshot.
+
 
 ## Goal
 
@@ -58,8 +114,8 @@ Measurable checks, in order of difficulty:
   to the GUI and back without losing either mode.
 - `/dev/ptmx` can create a PTY, `/dev/pts/N` behaves as a tty, and `isatty()`
   plus `TIOCSWINSZ` work for a shell running inside a terminal window.
-- A desktop process draws a fixed solid background, panel, cursor, and
-  overlapping windows.
+- The shell client draws a fixed solid background and panel; `mario-wm` draws
+  the cursor and composes overlapping windows.
 - A terminal window runs `/bin/oksh`, supports resize, scrolling, SGR colors,
   and job-control signals.
 - An image viewer opens, zooms, and pans BMP/PNG images.
@@ -101,21 +157,34 @@ The following decisions are fixed for the first implementation:
   widely supported by QEMU's standard VGA device. 1920x1080x32 remains an
   interactive target once the mode-selection path is proven; it is not a
   requirement for the first green test.
-- The bootloader selects the VBE mode. The protected-mode kernel only consumes
-  the Multiboot framebuffer record; it never executes VBE BIOS calls or walks
-  a real-mode VBE mode list. The common image always accepts a valid
-  direct-color framebuffer handoff and enables the framebuffer path.
+- The bootloader selects the VBE mode. The protected-mode kernel never executes
+  VBE BIOS calls or walks a real-mode VBE mode list. It consumes one validated
+  framebuffer handoff in priority order: a direct Multiboot framebuffer record,
+  a legacy Multiboot VBE mode-info record, or the narrowly specified GRUB4DOS
+  `video=<mode>@<base>,<pitch>` command-line handoff. The common image enables
+  the framebuffer path only after that handoff passes the validation rules in
+  [Kernel foundations](kernel-foundations.md).
 - `/dev/fb0` is a single-scanout device. It has no kernel compositing,
   page-flipping, or mode-setting in the first release. All composition occurs
   in userspace into one back buffer, followed by a damaged-rectangle copy to
   the scanout.
-- A single `mario-desktop` process owns `/dev/fb0` and raw input in the first GUI
-  milestone. The window manager, panel, terminal, and demonstration apps may
-  initially be modules in that process. Unix-domain GUI clients are a later,
-  separately testable phase.
-- Text VTs remain authoritative for kernel diagnostics and recovery. GUI mode
-  is optional. Any graphics initialization, allocation, or userspace-launch
-  failure returns to a usable text VT and serial console.
+- `mario-wm` owns `/dev/fb0`, `/dev/gui`, and `/dev/psaux` from the first
+  desktop milestone. It is the compositor and `AF_UNIX` server;
+  `mario-desktop` receives the one server-created shell capability and submits
+  the bottom desktop/background/panel surface. Later applications connect to
+  the public listener as ordinary clients from their first implementation. The
+  server alone draws window chrome and the cursor. The protocol is not a later
+  rewrite.
+- Text VTs remain authoritative for kernel diagnostics and recovery. Once a
+  valid framebuffer handoff has started the kernel text presenter, a
+  `mario-wm` startup failure or an initial/replacement shell failure returns to
+  a usable framebuffer text VT and serial console. An ordinary application
+  allocation or launch failure reports an error to its requesting client and
+  leaves the healthy session running. A boot path that never selects VBE retains
+  legacy VGA text. If a bootloader has already selected VBE but supplies an
+  invalid or unmappable handoff, protected mode cannot safely restore legacy
+  VGA text; Mario preserves the text cell buffers but provides serial recovery
+  only.
 - Mario builds one image containing the VBE request, framebuffer/input
   drivers, GUI binaries, fonts, and test fixtures. F1-F6 versus F8 is a
   runtime foreground-console choice, never a build or image choice.
@@ -127,11 +196,12 @@ The following decisions are fixed for the first implementation:
   or any desktop/UI component. If no valid framebuffer is supplied, the same
   image retains the legacy hardware text path and F8 remains unavailable.
 
-No phase may start until its entry conditions are met, and it is complete only
+No milestone may start until its entry conditions are met, and it is complete only
 when its listed test gate passes. Unix98 PTYs and the minimal `AF_UNIX` stream
 transport are existing prerequisites; GUI work integrates them rather than
-reopening their kernel ABI. Do not start FreeType or a multi-process protocol
-before the framebuffer platform has a stable, screenshot-tested ABI.
+reopening their kernel ABI. Do not start FreeType, the window-manager protocol,
+or any GUI client before the framebuffer platform has a stable,
+screenshot-tested ABI.
 
 ### Compatibility Matrix
 
@@ -140,7 +210,8 @@ before the framebuffer platform has a stable, screenshot-tested ABI.
 | QEMU `-vga std`, Multiboot framebuffer available | Start in requested 1024x768x32 when supplied; otherwise accept the loader-selected supported direct-color mode. |
 | QEMU `-vga std`, valid framebuffer but non-32-bpp | Expose the true format through `/dev/fb0`; compositor converts from internal XRGB8888. |
 | Custom `boot.asm` path without VBE handoff | Keep the current VGA text console; do not create `/dev/fb0`. |
-| Invalid Multiboot framebuffer fields, unsupported memory model, or impossible mapping | Log one concise reason to serial/text console and continue in text mode. |
+| Invalid handoff before a graphics mode is selected | Log one concise reason and continue with legacy text plus serial. |
+| Invalid or impossible handoff after GRUB4DOS has selected VBE | Do not map `/dev/fb0`; retain console cells for diagnostics and report the failure on serial. The static GRUB4DOS configuration must make this exceptional path unreachable in normal boots. |
 | GUI process exits, crashes, or cannot allocate its back buffer | Restore the prior text VT, release raw input, and leave `/dev/fb0` available for a later restart. |
 
 ### Required Ownership and Concurrency Rules
@@ -151,18 +222,18 @@ before the framebuffer platform has a stable, screenshot-tested ABI.
 - `/dev/fb0` permits multiple read-only opens for diagnostics but exactly one
   writer. A second `O_WRONLY` or `O_RDWR` open fails with `-EBUSY`; framebuffer
   `mmap()` is not part of the initial ABI. A later capability/seat model may
-  relax this rule; it is not part of phase 0.
+  relax this rule; it is not part of M0.
 - The compositor is the only process that writes scanout pixels in GUI mode.
   Clients never receive a direct `/dev/fb0` descriptor.
 - Raw input is routed to exactly one foreground consumer: the selected text
-  VT or `mario-desktop` through `/dev/gui`. The kernel retains all F1-F12
+  VT or `mario-wm` through `/dev/gui`. The kernel retains all F1-F12
   handling before routing the remaining key event, so a wedged desktop cannot
   trap the user in graphics mode.
 - `/dev/gui` is an exclusive GUI seat and input stream, not `/dev/tty7` and
   not a framebuffer alias. Only the desktop/window-manager owner may open it;
   a second opener receives `-EBUSY`. Closing the owner forces the foreground
-  back to `tty1`, drops GUI input state, and makes F8 unavailable until another
-  owner registers.
+  back to the remembered text VT, drops GUI input state, and makes F8
+  unavailable until another owner registers.
 - F1-F6 select text VTs, F8 enters graphics only while that GUI seat is owned,
   and F7/F9-F12 are reserved no-ops. These keys are consumed on key press and
   are never delivered to text or GUI clients, including with modifiers.
@@ -218,7 +289,7 @@ Version and license baseline:
 - Pin versions in the `.mk` files at adoption time. Use the table below as the
   expected baseline, updating it when a different version is actually vendored.
 - FreeType: pin one exact archive version, download URL, and SHA-256 in
-  `app/usr/freetype.mk` before recording `gui.font.test` goldens; use FTL
+  `app/usr/freetype.mk` before recording `gui-font.test` goldens; use FTL
   terms. Updating that pin requires regenerating and reviewing all font-based
   GUI goldens.
 - libpng: expected baseline 1.6.x; libpng license.
@@ -256,7 +327,7 @@ Best fits:
 
 Baseline decision:
 
-- Implement the phase-1 widgets in `libmario-ui`; only labels, buttons, lists,
+- Implement the initial widgets in `libmario-ui`; only labels, buttons, lists,
   menus, and text fields required by the first applications are in scope.
 - Keep the Mario window manager/compositor small and custom because it must
   own the framebuffer, route `/dev/gui` and `/dev/psaux` events, and integrate
@@ -269,26 +340,29 @@ Baseline decision:
 
 ```text
 Userspace
-  +-----------------------------------------------------------+
-  | Apps: terminal, image viewer, file manager, app launcher  |
-  +-----------------------------------------------------------+
-  | Desktop shell / window manager / compositor                |
-  +-----------------------------------------------------------+
-  | libmario-ui: surfaces, TTF fonts, widgets, events, images  |
-  +-----------------------------------------------------------+
-  | libc: open/read/write/ioctl/poll/fork/exec                 |
-  +-----------------------------------------------------------+
+  +-------------------------------------------------------------+
+  | Apps: terminal, image viewer, file manager                  |
+  +-------------------------------------------------------------+
+  | mario-desktop: privileged shell | application clients       |
+  +-------------------------------------------------------------+
+  | mario-wm: window manager, compositor, and GUI server        |
+  +-------------------------------------------------------------+
+  | libmario-ui: surfaces, TTF fonts, widgets, events, images   |
+  +-------------------------------------------------------------+
+  | libc: open/read/write/ioctl/poll/fork/exec                  |
+  +-------------------------------------------------------------+
 Kernel
-  +-----------------------------------------------------------+
-  | /dev/fb0 | /dev/gui | /dev/ttyN | /dev/psaux | /dev/ptmx, /dev/pts/N |
-  +-----------------------------------------------------------+
-  | console switch + framebuffer map + input IRQ + tty core    |
-  +-----------------------------------------------------------+
+  +-------------------------------------------------------------+
+  | /dev/fb0 | /dev/gui | /dev/ttyN | /dev/psaux                |
+  | /dev/ptmx | /dev/pts/N                                      |
+  +-------------------------------------------------------------+
+  | console switch + framebuffer map + input IRQ + tty core     |
+  +-------------------------------------------------------------+
 ```
 
-The first GUI milestone can run the desktop and applications in one process to
-limit compositor and application complexity. The final target is
-multi-process: the window manager is the GUI server and each application is a
-client. Mario's existing `AF_UNIX` stream-socket transport is the planned IPC
-mechanism because it is a natural fit for event messages and can later pass
-file descriptors with `SCM_RIGHTS` if needed.
+The first desktop milestone is multi-process: `mario-wm` is the GUI server and
+each visible component is a client. Mario's existing `AF_UNIX` stream-socket
+transport is the planned IPC mechanism. The first protocol transfers bounded
+surface rows over that stream; it does not require framebuffer fd passing or
+shared memory. `SCM_RIGHTS` is available for a future, separately specified
+capability design only.

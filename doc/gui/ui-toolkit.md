@@ -3,6 +3,29 @@
 Part of the [GUI platform plan](README.md). This document specifies the
 userspace drawing and widget library shared by the desktop and applications.
 
+## Scope and Authority
+
+This is the normative contract for `libmario-ui` public types, rendering,
+damage, text, image, and event-loop behavior. It consumes the kernel ABI from
+[Kernel foundations](kernel-foundations.md) and supplies the desktop/application
+contracts in [Desktop and applications](desktop.md). It does not set milestone
+order, current status, or commit boundaries; those belong exclusively to the
+[implementation roadmap](roadmap.md).
+
+### Layering Rules
+
+- `libmario-ui` owns in-memory surfaces, clipping, damage, text, image decode,
+  and event dispatch; it does not own foreground-console policy or mode
+  switching.
+- From M3 onward only `mario-wm` opens `/dev/fb0` and raw-input devices. The
+  shell and every application render into toolkit surfaces and submit bounded
+  updates through the window-manager protocol.
+- Client and server use the same surface/damage vocabulary, but only the
+  server converts the final composition to the framebuffer format and flushes
+  scanout.
+- Toolkit unit tests validate pure surface, font, decoder, and event behavior.
+  GUI tests validate a visible integration through the desktop; toolkit code
+  does not define test-runner directives or QMP behavior.
 
 Create a static userspace library under:
 
@@ -55,7 +78,7 @@ typedef enum {
     GUI_EVENT_MOUSE_MOVE,
     GUI_EVENT_MOUSE_DOWN,
     GUI_EVENT_MOUSE_UP,
-    GUI_EVENT_WINDOW_CLOSE,
+    GUI_EVENT_WINDOW_CLOSE_REQUEST,
     GUI_EVENT_WINDOW_RESIZE,
     GUI_EVENT_TIMER
 } gui_event_type;
@@ -98,6 +121,24 @@ premultiplied `ARGB8888`; if the fallback scanout mode is 24 or 16 bpp,
 `libmario-ui` composites first and converts only while flushing.
 Surfaces are tightly packed row-major allocations: `stride == width`, and no
 external, sub-surface, or padded-stride API exists in the first milestone.
+For all userspace budgets, `gui_frame_bytes` means checked
+`framebuffer_width * framebuffer_height * sizeof(gui_color)`, regardless of
+the physical scanout's 16/24/32-bpp byte size.
+
+Surface and geometry safety rules:
+
+- `gui_surface_create()` rejects nonpositive dimensions and any `width *
+  height * sizeof(gui_color)` overflow before allocation. The caller supplies
+  only dimensions already accepted by the desktop's scanout-based memory
+  budget; standalone tools use the same checked limit rather than allocating
+  from untrusted image dimensions.
+- Clipping computes rectangle endpoints in a wider signed type before clamping
+  to the destination. It must not evaluate `x + w` or `y + h` in a way that can
+  wrap a signed `int` supplied by a malformed image or protocol message.
+- A damage region holds at most 64 rectangles. Insertions coalesce overlapping
+  or adjacent rectangles; if it is still full, replace the region with one
+  full-surface rectangle. Damage tracking is therefore bounded even while a
+  client or application redraws many tiny areas.
 
 Public surface API:
 
@@ -134,8 +175,9 @@ Clipping and damage rules:
   list with the clipped bounding rectangle, ensuring damage tracking remains
   bounded.
 - The compositor never reads damage regions from an app-owned surface after
-  the app has modified it without taking the window lock; in Phase 2 the
-  damage list travels with `SURFACE_UPDATE`, so there is no shared-memory race.
+  the app has modified it without taking the window lock; a bounded
+  `SURFACE_BEGIN`/`SURFACE_DATA`/`SURFACE_COMMIT` transaction transfers each
+  client update, so there is no shared-memory race.
 - Alpha blending operates in premultiplied `ARGB8888`. The final flush blends
   window pixels against the opaque desktop, drops alpha, then writes the RGB
   result expected by the framebuffer.
@@ -155,12 +197,15 @@ Surface memory and failure handling:
 - `gui_surface_create()` returns `NULL` on allocation failure. Callers must
   show an in-band error status or close the window; they must never dereference
   a failed surface.
-- The window manager limits total live window pixels to 2.5 times the
-  framebuffer size initially. A create or resize that would exceed the limit
+- The window manager limits total live window-surface bytes to 2.5 times
+  `gui_frame_bytes` initially. A create or resize that would exceed the limit
   fails and leaves the existing window geometry unchanged; tiled/partial
   backing stores are deferred.
-- Surfaces are explicitly freed on window close and on client disconnect.
-  There is no garbage collector or reference-counted surface API in Phase 1.
+- Surfaces are explicitly freed on window close and on ordinary-client
+  disconnect. On shell disconnect the server retains only the last committed
+  desktop surface as an input-inert snapshot until a replacement shell commits
+  its desktop surface or the session ends; every other shell surface is freed.
+  There is no garbage collector or reference-counted surface API.
 - Temporary scratch buffers used by image decode and glyph rasterization are
   capped: image decode uses one 4 MiB scratch buffer, and font glyph cache
   uses an LRU limit of 2048 entries.
@@ -185,17 +230,22 @@ Font loading:
 - Keep the bundled DejaVu sources under `app/gui/libmario-ui/assets/fonts/`
   and install them under `rd/usr/share/fonts/` in the common image. DejaVu Sans is
   the proportional desktop font; DejaVu Sans Mono is used for the terminal and
-  file-manager columns.
+  file-manager columns. `FONT-VERSION.txt` records the upstream version and
+  SHA-256 of every bundled font file; a changed hash requires regenerating and
+  reviewing font goldens.
 - `gui_font_load(path)` calls `FT_New_Memory_Face()` on the file contents and
-  selects a point size. `gui_font` owns that file buffer and frees it only
-  after `FT_Done_Face()`.
+  selects an integer pixel height with `FT_Set_Pixel_Sizes()`, never a
+  host-DPI-dependent point size. `gui_font` owns that file buffer and frees it
+  only after `FT_Done_Face()`. Reject a font file larger than 8 MiB before
+  reading it into memory.
 
 Glyph rendering:
 
 1. Convert a UTF-8 sequence to a Unicode codepoint.
 2. Look up the codepoint in the glyph cache.
 3. Rasterize a miss as 8-bit alpha using `FT_Load_Glyph()` and
-   `FT_Render_Glyph()`.
+   `FT_Render_Glyph()` with normal grayscale rendering, no hinting, no subpixel
+   positioning, and no LCD filter.
 4. Convert alpha to a `gui_color` while drawing, so one glyph cache can render
    in any foreground color.
 5. Apply horizontal advance and kerning from `FT_Get_Advance()` and
@@ -210,15 +260,24 @@ Font cache:
 
 ```c
 typedef struct {
-    int codepoint;
-    int size;
-    int bold;
-    int italic;
-    gui_surface glyph;
+    uint16_t width, height, stride;
+    uint8_t *alpha;
+} gui_glyph_bitmap;
+
+typedef struct {
+    uint32_t font_id;
+    uint32_t codepoint;
+    uint16_t pixel_height;
+    uint8_t bold, italic;
+    gui_glyph_bitmap bitmap;
     int advance;
     int x_off, y_off;
 } gui_glyph_cache;
 ```
+
+The cache key includes `font_id` so proportional and monospace faces cannot
+alias the same codepoint/size entry. Each entry owns its 8-bit alpha allocation;
+LRU eviction frees that allocation before reusing the entry.
 
 Font metrics include ascent, descent, line gap, and underline position so the
 terminal can compute row height and the window manager can size title bars
@@ -241,7 +300,13 @@ without a kernel change.
 ## Window Surfaces
 
 Each window has a backing `gui_surface`. Drawing to a window never touches the
-framebuffer directly; the compositor copies dirty rectangles to `/dev/fb0`.
+framebuffer directly; the `mario-wm` compositor copies dirty rectangles to
+`/dev/fb0`.
+
+`mario-desktop` also owns one full-scanout, non-decorated desktop surface. The
+window manager accepts that surface only on its private shell-capability
+connection and always composites it below normal windows; it is a protocol role,
+not a separate rendering path.
 
 Window properties:
 
@@ -269,11 +334,17 @@ Implement only the widgets needed by the first applications:
 
 ## Event Loop
 
-The desktop uses `poll()` on:
+`mario-wm` uses `poll()` on:
 
-- `/dev/gui` for fixed-size `gui_key_event` records;
-- `/dev/psaux` for fixed-size `psaux_event` records;
-- application socket fds in the multi-process model.
+- `/dev/fb0` for `POLLPRI` foreground-transition notifications;
+- `/dev/gui` for fixed-size `struct mario_gui_key_event` records;
+- `/dev/psaux` for fixed-size `struct mario_psaux_event` records;
+- client socket fds.
+
+The shell polls its private connected socket; ordinary applications connect to
+the public pathname listener. Both use the same framing and surface API, but
+only the shell receives window-list notifications and may update the desktop
+surface.
 
 Events are timestamped, queued, and dispatched to the focused window or the
 window manager. `poll()` uses a 16 ms timeout; every timeout produces one
@@ -289,17 +360,27 @@ Event ordering and concurrency:
 
 - Input uses the monotonic tick captured in each kernel event. Ties are broken
   by fd order: keyboard, mouse, timer, then GUI socket.
-- Phase 1 uses no app threads for the initial shell; the event loop, layout,
-  and compositing run on one thread. Long-running work such as image decode is
-  incremental and yields to the event loop between bounded decode chunks; the
-  first GUI has no worker threads.
+- Tick values are 32-bit and wrap. Delays and auto-repeat use unsigned modular
+  subtraction, never an absolute comparison or sort across the wrap boundary.
+  The loop preserves the order records were read from each fd; timestamps are
+  diagnostic/repeat inputs, not permission to reorder already queued events
+  from distinct device streams.
+- The window manager owns the physical pressed-key/button state. On focus
+  change, client disconnect, graphics-to-text switch, an input-overflow record,
+  or cancellation of a move/resize grab, it ends the grab and sends one
+  `INPUT_RESET` to the former focused client before routing later input. Clients
+  clear modifier, repeat, drag, and selection state on that event; they must
+  not wait for synthetic key-up records that the kernel cannot guarantee.
+- The initial server and clients use no app threads; each event loop runs on
+  one thread. Long-running work such as image decode is incremental and yields
+  between bounded decode chunks; the first GUI has no worker threads.
 - Mouse events are delivered to the window under the pointer unless a button
   press starts a move/resize or popup grab. During a grab, all mouse events go
   to the grab owner until release; keyboard focus is unchanged.
 - A window receives keyboard events only when it has focus. The window manager
   intercepts global shortcuts before routing to the focused window.
-- In Phase 2, socket messages are length-prefixed and enqueued as events. The
-  server processes each message fully before polling again, which keeps client
+- Socket messages are length-prefixed and enqueued as events. The server
+  processes each message fully before polling again, which keeps client
   operations atomic without locks between processes.
 
 ## Image Decoding
@@ -313,6 +394,22 @@ the first milestone:
 Decoded images are converted to `gui_surface` and cached by the image viewer.
 If decoding would create more pixels than one framebuffer, the decoder
 downscales before allocating the surface; the original image is not retained.
+The BMP and PNG header paths validate width, height, row stride, and total
+decoded bytes with checked 64-bit arithmetic before allocating or asking a
+library to inflate data. Truncated, malformed, or over-budget images return a
+normal error to the viewer; they never leave a partially initialized surface in
+the cache. The decoded destination, temporary row buffers, and glyph/image
+caches remain charged to the existing GUI memory budget.
+- BMP accepts only the documented uncompressed 24/32-bpp headers, requires the
+  file length to cover every checked source row, and rejects source dimensions
+  above 4096 by 4096. PNG calls `png_set_user_limits(4096, 4096)` before reading
+  image information, accepts only non-interlaced 8-bit RGB/RGBA data after
+  explicit format checks, and decodes scanline-by-scanline into the bounded
+  downscaler rather than calling a whole-image libpng helper. A libpng error
+  unwinds the current row/destination allocation before returning failure.
+The image viewer keeps at most two decoded full-image surfaces and evicts the
+least-recently-used one before decoding another; thumbnails are separately
+bounded and may be regenerated from the source file.
 
 Vendor `libpng` under `app/usr/libpng/`. Add `build-libpng.sh`/`libpng.mk`
 matching the existing app build style. The image viewer links it statically.
