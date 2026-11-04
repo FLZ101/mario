@@ -11,6 +11,7 @@ Directives:
   GUI-SEND-KEY: f1
   GUI-TYPE: command
   GUI-CHECK-SCREEN: golden.ppm
+  GUI-CHECK-RECT: x y width height red green blue
   TIMEOUT: seconds
   EXIT:
 
@@ -132,6 +133,24 @@ class GuiTest:
                 if not golden.is_file():
                     raise GuiTestError(f"{self.path}: invalid GUI-CHECK-SCREEN")
                 self.actions.append(("screen", golden))
+            elif line.startswith("GUI-CHECK-RECT:"):
+                try:
+                    values = tuple(
+                        int(value)
+                        for value in line.split(":", 1)[1].split()
+                    )
+                except ValueError as exc:
+                    raise GuiTestError(
+                        f"{self.path}: invalid GUI-CHECK-RECT"
+                    ) from exc
+                if (
+                    len(values) != 7
+                    or values[2] <= 0
+                    or values[3] <= 0
+                    or any(value < 0 or value > 255 for value in values[4:])
+                ):
+                    raise GuiTestError(f"{self.path}: invalid GUI-CHECK-RECT")
+                self.actions.append(("rect", values))
             elif line.startswith("TIMEOUT:"):
                 self.actions.append(("timeout", float(line.split(":", 1)[1].strip())))
             elif line.startswith("GUI-"):
@@ -146,6 +165,7 @@ class GuiTest:
                 "send-key",
                 "type",
                 "screen",
+                "rect",
                 "timeout",
             }
             if any(action in disallowed for action, _value in self.actions):
@@ -288,6 +308,31 @@ def wait_for_screen(qmp: Qmp, golden: Path, timeout: float) -> bool:
     return False
 
 
+def wait_for_solid_rect(
+    qmp: Qmp, rect: tuple[int, int, int, int, int, int, int], timeout: float
+) -> bool:
+    x, y, width, height, red, green, blue = rect
+    expected = (red, green, blue)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        image = dump_screen(qmp)
+        if (
+            x >= 0
+            and y >= 0
+            and x + width <= image.width
+            and y + height <= image.height
+            and all(
+                pixel == expected
+                for pixel in image.crop(
+                    (x, y, x + width, y + height)
+                ).get_flattened_data()
+            )
+        ):
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def send_key(qmp: Qmp, key: str) -> None:
     qmp.command("send-key", {"keys": [{"type": "qcode", "data": key}]})
 
@@ -381,6 +426,12 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                 if not wait_for_screen(qmp, value, timeout):
                     failures.append(
                         f"GUI-CHECK-SCREEN timed out after {timeout:.1f}s: {value}"
+                    )
+            elif action == "rect":
+                time.sleep(SCREEN_SETTLE_DELAY)
+                if not wait_for_solid_rect(qmp, value, timeout):
+                    failures.append(
+                        f"GUI-CHECK-RECT timed out after {timeout:.1f}s: {value}"
                     )
             elif action == "timeout":
                 timeout = value

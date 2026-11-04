@@ -8,33 +8,45 @@
 #include <lib/spinlock.h>
 
 #include <io.h>
+#include <fs/gui.h>
 #include <video/fbcon.h>
 
 static struct console console_table[NUM_CONSOLE];
 static struct tty_struct console_tty_table[NUM_CONSOLE];
 
-static volatile int fg_console = 0;
+static volatile unsigned int fg_text_console;
+static volatile enum foreground_console foreground_console = FOREGROUND_TEXT;
 /* Serialises foreground switches and direct VGA-memory updates. */
 static spinlock_t console_lock = SPINLOCK_UNLOCKED;
 
 struct tty_struct *get_fg_tty()
 {
-	return &console_tty_table[fg_console];
+	return &console_tty_table[fg_text_console];
 }
 
 struct console *get_fg_console()
 {
-	return &console_table[fg_console];
+	return &console_table[fg_text_console];
 }
 
 dev_t get_fg_console_dev()
 {
-	return MKDEV(TTY_MAJOR, TTY_MINOR_1 + fg_console);
+	return MKDEV(TTY_MAJOR, TTY_MINOR_1 + fg_text_console);
+}
+
+unsigned int get_fg_text_console_index(void)
+{
+	return fg_text_console;
+}
+
+int graphics_console_active(void)
+{
+	return foreground_console == FOREGROUND_GRAPHICS;
 }
 
 static int is_fg(struct console *con)
 {
-	return get_fg_console() == con;
+	return foreground_console == FOREGROUND_TEXT && get_fg_console() == con;
 }
 
 static int legacy_present(struct console *con)
@@ -1322,21 +1334,23 @@ struct tty_driver console_driver = {
 	.write = console_write,
 };
 
-void switch_fg_console(int i)
+void switch_text_console(unsigned int index)
 {
 	unsigned long flags;
+	struct console *con;
+	int changed;
 
 	spin_lock_irqsave(&console_lock, flags);
 
-	assert(0 <= i && i < NUM_CONSOLE);
-
-	if (i == fg_console) {
+	assert(index < NUM_CONSOLE);
+	changed = foreground_console != FOREGROUND_TEXT || index != fg_text_console;
+	if (!changed) {
 		spin_unlock_irqrestore(&console_lock, flags);
 		return;
 	}
-
-	struct console *con = &console_table[i];
-	fg_console = i;
+	con = &console_table[index];
+	fg_text_console = index;
+	foreground_console = FOREGROUND_TEXT;
 
 	if (legacy_present(con)) {
 		memcpy(VIDEO_MEM, con->mem, SCREEN_BUF_BYTE_SIZE);
@@ -1348,7 +1362,7 @@ void switch_fg_console(int i)
 			show_cursor(con);
 	}
 
-	// reset keyboard state
+	/* A returned text VT starts with a fresh parser and modifier state. */
 	con->k.v_flags = 0;
 	con->k.v_key = 0;
 	memset(con->esc_buf, 0, ESC_BUF_SIZE);
@@ -1356,7 +1370,32 @@ void switch_fg_console(int i)
 	con->state = NORMAL;
 
 	spin_unlock_irqrestore(&console_lock, flags);
-	fbcon_console_switched(con);
+	if (changed)
+		fbcon_console_switched(con);
+}
+
+void switch_fg_console(int i)
+{
+	assert(i >= 0);
+	switch_text_console(i);
+}
+
+int enter_graphics_console(void)
+{
+	unsigned long flags;
+
+	if (!fbcon_enabled())
+		return -ENODEV;
+	spin_lock_irqsave(&console_lock, flags);
+	if (!gui_seat_ready()) {
+		spin_unlock_irqrestore(&console_lock, flags);
+		return -EBUSY;
+	}
+	if (foreground_console != FOREGROUND_GRAPHICS)
+		foreground_console = FOREGROUND_GRAPHICS;
+	spin_unlock_irqrestore(&console_lock, flags);
+	fbcon_graphics_console_entered();
+	return 0;
 }
 
 void console_sync(struct console *con)
@@ -1380,7 +1419,7 @@ void console_snapshot_foreground(uint16_t mem[N_ROW][N_COL],
 	struct console *con;
 
 	spin_lock_irqsave(&console_lock, flags);
-	con = &console_table[fg_console];
+	con = &console_table[fg_text_console];
 	memcpy(mem, con->mem, SCREEN_BUF_BYTE_SIZE);
 	*pos_y = con->pos_y;
 	*pos_x = con->pos_x;

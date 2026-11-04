@@ -1,7 +1,10 @@
 #include <fs/fs.h>
+#include <fs/gui.h>
 #include <video/fb.h>
 
-static int fb_writer_open;
+#define FMODE_FB_WRITER 0x800
+
+static unsigned int fb_writer_refs;
 static spinlock_t fb_lock = SPINLOCK_UNLOCKED;
 
 static int fb_open(struct inode *i, struct file *f)
@@ -11,24 +14,35 @@ static int fb_open(struct inode *i, struct file *f)
 		return -ENODEV;
 	if (!(f->f_mode & 2))
 		return 0;
+	if (f->f_mode & FMODE_FB_WRITER) {
+		spin_lock_irqsave(&fb_lock, flags);
+		fb_writer_refs++;
+		spin_unlock_irqrestore(&fb_lock, flags);
+		gui_fb_writer_open();
+		return 0;
+	}
 	spin_lock_irqsave(&fb_lock, flags);
-	if (fb_writer_open) {
+	if (fb_writer_refs) {
 		spin_unlock_irqrestore(&fb_lock, flags);
 		return -EBUSY;
 	}
-	fb_writer_open = 1;
+	fb_writer_refs = 1;
+	f->f_mode |= FMODE_FB_WRITER;
 	spin_unlock_irqrestore(&fb_lock, flags);
+	gui_fb_writer_open();
 	return 0;
 }
 
 static void fb_release(struct inode *i, struct file *f)
 {
 	unsigned long flags;
-	if (!(f->f_mode & 2))
+	if (!(f->f_mode & FMODE_FB_WRITER))
 		return;
 	spin_lock_irqsave(&fb_lock, flags);
-	fb_writer_open = 0;
+	assert(fb_writer_refs);
+	fb_writer_refs--;
 	spin_unlock_irqrestore(&fb_lock, flags);
+	gui_fb_writer_release();
 }
 
 static int fb_lseek(struct inode *i, struct file *f, off_t offset, int origin)

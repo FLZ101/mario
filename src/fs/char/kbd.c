@@ -193,6 +193,40 @@ void handle_key(struct tty_struct *tty, struct console *con)
 
 	struct kbd *k = &con->k;
 
+	/*
+	 * Function keys stay kernel-owned in graphics mode.  Until the GUI input
+	 * queue consumes ordinary keys, dropping them here prevents them from
+	 * reaching the saved text VT through the tty line discipline.
+	 */
+	if (graphics_console_active()) {
+		if (!(k->v_flags & 0x0100) || !(k->v_key & (1 << f_0)))
+			return;
+		switch (k->v_key & 0xff) {
+		case F1:
+			switch_fg_console(0);
+			break;
+		case F2:
+			switch_fg_console(1);
+			break;
+		case F3:
+			switch_fg_console(2);
+			break;
+		case F4:
+			switch_fg_console(3);
+			break;
+		case F5:
+			switch_fg_console(4);
+			break;
+		case F6:
+			switch_fg_console(5);
+			break;
+		case F8:
+			enter_graphics_console();
+			break;
+		}
+		return;
+	}
+
 	if ((k->v_flags & 0x0100)) {			/* pressed */
 		if (k->v_key & (1 << c_trl)) {
 			__i = k->v_key & 0xff;
@@ -301,6 +335,10 @@ void handle_key(struct tty_struct *tty, struct console *con)
 					break;
 				case F6:
 					switch_fg_console(5);
+					break;
+				case F8:
+					/* F8 is reserved for the framebuffer-backed graphics seat. */
+					enter_graphics_console();
 					break;
 				}
 				return;

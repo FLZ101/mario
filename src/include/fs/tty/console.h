@@ -78,10 +78,19 @@ struct console {
 	} orig;
 };
 
+enum foreground_console {
+	FOREGROUND_TEXT,
+	FOREGROUND_GRAPHICS,
+};
+
 dev_t get_fg_console_dev();
 struct tty_struct *get_fg_tty();
 struct console *get_fg_console();
+unsigned int get_fg_text_console_index(void);
+int graphics_console_active(void);
 void switch_fg_console(int i);
+void switch_text_console(unsigned int index);
+int enter_graphics_console(void);
 void console_snapshot_foreground(uint16_t mem[N_ROW][N_COL],
 				 unsigned int *pos_y, unsigned int *pos_x,
 				 int *cursor_hidden);

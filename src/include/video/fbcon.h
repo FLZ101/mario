@@ -6,6 +6,7 @@ struct console;
 void fbcon_start(void);
 void fbcon_console_changed(struct console *con);
 void fbcon_console_switched(struct console *con);
+void fbcon_graphics_console_entered(void);
 int fbcon_enabled(void);
 
 #endif

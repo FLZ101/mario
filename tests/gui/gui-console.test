@@ -1,0 +1,36 @@
+# The graphics console is available only to the process that owns both the
+# writable framebuffer and the read-only GUI seat.  Prepare tty6 first so a
+# return to text mode proves that the graphics clear did not destroy it.
+SERIAL: <<TTY6
+{
+    printf '\033[2J\033[H\033[8;20HVT6-MARKER'
+    for row in 1 2 3; do
+        printf "\033[${row};1H\033[46m                    \033[${row};60H\033[42m                    "
+    done
+    for row in 23 24 25; do
+        printf "\033[${row};1H\033[45m                    \033[${row};60H\033[43m                    "
+    done
+    printf '\033[0m\033[8;20HVT6-MARKER'
+} > /dev/tty6
+TTY6
+# F8 is a no-op before an exclusive graphics seat is registered.
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+SERIAL: /usr/bin/test/gui-seat.exe >/tmp/gui-seat.log 2>&1 &
+SERIAL: sleep 1; cat /tmp/gui-seat.log
+SERIAL-CHECK: gui-seat: ready
+# F8 clears the scanout for the graphics owner.  F1-F6 restore a text VT,
+# while the other function keys deliberately leave the current foreground.
+GUI-SEND-KEY: f8
+GUI-CHECK-RECT: 0 0 1024 768 0 0 0
+# Normal keys must not be delivered to tty6 while graphics owns foreground.
+GUI-TYPE: x
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f7
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f9
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+EXIT:

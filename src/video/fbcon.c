@@ -37,6 +37,7 @@ static spinlock_t fbcon_lock = SPINLOCK_UNLOCKED;
 static int fbcon_pending;
 static volatile int fbcon_started;
 static int fbcon_full_repaint;
+static int fbcon_graphics_console;
 
 struct fbcon_layout {
 	unsigned int left;
@@ -289,12 +290,20 @@ static void fbcon_paint(int full)
 	snapshot.initialized = 1;
 }
 
+static void fbcon_clear_graphics(void)
+{
+	const struct fb_info *fb = fb_get_info();
+
+	memset(fb->virt_addr, 0, fb->size);
+}
+
 static void fbcon_thread(void *arg)
 {
 	(void)arg;
 	memcpy(current->comm, "[fbcon]", sizeof("[fbcon]"));
 	for (;;) {
 		int full;
+		int graphics;
 
 		irq_save();
 		ACQUIRE_LOCK(&fbcon_lock);
@@ -303,11 +312,15 @@ static void fbcon_thread(void *arg)
 			continue;
 		}
 		full = fbcon_full_repaint;
+		graphics = fbcon_graphics_console;
 		fbcon_pending = 0;
 		fbcon_full_repaint = 0;
 		RELEASE_LOCK(&fbcon_lock);
 		irq_restore();
-		fbcon_paint(full);
+		if (graphics)
+			fbcon_clear_graphics();
+		else
+			fbcon_paint(full);
 	}
 }
 
@@ -334,6 +347,23 @@ void fbcon_console_changed(struct console *con)
 void fbcon_console_switched(struct console *con)
 {
 	(void)con;
+	unsigned long flags;
+
+	spin_lock_irqsave(&fbcon_lock, flags);
+	fbcon_graphics_console = 0;
+	spin_unlock_irqrestore(&fbcon_lock, flags);
+	fbcon_queue(1);
+}
+
+void fbcon_graphics_console_entered(void)
+{
+	unsigned long flags;
+
+	if (!fb_is_enabled() || !fbcon_started)
+		return;
+	spin_lock_irqsave(&fbcon_lock, flags);
+	fbcon_graphics_console = 1;
+	spin_unlock_irqrestore(&fbcon_lock, flags);
 	fbcon_queue(1);
 }
 

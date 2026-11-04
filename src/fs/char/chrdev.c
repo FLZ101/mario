@@ -12,6 +12,7 @@ struct {
 extern void mem_init(void);
 extern void tty_init(void);
 extern void fbdev_init(void);
+extern void gui_init(void);
 
 void chrdev_init(void)
 {
@@ -23,6 +24,7 @@ void chrdev_init(void)
 	mem_init();
 	tty_init();
 	fbdev_init();
+	gui_init();
 }
 
 int register_chrdev(unsigned int major, struct file_operations *chrdev_fops)
