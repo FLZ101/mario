@@ -24,8 +24,11 @@ static void wait_for_state(int fb, uint32_t expected)
 int main(void)
 {
 	struct fb_fix_screeninfo fix = { 0 };
-	uint32_t written[4] = {
-		0x00ff0000, 0x0000ff00, 0x000000ff, 0x00ffffff,
+	uint32_t descriptor_pixels[4] = {
+		0x00ff0000, 0x00ff0000, 0x00ff0000, 0x00ff0000,
+	};
+	uint32_t positional_pixels[4] = {
+		0x0000ff00, 0x0000ff00, 0x0000ff00, 0x0000ff00,
 	};
 	uint32_t readback[4] = { 0 };
 	off_t position;
@@ -37,7 +40,7 @@ int main(void)
 	gui = open("/dev/gui", O_RDONLY);
 	assert(gui >= 0);
 	assert(ioctl(fb, FBIOGET_FSCREENINFO, &fix) == 0);
-	assert(fix.line_length >= sizeof(written));
+	assert(fix.line_length >= sizeof(descriptor_pixels));
 
 	/* Keep a shared descriptor offset distinct from the positional row. */
 	assert(lseek(fb, fix.line_length, SEEK_SET) == fix.line_length);
@@ -46,19 +49,28 @@ int main(void)
 	fflush(stdout);
 
 	wait_for_state(fb, FB_CONSOLE_GRAPHICS);
-	assert(pwrite(fb, written, sizeof(written), 2 * fix.line_length) ==
-	       sizeof(written));
+	/* A positional write must not redirect the shared descriptor's next write. */
+	assert(pwrite(fb, positional_pixels, sizeof(positional_pixels),
+		      2 * fix.line_length) == sizeof(positional_pixels));
 	assert(lseek(fb, 0, SEEK_CUR) == position);
 	assert(pread(fb, readback, sizeof(readback), 2 * fix.line_length) ==
 	       sizeof(readback));
-	assert(!memcmp(readback, written, sizeof(written)));
+	assert(!memcmp(readback, positional_pixels, sizeof(positional_pixels)));
 	assert(lseek(fb, 0, SEEK_CUR) == position);
+	assert(write(fb, descriptor_pixels, sizeof(descriptor_pixels)) ==
+	       sizeof(descriptor_pixels));
+	position = lseek(fb, 0, SEEK_CUR);
+	assert(position == fix.line_length + sizeof(descriptor_pixels));
+	assert(pread(fb, readback, sizeof(readback), fix.line_length) ==
+	       sizeof(readback));
+	assert(!memcmp(readback, descriptor_pixels, sizeof(descriptor_pixels)));
 	printf("fb-positional: graphics\n");
 	fflush(stdout);
 
 	wait_for_state(fb, FB_CONSOLE_TEXT);
 	errno = 0;
-	assert(pwrite(fb, written, sizeof(written), 2 * fix.line_length) == -1);
+	assert(pwrite(fb, positional_pixels, sizeof(positional_pixels),
+		      2 * fix.line_length) == -1);
 	assert(errno == EBUSY);
 	assert(lseek(fb, 0, SEEK_CUR) == position);
 	printf("fb-positional: text\n");

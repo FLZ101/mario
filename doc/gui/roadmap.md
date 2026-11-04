@@ -341,7 +341,7 @@ video: map VBE linear framebuffer and add /dev/fb0
   The probe must prove text-mode `EBUSY`, completed-transition success, and
   readback before adding a visual comparison. Run that fixture and
   `make test SMP=16`. Commit: `fb: add gated positional callbacks`.
-- [ ] **M1.9.3 — prove shared-descriptor semantics visually.** Add a dedicated
+- [x] **M1.9.3 — prove shared-descriptor semantics visually.** Add a dedicated
   GUI test process that owns `/dev/fb0` and `/dev/gui`, waits for the F8
   `POLLPRI` transition, sets `f_pos` to one scanline, writes a different
   scanline with `pwrite64()`, then checks it with `pread64()`. The process must

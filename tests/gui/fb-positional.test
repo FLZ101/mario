@@ -5,6 +5,9 @@ SERIAL-CHECK: fb-positional: ready
 GUI-SEND-KEY: f8
 SERIAL: sleep 1; cat /tmp/fb-positional.log
 SERIAL-CHECK: fb-positional: graphics
+# The descriptor write lands on row 1, while pwrite keeps row 2 independent.
+GUI-CHECK-RECT: 0 1 4 1 255 0 0
+GUI-CHECK-RECT: 0 2 4 1 0 255 0
 GUI-SEND-KEY: f6
 SERIAL: sleep 1; cat /tmp/fb-positional.log
 SERIAL-CHECK: fb-positional: text
