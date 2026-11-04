@@ -186,8 +186,6 @@ class TtyLitTest:
                     self.requires_smp = parse_smp_requirement(
                         body.split(":", 1)[1].strip()
                     )
-        if self.rebuild_kernel is not None and self.expect_halt is None:
-            raise ValueError(f"{self.path}: REBUILD-KERNEL requires EXPECT-HALT")
         if self.expect_halt is not None:
             disallowed = {"send", "send_raw", "send_key", "sleep", "timeout"}
             if any(action in disallowed for action, _value in self.actions):

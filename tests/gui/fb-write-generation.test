@@ -1,0 +1,5 @@
+# The rebuild runs the pure generation-predicate self-test during fbdev setup.
+REBUILD-KERNEL: selftest-fb-write-generation
+SERIAL: echo fb-write-generation: booted
+SERIAL-CHECK: fb-write-generation: booted
+EXIT:

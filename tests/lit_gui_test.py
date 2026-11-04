@@ -19,8 +19,8 @@ Directives:
 
 REBUILD-KERNEL must be the first directive.  It exclusively rebuilds the
 kernel and the VBE boot image, then restores both before a following test can
-boot.  It isolates artifacts; SERIAL-CHECK and GUI-CHECK-SCREEN still determine
-whether the following test is correct.
+boot.  A rebuilt fixture may either expect a fatal halt or use normal guest/QMP
+checks; those assertions determine whether the selected kernel is correct.
 """
 
 from __future__ import annotations
@@ -180,8 +180,6 @@ class GuiTest:
             elif line.startswith("GUI-"):
                 raise GuiTestError(f"{self.path}: unsupported directive {line!r}")
             index += 1
-        if self.rebuild_kernel is not None and self.expect_halt is None:
-            raise GuiTestError(f"{self.path}: REBUILD-KERNEL requires EXPECT-HALT")
         if self.expect_halt is not None:
             disallowed = {
                 "serial",

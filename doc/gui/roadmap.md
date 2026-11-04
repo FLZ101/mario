@@ -350,7 +350,7 @@ video: map VBE linear framebuffer and add /dev/fb0
   **Owned surface:** the M1.9.2 probe plus `tests/gui/fb-positional.test`.
   Run `tests/gui/fb-positional.test` and `make test SMP=16`. Commit:
   `test: cover framebuffer positional I/O`.
-- [ ] **M1.10.1 — snapshot a write generation.** Record a completed graphics
+- [x] **M1.10.1 — snapshot a write generation.** Record a completed graphics
   generation before a user framebuffer copy and reject the operation if it is
   no longer current before its first byte. Unit test the state helper without a
   long copy. Commit: `fb: snapshot write generation`.

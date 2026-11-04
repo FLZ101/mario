@@ -257,8 +257,6 @@ class LitTest:
         if heredoc_delimiter is not None:
             raise ValueError(f"{self.path}: unterminated heredoc {heredoc_delimiter!r}")
 
-        if self.rebuild_kernel is not None and self.expect_halt is None:
-            raise ValueError(f"{self.path}: REBUILD-KERNEL requires EXPECT-HALT")
         if self.expect_halt is not None:
             disallowed = {
                 "run",

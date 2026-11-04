@@ -16,6 +16,40 @@ static wait_queue_t fb_console_wait;
 static int fb_read_at(struct inode *i, struct file *f, char *buf, int count,
 		      off64_t *position);
 
+/* Keep the state predicate pure so the self-test needs no framebuffer copy. */
+static int fb_write_generation_valid(unsigned int state, int transitioning,
+				     unsigned long generation,
+				     unsigned long snapshot)
+{
+	return !transitioning && state == FB_CONSOLE_GRAPHICS &&
+	       generation == snapshot;
+}
+
+static int fb_write_generation_snapshot(unsigned long *snapshot)
+{
+	unsigned long flags;
+	int result = 0;
+
+	spin_lock_irqsave(&fb_lock, flags);
+	if (!fb_write_generation_valid(fb_console_state, fb_console_transitioning,
+				       fb_console_generation, fb_console_generation))
+		result = -EBUSY;
+	else
+		*snapshot = fb_console_generation;
+	spin_unlock_irqrestore(&fb_lock, flags);
+	return result;
+}
+
+#ifdef CONFIG_FB_WRITE_GENERATION_SELF_TEST
+static void fb_write_generation_selftest(void)
+{
+	assert(fb_write_generation_valid(FB_CONSOLE_GRAPHICS, 0, 7, 7));
+	assert(!fb_write_generation_valid(FB_CONSOLE_TEXT, 0, 7, 7));
+	assert(!fb_write_generation_valid(FB_CONSOLE_GRAPHICS, 1, 7, 7));
+	assert(!fb_write_generation_valid(FB_CONSOLE_GRAPHICS, 0, 8, 7));
+}
+#endif
+
 static int fb_open(struct inode *i, struct file *f)
 {
 	unsigned long flags;
@@ -106,12 +140,16 @@ static int fb_write_at(struct inode *i, struct file *f, char *buf, int count,
 		       off64_t *position)
 {
 	const struct fb_info *info = fb_get_info();
+	unsigned long generation;
 	unsigned long flags;
 	if (!position || *position < 0 || count < 0)
 		return -EINVAL;
+	if (fb_write_generation_snapshot(&generation))
+		return -EBUSY;
 	spin_lock_irqsave(&fb_lock, flags);
-	/* A text repaint owns scanout from the first foreground transition. */
-	if (fb_console_transitioning || fb_console_state != FB_CONSOLE_GRAPHICS) {
+	/* A transition after the snapshot owns scanout before the first byte. */
+	if (!fb_write_generation_valid(fb_console_state, fb_console_transitioning,
+				       fb_console_generation, generation)) {
 		spin_unlock_irqrestore(&fb_lock, flags);
 		return -EBUSY;
 	}
@@ -238,6 +276,9 @@ static struct file_operations fb_fops = {
 void fbdev_init(void)
 {
 	if (fb_is_enabled()) {
+	#ifdef CONFIG_FB_WRITE_GENERATION_SELF_TEST
+		fb_write_generation_selftest();
+	#endif
 		init_wait_queue(&fb_console_wait);
 		register_chrdev(FB_MAJOR, &fb_fops);
 	}

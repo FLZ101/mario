@@ -25,10 +25,11 @@ ROOT = Path(__file__).resolve().parent.parent
 #   2. A REBUILD-KERNEL test takes the exclusive lock, waits for those normal
 #      tests to close QEMU, builds the selected self-test kernel, and restages
 #      any runner-specific boot image while no normal test can boot it.
-#   3. Once its expected fatal halt has been checked, the rebuild test cleans
-#      and rebuilds the ordinary kernel (and normal boot image) before it
-#      releases the exclusive lock.  A following normal test therefore waits
-#      and can only boot restored artifacts.
+#   3. Once the fixture has checked either its expected fatal halt or its
+#      ordinary guest behavior, the rebuild test cleans and rebuilds the
+#      ordinary kernel (and normal boot image) before it releases the
+#      exclusive lock.  A following normal test therefore waits and can only
+#      boot restored artifacts.
 #
 # This prevents cross-test artifact contamination; it does not replace each
 # normal test's CHECK/TTY-CHECK/GUI-CHECK assertions.  Guest writes are also
@@ -40,6 +41,7 @@ REBUILD_KERNEL_TARGETS = frozenset(
         "selftest-page",
         "selftest-stack",
         "selftest-ubsan",
+        "selftest-fb-write-generation",
     }
 )
 
