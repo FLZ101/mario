@@ -227,7 +227,10 @@ static struct file_operations fb_fops = {
 	.release = fb_release,
 	.lseek = fb_lseek,
 	.read = fb_read,
+	/* Positional syscalls use a private offset and must not update f_pos. */
+	.read_at = fb_read_at,
 	.write = fb_write,
+	.write_at = fb_write_at,
 	.ioctl = fb_ioctl,
 	.poll = fb_poll,
 };

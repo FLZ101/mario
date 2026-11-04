@@ -1,0 +1,11 @@
+# Positional framebuffer I/O uses its explicit offset and preserves f_pos.
+SERIAL: /usr/bin/test/fb-positional.exe >/tmp/fb-positional.log 2>&1 &
+SERIAL: sleep 1; cat /tmp/fb-positional.log
+SERIAL-CHECK: fb-positional: ready
+GUI-SEND-KEY: f8
+SERIAL: sleep 1; cat /tmp/fb-positional.log
+SERIAL-CHECK: fb-positional: graphics
+GUI-SEND-KEY: f6
+SERIAL: sleep 1; cat /tmp/fb-positional.log
+SERIAL-CHECK: fb-positional: text
+EXIT:

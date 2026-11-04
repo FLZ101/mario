@@ -333,7 +333,7 @@ video: map VBE linear framebuffer and add /dev/fb0
   still rejects writes with `EBUSY`, and EOF/`ENOSPC` results are unchanged.
   Run `tests/gui/fb.test` and `make test SMP=16`. Commit: `fb: share transfer
   position handling`.
-- [ ] **M1.9.2 — expose positional framebuffer callbacks.** Register
+- [x] **M1.9.2 — expose positional framebuffer callbacks.** Register
   `read_at`/`write_at` on `/dev/fb0`; the callbacks must use the exact same
   foreground-state, transition, range, and short-count rules as M1.9.1 while
   updating only the syscall-local position. **Owned surface:**
