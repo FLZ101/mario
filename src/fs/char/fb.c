@@ -8,6 +8,7 @@
 
 static unsigned int fb_writer_refs;
 static unsigned int fb_console_state;
+static int fb_console_transitioning;
 static unsigned long fb_console_generation;
 static spinlock_t fb_lock = SPINLOCK_UNLOCKED;
 static wait_queue_t fb_console_wait;
@@ -89,14 +90,24 @@ static int fb_read(struct inode *i, struct file *f, char *buf, int count)
 static int fb_write(struct inode *i, struct file *f, char *buf, int count)
 {
 	const struct fb_info *info = fb_get_info();
+	unsigned long flags;
 	if (count < 0)
 		return -EINVAL;
-	if (f->f_pos >= info->size)
+	spin_lock_irqsave(&fb_lock, flags);
+	/* A text repaint owns scanout from the first foreground transition. */
+	if (fb_console_transitioning || fb_console_state != FB_CONSOLE_GRAPHICS) {
+		spin_unlock_irqrestore(&fb_lock, flags);
+		return -EBUSY;
+	}
+	if (f->f_pos >= info->size) {
+		spin_unlock_irqrestore(&fb_lock, flags);
 		return count ? -ENOSPC : 0;
+	}
 	if (count > info->size - f->f_pos)
 		count = info->size - f->f_pos;
 	memcpy_fromfs((char *)info->virt_addr + f->f_pos, buf, count);
 	f->f_pos += count;
+	spin_unlock_irqrestore(&fb_lock, flags);
 	return count;
 }
 
@@ -159,11 +170,21 @@ static int fb_poll(struct file *f, struct poll_context *ctx)
 	return mask;
 }
 
+void fbdev_console_transition_started(void)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&fb_lock, flags);
+	fb_console_transitioning = 1;
+	spin_unlock_irqrestore(&fb_lock, flags);
+}
+
 void fbdev_console_state_changed(int graphics)
 {
 	unsigned long flags;
 
 	spin_lock_irqsave(&fb_lock, flags);
+	fb_console_transitioning = 0;
 	if (fb_console_state != (unsigned int)graphics) {
 		fb_console_state = graphics;
 		fb_console_generation++;

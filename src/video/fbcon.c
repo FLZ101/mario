@@ -354,6 +354,7 @@ void fbcon_console_switched(struct console *con)
 	spin_lock_irqsave(&fbcon_lock, flags);
 	fbcon_graphics_console = 0;
 	spin_unlock_irqrestore(&fbcon_lock, flags);
+	fbdev_console_transition_started();
 	fbcon_queue(1);
 }
 
@@ -366,6 +367,7 @@ void fbcon_graphics_console_entered(void)
 	spin_lock_irqsave(&fbcon_lock, flags);
 	fbcon_graphics_console = 1;
 	spin_unlock_irqrestore(&fbcon_lock, flags);
+	fbdev_console_transition_started();
 	fbcon_queue(1);
 }
 
