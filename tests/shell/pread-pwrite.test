@@ -1,0 +1,21 @@
+RUN: mkdir -p /tmp /mnt
+
+RUN: /usr/bin/test/pread_pwrite.exe /tmp/pread-pwrite; echo mariofs-status:$?
+CHECK: pread-pwrite: /tmp/pread-pwrite
+CHECK: mariofs-status:0
+
+RUN: mount -t ext2 /dev/hdc3 /mnt; echo ext2-mount-status:$?
+CHECK: ext2-mount-status:0
+RUN: /usr/bin/test/pread_pwrite.exe /mnt/pread-pwrite; echo ext2-status:$?
+CHECK: pread-pwrite: /mnt/pread-pwrite
+CHECK: ext2-status:0
+RUN: umount /mnt; echo ext2-umount-status:$?
+CHECK: ext2-umount-status:0
+
+RUN: mount -t vfat /dev/hdc2 /mnt; echo vfat-mount-status:$?
+CHECK: vfat-mount-status:0
+RUN: /usr/bin/test/pread_pwrite.exe /mnt/pread-pwrite; echo vfat-status:$?
+CHECK: pread-pwrite: /mnt/pread-pwrite
+CHECK: vfat-status:0
+RUN: umount /mnt; echo vfat-umount-status:$?
+CHECK: vfat-umount-status:0

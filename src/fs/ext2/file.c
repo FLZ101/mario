@@ -108,25 +108,37 @@ static int ext2_file_read(struct inode *inode, struct file *file, char *buf,
 	return generic_file_read(inode, file, buf, count);
 }
 
-static int ext2_file_write(struct inode *inode, struct file *file, char *buf,
-			   int count)
+static int ext2_file_read_at(struct inode *inode, struct file *file, char *buf,
+			     int count, off64_t *position)
+{
+	return generic_file_read_at(inode, file, buf, count, position);
+}
+
+static int ext2_file_write_at(struct inode *inode, struct file *file, char *buf,
+			      int count, off64_t *position, int append)
 {
 	struct super_block *sb = inode->i_sb;
 	struct ext2_inode *raw = &EXT2_INODE(inode).raw;
-	uint32_t start;
+	uint64_t start;
 	uint32_t total = 0;
 	uint32_t block_size = EXT2_BLOCK_SIZE(sb);
 	int error = 0;
 
-	if (!inode || !S_ISREG(inode->i_mode))
+	if (!inode || !position || !S_ISREG(inode->i_mode))
+		return -EINVAL;
+	if (*position < 0 || count < 0)
 		return -EINVAL;
 
 	down(&inode->i_sem);
-	start = (file->f_flags & O_APPEND) ? inode->i_size : file->f_pos;
+	start = append ? inode->i_size : *position;
+	if (start > 0xffffffffU || (uint64_t)count > 0xffffffffU - start) {
+		up(&inode->i_sem);
+		return -EFBIG;
+	}
 
 	while (total < (uint32_t)count) {
-		uint32_t block_index = start / block_size;
-		uint32_t offset = start % block_size;
+		uint32_t block_index = (uint32_t)(start / block_size);
+		uint32_t offset = (uint32_t)(start % block_size);
 		uint32_t chunk = block_size - offset;
 		uint32_t physical;
 		uint8_t *block_buf;
@@ -162,7 +174,6 @@ static int ext2_file_write(struct inode *inode, struct file *file, char *buf,
 
 		total += chunk;
 		start += chunk;
-		file->f_pos = start;
 	}
 
 	if (start > inode->i_size) {
@@ -177,7 +188,27 @@ static int ext2_file_write(struct inode *inode, struct file *file, char *buf,
 	}
 
 	up(&inode->i_sem);
+	if (total)
+		*position = start;
 	return total ? (int)total : error;
+}
+
+static int ext2_file_write(struct inode *inode, struct file *file, char *buf,
+			   int count)
+{
+	off64_t position = file->f_pos;
+	int result = ext2_file_write_at(inode, file, buf, count, &position,
+					!!(file->f_flags & O_APPEND));
+
+	if (result > 0)
+		file->f_pos = position;
+	return result;
+}
+
+static int ext2_file_write_positional(struct inode *inode, struct file *file,
+				      char *buf, int count, off64_t *position)
+{
+	return ext2_file_write_at(inode, file, buf, count, position, 0);
 }
 
 static int ext2_free_inode_block(struct inode *inode, uint32_t block)
@@ -468,7 +499,9 @@ struct inode_operations ext2_link_iops = {
 
 struct file_operations ext2_file_fops = {
 	.read = ext2_file_read,
+	.read_at = ext2_file_read_at,
 	.read_page = ext2_file_read_page,
 	.write = ext2_file_write,
+	.write_at = ext2_file_write_positional,
 	.mmap = generic_file_mmap,
 };

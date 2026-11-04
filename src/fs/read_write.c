@@ -81,6 +81,41 @@ int sys_read(unsigned int fd, char *buf, unsigned int count)
 	return f->f_op->read(i, f, buf, count);
 }
 
+/* i386 passes the 64-bit pread/pwrite offset as low word, then high word. */
+static int positional_offset(unsigned long offset_low, unsigned long offset_high,
+			     off64_t *offset)
+{
+	*offset = (off64_t)(int32_t)offset_high * 0x100000000LL + offset_low;
+	return *offset < 0 ? -EINVAL : 0;
+}
+
+int sys_pread64(unsigned int fd, char *buf, unsigned int count,
+		unsigned long offset_low, unsigned long offset_high)
+{
+	int error;
+	struct file *f;
+	struct inode *i;
+	off64_t offset;
+
+	if (fd >= NR_OPEN || !(f = current->files->fd[fd]) || !(i = f->f_inode))
+		return -EBADF;
+	if (!(f->f_mode & 1))
+		return -EBADF;
+	if (!f->f_op || !f->f_op->read_at)
+		return -ESPIPE;
+	if (count > 0x7fffffffU)
+		return -EINVAL;
+	if ((error = positional_offset(offset_low, offset_high, &offset)))
+		return error;
+	if (!count)
+		return 0;
+	if ((error = verify_area(VERIFY_WRITE, buf, count)))
+		return error;
+
+	/* The callback updates this local position after a short successful read. */
+	return f->f_op->read_at(i, f, buf, count, &offset);
+}
+
 int sys_readv(unsigned int fd, struct iovec *vec, int vlen)
 {
 	int error;
@@ -137,6 +172,33 @@ int sys_write(unsigned int fd, char *buf, unsigned int count)
 	if (error)
 		return error;
 	return f->f_op->write(i, f, buf, count);
+}
+
+int sys_pwrite64(unsigned int fd, char *buf, unsigned int count,
+		 unsigned long offset_low, unsigned long offset_high)
+{
+	int error;
+	struct file *f;
+	struct inode *i;
+	off64_t offset;
+
+	if (fd >= NR_OPEN || !(f = current->files->fd[fd]) || !(i = f->f_inode))
+		return -EBADF;
+	if (!(f->f_mode & 2))
+		return -EBADF;
+	if (!f->f_op || !f->f_op->write_at)
+		return -ESPIPE;
+	if (count > 0x7fffffffU)
+		return -EINVAL;
+	if ((error = positional_offset(offset_low, offset_high, &offset)))
+		return error;
+	if (!count)
+		return 0;
+	if ((error = verify_area(VERIFY_READ, buf, count)))
+		return error;
+
+	/* O_APPEND belongs to write(); pwrite64() always uses this exact offset. */
+	return f->f_op->write_at(i, f, buf, count, &offset);
 }
 
 int sys_writev(unsigned int fd, struct iovec *vec, unsigned int vlen)

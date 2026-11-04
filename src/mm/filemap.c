@@ -406,6 +406,17 @@ static int filemap_read_uncached(struct file *file, off64_t offset,
 int generic_file_read(struct inode *inode, struct file *file, char *buf,
 		      int count)
 {
+	off64_t position = file->f_pos;
+	int result = generic_file_read_at(inode, file, buf, count, &position);
+
+	if (result > 0)
+		file->f_pos = position;
+	return result;
+}
+
+int generic_file_read_at(struct inode *inode, struct file *file, char *buf,
+			 int count, off64_t *position)
+{
 	unsigned long page;
 	unsigned long offset;
 	unsigned long chunk;
@@ -413,22 +424,24 @@ int generic_file_read(struct inode *inode, struct file *file, char *buf,
 	int done = 0;
 	int error;
 
-	if (!inode || !file || !S_ISREG(inode->i_mode))
+	if (!inode || !file || !position || !S_ISREG(inode->i_mode))
+		return -EINVAL;
+	if (*position < 0)
 		return -EINVAL;
 	if (count <= 0)
 		return 0;
 
 	while (done < count) {
 		down(&inode->i_sem);
-		if ((uint64_t)file->f_pos >= (uint64_t)inode->i_size) {
+		if ((uint64_t)*position >= (uint64_t)inode->i_size) {
 			up(&inode->i_sem);
 			break;
 		}
 		available = (unsigned long)((uint64_t)inode->i_size -
-						  (uint64_t)file->f_pos);
+						  (uint64_t)*position);
 		up(&inode->i_sem);
-		offset = (unsigned long)file->f_pos & PAGE_MASK;
-		chunk = PAGE_SIZE - ((unsigned long)file->f_pos & ~PAGE_MASK);
+		offset = (unsigned long)*position & PAGE_MASK;
+		chunk = PAGE_SIZE - ((unsigned long)*position & ~PAGE_MASK);
 		if (chunk > available)
 			chunk = available;
 		if (chunk > (unsigned long)(count - done))
@@ -442,10 +455,10 @@ int generic_file_read(struct inode *inode, struct file *file, char *buf,
 		if (error)
 			return done ? done : error;
 		memcpy_tofs(buf + done,
-			    (char *)page + ((unsigned long)file->f_pos & ~PAGE_MASK),
+			    (char *)page + ((unsigned long)*position & ~PAGE_MASK),
 			    chunk);
 		put_page(page);
-		file->f_pos += chunk;
+		*position += chunk;
 		done += chunk;
 	}
 	return done;

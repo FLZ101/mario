@@ -60,6 +60,12 @@ static int fat_file_read(struct inode *inode, struct file *file, char *buf,
 	return generic_file_read(inode, file, buf, count);
 }
 
+static int fat_file_read_at(struct inode *inode, struct file *file, char *buf,
+			    int count, off64_t *position)
+{
+	return generic_file_read_at(inode, file, buf, count, position);
+}
+
 static int fat_zero_range(struct inode *inode, uint64_t start,
 			      uint64_t end)
 {
@@ -234,8 +240,8 @@ static int fat_file_truncate(struct inode *inode, int size)
 	return fat_write_inode(inode);
 }
 
-static int fat_file_write(struct inode *inode, struct file *file, char *buf,
-			  int count)
+static int fat_file_write_at(struct inode *inode, struct file *file, char *buf,
+			     int count, off64_t *position, int append)
 {
 	struct super_block *sb;
 	uint32_t cluster_size;
@@ -245,9 +251,11 @@ static int fat_file_write(struct inode *inode, struct file *file, char *buf,
 	uint32_t old_clusters;
 	int error;
 
-	if (!inode || !S_ISREG(inode->i_mode))
+	if (!inode || !position || !S_ISREG(inode->i_mode))
 		return -EINVAL;
-	if (count <= 0)
+	if (*position < 0 || count < 0)
+		return -EINVAL;
+	if (!count)
 		return 0;
 	if (FAT_SB(inode->i_sb).readonly)
 		return -EROFS;
@@ -258,7 +266,11 @@ static int fat_file_write(struct inode *inode, struct file *file, char *buf,
 	old_size = inode->i_size;
 	old_clusters = (uint32_t)((old_size + cluster_size - 1) /
 				  cluster_size);
-	start = (file->f_flags & O_APPEND) ? old_size : file->f_pos;
+	start = append ? old_size : *position;
+	if (start > 0xffffffffU || (uint64_t)count > 0xffffffffU - start) {
+		up(&inode->i_sem);
+		return -EFBIG;
+	}
 	total = 0;
 	error = 0;
 
@@ -323,7 +335,6 @@ static int fat_file_write(struct inode *inode, struct file *file, char *buf,
 
 		total += chunk;
 		start += chunk;
-		file->f_pos = start;
 	}
 
 	if (start > inode->i_size) {
@@ -340,7 +351,27 @@ static int fat_file_write(struct inode *inode, struct file *file, char *buf,
 		fat_file_rollback_to_clusters(inode, old_clusters);
 
 	up(&inode->i_sem);
+	if (total)
+		*position = start;
 	return total ? (int)total : error;
+}
+
+static int fat_file_write(struct inode *inode, struct file *file, char *buf,
+			  int count)
+{
+	off64_t position = file->f_pos;
+	int result = fat_file_write_at(inode, file, buf, count, &position,
+					!!(file->f_flags & O_APPEND));
+
+	if (result > 0)
+		file->f_pos = position;
+	return result;
+}
+
+static int fat_file_write_positional(struct inode *inode, struct file *file,
+				     char *buf, int count, off64_t *position)
+{
+	return fat_file_write_at(inode, file, buf, count, position, 0);
 }
 
 struct inode_operations fat_file_iops = {
@@ -349,7 +380,9 @@ struct inode_operations fat_file_iops = {
 
 struct file_operations fat_file_fops = {
 	.read = fat_file_read,
+	.read_at = fat_file_read_at,
 	.read_page = fat_file_read_page,
 	.write = fat_file_write,
+	.write_at = fat_file_write_positional,
 	.mmap = generic_file_mmap,
 };

@@ -194,26 +194,43 @@ int mario_file_read(struct inode *i, struct file *f, char *buf, int count)
 	return generic_file_read(i, f, buf, count);
 }
 
+static int mario_file_read_at(struct inode *i, struct file *f, char *buf,
+			      int count, off64_t *position)
+{
+	return generic_file_read_at(i, f, buf, count, position);
+}
+
 /*
  * Ugly, Ugly...
  */
-int mario_file_write(struct inode *i, struct file *f, char *buf, int count)
+static int mario_file_write_at(struct inode *i, char *buf, int count,
+			       off64_t *position, int append)
 {
 	int n, block, nr, nth, res = 0, ret = 0;
 	unsigned int start, end, write;
 	struct buffer_head *bh = NULL;
 
-	if (!i)
+	if (!i || !position)
 		return -EINVAL;
 	if (!S_ISREG(i->i_mode))
+		return -EINVAL;
+	if (*position < 0 || count < 0)
 		return -EINVAL;
 
 	down(&i->i_sem);
 
-	if (f->f_flags & O_APPEND)
+	if (append)
 		start = i->i_size;
-	else
-		start = f->f_pos;
+	else if ((uint64_t)*position <= 0xffffffffU)
+		start = *position;
+	else {
+		ret = -EFBIG;
+		goto tail_3;
+	}
+	if ((uint64_t)count > 0xffffffffU - start) {
+		ret = -EFBIG;
+		goto tail_3;
+	}
 	end = start + count;
 	if (!i->i_nr_block) {	/* empty file? */
 		if ((ret = mario_get_block(i->i_sb, 1, &block, &block)))
@@ -273,7 +290,6 @@ write_a_block:
 	res += write;
 	buf += write;
 	start += write;
-	f->f_pos += write;
 	if (start == end)
 		goto tail_1;
 new_block:
@@ -295,11 +311,13 @@ next_1:
 tail_1:
 	brelse(bh);
 tail_2:
-	if (i->i_size < f->f_pos)
-		i->i_size = f->f_pos;
+	if (i->i_size < start)
+		i->i_size = start;
 	set_bit(I_Dirty, &i->i_state);
 tail_3:
 	up(&i->i_sem);
+	if (res)
+		*position = start;
 	if (ret && res == 0)
 		return ret;
 
@@ -310,9 +328,28 @@ tail_3:
 	return res;
 }
 
+int mario_file_write(struct inode *i, struct file *f, char *buf, int count)
+{
+	off64_t position = f->f_pos;
+	int result = mario_file_write_at(i, buf, count, &position,
+					 !!(f->f_flags & O_APPEND));
+
+	if (result > 0)
+		f->f_pos = position;
+	return result;
+}
+
+static int mario_file_write_positional(struct inode *i, struct file *f,
+				       char *buf, int count, off64_t *position)
+{
+	return mario_file_write_at(i, buf, count, position, 0);
+}
+
 struct file_operations mario_file_fops = {
 	.read = mario_file_read,
+	.read_at = mario_file_read_at,
 	.read_page = mario_file_read_page,
 	.write = mario_file_write,
+	.write_at = mario_file_write_positional,
 	.mmap = generic_file_mmap,
 };

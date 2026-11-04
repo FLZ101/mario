@@ -193,8 +193,12 @@ struct file_operations {
 	void (*release)(struct inode *, struct file *);
 	int (*lseek)(struct inode *, struct file *, off_t, int);
 	int (*read)(struct inode *, struct file *, char *, int);
+	/* Positional operations advance only the caller-provided position. */
+	int (*read_at)(struct inode *, struct file *, char *, int, off64_t *);
 	int (*read_page)(struct inode *, off64_t, char *, unsigned long);
 	int (*write)(struct inode *, struct file *, char *, int);
+	/* Unlike write(), write_at() must not apply O_APPEND or change f_pos. */
+	int (*write_at)(struct inode *, struct file *, char *, int, off64_t *);
 	int (*readdir)(struct inode *, struct file *, void *, filldir_t);
 	int (*mmap)(struct inode *, struct file *, struct vm_area_struct *);
 	int (*ioctl)(struct inode *, struct file *, unsigned int, unsigned long);
@@ -248,6 +252,8 @@ int open_namei(char *, int, struct inode **,struct inode *);
 
 int generic_file_mmap(struct inode *, struct file *, struct vm_area_struct *);
 int generic_file_read(struct inode *, struct file *, char *, int);
+int generic_file_read_at(struct inode *, struct file *, char *, int,
+			 off64_t *);
 int filemap_get_page(struct file *, off64_t, enum filemap_access_kind,
 		     unsigned long *);
 void filemap_update_cached_range(struct inode *, off64_t, const char *,

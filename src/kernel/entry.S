@@ -619,8 +619,8 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_rt_sigtimedwait */
 	.long sys_not_exist /* SYS_rt_sigqueueinfo */
 	.long sys_sigsuspend /* SYS_rt_sigsuspend */
-	.long sys_not_exist /* SYS_pread64 */
-	.long sys_not_exist /* SYS_pwrite64 */
+	.long sys_pread64
+	.long sys_pwrite64
 	.long sys_chown
 	.long sys_getcwd
 	.long sys_not_exist /* SYS_capget */
