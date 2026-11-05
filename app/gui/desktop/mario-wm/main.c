@@ -23,6 +23,8 @@
 #define WM_READY_PATH "/tmp/mario-wm.ready"
 #define WM_FRAME_PATH "/tmp/mario-wm.frame"
 #define WM_CLIENT_LIMIT 8
+#define WM_SHELL_PATH "/usr/bin/mario-desktop"
+#define WM_SHELL_FD 3
 
 static volatile sig_atomic_t stop_requested;
 
@@ -61,6 +63,7 @@ typedef struct wm_client {
 	int fd;
 	int hello;
 	int focused;
+	gui_protocol_endpoint_role role;
 	uint32_t window_id;
 	uint32_t width;
 	uint32_t height;
@@ -152,6 +155,28 @@ static void client_destroy(wm_client *client)
 	gui_protocol_input_destroy(client->input);
 	gui_protocol_output_destroy(client->output);
 	*client = (wm_client) { .fd = -1 };
+}
+
+static wm_client *wm_add_client(wm_server *server, int fd,
+				gui_protocol_endpoint_role role)
+{
+	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+		wm_client *client = &server->clients[index];
+
+		if (client->fd >= 0)
+			continue;
+		*client = (wm_client) { .fd = fd, .role = role,
+			.input = gui_protocol_input_create(),
+			.output = gui_protocol_output_create(GUI_PROTOCOL_OUTPUT_LIMIT),
+			.server = server };
+		if (client->input == NULL || client->output == NULL) {
+			client_destroy(client);
+			return NULL;
+		}
+		return client;
+	}
+	close(fd);
+	return NULL;
 }
 
 static int surface_bytes(uint32_t width, uint32_t height, size_t *bytes)
@@ -401,6 +426,12 @@ static wm_client *wm_next_focus(wm_server *server)
 
 static void wm_disconnect_client(wm_server *server, wm_client *client)
 {
+	if (client->role == GUI_PROTOCOL_ENDPOINT_SHELL) {
+		/* M3.4.1 has no desktop snapshot yet, so an unready shell ends the session. */
+		client_destroy(client);
+		stop_requested = 1;
+		return;
+	}
 	if (server->input_owner == client) {
 		/* The peer is gone, but clearing ownership prevents state leakage. */
 		wm_set_input_owner(server, NULL);
@@ -493,6 +524,14 @@ static void client_message(void *context, const gui_protocol_header *header,
 			client->hello = -1;
 		return;
 	}
+	if (header->type == GUI_PROTOCOL_DESKTOP_CREATE &&
+	    payload_bytes == sizeof(gui_protocol_wire_desktop_create)) {
+		if (client->role != GUI_PROTOCOL_ENDPOINT_SHELL)
+			client_reject(client, GUI_PROTOCOL_DESKTOP_CREATE, -EPERM);
+		else
+			client->hello = -1;
+		return;
+	}
 	if (header->type == GUI_PROTOCOL_WINDOW_DESTROY && payload_bytes == 4 &&
 	    get_u32(bytes) == client->window_id) {
 		if (client->server->input_owner == client)
@@ -560,6 +599,51 @@ static int bind_listener(void)
 	return listener;
 }
 
+static void shell_exec(int fd)
+{
+	if (fd != WM_SHELL_FD) {
+		if (dup2(fd, WM_SHELL_FD) < 0)
+			_exit(127);
+		close(fd);
+	}
+	/* Standard streams are diagnostics; fd 3 is the shell's only capability. */
+	for (int inherited_fd = WM_SHELL_FD + 1; inherited_fd < 1024;
+	     inherited_fd++)
+		close(inherited_fd);
+	execl(WM_SHELL_PATH, WM_SHELL_PATH, "--wm-fd=3", NULL);
+	_exit(127);
+}
+
+static int wm_start_shell(wm_server *server)
+{
+	int fds[2];
+	int flags;
+	pid_t pid;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) < 0)
+		return -1;
+	flags = fcntl(fds[0], F_GETFL);
+	if (flags < 0 || fcntl(fds[0], F_SETFL, flags | O_NONBLOCK) < 0) {
+		close(fds[0]);
+		close(fds[1]);
+		return -1;
+	}
+	pid = fork();
+	if (pid < 0) {
+		close(fds[0]);
+		close(fds[1]);
+		return -1;
+	}
+	if (pid == 0) {
+		close(fds[0]);
+		shell_exec(fds[1]);
+	}
+	close(fds[1]);
+	if (wm_add_client(server, fds[0], GUI_PROTOCOL_ENDPOINT_SHELL) == NULL)
+		return -1;
+	return 0;
+}
+
 int main(void)
 {
 	struct sigaction action = { .sa_handler = request_stop };
@@ -588,6 +672,11 @@ int main(void)
 	server.state.listener = bind_listener();
 	if (server.state.listener < 0)
 		goto out;
+	printf("mario-wm: listening\n");
+	fflush(stdout);
+	/* The public listener is ready before the private shell may start. */
+	if (wm_start_shell(&server) < 0)
+		goto out;
 	if (create_started_marker() < 0)
 		goto out;
 	/* Socket write failures are handled per-client by the output queue. */
@@ -595,8 +684,6 @@ int main(void)
 	    sigaction(SIGINT, &action, NULL) < 0 ||
 	    sigaction(SIGPIPE, &ignore_pipe, NULL) < 0)
 		goto out;
-	printf("mario-wm: listening\n");
-	fflush(stdout);
 	while (!stop_requested) {
 		int ready;
 		size_t poll_count = 3;
@@ -674,22 +761,9 @@ int main(void)
 			int fd = accept4(server.state.listener, NULL, NULL, SOCK_NONBLOCK);
 
 			if (fd >= 0) {
-				for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
-					if (server.clients[index].fd >= 0)
-						continue;
-					/* A new fd joins only the next poll snapshot. */
-					server.clients[index] = (wm_client) { .fd = fd,
-						.input = gui_protocol_input_create(),
-						.output = gui_protocol_output_create(GUI_PROTOCOL_OUTPUT_LIMIT),
-						.server = &server };
-					if (server.clients[index].input == NULL ||
-					    server.clients[index].output == NULL)
-						client_destroy(&server.clients[index]);
-					fd = -1;
-					break;
-				}
-				if (fd >= 0)
-					close(fd);
+				/* A public peer can never acquire the private shell role. */
+				(void)wm_add_client(&server, fd,
+					GUI_PROTOCOL_ENDPOINT_ORDINARY);
 			}
 		}
 	}

@@ -681,7 +681,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
   nonduplicate `SURFACE_DATA` rows and a matching `SURFACE_COMMIT`; retain the
   old frame on failure/disconnect. Test gaps, stale serials, and one visible
   update golden. Commit: `gui: commit client surfaces atomically`.
-- [ ] **M3.4.1 — start the private shell client.** After the public listener is
+- [x] **M3.4.1 — start the private shell client.** After the public listener is
   ready, create a `socketpair()`, mark the server endpoint as the sole shell
   capability, and `exec` `mario-desktop --wm-fd=3` with only its connected fd
   3. Test that public clients cannot claim the role and no client receives raw

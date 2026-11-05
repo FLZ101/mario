@@ -1,0 +1,12 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+GUI-SEND-KEY: f8
+GUI-CHECK-RECT: 0 0 1024 768 0 0 0
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+SERIAL: /usr/bin/gui-wm-client --public-shell-only
+SERIAL-CHECK: wm-client: public shell denied
+SERIAL: kill $(pgrep mario-desktop); while test -e /tmp/mario-wm.started; do sleep 1; done
+SERIAL: test ! -e /tmp/mario-wm.sock && test ! -e /tmp/mario-wm.ready && test ! -e /tmp/mario-wm.frame && echo wm-shell: initial failure cleaned up
+SERIAL-CHECK: wm-shell: initial failure cleaned up
+EXIT:

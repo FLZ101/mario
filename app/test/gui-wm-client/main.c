@@ -69,8 +69,7 @@ static int connect_client(void)
 	return fd;
 }
 
-static void create_window(int fd, uint32_t request_id, uint32_t width,
-			  uint32_t height)
+static void hello(int fd)
 {
 	uint8_t frame[64];
 
@@ -79,6 +78,14 @@ static void create_window(int fd, uint32_t request_id, uint32_t width,
 			GUI_PROTOCOL_VERSION_MINOR }) == 0);
 	assert(write(fd, frame, 12) == 12);
 	read_frame(fd, frame, GUI_PROTOCOL_HELLO_REPLY);
+}
+
+static void create_window(int fd, uint32_t request_id, uint32_t width,
+			  uint32_t height)
+{
+	uint8_t frame[64];
+
+	hello(fd);
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_CREATE,
 				  sizeof(gui_protocol_wire_window_create)) == 0);
 	memset(frame + GUI_PROTOCOL_HEADER_SIZE, 0,
@@ -202,6 +209,22 @@ static void test_commit(void)
 	close(fd);
 }
 
+static void test_public_shell(void)
+{
+	uint8_t frame[sizeof(gui_protocol_wire_header) +
+		      sizeof(gui_protocol_wire_desktop_create)];
+	int fd = connect_client();
+
+	hello(fd);
+	assert(gui_protocol_encode_header(frame, sizeof(frame),
+		GUI_PROTOCOL_DESKTOP_CREATE,
+		sizeof(gui_protocol_wire_desktop_create)) == 0);
+	put32(frame + GUI_PROTOCOL_HEADER_SIZE, 1);
+	assert(write(fd, frame, sizeof(frame)) == sizeof(frame));
+	read_error(fd, -EPERM, GUI_PROTOCOL_DESKTOP_CREATE);
+	close(fd);
+}
+
 int main(int argc, char **argv)
 {
 	uint8_t frame[64];
@@ -209,14 +232,18 @@ int main(int argc, char **argv)
 	int second;
 
 	assert(argc == 1 || (argc == 2 && (!strcmp(argv[1], "--surface-only") ||
-		!strcmp(argv[1], "--commit-only"))));
+		!strcmp(argv[1], "--commit-only") ||
+		!strcmp(argv[1], "--public-shell-only"))));
 	if (argc == 2) {
 		if (!strcmp(argv[1], "--surface-only")) {
 			test_staging();
 			puts("wm-client: staging ok");
-		} else {
+		} else if (!strcmp(argv[1], "--commit-only")) {
 			test_commit();
 			puts("wm-client: commit ok");
+		} else {
+			test_public_shell();
+			puts("wm-client: public shell denied");
 		}
 		return 0;
 	}
