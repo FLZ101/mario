@@ -3,3 +3,4 @@ CHECK: gui-protocol: header ok
 CHECK: gui-protocol: hello ok
 CHECK: gui-protocol: roles ok
 CHECK: gui-protocol: input ok
+CHECK: gui-protocol: output ok

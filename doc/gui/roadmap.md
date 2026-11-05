@@ -658,7 +658,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
 - [x] **M3.1.2 — reassemble framed input.** Implement fragmented receive,
   message-size limits, and bounded per-client input buffering. Test split,
   oversized, malformed, and EOF frames. Commit: `gui: reassemble protocol input`.
-- [ ] **M3.1.3 — queue framed output.** Add one bounded nonblocking send queue
+- [x] **M3.1.3 — queue framed output.** Add one bounded nonblocking send queue
   per endpoint with `POLLOUT` continuation and motion coalescing. Test short
   sends, queue exhaustion, and ordering. Commit: `gui: queue protocol output`.
 - [ ] **M3.2.1 — start `mario-wm` as sole seat owner.** Install the server,

@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <gui/protocol.h>
 
@@ -118,6 +119,107 @@ static void test_input_errors_and_drain_limit(void)
 	gui_protocol_input_destroy(input);
 }
 
+typedef struct {
+	const ssize_t *results;
+	size_t result_count;
+	size_t result_index;
+	uint8_t bytes[128];
+	size_t byte_count;
+} output_log;
+
+static ssize_t record_output(void *context, const void *bytes, size_t byte_count)
+{
+	output_log *log = context;
+	ssize_t result;
+
+	assert(log->result_index < log->result_count);
+	result = log->results[log->result_index++];
+	if (result < 0) {
+		errno = (int)-result;
+		return -1;
+	}
+	assert((size_t)result <= byte_count);
+	memcpy(log->bytes + log->byte_count, bytes, (size_t)result);
+	log->byte_count += (size_t)result;
+	return result;
+}
+
+static void make_frame(uint8_t *frame, gui_protocol_type type, uint8_t marker)
+{
+	assert(gui_protocol_encode_header(frame, GUI_PROTOCOL_HEADER_SIZE + 1, type,
+				  1) == 0);
+	frame[GUI_PROTOCOL_HEADER_SIZE] = marker;
+}
+
+static void test_output_short_sends_and_order(void)
+{
+	uint8_t first[GUI_PROTOCOL_HEADER_SIZE + 1];
+	uint8_t second[GUI_PROTOCOL_HEADER_SIZE + 1];
+	const ssize_t first_results[] = { 3, -EINTR, 2, -EAGAIN };
+	const ssize_t second_results[] = { 4, 9 };
+	output_log first_log = { .results = first_results,
+		.result_count = sizeof(first_results) / sizeof(first_results[0]) };
+	output_log second_log = { .results = second_results,
+		.result_count = sizeof(second_results) / sizeof(second_results[0]) };
+	gui_protocol_output *output = gui_protocol_output_create(32);
+
+	assert(output != NULL);
+	make_frame(first, GUI_PROTOCOL_WINDOW_RAISE, 'a');
+	make_frame(second, GUI_PROTOCOL_APP_READY, 'b');
+	assert(gui_protocol_output_enqueue(output, first, sizeof(first)) == 0);
+	assert(gui_protocol_output_enqueue(output, second, sizeof(second)) == 0);
+	assert(gui_protocol_output_flush(output, record_output, &first_log) ==
+	       GUI_PROTOCOL_OUTPUT_BLOCKED);
+	assert(first_log.byte_count == 5);
+	assert(gui_protocol_output_flush(output, record_output, &second_log) ==
+	       GUI_PROTOCOL_OUTPUT_EMPTY);
+	assert(second_log.byte_count == sizeof(first) + sizeof(second) - 5);
+	assert(memcmp(first_log.bytes, first, 5) == 0);
+	assert(memcmp(second_log.bytes, first + 5, sizeof(first) - 5) == 0);
+	assert(memcmp(second_log.bytes + sizeof(first) - 5, second,
+		      sizeof(second)) == 0);
+	gui_protocol_output_destroy(output);
+}
+
+static void test_output_motion_coalescing_and_exhaustion(void)
+{
+	uint8_t motion_one[GUI_PROTOCOL_HEADER_SIZE + 1];
+	uint8_t motion_two[GUI_PROTOCOL_HEADER_SIZE + 1];
+	uint8_t key[GUI_PROTOCOL_HEADER_SIZE + 1];
+	uint8_t motion_three[GUI_PROTOCOL_HEADER_SIZE + 1];
+	uint8_t motion_four[GUI_PROTOCOL_HEADER_SIZE + 1];
+	const ssize_t results[] = { 9, 9, 9 };
+	output_log log = { .results = results,
+		.result_count = sizeof(results) / sizeof(results[0]) };
+	gui_protocol_output *output = gui_protocol_output_create(27);
+
+	assert(output != NULL);
+	make_frame(motion_one, GUI_PROTOCOL_INPUT_EVENT, '1');
+	make_frame(motion_two, GUI_PROTOCOL_INPUT_EVENT, '2');
+	make_frame(key, GUI_PROTOCOL_INPUT_EVENT, 'k');
+	make_frame(motion_three, GUI_PROTOCOL_INPUT_EVENT, '3');
+	make_frame(motion_four, GUI_PROTOCOL_INPUT_EVENT, '4');
+	assert(gui_protocol_output_enqueue_motion(output, motion_one,
+					  sizeof(motion_one)) == 0);
+	assert(gui_protocol_output_enqueue_motion(output, motion_two,
+					  sizeof(motion_two)) == 0);
+	assert(gui_protocol_output_enqueue(output, key, sizeof(key)) == 0);
+	assert(gui_protocol_output_enqueue_motion(output, motion_three,
+					  sizeof(motion_three)) == 0);
+	assert(gui_protocol_output_enqueue_motion(output, motion_four,
+					  sizeof(motion_four)) == 0);
+	assert(gui_protocol_output_enqueue(output, key, sizeof(key)) == -1);
+	assert(errno == ENOBUFS);
+	assert(gui_protocol_output_flush(output, record_output, &log) ==
+	       GUI_PROTOCOL_OUTPUT_EMPTY);
+	assert(log.byte_count == 27);
+	assert(memcmp(log.bytes, motion_two, sizeof(motion_two)) == 0);
+	assert(memcmp(log.bytes + sizeof(motion_two), key, sizeof(key)) == 0);
+	assert(memcmp(log.bytes + sizeof(motion_two) + sizeof(key), motion_four,
+		      sizeof(motion_four)) == 0);
+	gui_protocol_output_destroy(output);
+}
+
 int main(void)
 {
 	test_header();
@@ -125,9 +227,12 @@ int main(void)
 	test_endpoint_roles_are_server_assigned();
 	test_fragmented_input();
 	test_input_errors_and_drain_limit();
+	test_output_short_sends_and_order();
+	test_output_motion_coalescing_and_exhaustion();
 	puts("gui-protocol: header ok");
 	puts("gui-protocol: hello ok");
 	puts("gui-protocol: roles ok");
 	puts("gui-protocol: input ok");
+	puts("gui-protocol: output ok");
 	return 0;
 }

@@ -3,12 +3,14 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #define GUI_PROTOCOL_VERSION_MAJOR 1U
 #define GUI_PROTOCOL_VERSION_MINOR 0U
 #define GUI_PROTOCOL_HEADER_SIZE 8U
 #define GUI_PROTOCOL_MIN_MESSAGE_SIZE GUI_PROTOCOL_HEADER_SIZE
 #define GUI_PROTOCOL_MAX_MESSAGE_SIZE 65536U
+#define GUI_PROTOCOL_OUTPUT_LIMIT 65536U
 #define GUI_PROTOCOL_MAX_TITLE_BYTES 256U
 #define GUI_PROTOCOL_MAX_PATH_BYTES 1024U
 
@@ -205,10 +207,20 @@ typedef struct {
 } gui_protocol_hello;
 
 typedef struct gui_protocol_input gui_protocol_input;
+typedef struct gui_protocol_output gui_protocol_output;
 
 typedef void (*gui_protocol_message_fn)(void *context,
 					const gui_protocol_header *header,
 					const void *payload, size_t payload_bytes);
+
+typedef ssize_t (*gui_protocol_write_fn)(void *context, const void *bytes,
+					 size_t byte_count);
+
+typedef enum {
+	GUI_PROTOCOL_OUTPUT_ERROR = -1,
+	GUI_PROTOCOL_OUTPUT_EMPTY,
+	GUI_PROTOCOL_OUTPUT_BLOCKED,
+} gui_protocol_output_result;
 
 _Static_assert(sizeof(gui_protocol_wire_header) == GUI_PROTOCOL_HEADER_SIZE,
 	       "GUI protocol header size");
@@ -237,5 +249,13 @@ int gui_protocol_input_append(gui_protocol_input *input, const void *bytes,
 void gui_protocol_input_finish(gui_protocol_input *input);
 int gui_protocol_input_drain(gui_protocol_input *input,
 				     gui_protocol_message_fn callback, void *context);
+gui_protocol_output *gui_protocol_output_create(size_t byte_limit);
+void gui_protocol_output_destroy(gui_protocol_output *output);
+int gui_protocol_output_enqueue(gui_protocol_output *output,
+				const void *message, size_t byte_count);
+int gui_protocol_output_enqueue_motion(gui_protocol_output *output,
+				       const void *message, size_t byte_count);
+gui_protocol_output_result gui_protocol_output_flush(
+	gui_protocol_output *output, gui_protocol_write_fn writer, void *context);
 
 #endif
