@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stddef.h>
@@ -15,6 +16,7 @@
 #include <mario/input.h>
 #include <gui/input.h>
 #include <gui/protocol.h>
+#include <gui/surface.h>
 
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
 #define WM_STARTED_PATH "/tmp/mario-wm.started"
@@ -45,6 +47,11 @@ typedef struct {
 	int listener;
 	int owns_status;
 	int graphics;
+	uint32_t width;
+	uint32_t height;
+	size_t frame_bytes;
+	size_t surface_limit;
+	size_t surface_bytes;
 } wm_state;
 
 typedef struct wm_server wm_server;
@@ -54,6 +61,12 @@ typedef struct wm_client {
 	int hello;
 	int focused;
 	uint32_t window_id;
+	uint32_t width;
+	uint32_t height;
+	uint64_t configure_serial;
+	uint64_t staging_frame_serial;
+	size_t staging_bytes;
+	gui_surface *staging;
 	gui_protocol_input *input;
 	gui_protocol_output *output;
 	wm_server *server;
@@ -77,6 +90,15 @@ static uint32_t get_u32(const uint8_t *bytes)
 	       (uint32_t)bytes[2] << 16 | (uint32_t)bytes[3] << 24;
 }
 
+static uint64_t get_u64(const uint8_t *bytes)
+{
+	uint64_t value = 0;
+
+	for (unsigned int index = 0; index < 8; index++)
+		value |= (uint64_t)bytes[index] << (index * 8);
+	return value;
+}
+
 static void put_u16(uint8_t *bytes, uint16_t value)
 {
 	bytes[0] = value;
@@ -95,13 +117,53 @@ static void put_u64(uint8_t *bytes, uint64_t value)
 		bytes[index] = value >> (index * 8);
 }
 
+static void client_discard_staging(wm_client *client)
+{
+	if (client->staging != NULL) {
+		client->server->state.surface_bytes -= client->staging_bytes;
+		gui_surface_destroy(client->staging);
+		client->staging = NULL;
+		client->staging_bytes = 0;
+		client->staging_frame_serial = 0;
+	}
+}
+
 static void client_destroy(wm_client *client)
 {
 	if (client->fd >= 0)
 		close(client->fd);
+	client_discard_staging(client);
 	gui_protocol_input_destroy(client->input);
 	gui_protocol_output_destroy(client->output);
 	*client = (wm_client) { .fd = -1 };
+}
+
+static int surface_bytes(uint32_t width, uint32_t height, size_t *bytes)
+{
+	size_t pixels;
+
+	if (width == 0 || height == 0 || width > INT_MAX || height > INT_MAX)
+		return -1;
+	pixels = width;
+	if (pixels > SIZE_MAX / height || pixels * height > SIZE_MAX / sizeof(gui_color))
+		return -1;
+	*bytes = pixels * height * sizeof(gui_color);
+	return 0;
+}
+
+static int wm_init_surface_budget(wm_state *state)
+{
+	struct fb_var_screeninfo info;
+
+	if (ioctl(state->framebuffer, FBIOGET_VSCREENINFO, &info) < 0 ||
+	    surface_bytes(info.xres, info.yres, &state->frame_bytes) < 0 ||
+	    state->frame_bytes > SIZE_MAX - state->frame_bytes / 2)
+		return -1;
+	state->width = info.xres;
+	state->height = info.yres;
+	/* Keep one-and-a-half extra scanout frames for in-flight client updates. */
+	state->surface_limit = state->frame_bytes + state->frame_bytes / 2;
+	return 0;
 }
 
 static int client_enqueue(wm_client *client, gui_protocol_type type,
@@ -123,6 +185,59 @@ static int client_enqueue(wm_client *client, gui_protocol_type type,
 	result = gui_protocol_output_enqueue(client->output, frame, length);
 	free(frame);
 	return result;
+}
+
+static void client_reject(wm_client *client, gui_protocol_type failed_type,
+			  int status)
+{
+	uint8_t error[sizeof(gui_protocol_wire_error)];
+
+	put_u32(error, (uint32_t)status);
+	put_u16(error + 4, failed_type);
+	put_u16(error + 6, 0);
+	if (client_enqueue(client, GUI_PROTOCOL_ERROR, error, sizeof(error)) < 0)
+		client->hello = -1;
+}
+
+static int client_stage_surface(wm_client *client, const uint8_t *bytes)
+{
+	wm_state *state = &client->server->state;
+	uint32_t window_id = get_u32(bytes);
+	uint64_t configure_serial = get_u64(bytes + 4);
+	uint64_t frame_serial = get_u64(bytes + 12);
+	int32_t x = (int32_t)get_u32(bytes + 20);
+	int32_t y = (int32_t)get_u32(bytes + 24);
+	uint32_t width = get_u32(bytes + 28);
+	uint32_t height = get_u32(bytes + 32);
+	size_t bytes_needed;
+	gui_surface *surface;
+
+	if (window_id != client->window_id ||
+	    configure_serial != client->configure_serial || frame_serial == 0 ||
+	    x != 0 || y != 0 || width != client->width || height != client->height ||
+	    surface_bytes(width, height, &bytes_needed) < 0 ||
+	    bytes_needed > state->frame_bytes) {
+		client_reject(client, GUI_PROTOCOL_SURFACE_BEGIN, -EINVAL);
+		return 0;
+	}
+	if (client->staging != NULL) {
+		client_reject(client, GUI_PROTOCOL_SURFACE_BEGIN, -EBUSY);
+		return 0;
+	}
+	if (bytes_needed > state->surface_limit - state->surface_bytes) {
+		client_reject(client, GUI_PROTOCOL_SURFACE_BEGIN, -ENOMEM);
+		return 0;
+	}
+	surface = gui_surface_create((int)width, (int)height);
+	if (surface == NULL) {
+		client_reject(client, GUI_PROTOCOL_SURFACE_BEGIN, -ENOMEM);
+		return 0;
+	}
+	client->staging = surface;
+	client->staging_bytes = bytes_needed;
+	client->staging_frame_serial = frame_serial;
+	state->surface_bytes += bytes_needed;
+	return 0;
 }
 
 static ssize_t client_write(void *context, const void *bytes, size_t byte_count)
@@ -259,6 +374,9 @@ static void client_message(void *context, const gui_protocol_header *header,
 	    payload_bytes == sizeof(gui_protocol_wire_window_create) + get_u16(bytes + 12) &&
 	    get_u32(bytes + 4) != 0 && get_u32(bytes + 8) != 0) {
 		client->window_id = 1;
+		client->width = get_u32(bytes + 4);
+		client->height = get_u32(bytes + 8);
+		client->configure_serial = 1;
 		put_u32(reply, get_u32(bytes));
 		put_u32(reply + 4, client->window_id);
 		put_u64(reply + 8, 1);
@@ -271,10 +389,17 @@ static void client_message(void *context, const gui_protocol_header *header,
 			wm_set_input_owner(client->server, client);
 		return;
 	}
+	if (header->type == GUI_PROTOCOL_SURFACE_BEGIN &&
+	    payload_bytes == sizeof(gui_protocol_wire_surface_begin)) {
+		if (client_stage_surface(client, bytes) < 0)
+			client->hello = -1;
+		return;
+	}
 	if (header->type == GUI_PROTOCOL_WINDOW_DESTROY && payload_bytes == 4 &&
 	    get_u32(bytes) == client->window_id) {
 		if (client->server->input_owner == client)
 			wm_set_input_owner(client->server, NULL);
+		client_discard_staging(client);
 		client->window_id = 0;
 		return;
 	}
@@ -352,6 +477,8 @@ int main(void)
 	/* Acquire both descriptors before F8 may expose the graphics seat. */
 	server.state.framebuffer = open("/dev/fb0", O_RDWR);
 	if (server.state.framebuffer < 0)
+		goto out;
+	if (wm_init_surface_budget(&server.state) < 0)
 		goto out;
 	server.state.gui = open("/dev/gui", O_RDONLY | O_NONBLOCK);
 	if (server.state.gui < 0)

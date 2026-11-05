@@ -674,7 +674,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
 - [x] **M3.2.4 — reset input at ownership boundaries.** Deliver ordered
   `INPUT_RESET` on focus, grab, disconnect, and seat changes before later
   events. Unit test exact ordering. Commit: `gui: reset client input state`.
-- [ ] **M3.3.1 — stage client surfaces.** Validate dimensions against scanout
+- [x] **M3.3.1 — stage client surfaces.** Validate dimensions against scanout
   budgets and accept only a configured `SURFACE_BEGIN`. Test malicious
   dimensions and allocation exhaustion. Commit: `gui: stage client surfaces`.
 - [ ] **M3.3.2 — transfer and commit client frames.** Require ordered,
