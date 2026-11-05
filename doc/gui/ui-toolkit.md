@@ -67,6 +67,8 @@ typedef struct {
     int count;
     int capacity;
     gui_region_rect *rects;
+    gui_rect bounds;
+    int full;
 } gui_region;
 
 typedef struct gui_font gui_font;
@@ -156,6 +158,8 @@ void         gui_line_v(gui_surface *s, int x, int y, int h, gui_color c);
 void         gui_draw_rect(gui_surface *s, gui_rect r, gui_color c);
 void         gui_draw_text(gui_surface *s, int x, int y,
                            gui_font *font, const char *utf8, gui_color fg);
+void         gui_region_init(gui_region *region, gui_region_rect *rects,
+                             int capacity, gui_rect bounds);
 void         gui_region_add(gui_region *region, gui_rect r);
 void         gui_region_clear(gui_region *region);
 ```
@@ -172,8 +176,8 @@ Clipping and damage rules:
 - Damage regions are merged before compositing. Overlapping rectangles may be
   coalesced if their union does not exceed twice the sum of their areas.
 - A region holds at most 64 rectangles. Adding a 65th rectangle replaces the
-  list with the clipped bounding rectangle, ensuring damage tracking remains
-  bounded.
+  list with the full region bounds and sets `full`, ensuring damage tracking
+  remains bounded. The caller supplies those bounds at initialization.
 - The compositor never reads damage regions from an app-owned surface after
   the app has modified it without taking the window lock; a bounded
   `SURFACE_BEGIN`/`SURFACE_DATA`/`SURFACE_COMMIT` transaction transfers each

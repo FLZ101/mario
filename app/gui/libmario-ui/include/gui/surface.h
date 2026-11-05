@@ -19,10 +19,31 @@ typedef struct {
 	gui_color *pixels;
 } gui_surface;
 
+#define GUI_REGION_MAX_RECTS 64
+
+typedef struct {
+	int x;
+	int y;
+	int width;
+	int height;
+} gui_region_rect;
+
+typedef struct {
+	int count;
+	int capacity;
+	gui_region_rect *rects;
+	gui_rect bounds;
+	int full;
+} gui_region;
+
 gui_surface *gui_surface_create(int width, int height);
 void gui_surface_destroy(gui_surface *surface);
 void gui_fill_rect(gui_surface *surface, gui_rect rect, gui_color color);
 void gui_blit(gui_surface *destination, int destination_x, int destination_y,
 	      const gui_surface *source, const gui_rect *source_rect);
+void gui_region_init(gui_region *region, gui_region_rect *rects, int capacity,
+		     gui_rect bounds);
+void gui_region_add(gui_region *region, gui_rect rect);
+void gui_region_clear(gui_region *region);
 
 #endif

@@ -549,7 +549,7 @@ console/input: add graphics mode, /dev/gui, and /dev/psaux
   intersection, fill, and opaque blit without damage tracking. Unit test empty
   clips, all four edges, and overlapping source/destination regions. Commit:
   `gui: add clipped surface primitives`.
-- [ ] **M2.2.3 — add damage regions.** Introduce bounded/coalesced dirty
+- [x] **M2.2.3 — add damage regions.** Introduce bounded/coalesced dirty
   rectangles with a documented full-surface fallback when the list is full.
   Unit test merge order, containment, and fallback. Commit: `gui: track
   surface damage`.

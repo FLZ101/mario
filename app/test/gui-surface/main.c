@@ -46,6 +46,30 @@ static void test_blit_overlap(gui_surface *surface)
 	}
 }
 
+static void test_damage_region(void)
+{
+	gui_region_rect rects[GUI_REGION_MAX_RECTS];
+	gui_region region;
+
+	gui_region_init(&region, rects, GUI_REGION_MAX_RECTS,
+			(gui_rect) { 0, 0, 1000, 10 });
+	gui_region_add(&region, (gui_rect) { 1, 1, 2, 2 });
+	gui_region_add(&region, (gui_rect) { 3, 1, 2, 2 });
+	gui_region_add(&region, (gui_rect) { 2, 1, 1, 1 });
+	assert(region.count == 1);
+	assert(region.rects[0].x == 1 && region.rects[0].y == 1);
+	assert(region.rects[0].width == 4 && region.rects[0].height == 2);
+
+	gui_region_clear(&region);
+	for (int index = 0; index < GUI_REGION_MAX_RECTS; index++)
+		gui_region_add(&region, (gui_rect) { index * 2, 0, 1, 1 });
+	assert(region.count == GUI_REGION_MAX_RECTS);
+	gui_region_add(&region, (gui_rect) { 200, 0, 1, 1 });
+	assert(region.count == 1 && region.full);
+	assert(region.rects[0].x == 0 && region.rects[0].y == 0);
+	assert(region.rects[0].width == 1000 && region.rects[0].height == 10);
+}
+
 int main(void)
 {
 	gui_surface *surface;
@@ -71,8 +95,10 @@ int main(void)
 	test_fill_clipping(surface);
 	test_blit_overlap(surface);
 	gui_surface_destroy(surface);
+	test_damage_region();
 
 	puts("gui-surface: ok");
 	puts("gui-surface: drawing ok");
+	puts("gui-surface: damage ok");
 	return 0;
 }
