@@ -1,6 +1,6 @@
 # A frame file may disappear during an atomic WM rewrite.  The runner must
 # retain the pre-input snapshot and wait for a strictly newer replacement.
-SERIAL: rm -f /tmp/mario-wm.frame; echo 41 >/tmp/mario-wm.frame; (sleep 1; rm -f /tmp/mario-wm.frame; sleep 1; echo 42 >/tmp/mario-wm.frame) &
+SERIAL: rm -f /tmp/mario-wm.frame /tmp/mario-wm.frame.old; echo 41 >/tmp/mario-wm.frame; (sleep 1; mv /tmp/mario-wm.frame /tmp/mario-wm.frame.old; sleep 1; echo 42 >/tmp/mario-wm.frame; rm -f /tmp/mario-wm.frame.old) >/dev/null 2>&1 &
 GUI-SEND-KEY: f1
 GUI-WAIT-FRAME:
 SERIAL: cat /tmp/mario-wm.frame

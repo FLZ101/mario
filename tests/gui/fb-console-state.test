@@ -3,8 +3,9 @@ SERIAL: /usr/bin/test/fb-console-state.exe >/tmp/fb-state.log 2>&1 &
 SERIAL: sleep 1; cat /tmp/fb-state.log
 SERIAL-CHECK: fb-state: ready
 GUI-SEND-KEY: f8
-GUI-SEND-KEY: f6
-SERIAL: sleep 1; cat /tmp/fb-state.log
+SERIAL: while ! grep -q 'fb-state: 1' /tmp/fb-state.log; do sleep 1; done; cat /tmp/fb-state.log
 SERIAL-CHECK: fb-state: 1
+GUI-SEND-KEY: f6
+SERIAL: while ! grep -q 'fb-state: 0' /tmp/fb-state.log; do sleep 1; done; cat /tmp/fb-state.log
 SERIAL-CHECK: fb-state: 0
 EXIT:
