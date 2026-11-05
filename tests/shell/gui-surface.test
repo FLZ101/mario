@@ -2,3 +2,4 @@ RUN: /usr/bin/test/gui-surface.exe
 CHECK: gui-surface: ok
 CHECK: gui-surface: drawing ok
 CHECK: gui-surface: damage ok
+CHECK: gui-surface: flush ok

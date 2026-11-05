@@ -5,6 +5,8 @@
 
 #include <gui/surface.h>
 
+#include "surface-private.h"
+
 static int gui_surface_bytes(int width, int height, size_t *bytes)
 {
 	size_t pixels;
@@ -51,8 +53,8 @@ void gui_surface_destroy(gui_surface *surface)
 	free(surface);
 }
 
-static int gui_clip_rect(const gui_surface *surface, gui_rect rect,
-			 int *clipped_x, int *clipped_y, int *width, int *height)
+int gui_surface_clip_rect(const gui_surface *surface, gui_rect rect,
+			  int *clipped_x, int *clipped_y, int *width, int *height)
 {
 	int64_t x0 = rect.x;
 	int64_t y0 = rect.y;
@@ -86,7 +88,8 @@ void gui_fill_rect(gui_surface *surface, gui_rect rect, gui_color color)
 	int clipped_x;
 	int clipped_y;
 
-	if (!gui_clip_rect(surface, rect, &clipped_x, &clipped_y, &width, &height))
+	if (!gui_surface_clip_rect(surface, rect, &clipped_x, &clipped_y,
+				   &width, &height))
 		return;
 	for (int row = 0; row < height; row++) {
 		gui_color *pixels = surface->pixels +

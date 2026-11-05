@@ -162,6 +162,12 @@ void         gui_region_init(gui_region *region, gui_region_rect *rects,
                              int capacity, gui_rect bounds);
 void         gui_region_add(gui_region *region, gui_rect r);
 void         gui_region_clear(gui_region *region);
+gui_flush_result gui_surface_flush_rect(const gui_surface *s, gui_rect r,
+                                        size_t scanout_stride,
+                                        gui_pwrite64_fn pwrite64_fn,
+                                        void *context);
+gui_flush_result gui_surface_flush_rect_fd(const gui_surface *s, gui_rect r,
+                                           size_t scanout_stride, int fd);
 ```
 
 Clipping and damage rules:
@@ -178,6 +184,11 @@ Clipping and damage rules:
 - A region holds at most 64 rectangles. Adding a 65th rectangle replaces the
   list with the full region bounds and sets `full`, ensuring damage tracking
   remains bounded. The caller supplies those bounds at initialization.
+- `gui_surface_flush_rect()` clips a single rectangle and writes every row with
+  positional I/O. It retries short writes and `EINTR`; it returns
+  `GUI_FLUSH_BUSY` for `EBUSY` without changing damage, so the caller retains
+  and retries the complete original rectangle after the foreground transition.
+  Other I/O errors return `GUI_FLUSH_ERROR`.
 - The compositor never reads damage regions from an app-owned surface after
   the app has modified it without taking the window lock; a bounded
   `SURFACE_BEGIN`/`SURFACE_DATA`/`SURFACE_COMMIT` transaction transfers each

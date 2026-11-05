@@ -553,7 +553,7 @@ console/input: add graphics mode, /dev/gui, and /dev/psaux
   rectangles with a documented full-surface fallback when the list is full.
   Unit test merge order, containment, and fallback. Commit: `gui: track
   surface damage`.
-- [ ] **M2.3.1 — flush one damage rectangle.** Copy one clipped region with
+- [x] **M2.3.1 — flush one damage rectangle.** Copy one clipped region with
   `pwrite64()` and retain it when the framebuffer returns `EBUSY`. Test short
   writes and an interrupted copy through a mock sink. Commit: `gui: flush one
   damaged rectangle`.
