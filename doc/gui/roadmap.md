@@ -545,7 +545,7 @@ console/input: add graphics mode, /dev/gui, and /dev/psaux
   stride, explicit destruction, and overflow-safe dimension validation. Unit
   test zero, maximum, and allocation-failure dimensions. Commit: `gui: add
   owned software surfaces`.
-- [ ] **M2.2.2 — add clipped drawing primitives.** Implement rectangle
+- [x] **M2.2.2 — add clipped drawing primitives.** Implement rectangle
   intersection, fill, and opaque blit without damage tracking. Unit test empty
   clips, all four edges, and overlapping source/destination regions. Commit:
   `gui: add clipped surface primitives`.
