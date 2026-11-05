@@ -412,6 +412,13 @@ window manager. `poll()` uses a 16 ms timeout; every timeout produces one
 `GUI_EVENT_TIMER`. The first GUI does not require a timer fd, signal, or extra
 pipe.
 
+`gui_event_loop` owns generic `poll()` registrations and one-shot monotonic
+millisecond deadlines. `gui_event_loop_run_once()` snapshots ready fds, invokes
+their callbacks in registration order, then invokes due timers in registration
+order. Removing a handle suppresses any later callback from that same wake;
+sources registered by a callback begin on the next wake. These rules keep a
+callback free to remove itself or a later source without invalidating dispatch.
+
 On a `GUI_KEY_EVENT_OVERFLOW` or `PSAUX_EVENT_OVERFLOW` record, the event loop
 clears its corresponding pressed-key or mouse-button state before dispatching
 the record. On `/dev/fb0` `POLLPRI`, it clears both states and discards any

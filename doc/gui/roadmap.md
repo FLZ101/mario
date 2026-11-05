@@ -573,7 +573,7 @@ console/input: add graphics mode, /dev/gui, and /dev/psaux
   `/dev/psaux` records into toolkit events, including overflow reset, without a
   desktop policy. Test FIFO drain and reset ordering. Commit: `gui: normalize
   seat input events`.
-- [ ] **M2.5.2 — add the event-loop dispatcher.** Wrap `poll()` registrations,
+- [x] **M2.5.2 — add the event-loop dispatcher.** Wrap `poll()` registrations,
   timer deadlines, and callback removal; define callback ordering on one wake.
   Unit test wakeup, timer expiry, and self-removal. Commit: `gui: add event
   loop dispatcher`.

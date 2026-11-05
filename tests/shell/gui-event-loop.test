@@ -1,0 +1,5 @@
+RUN: /usr/bin/test/gui-event-loop.exe
+CHECK: gui-event-loop: wakeup ok
+CHECK: gui-event-loop: timer order ok
+CHECK: gui-event-loop: timer expiry ok
+CHECK: gui-event-loop: self removal ok
