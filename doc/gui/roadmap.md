@@ -541,7 +541,7 @@ console/input: add graphics mode, /dev/gui, and /dev/psaux
   copy/install rules, then use a smoke executable to open its face and report
   fixed metrics. Test the installed ramdisk path. Commit: `gui: install
   bundled font`.
-- [ ] **M2.2.1 — define `gui_surface` ownership.** Add XRGB8888 allocation,
+- [x] **M2.2.1 — define `gui_surface` ownership.** Add XRGB8888 allocation,
   stride, explicit destruction, and overflow-safe dimension validation. Unit
   test zero, maximum, and allocation-failure dimensions. Commit: `gui: add
   owned software surfaces`.

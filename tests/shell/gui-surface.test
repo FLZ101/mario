@@ -1,0 +1,2 @@
+RUN: /usr/bin/test/gui-surface.exe
+CHECK: gui-surface: ok

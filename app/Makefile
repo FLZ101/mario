@@ -5,8 +5,8 @@ SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/musl/*/main.c))
 
 SHELL := /bin/bash
 
-.PHONY: all example usr check
-.PHONY: clean clean-example clean-usr
+.PHONY: all example gui usr check
+.PHONY: clean clean-example clean-gui clean-usr
 
 ROOT := $(shell pwd)
 export ROOT
@@ -17,13 +17,19 @@ unexport SMP BOOT_ENTRY
 
 all: example | check
 
-example: usr
+example: usr gui
 	@set -e ; for x in $(SUBDIRS) ; do $(MAKE) all -C $$x -f $(ROOT)/Makefile.in; done
 
-clean: clean-example
+clean: clean-example clean-gui
 
 clean-example:
 	@set -e ; for x in $(SUBDIRS) ; do $(MAKE) clean -C $$x -f $(ROOT)/Makefile.in; done
+
+gui:
+	$(MAKE) -C gui/libmario-ui
+
+clean-gui:
+	$(MAKE) -C gui/libmario-ui clean
 
 check:
 	@$(CC) --mario-verify
