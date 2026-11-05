@@ -66,6 +66,14 @@ class GuiDirectiveParserTests(unittest.TestCase):
         with self.assertRaises(GuiTestError):
             self.parse("GUI-VISUAL-TEST: desktop")
 
+    def test_parses_and_validates_serial_wait_file(self) -> None:
+        test = self.parse("SERIAL-WAIT-FILE: /tmp/gui.ready")
+        self.assertIn(("serial-wait-file", "/tmp/gui.ready"), test.actions)
+        for value in ("", "tmp/gui.ready"):
+            with self.subTest(value=value):
+                with self.assertRaises(GuiTestError):
+                    self.parse(f"SERIAL-WAIT-FILE: {value}")
+
     def test_accepts_marked_and_unmarked_fixtures(self) -> None:
         marked = self.parse(
             "\n".join(

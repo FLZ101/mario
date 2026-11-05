@@ -8,6 +8,7 @@ Directives:
   <multiline shell script>
   END
   SERIAL-CHECK: <serial output substring>
+  SERIAL-WAIT-FILE: /guest/path
   GUI-SEND-KEY: f1
   GUI-TYPE: command
   GUI-MOUSE-MOVE: dx,dy
@@ -148,6 +149,11 @@ class GuiTest:
                     raise GuiTestError(f"{self.path}: empty EXPECT-HALT value")
             elif line.startswith("SERIAL-CHECK:"):
                 self.actions.append(("serial-check", line.split(":", 1)[1].strip()))
+            elif line.startswith("SERIAL-WAIT-FILE:"):
+                path = line.split(":", 1)[1].strip()
+                if not path.startswith("/") or "\n" in path:
+                    raise GuiTestError(f"{self.path}: invalid SERIAL-WAIT-FILE")
+                self.actions.append(("serial-wait-file", path))
             elif line.startswith("SERIAL:"):
                 value = line.split(":", 1)[1].strip()
                 if value.startswith("<<"):
@@ -592,6 +598,31 @@ def run_serial_script(
     return expect_prompt(child, timeout, description)
 
 
+def shell_quote(value: str) -> str:
+    """Quote a single guest-shell argument without reading host paths."""
+
+    return "'" + value.replace("'", "'\\\"'\\\"'") + "'"
+
+
+def wait_for_guest_file(child: pexpect.spawn, path: str, timeout: float) -> str:
+    marker = "__MARIO_GUI_FILE_READY__"
+    deadline = time.monotonic() + timeout
+    last_output = ""
+
+    while time.monotonic() < deadline:
+        command = f"test -e {shell_quote(path)} && printf {shell_quote(marker)}"
+        send_line(child, command)
+        remaining = max(0.01, deadline - time.monotonic())
+        last_output = expect_prompt(child, remaining, f"SERIAL-WAIT-FILE {path}")
+        if marker in last_output:
+            return last_output
+        time.sleep(0.05)
+    raise GuiTestError(
+        f"SERIAL-WAIT-FILE timed out after {timeout:.1f}s: {path}; "
+        f"last output: {last_output[-500:]!r}"
+    )
+
+
 def run_test(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
     with kernel_artifacts(test.rebuild_kernel, "disk-image-vbe_1024x768"):
         return _run_test_locked(test, qemu, index, smp)
@@ -644,6 +675,8 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                     failures.append(
                         f"SERIAL-CHECK: {value!r}; last output: {last_serial!r}"
                     )
+            elif action == "serial-wait-file":
+                last_serial = wait_for_guest_file(child, value, timeout)
             elif action == "send-key":
                 send_key(qmp, value)
             elif action == "type":

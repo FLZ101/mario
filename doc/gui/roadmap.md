@@ -382,7 +382,7 @@ video: map VBE linear framebuffer and add /dev/fb0
   PPM, serial tail, and QMP state for visual failures. Test runner cleanup and
   diagnostics with a failing fixture without requiring a desktop process.
   Commit: `test: retain GUI failure diagnostics`.
-- [ ] **M1.11.4 — add serial readiness waits.** Implement
+- [x] **M1.11.4 — add serial readiness waits.** Implement
   `SERIAL-WAIT-FILE` through the guest serial shell; the host must never read a
   guest path directly. Test ready, missing, and stale-file fixtures. Commit:
   `test: wait for GUI ready`.

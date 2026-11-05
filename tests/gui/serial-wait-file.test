@@ -1,0 +1,6 @@
+# Remove a stale guest path; readiness must come from a later guest-side create.
+SERIAL: rm -f /tmp/lit-gui-ready; (sleep 1; : >/tmp/lit-gui-ready) &
+SERIAL-WAIT-FILE: /tmp/lit-gui-ready
+SERIAL: test -e /tmp/lit-gui-ready && echo serial-wait-file: ready
+SERIAL-CHECK: serial-wait-file: ready
+EXIT:
