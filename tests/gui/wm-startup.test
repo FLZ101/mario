@@ -1,0 +1,33 @@
+GUI-VISUAL-TEST:
+# A fresh server owns both seat descriptors before F8 exposes graphics.
+SERIAL: <<TTY6
+{
+    printf '\033[2J\033[H\033[8;20HVT6-MARKER'
+    for row in 1 2 3; do
+        printf "\033[${row};1H\033[46m                    \033[${row};60H\033[42m                    "
+    done
+    for row in 23 24 25; do
+        printf "\033[${row};1H\033[45m                    \033[${row};60H\033[43m                    "
+    done
+    printf '\033[0m\033[8;20HVT6-MARKER'
+} > /dev/tty6
+TTY6
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: cat /tmp/mario-wm.log
+SERIAL-CHECK: mario-wm: listening
+SERIAL-CHECK: mario-wm: listening
+GUI-SEND-KEY: f8
+GUI-CHECK-RECT: 0 0 1024 768 0 0 0
+# A second startup fails without stealing the first server's seat.
+SERIAL: /usr/bin/mario-wm >/tmp/mario-wm-second.log 2>&1; echo wm-second-status:$?
+SERIAL-CHECK: wm-second-status:1
+SERIAL: test -e /tmp/mario-wm.started; echo wm-owner-status:$?
+SERIAL-CHECK: wm-owner-status:0
+GUI-CHECK-RECT: 0 0 1024 768 0 0 0
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+EXIT:

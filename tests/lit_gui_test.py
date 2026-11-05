@@ -620,16 +620,21 @@ def shell_quote(value: str) -> str:
 
 
 def wait_for_guest_file(child: pexpect.spawn, path: str, timeout: float) -> str:
-    marker = "__MARIO_GUI_FILE_READY__"
+    marker = "__MR__"
     deadline = time.monotonic() + timeout
     last_output = ""
 
     while time.monotonic() < deadline:
-        command = f"test -e {shell_quote(path)} && printf {shell_quote(marker)}"
+        # Print the marker on its own line: command echo must not satisfy the
+        # probe, and this keeps long guest paths below the serial line width.
+        command = (
+            f"test -e {shell_quote(path)} && "
+            f"printf '\\n%s\\n' {shell_quote(marker)}"
+        )
         send_line(child, command)
         remaining = max(0.01, deadline - time.monotonic())
         last_output = expect_prompt(child, remaining, f"SERIAL-WAIT-FILE {path}")
-        if marker in last_output:
+        if f"\n{marker}\n" in last_output.replace("\r", "\n"):
             return last_output
         time.sleep(0.05)
     raise GuiTestError(

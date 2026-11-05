@@ -2,6 +2,7 @@ SUBDIRS	:= $(patsubst %/main.c,%, $(wildcard example/*/main.c))
 SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard system/*/main.c))
 SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/*/main.c))
 SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/musl/*/main.c))
+SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard gui/desktop/*/main.c))
 
 SHELL := /bin/bash
 

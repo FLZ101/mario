@@ -195,6 +195,7 @@ def copy_rootfs_files(
         "app/example/*/*.exe": "usr/bin/example",
         "app/test/*/*.exe": "usr/bin/test",
         "app/test/musl/*/*.exe": "usr/bin/test",
+        "app/gui/desktop/mario-wm/mario-wm.exe": "usr/bin/mario-wm",
         "app/gui/libmario-ui/assets/fonts/*.ttf": "usr/share/fonts",
         "app/usr/ncurses-6.6-install/share/terminfo/a/ansi": "usr/share/terminfo/a/ansi",
         "app/usr/ncurses-6.6-install/share/terminfo/l/linux": "usr/share/terminfo/l/linux",

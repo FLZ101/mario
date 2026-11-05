@@ -661,7 +661,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
 - [x] **M3.1.3 — queue framed output.** Add one bounded nonblocking send queue
   per endpoint with `POLLOUT` continuation and motion coalescing. Test short
   sends, queue exhaustion, and ordering. Commit: `gui: queue protocol output`.
-- [ ] **M3.2.1 — start `mario-wm` as sole seat owner.** Install the server,
+- [x] **M3.2.1 — start `mario-wm` as sole seat owner.** Install the server,
   reserve `/dev/fb0` and `/dev/gui` before F8, bind the pathname socket, and
   remove stale server status files. Test text boot, F8 eligibility, and failed
   startup rollback. Commit: `gui: start window manager server`.
