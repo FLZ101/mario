@@ -378,7 +378,7 @@ video: map VBE linear framebuffer and add /dev/fb0
   marker or screenshot requirement. Test accepted marked/unmarked fixtures and
   rejected duplicate, argument-bearing, late, and screenshot-free markers.
   Commit: `test: require declared GUI visuals`.
-- [ ] **M1.11.3 — retain generic GUI failure diagnostics.** Keep the actual
+- [x] **M1.11.3 — retain generic GUI failure diagnostics.** Keep the actual
   PPM, serial tail, and QMP state for visual failures. Test runner cleanup and
   diagnostics with a failing fixture without requiring a desktop process.
   Commit: `test: retain GUI failure diagnostics`.

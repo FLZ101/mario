@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from PIL import Image
 
-from lit_gui_test import GuiTest, GuiTestError
+from lit_gui_test import GuiTest, GuiTestError, retain_visual_failure_diagnostics
 
 
 class GuiDirectiveParserTests(unittest.TestCase):
@@ -101,6 +102,32 @@ class GuiDirectiveParserTests(unittest.TestCase):
             with self.subTest(body=body):
                 with self.assertRaises(GuiTestError):
                     self.parse(body)
+
+    def test_retains_visual_failure_diagnostics_without_qemu(self) -> None:
+        class FakeQmp:
+            mouse_buttons = 3
+
+            def command(self, execute: str, arguments=None):
+                if execute == "screendump":
+                    Image.new("RGB", (2, 1), (4, 5, 6)).save(arguments["filename"])
+                    return {}
+                if execute != "query-status":
+                    raise AssertionError(f"unexpected QMP command: {execute}")
+                return {"status": "running"}
+
+        fixture = self.path / "failure.test"
+        fixture.write_text("EXIT:\n", encoding="utf-8")
+        diagnostics = retain_visual_failure_diagnostics(
+            GuiTest(fixture), FakeQmp(), "serial diagnostic tail", 0, self.path / "out"
+        )
+        self.assertTrue((diagnostics / "actual.ppm").is_file())
+        self.assertEqual(
+            (diagnostics / "serial-tail.txt").read_text(encoding="latin-1"),
+            "serial diagnostic tail",
+        )
+        state = json.loads((diagnostics / "qmp.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["query-status"], {"status": "running"})
+        self.assertEqual(state["mouse-buttons"], 3)
 
 
 if __name__ == "__main__":

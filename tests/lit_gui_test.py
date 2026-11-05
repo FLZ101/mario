@@ -422,6 +422,41 @@ def dump_screen(qmp: Qmp) -> Image.Image:
             pass
 
 
+def retain_visual_failure_diagnostics(
+    test: GuiTest,
+    qmp: Qmp,
+    serial_tail: str,
+    index: int,
+    failure_root: Path | None = None,
+) -> Path:
+    """Preserve the final observable GUI state before QEMU cleanup."""
+
+    if failure_root is None:
+        failure_root = ROOT / "tmp" / "gui-failures"
+    name = re.sub(r"[^A-Za-z0-9_.-]", "-", test.path.stem)
+    directory = failure_root / f"{name}-{os.getpid()}-{index}"
+    directory.mkdir(parents=True, exist_ok=False)
+    errors: list[str] = []
+    try:
+        qmp.command("screendump", {"filename": str(directory / "actual.ppm")})
+    except Exception as exc:
+        errors.append(f"screendump: {exc}")
+    try:
+        status = qmp.command("query-status")
+        state = {"query-status": status, "mouse-buttons": qmp.mouse_buttons}
+        (directory / "qmp.json").write_text(
+            json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    except Exception as exc:
+        errors.append(f"query-status: {exc}")
+    (directory / "serial-tail.txt").write_text(serial_tail[-4000:], encoding="latin-1")
+    if errors:
+        (directory / "diagnostic-errors.txt").write_text(
+            "\n".join(errors) + "\n", encoding="utf-8"
+        )
+    return directory
+
+
 def wait_for_screen(qmp: Qmp, golden: Path, timeout: float) -> bool:
     with Image.open(golden) as image:
         expected = image.convert("RGB").copy()
@@ -578,6 +613,7 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
     qmp = Qmp(qmp_path)
     failures: list[str] = []
     timeout = DEFAULT_TIMEOUT
+    visual_failure = False
     try:
         time.sleep(BOOT_MENU_DELAY)
         if test.expect_halt is not None:
@@ -619,18 +655,21 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
             elif action == "screen":
                 time.sleep(SCREEN_SETTLE_DELAY)
                 if not wait_for_screen(qmp, value, timeout):
+                    visual_failure = True
                     failures.append(
                         f"GUI-CHECK-SCREEN timed out after {timeout:.1f}s: {value}"
                     )
             elif action == "rect":
                 time.sleep(SCREEN_SETTLE_DELAY)
                 if not wait_for_solid_rect(qmp, value, timeout):
+                    visual_failure = True
                     failures.append(
                         f"GUI-CHECK-RECT timed out after {timeout:.1f}s: {value}"
                     )
             elif action == "screen-rect":
                 time.sleep(SCREEN_SETTLE_DELAY)
                 if not wait_for_screen_rect(qmp, value, timeout):
+                    visual_failure = True
                     failures.append(
                         f"GUI-CHECK-SCREEN-RECT timed out after {timeout:.1f}s: "
                         f"{value}"
@@ -638,12 +677,14 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
             elif action == "different":
                 time.sleep(SCREEN_SETTLE_DELAY)
                 if not wait_for_screen_match(qmp, value, timeout, False):
+                    visual_failure = True
                     failures.append(
                         f"GUI-CHECK-DIFFERENT timed out after {timeout:.1f}s: {value}"
                     )
             elif action == "match":
                 time.sleep(SCREEN_SETTLE_DELAY)
                 if not wait_for_screen_match(qmp, value, timeout, True):
+                    visual_failure = True
                     failures.append(
                         f"GUI-CHECK-MATCH timed out after {timeout:.1f}s: {value}"
                     )
@@ -651,6 +692,11 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                 timeout = value
     finally:
         try:
+            if visual_failure:
+                diagnostics = retain_visual_failure_diagnostics(
+                    test, qmp, last_serial + child.before, index
+                )
+                failures.append(f"GUI diagnostics retained: {diagnostics}")
             if test.expect_halt is None:
                 send_line(child, "halt")
         finally:
