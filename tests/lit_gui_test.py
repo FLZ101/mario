@@ -14,6 +14,10 @@ Directives:
   GUI-MOUSE-BUTTON: left,down
   GUI-CHECK-SCREEN: golden.ppm
   GUI-CHECK-RECT: x y width height red green blue
+  GUI-CHECK-SCREEN-RECT: golden.ppm,x,y,width,height
+  GUI-CHECK-DIFFERENT: golden.ppm
+  GUI-CHECK-MATCH: golden.ppm
+  GUI-VISUAL-TEST:
   TIMEOUT: seconds
   EXIT:
 
@@ -58,11 +62,52 @@ class GuiTestError(RuntimeError):
     pass
 
 
+def parse_visual_asset(test: Path, value: str, directive: str) -> Path:
+    """Resolve and validate a fixture-owned screenshot asset."""
+
+    asset = (test.parent / value.strip()).resolve()
+    if not value.strip() or not asset.is_file():
+        raise GuiTestError(f"{test}: invalid {directive}")
+    try:
+        with Image.open(asset) as image:
+            image.verify()
+    except OSError as exc:
+        raise GuiTestError(f"{test}: invalid {directive}") from exc
+    return asset
+
+
+def parse_visual_geometry(
+    test: Path, value: str, directive: str
+) -> tuple[Path, int, int, int, int]:
+    """Parse a golden image plus an in-bounds pixel rectangle."""
+
+    fields = [field.strip() for field in value.split(",")]
+    if len(fields) != 5:
+        raise GuiTestError(f"{test}: invalid {directive}")
+    asset = parse_visual_asset(test, fields[0], directive)
+    try:
+        x, y, width, height = (int(field) for field in fields[1:])
+    except ValueError as exc:
+        raise GuiTestError(f"{test}: invalid {directive}") from exc
+    with Image.open(asset) as image:
+        if (
+            x < 0
+            or y < 0
+            or width <= 0
+            or height <= 0
+            or x + width > image.width
+            or y + height > image.height
+        ):
+            raise GuiTestError(f"{test}: invalid {directive}")
+    return asset, x, y, width, height
+
+
 @dataclass
 class GuiTest:
     path: Path
     rebuild_kernel: str | None = None
     expect_halt: str | None = None
+    visual_test_markers: int = 0
     actions: list[tuple[str, object]] = field(default_factory=list)
 
     def parse(self) -> "GuiTest":
@@ -153,9 +198,9 @@ class GuiTest:
                     raise GuiTestError(f"{self.path}: invalid GUI-MOUSE-BUTTON")
                 self.actions.append(("mouse-button", (values[0], state == "down")))
             elif line.startswith("GUI-CHECK-SCREEN:"):
-                golden = (self.path.parent / line.split(":", 1)[1].strip()).resolve()
-                if not golden.is_file():
-                    raise GuiTestError(f"{self.path}: invalid GUI-CHECK-SCREEN")
+                golden = parse_visual_asset(
+                    self.path, line.split(":", 1)[1], "GUI-CHECK-SCREEN"
+                )
                 self.actions.append(("screen", golden))
             elif line.startswith("GUI-CHECK-RECT:"):
                 try:
@@ -175,6 +220,44 @@ class GuiTest:
                 ):
                     raise GuiTestError(f"{self.path}: invalid GUI-CHECK-RECT")
                 self.actions.append(("rect", values))
+            elif line.startswith("GUI-CHECK-SCREEN-RECT:"):
+                self.actions.append(
+                    (
+                        "screen-rect",
+                        parse_visual_geometry(
+                            self.path,
+                            line.split(":", 1)[1],
+                            "GUI-CHECK-SCREEN-RECT",
+                        ),
+                    )
+                )
+            elif line.startswith("GUI-CHECK-DIFFERENT:"):
+                self.actions.append(
+                    (
+                        "different",
+                        parse_visual_asset(
+                            self.path,
+                            line.split(":", 1)[1],
+                            "GUI-CHECK-DIFFERENT",
+                        ),
+                    )
+                )
+            elif line.startswith("GUI-CHECK-MATCH:"):
+                self.actions.append(
+                    (
+                        "match",
+                        parse_visual_asset(
+                            self.path,
+                            line.split(":", 1)[1],
+                            "GUI-CHECK-MATCH",
+                        ),
+                    )
+                )
+            elif line.startswith("GUI-VISUAL-TEST:"):
+                if line.split(":", 1)[1].strip():
+                    raise GuiTestError(f"{self.path}: invalid GUI-VISUAL-TEST")
+                self.visual_test_markers += 1
+                self.actions.append(("visual-test", None))
             elif line.startswith("TIMEOUT:"):
                 self.actions.append(("timeout", float(line.split(":", 1)[1].strip())))
             elif line.startswith("GUI-"):
@@ -358,6 +441,44 @@ def wait_for_solid_rect(
     return False
 
 
+def wait_for_screen_match(qmp: Qmp, golden: Path, timeout: float, equal: bool) -> bool:
+    with Image.open(golden) as image:
+        expected = image.convert("RGB").copy()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        current = dump_screen(qmp)
+        matches = (
+            current.size == expected.size
+            and ImageChops.difference(current, expected).getbbox() is None
+        )
+        if matches == equal:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def wait_for_screen_rect(
+    qmp: Qmp, check: tuple[Path, int, int, int, int], timeout: float
+) -> bool:
+    golden, x, y, width, height = check
+    with Image.open(golden) as image:
+        expected = image.convert("RGB").crop((x, y, x + width, y + height))
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        current = dump_screen(qmp)
+        if (
+            x + width <= current.width
+            and y + height <= current.height
+            and ImageChops.difference(
+                current.crop((x, y, x + width, y + height)), expected
+            ).getbbox()
+            is None
+        ):
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def send_key(qmp: Qmp, key: str) -> None:
     qmp.command("send-key", {"keys": [{"type": "qcode", "data": key}]})
 
@@ -454,6 +575,8 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
             qmp.connect()
             last_serial = ""
         for action, value in test.actions:
+            if action == "visual-test":
+                continue
             if action == "serial":
                 send_line(child, value)
                 last_serial = expect_prompt(child, timeout, f"SERIAL {value!r}")
@@ -483,6 +606,25 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                 if not wait_for_solid_rect(qmp, value, timeout):
                     failures.append(
                         f"GUI-CHECK-RECT timed out after {timeout:.1f}s: {value}"
+                    )
+            elif action == "screen-rect":
+                time.sleep(SCREEN_SETTLE_DELAY)
+                if not wait_for_screen_rect(qmp, value, timeout):
+                    failures.append(
+                        f"GUI-CHECK-SCREEN-RECT timed out after {timeout:.1f}s: "
+                        f"{value}"
+                    )
+            elif action == "different":
+                time.sleep(SCREEN_SETTLE_DELAY)
+                if not wait_for_screen_match(qmp, value, timeout, False):
+                    failures.append(
+                        f"GUI-CHECK-DIFFERENT timed out after {timeout:.1f}s: {value}"
+                    )
+            elif action == "match":
+                time.sleep(SCREEN_SETTLE_DELAY)
+                if not wait_for_screen_match(qmp, value, timeout, True):
+                    failures.append(
+                        f"GUI-CHECK-MATCH timed out after {timeout:.1f}s: {value}"
                     )
             elif action == "timeout":
                 timeout = value

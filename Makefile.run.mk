@@ -20,7 +20,7 @@ LIT_JOBS ?= 4
 .PHONY: run debug quick-run quick-debug \
 	run-gtk debug-gtk quick-run-gtk quick-debug-gtk \
 	tmux-run tmux-debug tmux-attach tmux-kill \
-	test shell-test tty-test gui-test
+	test shell-test tty-test gui-test gui-parser-test
 
 .DEFAULT_GOAL := run
 
@@ -68,5 +68,8 @@ shell-test:
 tty-test:
 	$(PYTHON) $(ROOT)/tests/lit_tty_test.py --smp $(SMP) --jobs $(LIT_JOBS) $(TTY_TEST_CASES)
 
-gui-test:
+gui-test: gui-parser-test
 	$(PYTHON) $(ROOT)/tests/lit_gui_test.py --smp $(SMP) --jobs $(LIT_JOBS) $(GUI_TEST_CASES)
+
+gui-parser-test:
+	$(PYTHON) $(ROOT)/tests/test_lit_gui_parser.py

@@ -363,7 +363,7 @@ video: map VBE linear framebuffer and add /dev/fb0
   inject F1 then F8 at deterministic chunk boundaries, and prove text repaint
   wins on switch-away while the following completed GUI frame has no stale text
   rows. Commit: `test: cover framebuffer transition races`.
-- [ ] **M1.11.1 — parse visual assertions centrally.** Retain the existing
+- [x] **M1.11.1 — parse visual assertions centrally.** Retain the existing
   full-screen `GUI-CHECK-SCREEN` and solid-color `GUI-CHECK-RECT` assertions;
   add parser validation for `GUI-VISUAL-TEST:`, `GUI-CHECK-SCREEN-RECT`,
   `GUI-CHECK-DIFFERENT`, and `GUI-CHECK-MATCH`, including missing assets and
