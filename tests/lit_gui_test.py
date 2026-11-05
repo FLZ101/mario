@@ -9,6 +9,7 @@ Directives:
   END
   SERIAL-CHECK: <serial output substring>
   SERIAL-WAIT-FILE: /guest/path
+  GUI-WAIT-FRAME:
   GUI-SEND-KEY: f1
   GUI-TYPE: command
   GUI-MOUSE-MOVE: dx,dy
@@ -37,6 +38,7 @@ import re
 import socket
 import tempfile
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,6 +59,10 @@ DEFAULT_TIMEOUT = 60.0
 BOOT_MENU_DELAY = 3.0
 KEY_DELAY = 0.05
 SCREEN_SETTLE_DELAY = 1.0
+FRAME_COUNTER_PATH = "/tmp/mario-wm.frame"
+FRAME_PRESENT_BEGIN = "__MARIO_GUI_FRAME_BEGIN__"
+FRAME_PRESENT_END = "__MARIO_GUI_FRAME_END__"
+FRAME_MISSING = "__MARIO_GUI_FRAME_MISSING__"
 
 
 class GuiTestError(RuntimeError):
@@ -154,6 +160,10 @@ class GuiTest:
                 if not path.startswith("/") or "\n" in path:
                     raise GuiTestError(f"{self.path}: invalid SERIAL-WAIT-FILE")
                 self.actions.append(("serial-wait-file", path))
+            elif line.startswith("GUI-WAIT-FRAME:"):
+                if line.split(":", 1)[1].strip():
+                    raise GuiTestError(f"{self.path}: invalid GUI-WAIT-FRAME")
+                self.actions.append(("wait-frame", None))
             elif line.startswith("SERIAL:"):
                 value = line.split(":", 1)[1].strip()
                 if value.startswith("<<"):
@@ -294,12 +304,17 @@ class GuiTest:
             disallowed = {
                 "serial",
                 "serial-script",
+                "serial-wait-file",
                 "send-key",
                 "type",
                 "mouse-move",
                 "mouse-button",
+                "wait-frame",
                 "screen",
                 "rect",
+                "screen-rect",
+                "different",
+                "match",
                 "timeout",
             }
             if any(action in disallowed for action, _value in self.actions):
@@ -623,6 +638,77 @@ def wait_for_guest_file(child: pexpect.spawn, path: str, timeout: float) -> str:
     )
 
 
+def parse_frame_counter(value: str) -> int:
+    """Return the WM's newline-terminated decimal frame count."""
+
+    value = value.strip()
+    if not re.fullmatch(r"[0-9]+", value):
+        raise GuiTestError(
+            f"GUI-WAIT-FRAME: malformed decimal frame counter: {value!r}"
+        )
+    return int(value)
+
+
+def parse_frame_probe(output: str) -> int | None:
+    """Decode a delimited serial probe without confusing shell command echo."""
+
+    missing = output.rfind(FRAME_MISSING)
+    begin = output.rfind(FRAME_PRESENT_BEGIN)
+    end = output.rfind(FRAME_PRESENT_END)
+    # The serial console echoes the probe command, which contains every marker.
+    # The final emitted marker identifies the result produced by the shell.
+    if missing > max(begin, end):
+        return None
+    if begin < 0 or end < begin:
+        raise GuiTestError("GUI-WAIT-FRAME: missing frame probe result")
+    return parse_frame_counter(output[begin + len(FRAME_PRESENT_BEGIN) : end])
+
+
+def read_guest_frame_counter(child: pexpect.spawn, timeout: float) -> int | None:
+    """Read the guest-owned frame file only through the serial shell."""
+
+    command = (
+        f"printf {shell_quote(FRAME_PRESENT_BEGIN)}; "
+        f"if cat {shell_quote(FRAME_COUNTER_PATH)} 2>/dev/null; then "
+        f"printf {shell_quote(FRAME_PRESENT_END)}; "
+        f"else printf {shell_quote(FRAME_MISSING)}; fi; printf '\\n'"
+    )
+    send_line(child, command)
+    output = expect_prompt(child, timeout, "GUI-WAIT-FRAME frame probe")
+    return parse_frame_probe(output)
+
+
+def wait_for_frame_advance(
+    read_counter: Callable[[], int | None],
+    baseline: int,
+    timeout: float,
+    *,
+    now: Callable[[], float] = time.monotonic,
+    pause: Callable[[float], None] = time.sleep,
+) -> int:
+    """Wait for a completed composite newer than the pre-input snapshot."""
+
+    deadline = now() + timeout
+    last_counter: int | None = None
+    while now() < deadline:
+        last_counter = read_counter()
+        if last_counter is not None and last_counter > baseline:
+            return last_counter
+        pause(0.05)
+    last_value = "missing" if last_counter is None else str(last_counter)
+    raise GuiTestError(
+        f"GUI-WAIT-FRAME timed out after {timeout:.1f}s: expected a value "
+        f"greater than {baseline} at {FRAME_COUNTER_PATH}; last value: {last_value}"
+    )
+
+
+def snapshot_guest_frame_counter(child: pexpect.spawn, timeout: float) -> int:
+    """Treat a not-yet-created or removed frame file as frame zero."""
+
+    counter = read_guest_frame_counter(child, timeout)
+    return 0 if counter is None else counter
+
+
 def run_test(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
     with kernel_artifacts(test.rebuild_kernel, "disk-image-vbe_1024x768"):
         return _run_test_locked(test, qemu, index, smp)
@@ -644,6 +730,7 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
     qmp = Qmp(qmp_path)
     failures: list[str] = []
     timeout = DEFAULT_TIMEOUT
+    frame_baseline: int | None = None
     visual_failure = False
     try:
         time.sleep(BOOT_MENU_DELAY)
@@ -662,6 +749,9 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
             expect_prompt(child, 10, "set GUI prompt")
             qmp.connect()
             last_serial = ""
+        # Low-level framebuffer fixtures also inject keys, but only fixtures
+        # that opt into GUI-WAIT-FRAME require the WM-owned frame protocol.
+        track_frames = any(action == "wait-frame" for action, _ in test.actions)
         for action, value in test.actions:
             if action == "visual-test":
                 continue
@@ -678,13 +768,32 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
             elif action == "serial-wait-file":
                 last_serial = wait_for_guest_file(child, value, timeout)
             elif action == "send-key":
+                # Snapshot before input so the wait cannot accept an older frame.
+                if track_frames:
+                    frame_baseline = snapshot_guest_frame_counter(child, timeout)
                 send_key(qmp, value)
             elif action == "type":
+                if track_frames:
+                    frame_baseline = snapshot_guest_frame_counter(child, timeout)
                 type_text(qmp, value)
             elif action == "mouse-move":
+                if track_frames:
+                    frame_baseline = snapshot_guest_frame_counter(child, timeout)
                 send_mouse_move(qmp, *value)
             elif action == "mouse-button":
+                if track_frames:
+                    frame_baseline = snapshot_guest_frame_counter(child, timeout)
                 send_mouse_button(qmp, *value)
+            elif action == "wait-frame":
+                if frame_baseline is None:
+                    raise GuiTestError(
+                        "GUI-WAIT-FRAME requires a preceding GUI input action"
+                    )
+                frame_baseline = wait_for_frame_advance(
+                    lambda: read_guest_frame_counter(child, timeout),
+                    frame_baseline,
+                    timeout,
+                )
             elif action == "screen":
                 time.sleep(SCREEN_SETTLE_DELAY)
                 if not wait_for_screen(qmp, value, timeout):

@@ -9,7 +9,16 @@ from pathlib import Path
 
 from PIL import Image
 
-from lit_gui_test import GuiTest, GuiTestError, retain_visual_failure_diagnostics
+from lit_gui_test import (
+    FRAME_MISSING,
+    FRAME_PRESENT_BEGIN,
+    FRAME_PRESENT_END,
+    GuiTest,
+    GuiTestError,
+    parse_frame_probe,
+    retain_visual_failure_diagnostics,
+    wait_for_frame_advance,
+)
 
 
 class GuiDirectiveParserTests(unittest.TestCase):
@@ -73,6 +82,56 @@ class GuiDirectiveParserTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(GuiTestError):
                     self.parse(f"SERIAL-WAIT-FILE: {value}")
+
+    def test_parses_and_validates_wait_frame(self) -> None:
+        test = self.parse("GUI-WAIT-FRAME:")
+        self.assertIn(("wait-frame", None), test.actions)
+        with self.assertRaises(GuiTestError):
+            self.parse("GUI-WAIT-FRAME: /tmp/mario-wm.frame")
+
+    def test_rejects_wait_frame_in_a_halt_fixture(self) -> None:
+        with self.assertRaises(GuiTestError):
+            self.parse("EXPECT-HALT: expected\nGUI-WAIT-FRAME:")
+
+    def test_waits_for_an_advanced_frame_after_removal(self) -> None:
+        values = iter((41, None, 42))
+        clock = [0.0]
+
+        def pause(seconds: float) -> None:
+            clock[0] += seconds
+
+        self.assertEqual(
+            wait_for_frame_advance(
+                lambda: next(values), 41, 1.0, now=lambda: clock[0], pause=pause
+            ),
+            42,
+        )
+
+    def test_rejects_malformed_frame_content(self) -> None:
+        malformed = f"{FRAME_PRESENT_BEGIN}not-a-number\n{FRAME_PRESENT_END}"
+        with self.assertRaises(GuiTestError):
+            parse_frame_probe(malformed)
+
+    def test_parses_missing_frame_content(self) -> None:
+        self.assertIsNone(parse_frame_probe(FRAME_MISSING))
+
+    def test_ignores_markers_echoed_in_a_present_frame_probe(self) -> None:
+        command_echo = (
+            f"{FRAME_PRESENT_BEGIN} {FRAME_PRESENT_END} {FRAME_MISSING}"
+        )
+        output = f"{command_echo}\n{FRAME_PRESENT_BEGIN}42\n{FRAME_PRESENT_END}"
+        self.assertEqual(parse_frame_probe(output), 42)
+
+    def test_reports_frame_wait_timeout(self) -> None:
+        clock = [0.0]
+
+        def pause(seconds: float) -> None:
+            clock[0] += seconds
+
+        with self.assertRaisesRegex(GuiTestError, r"greater than 9.*last value: 9"):
+            wait_for_frame_advance(
+                lambda: 9, 9, 0.1, now=lambda: clock[0], pause=pause
+            )
 
     def test_accepts_marked_and_unmarked_fixtures(self) -> None:
         marked = self.parse(

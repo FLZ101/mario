@@ -386,7 +386,7 @@ video: map VBE linear framebuffer and add /dev/fb0
   `SERIAL-WAIT-FILE` through the guest serial shell; the host must never read a
   guest path directly. Test ready, missing, and stale-file fixtures. Commit:
   `test: wait for GUI ready`.
-- [ ] **M1.11.5 — add completed-frame waits.** Implement `GUI-WAIT-FRAME` by
+- [x] **M1.11.5 — add completed-frame waits.** Implement `GUI-WAIT-FRAME` by
   snapshotting a decimal frame counter and requiring a greater atomic value.
   Test advance, malformed content, removal, and timeout. Commit: `test: wait
   for GUI frames`.
