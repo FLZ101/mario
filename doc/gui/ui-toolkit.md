@@ -399,6 +399,14 @@ the public pathname listener. Both use the same framing and surface API, but
 only the shell receives window-list notifications and may update the desktop
 surface.
 
+`gui_input_normalize_key_records()` and
+`gui_input_normalize_mouse_records()` copy raw device records into ordered
+`gui_input_event` values. A marked overflow first produces the corresponding
+key or mouse reset with the marked record's tick, then the copied record. This
+normalization preserves raw scancodes, relative mouse fields, button masks,
+and ticks; keysym translation, pointer coordinates, button-edge detection,
+and focused-window policy remain above this layer.
+
 Events are timestamped, queued, and dispatched to the focused window or the
 window manager. `poll()` uses a 16 ms timeout; every timeout produces one
 `GUI_EVENT_TIMER`. The first GUI does not require a timer fd, signal, or extra

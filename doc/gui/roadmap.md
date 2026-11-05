@@ -569,7 +569,7 @@ console/input: add graphics mode, /dev/gui, and /dev/psaux
   over FreeType with deterministic eviction and theme colors. Test cache hit,
   eviction, and one pixel-exact glyph golden. Commit: `gui: render cached
   glyphs`.
-- [ ] **M2.5.1 — normalize input records.** Convert `/dev/gui` and
+- [x] **M2.5.1 — normalize input records.** Convert `/dev/gui` and
   `/dev/psaux` records into toolkit events, including overflow reset, without a
   desktop policy. Test FIFO drain and reset ordering. Commit: `gui: normalize
   seat input events`.

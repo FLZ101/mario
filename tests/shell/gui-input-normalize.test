@@ -1,0 +1,3 @@
+RUN: /usr/bin/test/gui-input-normalize.exe
+CHECK: gui-input-normalize: key fifo ok
+CHECK: gui-input-normalize: mouse fifo ok
