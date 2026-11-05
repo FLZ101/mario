@@ -369,7 +369,7 @@ video: map VBE linear framebuffer and add /dev/fb0
   `GUI-CHECK-DIFFERENT`, and `GUI-CHECK-MATCH`, including missing assets and
   invalid geometry. Unit test directive parsing without QEMU. Commit: `test:
   validate GUI visual directives`.
-- [ ] **M1.11.2 — require visuals only for declared desktop/app tests.** A
+- [x] **M1.11.2 — require visuals only for declared desktop/app tests.** A
   no-argument `GUI-VISUAL-TEST:` marker declares a visible integration test and
   requires at least one screenshot comparison. It appears exactly once; if
   present, `REBUILD-KERNEL` remains the first directive and the marker must

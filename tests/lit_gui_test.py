@@ -256,6 +256,14 @@ class GuiTest:
             elif line.startswith("GUI-VISUAL-TEST:"):
                 if line.split(":", 1)[1].strip():
                     raise GuiTestError(f"{self.path}: invalid GUI-VISUAL-TEST")
+                if self.visual_test_markers:
+                    raise GuiTestError(f"{self.path}: duplicate GUI-VISUAL-TEST")
+                # A visual declaration describes the whole fixture, not a
+                # later sub-step after guest or QMP work has already started.
+                if self.actions:
+                    raise GuiTestError(
+                        f"{self.path}: GUI-VISUAL-TEST must precede test actions"
+                    )
                 self.visual_test_markers += 1
                 self.actions.append(("visual-test", None))
             elif line.startswith("TIMEOUT:"):
@@ -263,6 +271,19 @@ class GuiTest:
             elif line.startswith("GUI-"):
                 raise GuiTestError(f"{self.path}: unsupported directive {line!r}")
             index += 1
+        if self.visual_test_markers:
+            screenshot_actions = {
+                "screen",
+                "rect",
+                "screen-rect",
+                "different",
+                "match",
+            }
+            # Marked desktop/application fixtures must make a visual claim.
+            if not any(action in screenshot_actions for action, _ in self.actions):
+                raise GuiTestError(
+                    f"{self.path}: GUI-VISUAL-TEST requires a screenshot assertion"
+                )
         if self.expect_halt is not None:
             disallowed = {
                 "serial",

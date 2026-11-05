@@ -65,6 +65,43 @@ class GuiDirectiveParserTests(unittest.TestCase):
         with self.assertRaises(GuiTestError):
             self.parse("GUI-VISUAL-TEST: desktop")
 
+    def test_accepts_marked_and_unmarked_fixtures(self) -> None:
+        marked = self.parse(
+            "\n".join(
+                (
+                    "REBUILD-KERNEL: selftest-fb-write-generation",
+                    "GUI-VISUAL-TEST:",
+                    "GUI-CHECK-MATCH: golden.ppm",
+                )
+            )
+        )
+        raw = self.parse("SERIAL: echo raw-device-test")
+        self.assertEqual(marked.visual_test_markers, 1)
+        self.assertEqual(raw.visual_test_markers, 0)
+
+    def test_rejects_duplicate_late_and_screenshot_free_markers(self) -> None:
+        cases = (
+            "\n".join(
+                (
+                    "GUI-VISUAL-TEST:",
+                    "GUI-VISUAL-TEST:",
+                    "GUI-CHECK-SCREEN: golden.ppm",
+                )
+            ),
+            "\n".join(
+                (
+                    "SERIAL: echo started",
+                    "GUI-VISUAL-TEST:",
+                    "GUI-CHECK-SCREEN: golden.ppm",
+                )
+            ),
+            "\n".join(("GUI-VISUAL-TEST:", "SERIAL: echo no-screen")),
+        )
+        for body in cases:
+            with self.subTest(body=body):
+                with self.assertRaises(GuiTestError):
+                    self.parse(body)
+
 
 if __name__ == "__main__":
     unittest.main()
