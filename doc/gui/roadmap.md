@@ -529,7 +529,7 @@ console/input: add graphics mode, /dev/gui, and /dev/psaux
 
 ## M2: Toolkit and Fonts
 
-- [ ] **M2.1.1 — pin the font source.** Add the FreeType source archive,
+- [x] **M2.1.1 — pin the font source.** Add the FreeType source archive,
   version, URL, checksum, license note, and an offline checksum verifier.
   Test only source acquisition/verification. Commit: `gui: pin freetype
   source`.

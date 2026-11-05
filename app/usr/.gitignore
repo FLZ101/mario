@@ -8,6 +8,7 @@
 /less-*
 /readline-*
 /zlib-*
+/freetype-*
 /sqlite-*
 /Python-*
 /libevent-*

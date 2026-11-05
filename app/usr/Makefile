@@ -14,6 +14,7 @@ export JOBS
 all:: build
 
 include ncurses.mk
+include freetype.mk
 include oksh.mk
 include toybox.mk
 include sbase.mk
