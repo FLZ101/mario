@@ -9,6 +9,7 @@
 
 #include <gui/input.h>
 #include <gui/protocol.h>
+#include <gui/surface.h>
 
 static void put32(uint8_t *bytes, uint32_t value)
 {
@@ -121,6 +122,41 @@ static void read_error(int fd, int status, gui_protocol_type failed_type)
 	assert(get16(frame + 12) == failed_type);
 }
 
+static void send_surface_data(int fd, uint32_t row_offset, uint32_t rows,
+			      uint64_t frame_serial, gui_color color)
+{
+	uint8_t frame[sizeof(gui_protocol_wire_header) +
+		      sizeof(gui_protocol_wire_surface_data) + 16];
+	size_t pixel_count = (size_t)rows * 2;
+	size_t payload_bytes = sizeof(gui_protocol_wire_surface_data) +
+		pixel_count * sizeof(gui_color);
+
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_SURFACE_DATA,
+				  payload_bytes) == 0);
+	put32(frame + 8, 1);
+	put64(frame + 12, 1);
+	put64(frame + 20, frame_serial);
+	put32(frame + 28, row_offset);
+	put32(frame + 32, rows);
+	for (size_t index = 0; index < pixel_count; index++)
+		put32(frame + 36 + index * sizeof(gui_color), color);
+	assert(write(fd, frame, GUI_PROTOCOL_HEADER_SIZE + payload_bytes) ==
+	       (ssize_t)(GUI_PROTOCOL_HEADER_SIZE + payload_bytes));
+}
+
+static void commit_surface(int fd, uint64_t frame_serial)
+{
+	uint8_t frame[sizeof(gui_protocol_wire_header) +
+		      sizeof(gui_protocol_wire_surface_commit)];
+
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_SURFACE_COMMIT,
+				  sizeof(gui_protocol_wire_surface_commit)) == 0);
+	put32(frame + 8, 1);
+	put64(frame + 12, 1);
+	put64(frame + 20, frame_serial);
+	assert(write(fd, frame, sizeof(frame)) == sizeof(frame));
+}
+
 static void test_staging(void)
 {
 	int stager = connect_client();
@@ -143,16 +179,45 @@ static void test_staging(void)
 	close(stager);
 }
 
+static void test_commit(void)
+{
+	int fd = connect_client();
+
+	create_window(fd, 20, 2, 2);
+	begin_surface(fd, 2, 2, 1);
+	send_surface_data(fd, 1, 1, 1, 0x00ff0000);
+	read_error(fd, -EINVAL, GUI_PROTOCOL_SURFACE_DATA);
+	send_surface_data(fd, 0, 2, 1, 0x00ff0000);
+	commit_surface(fd, 1);
+	begin_surface(fd, 2, 2, 2);
+	/* A stale update cannot overwrite the committed red frame. */
+	send_surface_data(fd, 0, 1, 1, 0x000000ff);
+	read_error(fd, -EINVAL, GUI_PROTOCOL_SURFACE_DATA);
+	commit_surface(fd, 1);
+	read_error(fd, -EINVAL, GUI_PROTOCOL_SURFACE_COMMIT);
+	/* Dropping a partially transferred replacement must retain the old frame. */
+	send_surface_data(fd, 0, 1, 2, 0x000000ff);
+	assert(shutdown(fd, SHUT_WR) == 0);
+	assert(read(fd, &(uint8_t) { 0 }, 1) == 0);
+	close(fd);
+}
+
 int main(int argc, char **argv)
 {
 	uint8_t frame[64];
 	int first;
 	int second;
 
-	assert(argc == 1 || (argc == 2 && !strcmp(argv[1], "--surface-only")));
+	assert(argc == 1 || (argc == 2 && (!strcmp(argv[1], "--surface-only") ||
+		!strcmp(argv[1], "--commit-only"))));
 	if (argc == 2) {
-		test_staging();
-		puts("wm-client: staging ok");
+		if (!strcmp(argv[1], "--surface-only")) {
+			test_staging();
+			puts("wm-client: staging ok");
+		} else {
+			test_commit();
+			puts("wm-client: commit ok");
+		}
 		return 0;
 	}
 	first = connect_client();

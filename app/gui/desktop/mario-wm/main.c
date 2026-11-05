@@ -50,6 +50,7 @@ typedef struct {
 	uint32_t width;
 	uint32_t height;
 	size_t frame_bytes;
+	size_t scanout_stride;
 	size_t surface_limit;
 	size_t surface_bytes;
 } wm_state;
@@ -66,7 +67,10 @@ typedef struct wm_client {
 	uint64_t configure_serial;
 	uint64_t staging_frame_serial;
 	size_t staging_bytes;
+	uint32_t staging_rows;
 	gui_surface *staging;
+	size_t committed_bytes;
+	gui_surface *committed;
 	gui_protocol_input *input;
 	gui_protocol_output *output;
 	wm_server *server;
@@ -126,6 +130,17 @@ static void client_discard_staging(wm_client *client)
 		client->staging_bytes = 0;
 		client->staging_frame_serial = 0;
 	}
+	client->staging_rows = 0;
+}
+
+static void client_discard_committed(wm_client *client)
+{
+	if (client->committed != NULL) {
+		client->server->state.surface_bytes -= client->committed_bytes;
+		gui_surface_destroy(client->committed);
+		client->committed = NULL;
+		client->committed_bytes = 0;
+	}
 }
 
 static void client_destroy(wm_client *client)
@@ -133,6 +148,7 @@ static void client_destroy(wm_client *client)
 	if (client->fd >= 0)
 		close(client->fd);
 	client_discard_staging(client);
+	client_discard_committed(client);
 	gui_protocol_input_destroy(client->input);
 	gui_protocol_output_destroy(client->output);
 	*client = (wm_client) { .fd = -1 };
@@ -153,16 +169,22 @@ static int surface_bytes(uint32_t width, uint32_t height, size_t *bytes)
 
 static int wm_init_surface_budget(wm_state *state)
 {
+	struct fb_fix_screeninfo fix;
 	struct fb_var_screeninfo info;
+	size_t line_bytes;
 
 	if (ioctl(state->framebuffer, FBIOGET_VSCREENINFO, &info) < 0 ||
+	    ioctl(state->framebuffer, FBIOGET_FSCREENINFO, &fix) < 0 ||
 	    surface_bytes(info.xres, info.yres, &state->frame_bytes) < 0 ||
-	    state->frame_bytes > SIZE_MAX - state->frame_bytes / 2)
+	    surface_bytes(info.xres, 1, &line_bytes) < 0 ||
+	    fix.line_length < line_bytes || state->frame_bytes > SIZE_MAX / 2 ||
+	    state->frame_bytes * 2 > SIZE_MAX - state->frame_bytes / 2)
 		return -1;
 	state->width = info.xres;
 	state->height = info.yres;
-	/* Keep one-and-a-half extra scanout frames for in-flight client updates. */
-	state->surface_limit = state->frame_bytes + state->frame_bytes / 2;
+	state->scanout_stride = fix.line_length;
+	/* One full frame may be committed while its full replacement is staged. */
+	state->surface_limit = state->frame_bytes * 2 + state->frame_bytes / 2;
 	return 0;
 }
 
@@ -236,7 +258,71 @@ static int client_stage_surface(wm_client *client, const uint8_t *bytes)
 	client->staging = surface;
 	client->staging_bytes = bytes_needed;
 	client->staging_frame_serial = frame_serial;
+	client->staging_rows = 0;
 	state->surface_bytes += bytes_needed;
+	return 0;
+}
+
+static int client_surface_data(wm_client *client, const uint8_t *bytes,
+			       size_t payload_bytes)
+{
+	uint32_t window_id = get_u32(bytes);
+	uint64_t configure_serial = get_u64(bytes + 4);
+	uint64_t frame_serial = get_u64(bytes + 12);
+	uint32_t row_offset = get_u32(bytes + 20);
+	uint32_t rows = get_u32(bytes + 24);
+	size_t row_bytes;
+	size_t byte_count;
+
+	if (client->staging == NULL || window_id != client->window_id ||
+	    configure_serial != client->configure_serial ||
+	    frame_serial != client->staging_frame_serial || rows == 0 ||
+	    row_offset != client->staging_rows || row_offset > client->height ||
+	    rows > client->height - row_offset ||
+	    client->width > SIZE_MAX / sizeof(gui_color) ||
+	    (row_bytes = (size_t)client->width * sizeof(gui_color)) > SIZE_MAX / rows ||
+	    (byte_count = row_bytes * rows) !=
+		payload_bytes - sizeof(gui_protocol_wire_surface_data)) {
+		client_reject(client, GUI_PROTOCOL_SURFACE_DATA, -EINVAL);
+		return 0;
+	}
+	memcpy(client->staging->pixels + (size_t)row_offset * client->staging->stride,
+	       bytes + sizeof(gui_protocol_wire_surface_data), byte_count);
+	client->staging_rows += rows;
+	return 0;
+}
+
+static int client_commit_surface(wm_client *client, const uint8_t *bytes)
+{
+	uint32_t window_id = get_u32(bytes);
+	uint64_t configure_serial = get_u64(bytes + 4);
+	uint64_t frame_serial = get_u64(bytes + 12);
+	gui_flush_result result;
+
+	if (client->staging == NULL || window_id != client->window_id ||
+	    configure_serial != client->configure_serial ||
+	    frame_serial != client->staging_frame_serial ||
+	    client->staging_rows != client->height) {
+		client_reject(client, GUI_PROTOCOL_SURFACE_COMMIT, -EINVAL);
+		return 0;
+	}
+	result = gui_surface_flush_rect_fd(client->staging,
+		(gui_rect) { .x = 0, .y = 0, .w = client->staging->width,
+			.h = client->staging->height },
+		client->server->state.scanout_stride, client->server->state.framebuffer);
+	if (result != GUI_FLUSH_COMPLETE) {
+		client_reject(client, GUI_PROTOCOL_SURFACE_COMMIT,
+			      result == GUI_FLUSH_BUSY ? -EBUSY : -EIO);
+		return 0;
+	}
+	/* Leave the previous complete frame owned until its replacement is visible. */
+	client_discard_committed(client);
+	client->committed = client->staging;
+	client->committed_bytes = client->staging_bytes;
+	client->staging = NULL;
+	client->staging_bytes = 0;
+	client->staging_frame_serial = 0;
+	client->staging_rows = 0;
 	return 0;
 }
 
@@ -395,11 +481,24 @@ static void client_message(void *context, const gui_protocol_header *header,
 			client->hello = -1;
 		return;
 	}
+	if (header->type == GUI_PROTOCOL_SURFACE_DATA &&
+	    payload_bytes >= sizeof(gui_protocol_wire_surface_data)) {
+		if (client_surface_data(client, bytes, payload_bytes) < 0)
+			client->hello = -1;
+		return;
+	}
+	if (header->type == GUI_PROTOCOL_SURFACE_COMMIT &&
+	    payload_bytes == sizeof(gui_protocol_wire_surface_commit)) {
+		if (client_commit_surface(client, bytes) < 0)
+			client->hello = -1;
+		return;
+	}
 	if (header->type == GUI_PROTOCOL_WINDOW_DESTROY && payload_bytes == 4 &&
 	    get_u32(bytes) == client->window_id) {
 		if (client->server->input_owner == client)
 			wm_set_input_owner(client->server, NULL);
 		client_discard_staging(client);
+		client_discard_committed(client);
 		client->window_id = 0;
 		return;
 	}

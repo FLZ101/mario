@@ -677,7 +677,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
 - [x] **M3.3.1 — stage client surfaces.** Validate dimensions against scanout
   budgets and accept only a configured `SURFACE_BEGIN`. Test malicious
   dimensions and allocation exhaustion. Commit: `gui: stage client surfaces`.
-- [ ] **M3.3.2 — transfer and commit client frames.** Require ordered,
+- [x] **M3.3.2 — transfer and commit client frames.** Require ordered,
   nonduplicate `SURFACE_DATA` rows and a matching `SURFACE_COMMIT`; retain the
   old frame on failure/disconnect. Test gaps, stale serials, and one visible
   update golden. Commit: `gui: commit client surfaces atomically`.
