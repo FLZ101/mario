@@ -390,7 +390,7 @@ video: map VBE linear framebuffer and add /dev/fb0
   snapshotting a decimal frame counter and requiring a greater atomic value.
   Test advance, malformed content, removal, and timeout. Commit: `test: wait
   for GUI frames`.
-- [ ] **M1.12.1 — halt if the framebuffer presenter cannot start.** Change the
+- [x] **M1.12.1 — halt if the framebuffer presenter cannot start.** Change the
   kernel-thread creation boundary used by `fbcon_start()` to return a checked
   failure result. If the sole framebuffer text presenter cannot be created
   after VBE has been selected, print one concise serial diagnostic and halt;

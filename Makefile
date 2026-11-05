@@ -64,7 +64,7 @@ clean-containers:
 .PHONY: kernel app analyze-kernel \
 	selftest-kmalloc selftest-page selftest-stack selftest-ubsan \
 	selftest-fb-write-generation selftest-fb-write-chunks \
-	selftest-fb-transition-race
+	selftest-fb-transition-race selftest-fbcon-start-failure
 .PHONY: clean-build clean-kernel clean-app clean-src
 
 DEBUG ?= 1
@@ -90,7 +90,7 @@ analyze-kernel:
 
 selftest-kmalloc selftest-page selftest-stack selftest-ubsan \
 selftest-fb-write-generation selftest-fb-write-chunks \
-selftest-fb-transition-race:
+selftest-fb-transition-race selftest-fbcon-start-failure:
 	make -f Makefile.build.mk $@
 
 clean-build clean-kernel clean-app clean-src:

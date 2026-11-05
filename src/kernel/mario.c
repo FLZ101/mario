@@ -22,21 +22,24 @@
 
 #include <syscall_trace.h>
 
-void kernel_thread(void (*fun)(void *), void *arg)
+int kernel_thread(void (*fun)(void *), void *arg)
 {
+	int result;
+
 	__asm__ __volatile__(
 		"movl %%esp, %%esi\n\t"
-		"movl %2, %%eax\n\t"
+		"movl %3, %%eax\n\t"
 		"int $0x80\n\t"
 		"cmpl %%esp, %%esi\n\t"
 		"je 1f\n\t"
-		"pushl %0\n\t"
-		"call *%1\n\t"
+		"pushl %1\n\t"
+		"call *%2\n\t"
 		"jmp .\n\t"
 		"1:"
-		:
-		:"b"(arg), "c"(fun), "i"(SYS_fork)
-		:"eax", "esi", "memory");
+		: "=a"(result)
+		: "b"(arg), "c"(fun), "i"(SYS_fork)
+		: "esi", "memory");
+	return result;
 }
 
 #define MAX_INIT_ARGS 8

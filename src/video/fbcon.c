@@ -1,13 +1,12 @@
 #include <fs/tty/console.h>
 #include <fs/fbdev.h>
+#include <errno.h>
 #include <lib/string.h>
 #include <lib/spinlock.h>
 #include <sched.h>
 #include <wait.h>
 #include <video/fb.h>
 #include <video/fbcon.h>
-
-extern void kernel_thread(void (*fun)(void *), void *arg);
 
 #define FONT_WIDTH 9
 #define FONT_HEIGHT 16
@@ -21,6 +20,12 @@ extern void kernel_thread(void (*fun)(void *), void *arg);
 #define CONTENT_HEIGHT (N_ROW * CELL_HEIGHT)
 #define CANVAS_WIDTH (CONTENT_WIDTH + 2 * TERMINAL_PADDING_X)
 #define CANVAS_HEIGHT (CONTENT_HEIGHT + 2 * TERMINAL_PADDING_Y)
+
+#ifdef CONFIG_FBCON_START_FAILURE_SELF_TEST
+#define FBCON_PRESENTER_UNUSED __attribute__((unused))
+#else
+#define FBCON_PRESENTER_UNUSED
+#endif
 
 static const uint8_t font_cp437[256][FONT_GLYPH_HEIGHT][FONT_GLYPH_WIDTH] = {
 #include "font_cp437_18x32_gray.inc"
@@ -298,7 +303,7 @@ static void fbcon_clear_graphics(void)
 	memset(fb->virt_addr, 0, fb->size);
 }
 
-static void fbcon_thread(void *arg)
+static void FBCON_PRESENTER_UNUSED fbcon_thread(void *arg)
 {
 	(void)arg;
 	memcpy(current->comm, "[fbcon]", sizeof("[fbcon]"));
@@ -371,12 +376,26 @@ void fbcon_graphics_console_entered(void)
 	fbcon_queue(1);
 }
 
+static int fbcon_spawn_presenter(void)
+{
+#ifdef CONFIG_FBCON_START_FAILURE_SELF_TEST
+	/* The rebuilt failure fixture reaches the same checked startup boundary. */
+	return -ENOMEM;
+#else
+	return kernel_thread(fbcon_thread, NULL);
+#endif
+}
+
 void fbcon_start(void)
 {
+	int result;
+
 	if (!fb_is_enabled() || fbcon_started)
 		return;
 	init_wait_queue(&fbcon_wait);
+	result = fbcon_spawn_presenter();
+	if (result < 0)
+		hang("fbcon: presenter thread start failed: %d", result);
 	fbcon_started = 1;
-	kernel_thread(fbcon_thread, NULL);
 	fbcon_queue(1);
 }

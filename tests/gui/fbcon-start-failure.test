@@ -1,0 +1,4 @@
+# The VBE text presenter is mandatory: a failed worker spawn must halt.
+REBUILD-KERNEL: selftest-fbcon-start-failure
+EXPECT-HALT: fbcon: presenter thread start failed: -12
+EXIT:
