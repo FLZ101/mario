@@ -655,7 +655,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
   and encode/decode unit tests. Define server-assigned ordinary versus shell
   endpoints; no client-controlled `HELLO` field may claim the shell role.
   Commit: `gui: define window-manager protocol`.
-- [ ] **M3.1.2 — reassemble framed input.** Implement fragmented receive,
+- [x] **M3.1.2 — reassemble framed input.** Implement fragmented receive,
   message-size limits, and bounded per-client input buffering. Test split,
   oversized, malformed, and EOF frames. Commit: `gui: reassemble protocol input`.
 - [ ] **M3.1.3 — queue framed output.** Add one bounded nonblocking send queue

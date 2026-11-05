@@ -204,6 +204,12 @@ typedef struct {
 	uint16_t minor;
 } gui_protocol_hello;
 
+typedef struct gui_protocol_input gui_protocol_input;
+
+typedef void (*gui_protocol_message_fn)(void *context,
+					const gui_protocol_header *header,
+					const void *payload, size_t payload_bytes);
+
 _Static_assert(sizeof(gui_protocol_wire_header) == GUI_PROTOCOL_HEADER_SIZE,
 	       "GUI protocol header size");
 _Static_assert(sizeof(gui_protocol_wire_hello) == 4,
@@ -224,5 +230,12 @@ int gui_protocol_encode_hello(void *buffer, size_t buffer_bytes,
 			      const gui_protocol_hello *hello);
 int gui_protocol_decode_hello(const void *buffer, size_t buffer_bytes,
 			      gui_protocol_hello *hello);
+gui_protocol_input *gui_protocol_input_create(void);
+void gui_protocol_input_destroy(gui_protocol_input *input);
+int gui_protocol_input_append(gui_protocol_input *input, const void *bytes,
+				      size_t byte_count);
+void gui_protocol_input_finish(gui_protocol_input *input);
+int gui_protocol_input_drain(gui_protocol_input *input,
+				     gui_protocol_message_fn callback, void *context);
 
 #endif
