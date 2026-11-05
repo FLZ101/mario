@@ -6,11 +6,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <mario/fb.h>
 #include <mario/input.h>
+#include <gui/input.h>
 #include <gui/protocol.h>
 
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
@@ -41,15 +44,27 @@ typedef struct {
 	int gui;
 	int listener;
 	int owns_status;
+	int graphics;
 } wm_state;
 
-typedef struct {
+typedef struct wm_server wm_server;
+
+typedef struct wm_client {
 	int fd;
 	int hello;
+	int focused;
 	uint32_t window_id;
 	gui_protocol_input *input;
 	gui_protocol_output *output;
+	wm_server *server;
 } wm_client;
+
+struct wm_server {
+	wm_state state;
+	wm_client clients[WM_CLIENT_LIMIT];
+	/* All focus and future grab transitions enter through this owner. */
+	wm_client *input_owner;
+};
 
 static uint16_t get_u16(const uint8_t *bytes)
 {
@@ -123,13 +138,107 @@ static int client_flush(wm_client *client)
 	       GUI_PROTOCOL_OUTPUT_ERROR ? 0 : -1;
 }
 
+static int client_enqueue_focus(wm_client *client, int focused)
+{
+	uint8_t focus[sizeof(gui_protocol_wire_window_focus)];
+
+	put_u32(focus, client->window_id);
+	put_u32(focus + 4, focused);
+	return client_enqueue(client, GUI_PROTOCOL_WINDOW_FOCUS, focus, sizeof(focus));
+}
+
+static int client_enqueue_input_reset(wm_client *client)
+{
+	return client_enqueue(client, GUI_PROTOCOL_INPUT_RESET, NULL, 0);
+}
+
+static void wm_reset_input_owner(wm_server *server)
+{
+	wm_client *client = server->input_owner;
+
+	if (client != NULL && client_enqueue_input_reset(client) < 0)
+		client->hello = -1;
+}
+
+static void wm_set_input_owner(wm_server *server, wm_client *client)
+{
+	wm_client *previous = server->input_owner;
+
+	if (previous == client)
+		return;
+	/*
+	 * Reset both sides of a transfer.  The old client drops stuck state before
+	 * losing ownership, while the new client cannot inherit a key or button
+	 * that was physically pressed before it became the recipient.  Future
+	 * pointer-grab transitions use this same ordered boundary.
+	 */
+	if (previous != NULL) {
+		previous->focused = 0;
+		if (client_enqueue_focus(previous, 0) < 0 ||
+		    client_enqueue_input_reset(previous) < 0)
+			previous->hello = -1;
+	}
+	server->input_owner = client;
+	if (client != NULL) {
+		client->focused = 1;
+		if (client_enqueue_focus(client, 1) < 0 ||
+		    client_enqueue_input_reset(client) < 0)
+			client->hello = -1;
+	}
+}
+
+static wm_client *wm_next_focus(wm_server *server)
+{
+	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+		wm_client *client = &server->clients[index];
+
+		if (client->fd >= 0 && client->hello > 0 && client->window_id != 0)
+			return client;
+	}
+	return NULL;
+}
+
+static void wm_disconnect_client(wm_server *server, wm_client *client)
+{
+	if (server->input_owner == client) {
+		/* The peer is gone, but clearing ownership prevents state leakage. */
+		wm_set_input_owner(server, NULL);
+		client_destroy(client);
+		wm_set_input_owner(server, wm_next_focus(server));
+		return;
+	}
+	client_destroy(client);
+}
+
+static void wm_emit_input(void *context, const gui_input_event *event)
+{
+	wm_server *server = context;
+	wm_client *client = server->input_owner;
+	uint8_t message[sizeof(gui_protocol_wire_input_event)] = { 0 };
+
+	if (event->type == GUI_INPUT_EVENT_KEY_RESET ||
+	    event->type == GUI_INPUT_EVENT_MOUSE_RESET) {
+		wm_reset_input_owner(server);
+		return;
+	}
+	if (!server->state.graphics || client == NULL)
+		return;
+	put_u32(message, client->window_id);
+	put_u32(message + 4, event->type);
+	if (event->type == GUI_INPUT_EVENT_KEY)
+		put_u32(message + 8, event->key.scancode);
+	put_u32(message + 24, event->ticks);
+	if (client_enqueue(client, GUI_PROTOCOL_INPUT_EVENT, message,
+			   sizeof(message)) < 0)
+		client->hello = -1;
+}
+
 static void client_message(void *context, const gui_protocol_header *header,
 			   const void *payload, size_t payload_bytes)
 {
 	wm_client *client = context;
 	const uint8_t *bytes = payload;
 	uint8_t reply[sizeof(gui_protocol_wire_window_create_reply)];
-	uint8_t focus[sizeof(gui_protocol_wire_window_focus)];
 
 	if (!client->hello) {
 		if (header->type != GUI_PROTOCOL_HELLO || payload_bytes != 4 ||
@@ -155,17 +264,17 @@ static void client_message(void *context, const gui_protocol_header *header,
 		put_u64(reply + 8, 1);
 		put_u32(reply + 16, get_u32(bytes + 4));
 		put_u32(reply + 20, get_u32(bytes + 8));
-		put_u32(focus, client->window_id);
-		put_u32(focus + 4, 1);
 		if (client_enqueue(client, GUI_PROTOCOL_WINDOW_CREATE_REPLY, reply,
-				   sizeof(reply)) < 0 ||
-		    client_enqueue(client, GUI_PROTOCOL_WINDOW_FOCUS, focus,
-				   sizeof(focus)) < 0)
+				   sizeof(reply)) < 0)
 			client->hello = -1;
+		else
+			wm_set_input_owner(client->server, client);
 		return;
 	}
 	if (header->type == GUI_PROTOCOL_WINDOW_DESTROY && payload_bytes == 4 &&
 	    get_u32(bytes) == client->window_id) {
+		if (client->server->input_owner == client)
+			wm_set_input_owner(client->server, NULL);
 		client->window_id = 0;
 		return;
 	}
@@ -230,46 +339,51 @@ static int bind_listener(void)
 int main(void)
 {
 	struct sigaction action = { .sa_handler = request_stop };
-	struct pollfd pollfds[WM_CLIENT_LIMIT + 2];
+	struct sigaction ignore_pipe = { .sa_handler = SIG_IGN };
+	struct pollfd pollfds[WM_CLIENT_LIMIT + 3];
 	struct mario_gui_key_event events[16];
-	wm_state state = { .framebuffer = -1, .gui = -1, .listener = -1 };
-	wm_client clients[WM_CLIENT_LIMIT];
+	wm_server server = { .state = { .framebuffer = -1, .gui = -1,
+		.listener = -1 } };
 	int status = 1;
 
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++)
-		clients[index].fd = -1;
+		server.clients[index].fd = -1;
 
 	/* Acquire both descriptors before F8 may expose the graphics seat. */
-	state.framebuffer = open("/dev/fb0", O_RDWR);
-	if (state.framebuffer < 0)
+	server.state.framebuffer = open("/dev/fb0", O_RDWR);
+	if (server.state.framebuffer < 0)
 		goto out;
-	state.gui = open("/dev/gui", O_RDONLY | O_NONBLOCK);
-	if (state.gui < 0)
+	server.state.gui = open("/dev/gui", O_RDONLY | O_NONBLOCK);
+	if (server.state.gui < 0)
 		goto out;
-	state.owns_status = 1;
+	server.state.owns_status = 1;
 	/* Only the exclusive owner may discard a predecessor's stale status. */
 	remove_status_files();
-	state.listener = bind_listener();
-	if (state.listener < 0)
+	server.state.listener = bind_listener();
+	if (server.state.listener < 0)
 		goto out;
 	if (create_started_marker() < 0)
 		goto out;
+	/* Socket write failures are handled per-client by the output queue. */
 	if (sigaction(SIGTERM, &action, NULL) < 0 ||
-	    sigaction(SIGINT, &action, NULL) < 0)
+	    sigaction(SIGINT, &action, NULL) < 0 ||
+	    sigaction(SIGPIPE, &ignore_pipe, NULL) < 0)
 		goto out;
 	printf("mario-wm: listening\n");
 	fflush(stdout);
 	while (!stop_requested) {
 		int ready;
-		size_t poll_count = 2;
+		size_t poll_count = 3;
 
-		pollfds[0] = (struct pollfd) { .fd = state.gui, .events = POLLIN };
-		pollfds[1] = (struct pollfd) { .fd = state.listener, .events = POLLIN };
+		pollfds[0] = (struct pollfd) { .fd = server.state.gui, .events = POLLIN };
+		pollfds[1] = (struct pollfd) { .fd = server.state.framebuffer,
+			.events = POLLPRI };
+		pollfds[2] = (struct pollfd) { .fd = server.state.listener, .events = POLLIN };
 		for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
-			if (clients[index].fd < 0)
+			if (server.clients[index].fd < 0)
 				continue;
 			pollfds[poll_count++] = (struct pollfd) {
-				.fd = clients[index].fd,
+				.fd = server.clients[index].fd,
 				.events = POLLIN | POLLOUT,
 			};
 		}
@@ -280,25 +394,71 @@ int main(void)
 				continue;
 			goto out;
 		}
+		if (pollfds[1].revents & POLLPRI) {
+			uint32_t graphics;
+
+			if (ioctl(server.state.framebuffer, FBIOGET_CONSOLE_STATE,
+				  &graphics) < 0)
+				goto out;
+			server.state.graphics = graphics == FB_CONSOLE_GRAPHICS;
+			/* A console switch invalidates every physical pressed-state bit. */
+			wm_reset_input_owner(&server);
+		}
 		if (pollfds[0].revents & POLLIN) {
-			/* Drain ownership input now; M3.2.4 assigns it to an endpoint. */
-			while (read(state.gui, events, sizeof(events)) > 0)
-				;
+			ssize_t event_bytes;
+
+			while ((event_bytes = read(server.state.gui, events, sizeof(events))) > 0) {
+				gui_input_normalize_key_records(events,
+						event_bytes / sizeof(events[0]),
+						wm_emit_input, &server);
+			}
 			if (errno != EAGAIN)
 				goto out;
 		}
-		if (pollfds[1].revents & POLLIN) {
-			int fd = accept4(state.listener, NULL, NULL, SOCK_NONBLOCK);
+		for (size_t index = 0, poll_index = 3; index < WM_CLIENT_LIMIT; index++) {
+			uint8_t bytes[4096];
+			ssize_t count = -1;
+
+			if (server.clients[index].fd < 0)
+				continue;
+			if (pollfds[poll_index].revents & (POLLIN | POLLHUP | POLLERR)) {
+				while ((count = recv(server.clients[index].fd, bytes, sizeof(bytes), 0)) > 0) {
+					if (gui_protocol_input_append(server.clients[index].input, bytes, count) < 0 ||
+					    gui_protocol_input_drain(server.clients[index].input, client_message,
+							     &server.clients[index]) < 0 ||
+					    client_flush(&server.clients[index]) < 0)
+						server.clients[index].hello = -1;
+				}
+				if (count == 0 ||
+				    (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK))
+					server.clients[index].hello = -1;
+			}
+			if (server.clients[index].fd >= 0 &&
+			    (pollfds[poll_index].revents & POLLOUT) &&
+			    client_flush(&server.clients[index]) < 0)
+				server.clients[index].hello = -1;
+			/* A socket hangup is terminal even if a nonblocking recv() saw EAGAIN. */
+			if (pollfds[poll_index].revents & (POLLHUP | POLLERR | POLLNVAL))
+				server.clients[index].hello = -1;
+			if (server.clients[index].hello < 0)
+				wm_disconnect_client(&server, &server.clients[index]);
+			poll_index++;
+		}
+		if (pollfds[2].revents & POLLIN) {
+			int fd = accept4(server.state.listener, NULL, NULL, SOCK_NONBLOCK);
 
 			if (fd >= 0) {
 				for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
-					if (clients[index].fd >= 0)
+					if (server.clients[index].fd >= 0)
 						continue;
-					clients[index] = (wm_client) { .fd = fd,
+					/* A new fd joins only the next poll snapshot. */
+					server.clients[index] = (wm_client) { .fd = fd,
 						.input = gui_protocol_input_create(),
-						.output = gui_protocol_output_create(GUI_PROTOCOL_OUTPUT_LIMIT) };
-					if (clients[index].input == NULL || clients[index].output == NULL)
-						client_destroy(&clients[index]);
+						.output = gui_protocol_output_create(GUI_PROTOCOL_OUTPUT_LIMIT),
+						.server = &server };
+					if (server.clients[index].input == NULL ||
+					    server.clients[index].output == NULL)
+						client_destroy(&server.clients[index]);
 					fd = -1;
 					break;
 				}
@@ -306,38 +466,13 @@ int main(void)
 					close(fd);
 			}
 		}
-		for (size_t index = 0, poll_index = 2; index < WM_CLIENT_LIMIT; index++) {
-			uint8_t bytes[4096];
-			ssize_t count = -1;
-
-			if (clients[index].fd < 0)
-				continue;
-			if (pollfds[poll_index].revents & POLLIN) {
-				while ((count = recv(clients[index].fd, bytes, sizeof(bytes), 0)) > 0) {
-					if (gui_protocol_input_append(clients[index].input, bytes, count) < 0 ||
-					    gui_protocol_input_drain(clients[index].input, client_message,
-							     &clients[index]) < 0 ||
-					    client_flush(&clients[index]) < 0)
-						clients[index].hello = -1;
-				}
-				if (count == 0 ||
-				    (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK))
-					clients[index].hello = -1;
-			}
-			if (clients[index].fd >= 0 && (pollfds[poll_index].revents & POLLOUT) &&
-			    client_flush(&clients[index]) < 0)
-				clients[index].hello = -1;
-			if (clients[index].hello < 0)
-				client_destroy(&clients[index]);
-			poll_index++;
-		}
 	}
 	status = 0;
 out:
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++)
-		client_destroy(&clients[index]);
+		client_destroy(&server.clients[index]);
 	if (status != 0)
 		perror("mario-wm");
-	wm_cleanup(&state);
+	wm_cleanup(&server.state);
 	return status;
 }

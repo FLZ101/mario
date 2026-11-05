@@ -3,7 +3,14 @@ SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo 
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 GUI-SEND-KEY: f8
 GUI-CHECK-RECT: 0 0 1024 768 0 0 0
-SERIAL: /usr/bin/test/gui-wm-client.exe
-SERIAL-CHECK: wm-client: create focus close ok
+SERIAL: /usr/bin/test/gui-wm-client.exe >/tmp/wm-client.log 2>&1 &
+SERIAL: while ! grep -q 'wm-client: focus reset ready' /tmp/wm-client.log; do sleep 1; done
+GUI-SEND-KEY: f6
+SERIAL: while ! grep -q 'wm-client: text seat reset ready' /tmp/wm-client.log; do sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL: while ! grep -q 'wm-client: graphics seat reset ready' /tmp/wm-client.log; do sleep 1; done
+GUI-TYPE: x
+SERIAL: sleep 1; cat /tmp/wm-client.log
+SERIAL-CHECK: wm-client: ownership resets ok
 SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
 EXIT:

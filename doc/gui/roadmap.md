@@ -671,7 +671,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
 - [x] **M3.2.3 — negotiate ordinary windows.** Implement `HELLO`, client
   lifecycle, create/destroy windows, and server-owned configure serials. Test
   one synthetic public client create/focus/close path. Commit: `gui: negotiate client windows`.
-- [ ] **M3.2.4 — reset input at ownership boundaries.** Deliver ordered
+- [x] **M3.2.4 — reset input at ownership boundaries.** Deliver ordered
   `INPUT_RESET` on focus, grab, disconnect, and seat changes before later
   events. Unit test exact ordering. Commit: `gui: reset client input state`.
 - [ ] **M3.3.1 — stage client surfaces.** Validate dimensions against scanout
