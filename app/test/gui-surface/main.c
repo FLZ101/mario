@@ -155,6 +155,43 @@ static void test_flush_rect(void)
 	gui_surface_destroy(surface);
 }
 
+static void test_flush_region(void)
+{
+	gui_surface *surface = gui_surface_create(4, 3);
+	gui_region_rect rects[3];
+	gui_region region;
+	mock_sink sink = {
+		.results = { 4, -1 },
+		.errors = { 0, EBUSY },
+	};
+
+	assert(surface != NULL);
+	gui_region_init(&region, rects, 3, (gui_rect) { 0, 0, 4, 3 });
+	gui_region_add(&region, (gui_rect) { 0, 0, 1, 1 });
+	gui_region_add(&region, (gui_rect) { 2, 0, 1, 1 });
+	gui_region_add(&region, (gui_rect) { 0, 2, 1, 1 });
+	assert(gui_surface_flush_region(surface, &region, 16, mock_pwrite64,
+					&sink) == GUI_FLUSH_BUSY);
+	assert(sink.count == 2);
+	assert(region.count == 2 && !region.full);
+	assert(region.rects[0].x == 2 && region.rects[0].y == 0);
+	assert(region.rects[1].x == 0 && region.rects[1].y == 2);
+
+	gui_region_mark_full(&region);
+	assert(region.count == 1 && region.full);
+	assert(region.rects[0].x == 0 && region.rects[0].y == 0);
+	assert(region.rects[0].width == 4 && region.rects[0].height == 3);
+	memset(&sink, 0, sizeof(sink));
+	sink.results[0] = 16;
+	sink.results[1] = 16;
+	sink.results[2] = 16;
+	assert(gui_surface_flush_region(surface, &region, 16, mock_pwrite64,
+					&sink) == GUI_FLUSH_COMPLETE);
+	assert(sink.count == 3);
+	assert(region.count == 0 && !region.full);
+	gui_surface_destroy(surface);
+}
+
 int main(void)
 {
 	gui_surface *surface;
@@ -182,10 +219,12 @@ int main(void)
 	gui_surface_destroy(surface);
 	test_damage_region();
 	test_flush_rect();
+	test_flush_region();
 
 	puts("gui-surface: ok");
 	puts("gui-surface: drawing ok");
 	puts("gui-surface: damage ok");
 	puts("gui-surface: flush ok");
+	puts("gui-surface: region flush ok");
 	return 0;
 }

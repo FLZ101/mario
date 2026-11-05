@@ -162,12 +162,21 @@ void         gui_region_init(gui_region *region, gui_region_rect *rects,
                              int capacity, gui_rect bounds);
 void         gui_region_add(gui_region *region, gui_rect r);
 void         gui_region_clear(gui_region *region);
+void         gui_region_mark_full(gui_region *region);
 gui_flush_result gui_surface_flush_rect(const gui_surface *s, gui_rect r,
                                         size_t scanout_stride,
                                         gui_pwrite64_fn pwrite64_fn,
                                         void *context);
 gui_flush_result gui_surface_flush_rect_fd(const gui_surface *s, gui_rect r,
                                            size_t scanout_stride, int fd);
+gui_flush_result gui_surface_flush_region(const gui_surface *s,
+                                          gui_region *region,
+                                          size_t scanout_stride,
+                                          gui_pwrite64_fn pwrite64_fn,
+                                          void *context);
+gui_flush_result gui_surface_flush_region_fd(const gui_surface *s,
+                                             gui_region *region,
+                                             size_t scanout_stride, int fd);
 ```
 
 Clipping and damage rules:
@@ -189,6 +198,10 @@ Clipping and damage rules:
   `GUI_FLUSH_BUSY` for `EBUSY` without changing damage, so the caller retains
   and retries the complete original rectangle after the foreground transition.
   Other I/O errors return `GUI_FLUSH_ERROR`.
+- `gui_surface_flush_region()` flushes rectangles in their stored order and
+  removes only those which complete. A compositor calls `gui_region_mark_full()`
+  on every `/dev/fb0` `POLLPRI` transition: the full scanout must be redrawn
+  because an earlier successful write can have been superseded by the change.
 - The compositor never reads damage regions from an app-owned surface after
   the app has modified it without taking the window lock; a bounded
   `SURFACE_BEGIN`/`SURFACE_DATA`/`SURFACE_COMMIT` transaction transfers each

@@ -81,6 +81,22 @@ void gui_region_clear(gui_region *region)
 	region->full = 0;
 }
 
+void gui_region_mark_full(gui_region *region)
+{
+	if (region == NULL || region->rects == NULL || region->capacity <= 0 ||
+	    region->bounds.w <= 0 || region->bounds.h <= 0)
+		return;
+	/* A foreground transition invalidates every previously completed row. */
+	region->rects[0] = (gui_region_rect) {
+		.x = region->bounds.x,
+		.y = region->bounds.y,
+		.width = region->bounds.w,
+		.height = region->bounds.h,
+	};
+	region->count = 1;
+	region->full = 1;
+}
+
 void gui_region_add(gui_region *region, gui_rect rect)
 {
 	gui_region_rect candidate;
@@ -99,14 +115,7 @@ void gui_region_add(gui_region *region, gui_rect rect)
 		region->rects[index] = region->rects[region->count];
 	}
 	if (region->count == region->capacity) {
-		region->rects[0] = (gui_region_rect) {
-			.x = region->bounds.x,
-			.y = region->bounds.y,
-			.width = region->bounds.w,
-			.height = region->bounds.h,
-		};
-		region->count = 1;
-		region->full = 1;
+		gui_region_mark_full(region);
 		return;
 	}
 	region->rects[region->count++] = candidate;

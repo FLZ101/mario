@@ -557,7 +557,7 @@ console/input: add graphics mode, /dev/gui, and /dev/psaux
   `pwrite64()` and retain it when the framebuffer returns `EBUSY`. Test short
   writes and an interrupted copy through a mock sink. Commit: `gui: flush one
   damaged rectangle`.
-- [ ] **M2.3.2 — flush a damage set.** Retry remaining regions in order, clear
+- [x] **M2.3.2 — flush a damage set.** Retry remaining regions in order, clear
   only completed damage, and preserve the full set across a foreground change.
   Test partial completion and transition retry. Commit: `gui: flush damaged
   surface regions`.

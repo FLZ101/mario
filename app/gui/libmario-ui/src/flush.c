@@ -100,3 +100,42 @@ gui_flush_result gui_surface_flush_rect_fd(const gui_surface *surface,
 	return gui_surface_flush_rect(surface, rect, scanout_stride,
 				      gui_flush_pwrite64, &fd);
 }
+
+gui_flush_result gui_surface_flush_region(const gui_surface *surface,
+					  gui_region *region, size_t scanout_stride,
+					  gui_pwrite64_fn pwrite64_fn, void *context)
+{
+	int index = 0;
+
+	if (region == NULL || region->rects == NULL || region->count < 0 ||
+	    region->count > region->capacity)
+		return GUI_FLUSH_ERROR;
+	while (index < region->count) {
+		gui_region_rect rect = region->rects[index];
+		gui_flush_result result = gui_surface_flush_rect(surface,
+			(gui_rect) {
+				.x = rect.x,
+				.y = rect.y,
+				.w = rect.width,
+				.h = rect.height,
+			}, scanout_stride, pwrite64_fn, context);
+
+		if (result != GUI_FLUSH_COMPLETE)
+			return result;
+		/* Shift, rather than swap, so the next retry keeps region order. */
+		for (int remaining = index + 1; remaining < region->count;
+		     remaining++)
+			region->rects[remaining - 1] = region->rects[remaining];
+		region->count--;
+	}
+	region->full = 0;
+	return GUI_FLUSH_COMPLETE;
+}
+
+gui_flush_result gui_surface_flush_region_fd(const gui_surface *surface,
+					     gui_region *region, size_t scanout_stride,
+					     int fd)
+{
+	return gui_surface_flush_region(surface, region, scanout_stride,
+					gui_flush_pwrite64, &fd);
+}

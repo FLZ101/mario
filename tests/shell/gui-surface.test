@@ -3,3 +3,4 @@ CHECK: gui-surface: ok
 CHECK: gui-surface: drawing ok
 CHECK: gui-surface: damage ok
 CHECK: gui-surface: flush ok
+CHECK: gui-surface: region flush ok

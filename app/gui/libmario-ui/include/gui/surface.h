@@ -56,10 +56,17 @@ void gui_region_init(gui_region *region, gui_region_rect *rects, int capacity,
 		     gui_rect bounds);
 void gui_region_add(gui_region *region, gui_rect rect);
 void gui_region_clear(gui_region *region);
+void gui_region_mark_full(gui_region *region);
 gui_flush_result gui_surface_flush_rect(const gui_surface *surface,
 					gui_rect rect, size_t scanout_stride,
 					gui_pwrite64_fn pwrite64_fn, void *context);
 gui_flush_result gui_surface_flush_rect_fd(const gui_surface *surface,
 					   gui_rect rect, size_t scanout_stride, int fd);
+gui_flush_result gui_surface_flush_region(const gui_surface *surface,
+					  gui_region *region, size_t scanout_stride,
+					  gui_pwrite64_fn pwrite64_fn, void *context);
+gui_flush_result gui_surface_flush_region_fd(const gui_surface *surface,
+					     gui_region *region, size_t scanout_stride,
+					     int fd);
 
 #endif
