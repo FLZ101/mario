@@ -28,6 +28,13 @@ SERIAL: test -e /tmp/mario-wm.started; echo wm-owner-status:$?
 SERIAL-CHECK: wm-owner-status:0
 GUI-CHECK-RECT: 0 0 1024 768 0 0 0
 SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
-GUI-SEND-KEY: f6
+# Closing the last seat descriptors restores the previous text VT without a
+# synthetic function-key transition.
 GUI-CHECK-SCREEN: assets/fb-tty.ppm
+SERIAL: test ! -e /tmp/mario-wm.ready && test ! -e /tmp/mario-wm.frame && echo wm-cleanup: ok
+SERIAL-CHECK: wm-cleanup: ok
+# A clean loop exit releases the listener and seat so a new server can start.
+SERIAL: /usr/bin/mario-wm >/tmp/mario-wm-restart.log 2>&1 & echo $! >/tmp/mario-wm-restart.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: kill -TERM $(cat /tmp/mario-wm-restart.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
 EXIT:

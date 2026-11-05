@@ -33,6 +33,26 @@ static void remove_status_files(void)
 	unlink(WM_FRAME_PATH);
 }
 
+typedef struct {
+	int framebuffer;
+	int gui;
+	int listener;
+	int owns_status;
+} wm_state;
+
+static void wm_cleanup(wm_state *state)
+{
+	/* Close the listener before releasing the descriptors that own the seat. */
+	if (state->listener >= 0)
+		close(state->listener);
+	if (state->gui >= 0)
+		close(state->gui);
+	if (state->framebuffer >= 0)
+		close(state->framebuffer);
+	if (state->owns_status)
+		remove_status_files();
+}
+
 static int create_started_marker(void)
 {
 	static const char marker[] = "listening\n";
@@ -80,24 +100,21 @@ int main(void)
 	struct sigaction action = { .sa_handler = request_stop };
 	struct pollfd pollfd;
 	struct mario_gui_key_event events[16];
-	int framebuffer = -1;
-	int gui = -1;
-	int listener = -1;
-	int owns_status = 0;
+	wm_state state = { .framebuffer = -1, .gui = -1, .listener = -1 };
 	int status = 1;
 
 	/* Acquire both descriptors before F8 may expose the graphics seat. */
-	framebuffer = open("/dev/fb0", O_RDWR);
-	if (framebuffer < 0)
+	state.framebuffer = open("/dev/fb0", O_RDWR);
+	if (state.framebuffer < 0)
 		goto out;
-	gui = open("/dev/gui", O_RDONLY | O_NONBLOCK);
-	if (gui < 0)
+	state.gui = open("/dev/gui", O_RDONLY | O_NONBLOCK);
+	if (state.gui < 0)
 		goto out;
-	owns_status = 1;
+	state.owns_status = 1;
 	/* Only the exclusive owner may discard a predecessor's stale status. */
 	remove_status_files();
-	listener = bind_listener();
-	if (listener < 0)
+	state.listener = bind_listener();
+	if (state.listener < 0)
 		goto out;
 	if (create_started_marker() < 0)
 		goto out;
@@ -106,7 +123,7 @@ int main(void)
 		goto out;
 	printf("mario-wm: listening\n");
 	fflush(stdout);
-	pollfd = (struct pollfd) { .fd = gui, .events = POLLIN };
+	pollfd = (struct pollfd) { .fd = state.gui, .events = POLLIN };
 	while (!stop_requested) {
 		int ready = poll(&pollfd, 1, -1);
 
@@ -118,7 +135,7 @@ int main(void)
 		if (!(pollfd.revents & POLLIN))
 			continue;
 		/* Drain ownership input now; M3.2.4 assigns it to an endpoint. */
-		while (read(gui, events, sizeof(events)) > 0)
+		while (read(state.gui, events, sizeof(events)) > 0)
 			;
 		if (errno != EAGAIN)
 			goto out;
@@ -128,13 +145,6 @@ int main(void)
 out:
 	if (status != 0)
 		perror("mario-wm");
-	if (listener >= 0)
-		close(listener);
-	if (gui >= 0)
-		close(gui);
-	if (framebuffer >= 0)
-		close(framebuffer);
-	if (owns_status)
-		remove_status_files();
+	wm_cleanup(&state);
 	return status;
 }

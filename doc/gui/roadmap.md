@@ -665,7 +665,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
   reserve `/dev/fb0` and `/dev/gui` before F8, bind the pathname socket, and
   remove stale server status files. Test text boot, F8 eligibility, and failed
   startup rollback. Commit: `gui: start window manager server`.
-- [ ] **M3.2.2 — make server cleanup failure-safe.** Close seat/listener fds,
+- [x] **M3.2.2 — make server cleanup failure-safe.** Close seat/listener fds,
   remove the socket/status files, restore the prior text VT, and prove restart
   after startup or loop failure. Commit: `gui: clean up window manager seat`.
 - [ ] **M3.2.3 — negotiate ordinary windows.** Implement `HELLO`, client
