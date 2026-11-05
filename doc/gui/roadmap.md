@@ -533,7 +533,7 @@ console/input: add graphics mode, /dev/gui, and /dev/psaux
   version, URL, checksum, license note, and an offline checksum verifier.
   Test only source acquisition/verification. Commit: `gui: pin freetype
   source`.
-- [ ] **M2.1.2 — cross-build a minimal FreeType library.** Build the required
+- [x] **M2.1.2 — cross-build a minimal FreeType library.** Build the required
   SFNT/TrueType/CFF modules as a static library through `mario-musl-cc`; do not
   link it into an application yet. Test archive symbols and deterministic
   rebuild output. Commit: `gui: build freetype for Mario`.
