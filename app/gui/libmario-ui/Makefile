@@ -3,9 +3,11 @@ SHELL := /bin/bash
 LIB := libmario-ui.a
 SOURCES := $(wildcard src/*.c)
 OBJECTS := $(SOURCES:.c=.o)
+APP_ROOT := $(abspath ../..)
+FREETYPE_INSTALL_DIR := $(APP_ROOT)/usr/freetype-2.13.3-install
 
 OPTIMIZE ?= -O0
-CFLAGS := -c -Iinclude -std=gnu11 -Wall -Werror \
+CFLAGS := -c -Iinclude -I$(FREETYPE_INSTALL_DIR)/include -std=gnu11 -Wall -Werror \
 	-ggdb $(OPTIMIZE) -fno-omit-frame-pointer -MMD -MP
 DEPS := $(OBJECTS:.o=.d)
 

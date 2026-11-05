@@ -565,7 +565,7 @@ console/input: add graphics mode, /dev/gui, and /dev/psaux
   CP437 fallback selection, glyph metrics, and baseline layout independent of
   rasterization. Unit test malformed UTF-8 and fallback choice. Commit: `gui:
   add text layout`.
-- [ ] **M2.4.2 — rasterize and cache glyphs.** Add a bounded LRU glyph cache
+- [x] **M2.4.2 — rasterize and cache glyphs.** Add a bounded LRU glyph cache
   over FreeType with deterministic eviction and theme colors. Test cache hit,
   eviction, and one pixel-exact glyph golden. Commit: `gui: render cached
   glyphs`.

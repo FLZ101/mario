@@ -1,0 +1,3 @@
+RUN: /usr/bin/test/gui-font.exe
+CHECK: gui-font: cache ok
+CHECK: gui-font: glyph ok

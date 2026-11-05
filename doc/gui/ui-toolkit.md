@@ -322,6 +322,16 @@ The cache key includes `font_id` so proportional and monospace faces cannot
 alias the same codepoint/size entry. Each entry owns its 8-bit alpha allocation;
 LRU eviction frees that allocation before reusing the entry.
 
+`gui_font_load(path, pixel_height)` owns the bounded font file buffer and one
+FreeType face. A `gui_font` is one `(font_id, pixel_height)` cache namespace;
+it holds at most 2048 grayscale entries and evicts the least recently used
+entry, breaking an age tie by the lower cache slot. `gui_font_get_glyph()`
+rasterizes with `FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP` and
+`FT_RENDER_MODE_NORMAL`. `gui_font_draw_glyph()` applies an opaque XRGB theme
+color as full alpha when its high byte is zero, or uses a supplied ARGB alpha.
+`gui_font_draw_text()` draws a fixed 8x16 CP437 `?` for malformed UTF-8 or a
+font-missing codepoint before advancing by the same fixed fallback width.
+
 Font metrics include ascent, descent, line gap, and underline position so the
 terminal can compute row height and the window manager can size title bars
 correctly.

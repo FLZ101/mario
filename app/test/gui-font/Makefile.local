@@ -1,0 +1,4 @@
+CFLAGS += -I$(ROOT)/gui/libmario-ui/include
+CFLAGS += -I$(ROOT)/usr/freetype-2.13.3-install/include
+LDFLAGS += -L$(ROOT)/gui/libmario-ui -lmario-ui
+LDFLAGS += -static -L$(ROOT)/usr/freetype-2.13.3-install/lib -lfreetype
