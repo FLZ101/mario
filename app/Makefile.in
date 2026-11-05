@@ -18,6 +18,9 @@ CFLAGS	:=-c $(INCLUDE) \
 	-MMD -MP
 # LD :=$(CC)
 LDFLAGS	:=
+# Applications with static third-party dependencies add only their local
+# include and link flags in Makefile.local.
+-include Makefile.local
 OBJDUMP :=objdump
 
 DEPS	:= $(OBJS:.o=.d)

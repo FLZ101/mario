@@ -1,0 +1,5 @@
+SERIAL: /usr/bin/test/font.exe
+SERIAL-CHECK: font: path=/usr/share/fonts/DejaVuSansMono.ttf
+SERIAL-CHECK: font: family=DejaVu Sans Mono style=Book glyphs=3377 units-per-em=2048 ascender=1901 descender=-483 height=2384 max-advance=1233
+SERIAL-CHECK: font: pixels=16,16 ascender=960 descender=-256 height=1216 max-advance=640
+EXIT:

@@ -537,7 +537,7 @@ console/input: add graphics mode, /dev/gui, and /dev/psaux
   SFNT/TrueType/CFF modules as a static library through `mario-musl-cc`; do not
   link it into an application yet. Test archive symbols and deterministic
   rebuild output. Commit: `gui: build freetype for Mario`.
-- [ ] **M2.1.3 — install deterministic font assets.** Add the bundled TTF and
+- [x] **M2.1.3 — install deterministic font assets.** Add the bundled TTF and
   copy/install rules, then use a smoke executable to open its face and report
   fixed metrics. Test the installed ramdisk path. Commit: `gui: install
   bundled font`.

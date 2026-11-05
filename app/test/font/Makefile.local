@@ -1,0 +1,3 @@
+# FreeType is built statically by app/usr before application binaries.
+CFLAGS += -I$(ROOT)/usr/freetype-2.13.3-install/include
+LDFLAGS += -static -L$(ROOT)/usr/freetype-2.13.3-install/lib -lfreetype

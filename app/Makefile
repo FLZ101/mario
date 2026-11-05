@@ -15,9 +15,9 @@ export OPTIMIZE
 
 unexport SMP BOOT_ENTRY
 
-all: example usr | check
+all: example | check
 
-example:
+example: usr
 	@set -e ; for x in $(SUBDIRS) ; do $(MAKE) all -C $$x -f $(ROOT)/Makefile.in; done
 
 clean: clean-example

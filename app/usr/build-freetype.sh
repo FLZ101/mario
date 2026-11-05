@@ -27,12 +27,18 @@ HINTING_MODULES += pshinter
 RASTER_MODULES += smooth
 AUX_MODULES += psaux
 AUX_MODULES += psnames
+# The selected SFNT drivers call these helpers for embedded bitmaps, variable
+# font instances, and compressed font tables.
+BASE_EXTENSIONS += ftbitmap.c
+BASE_EXTENSIONS += ftmm.c
+AUX_MODULES += gzip
 EOF
 
 pushd "$build_dir"
 
 export CC
-export CFLAGS="-c -ggdb ${OPTIMIZE} -fno-omit-frame-pointer"
+export CFLAGS="-c -ggdb ${OPTIMIZE} -fno-omit-frame-pointer \
+    -DFT_CONFIG_MODULES_H='<ftmodule.h>'"
 # The Unix backend invokes autotools and probes host libraries.  Its ANSI
 # backend builds a static archive directly, avoiding accidental host deps.
 cp "$source_dir/builds/ansi/ansi.mk" config.mk
