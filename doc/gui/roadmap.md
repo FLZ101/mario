@@ -561,7 +561,7 @@ console/input: add graphics mode, /dev/gui, and /dev/psaux
   only completed damage, and preserve the full set across a foreground change.
   Test partial completion and transition retry. Commit: `gui: flush damaged
   surface regions`.
-- [ ] **M2.4.1 — decode and measure text.** Define UTF-8 replacement behavior,
+- [x] **M2.4.1 — decode and measure text.** Define UTF-8 replacement behavior,
   CP437 fallback selection, glyph metrics, and baseline layout independent of
   rasterization. Unit test malformed UTF-8 and fallback choice. Commit: `gui:
   add text layout`.

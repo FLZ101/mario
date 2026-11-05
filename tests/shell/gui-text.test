@@ -1,0 +1,3 @@
+RUN: /usr/bin/test/gui-text.exe
+CHECK: gui-text: decode ok
+CHECK: gui-text: layout ok

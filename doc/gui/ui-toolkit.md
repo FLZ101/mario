@@ -284,6 +284,21 @@ Glyph rendering:
 Malformed UTF-8 consumes one byte and renders the CP437 fallback glyph; it
 never reads beyond the supplied NUL-terminated string.
 
+Text layout is independent of glyph rasterization. `gui_text_next()` decodes
+one NUL-terminated UTF-8 sequence and identifies malformed input as the CP437
+`?` fallback. `gui_text_measure()` obtains advances from a font callback, uses
+the fixed 8-pixel CP437 advance when the callback has no glyph, and reports a
+single-line width, baseline, and line height. Its input metrics use a positive
+ascent, a nonpositive descent, and a nonnegative line gap; the baseline is the
+ascent and the line height is `ascent - descent + line_gap`.
+
+```c
+int gui_text_next(const char **text, gui_text_glyph *glyph);
+int gui_text_measure(const char *text, const gui_font_metrics *metrics,
+                     gui_text_lookup_fn lookup, void *context,
+                     gui_text_layout *layout);
+```
+
 Font cache:
 
 ```c
