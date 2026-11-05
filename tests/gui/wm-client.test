@@ -1,0 +1,9 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+GUI-SEND-KEY: f8
+GUI-CHECK-RECT: 0 0 1024 768 0 0 0
+SERIAL: /usr/bin/test/gui-wm-client.exe
+SERIAL-CHECK: wm-client: create focus close ok
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

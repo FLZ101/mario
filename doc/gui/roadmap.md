@@ -668,7 +668,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
 - [x] **M3.2.2 — make server cleanup failure-safe.** Close seat/listener fds,
   remove the socket/status files, restore the prior text VT, and prove restart
   after startup or loop failure. Commit: `gui: clean up window manager seat`.
-- [ ] **M3.2.3 — negotiate ordinary windows.** Implement `HELLO`, client
+- [x] **M3.2.3 — negotiate ordinary windows.** Implement `HELLO`, client
   lifecycle, create/destroy windows, and server-owned configure serials. Test
   one synthetic public client create/focus/close path. Commit: `gui: negotiate client windows`.
 - [ ] **M3.2.4 — reset input at ownership boundaries.** Deliver ordered
