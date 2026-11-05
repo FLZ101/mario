@@ -1,0 +1,4 @@
+RUN: /usr/bin/test/gui-protocol.exe
+CHECK: gui-protocol: header ok
+CHECK: gui-protocol: hello ok
+CHECK: gui-protocol: roles ok

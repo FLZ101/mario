@@ -819,7 +819,7 @@ Socket and message details:
   profiling shows socket copies dominate.
 - Validate every wire equation with checked 64-bit arithmetic before allocating
   or copying. In particular, a data message has
-  `length == sizeof(header) + 20 + width * rows * 4`; `row_offset + rows` must
+  `length == sizeof(header) + 28 + width * rows * 4`; `row_offset + rows` must
   not overflow or exceed the declared height. Reject zero/overflowing
   dimensions, rectangles outside the target surface, and messages that exceed
   the received-byte quota. Never trust a client-sized multiplication performed

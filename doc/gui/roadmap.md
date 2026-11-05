@@ -650,7 +650,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
 
 ## M3: Window Manager and Shell
 
-- [ ] **M3.1.1 — define the wire ABI and endpoint roles.** Add protocol
+- [x] **M3.1.1 — define the wire ABI and endpoint roles.** Add protocol
   version, message enum, packed payload layouts, checked length arithmetic,
   and encode/decode unit tests. Define server-assigned ordinary versus shell
   endpoints; no client-controlled `HELLO` field may claim the shell role.
