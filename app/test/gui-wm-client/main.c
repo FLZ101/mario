@@ -266,13 +266,26 @@ static void test_stack(void)
 {
 	int back = connect_client();
 	int front;
+	uint8_t frame[64];
 
 	create_window(back, 30, 64, 48);
 	commit_color_surface(back, 64, 48, 0x00ff0000);
 	front = connect_client();
 	create_window(front, 31, 64, 48);
 	commit_color_surface(front, 64, 48, 0x0000ff00);
+	/* Creating the front window transfers the initial focus away from back. */
+	read_frame(back, frame, GUI_PROTOCOL_WINDOW_FOCUS);
+	assert(get32(frame + 12) == 0);
+	read_frame(back, frame, GUI_PROTOCOL_INPUT_RESET);
 	puts("wm-client: stack ready");
+	fflush(stdout);
+	/* A click on the exposed red corner raises and focuses the back window. */
+	read_frame(back, frame, GUI_PROTOCOL_WINDOW_FOCUS);
+	assert(get32(frame + 12) == 1);
+	read_frame(back, frame, GUI_PROTOCOL_INPUT_RESET);
+	read_frame(back, frame, GUI_PROTOCOL_INPUT_EVENT);
+	assert(get32(frame + 12) == GUI_INPUT_EVENT_MOUSE && frame[32] == 1);
+	puts("wm-client: click focus ready");
 	fflush(stdout);
 	for (;;)
 		pause();

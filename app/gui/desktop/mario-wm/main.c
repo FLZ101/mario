@@ -64,6 +64,7 @@ typedef struct {
 	uint64_t frame_number;
 	uint32_t cursor_x;
 	uint32_t cursor_y;
+	uint8_t mouse_buttons;
 	uint8_t cursor_rgba[WM_CURSOR_WIDTH * WM_CURSOR_HEIGHT * 4];
 	gui_surface *composite;
 } wm_state;
@@ -96,6 +97,7 @@ typedef struct wm_client {
 struct wm_server {
 	wm_state state;
 	wm_client clients[WM_CLIENT_LIMIT];
+	uint64_t next_placement;
 	uint64_t next_stack_order;
 	/* All focus and future grab transitions enter through this owner. */
 	wm_client *input_owner;
@@ -377,7 +379,7 @@ static wm_client *wm_add_client(wm_server *server, int fd,
 
 static void wm_place_window(wm_server *server, wm_client *client)
 {
-	uint64_t layer = server->next_stack_order++;
+	uint64_t layer = server->next_placement++;
 	uint64_t wanted_x = 64 + layer * 32;
 	uint64_t wanted_y = 64 + layer * 16;
 	uint32_t maximum_x = client->width < server->state.width ?
@@ -388,7 +390,7 @@ static void wm_place_window(wm_server *server, wm_client *client)
 	/* Cascade predictable initial rectangles while keeping every surface on-screen. */
 	client->x = wanted_x > maximum_x ? maximum_x : (int32_t)wanted_x;
 	client->y = wanted_y > maximum_y ? maximum_y : (int32_t)wanted_y;
-	client->stack_order = layer + 1;
+	client->stack_order = ++server->next_stack_order;
 }
 
 static int surface_bytes(uint32_t width, uint32_t height, size_t *bytes)
@@ -595,6 +597,24 @@ static int client_enqueue_focus(wm_client *client, int focused)
 	return client_enqueue(client, GUI_PROTOCOL_WINDOW_FOCUS, focus, sizeof(focus));
 }
 
+static wm_client *wm_hit_test(wm_server *server, uint32_t x, uint32_t y)
+{
+	wm_client *hit = NULL;
+
+	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+		wm_client *client = &server->clients[index];
+
+		if (client->fd < 0 || client->role != GUI_PROTOCOL_ENDPOINT_ORDINARY ||
+		    client->committed == NULL || x < (uint32_t)client->x ||
+		    y < (uint32_t)client->y || x - client->x >= client->width ||
+		    y - client->y >= client->height)
+			continue;
+		if (hit == NULL || client->stack_order > hit->stack_order)
+			hit = client;
+	}
+	return hit;
+}
+
 static int client_enqueue_input_reset(wm_client *client)
 {
 	return client_enqueue(client, GUI_PROTOCOL_INPUT_RESET, NULL, 0);
@@ -628,6 +648,7 @@ static void wm_set_input_owner(wm_server *server, wm_client *client)
 	}
 	server->input_owner = client;
 	if (client != NULL) {
+		client->stack_order = ++server->next_stack_order;
 		client->focused = 1;
 		if (client_enqueue_focus(client, 1) < 0 ||
 		    client_enqueue_input_reset(client) < 0)
@@ -681,6 +702,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 		return;
 	if (event->type == GUI_INPUT_EVENT_MOUSE) {
 		wm_state *state = &server->state;
+		uint8_t previous_buttons = state->mouse_buttons;
 		int64_t x = (int64_t)state->cursor_x + event->mouse.dx;
 		int64_t y = (int64_t)state->cursor_y - event->mouse.dy;
 
@@ -698,14 +720,29 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 			if (wm_compose(server) == GUI_FLUSH_ERROR)
 				stop_requested = 1;
 		}
+		state->mouse_buttons = event->mouse.buttons;
+		if (!(previous_buttons & 1) && (state->mouse_buttons & 1)) {
+			wm_client *hit = wm_hit_test(server, state->cursor_x, state->cursor_y);
+
+			if (hit != NULL) {
+				wm_set_input_owner(server, hit);
+				if (wm_compose(server) == GUI_FLUSH_ERROR)
+					stop_requested = 1;
+			}
+		}
 	}
+	client = server->input_owner;
 	if (client == NULL)
 		return;
 	put_u32(message, client->window_id);
 	put_u32(message + 4, event->type);
 	if (event->type == GUI_INPUT_EVENT_KEY)
 		put_u32(message + 8, event->key.scancode);
-	put_u32(message + 24, event->ticks);
+	put_u32(message + 16, server->state.cursor_x);
+	put_u32(message + 20, server->state.cursor_y);
+	if (event->type == GUI_INPUT_EVENT_MOUSE)
+		message[24] = event->mouse.buttons;
+	put_u32(message + 28, event->ticks);
 	if (client_enqueue(client, GUI_PROTOCOL_INPUT_EVENT, message,
 			   sizeof(message)) < 0)
 		client->hello = -1;

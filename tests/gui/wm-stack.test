@@ -7,5 +7,12 @@ SERIAL: /usr/bin/test/gui-wm-client.exe --stack-only >/tmp/wm-stack.log 2>&1 & e
 SERIAL: while ! grep -q 'wm-client: stack ready' /tmp/wm-stack.log; do sleep 1; done
 GUI-CHECK-RECT: 70 70 1 1 255 0 0
 GUI-CHECK-RECT: 100 90 1 1 0 255 0
+GUI-MOUSE-MOVE: 54,54
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+SERIAL: while ! grep -q 'wm-client: click focus ready' /tmp/wm-stack.log; do sleep 1; done
+GUI-CHECK-RECT: 100 90 1 1 255 0 0
+GUI-MOUSE-BUTTON: left,up
 SERIAL: kill $(cat /tmp/wm-stack.pid); kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
 EXIT:
