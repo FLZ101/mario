@@ -40,6 +40,53 @@ static void test_terminal_attributes(int slave)
 	assert(tcsetattr(slave, TCSANOW, &saved) == 0);
 }
 
+static volatile sig_atomic_t got_winch;
+
+static void handle_winch(int signal_number)
+{
+	if (signal_number == SIGWINCH)
+		got_winch = 1;
+}
+
+static void test_resize(int master, int slave)
+{
+	struct winsize expected = { .ws_row = 43, .ws_col = 97 };
+	struct winsize observed;
+	char ready_byte;
+	int ready[2];
+	int status;
+	pid_t pid;
+
+	assert(pipe(ready) == 0);
+	pid = fork();
+	assert(pid >= 0);
+	if (!pid) {
+		assert(close(master) == 0);
+		assert(close(ready[0]) == 0);
+		assert(setsid() > 0);
+		assert(ioctl(slave, TIOCSCTTY, 0) == 0);
+		assert(signal(SIGWINCH, handle_winch) != SIG_ERR);
+
+		/* The parent changes the size only after this foreground pgrp exists. */
+		assert(write(ready[1], "r", 1) == 1);
+		while (!got_winch)
+			pause();
+		assert(ioctl(slave, TIOCGWINSZ, &observed) == 0);
+		assert(!memcmp(&observed, &expected, sizeof(expected)));
+		_exit(0);
+	}
+
+	assert(close(ready[1]) == 0);
+	assert(read(ready[0], &ready_byte, 1) == 1);
+	assert(ioctl(master, TIOCSWINSZ, &expected) == 0);
+	assert(ioctl(master, TIOCGWINSZ, &observed) == 0);
+	assert(!memcmp(&observed, &expected, sizeof(expected)));
+	assert(waitpid(pid, &status, 0) == pid);
+	assert(WIFEXITED(status));
+	assert(WEXITSTATUS(status) == 0);
+	assert(close(ready[0]) == 0);
+}
+
 int main(void)
 {
 	char path[32];
@@ -65,6 +112,7 @@ int main(void)
 	slave = open(path, O_RDWR | O_NOCTTY);
 	assert(slave >= 0);
 	test_terminal_attributes(slave);
+	test_resize(master, slave);
 	if (!fork()) {
 		int tty;
 
@@ -142,6 +190,7 @@ int main(void)
 		assert(WEXITSTATUS(status) == 0);
 		assert(close(ready[0]) == 0);
 	}
+	puts("pty-resize-hangup-ok");
 
 	master = open("/dev/ptmx", O_RDWR);
 	assert(master >= 0);

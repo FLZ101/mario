@@ -845,7 +845,7 @@ gui: add window manager server and shell client
 - [x] **M4.1.1 — test PTY allocation and controlling terminals.** Cover
   master/slave allocation, `setsid()`, `TIOCSCTTY`, and terminal attributes.
   Commit: `test: cover terminal PTY setup`.
-- [ ] **M4.1.2 — test PTY resize and hangup.** Cover `TIOCSWINSZ`, `SIGWINCH`,
+- [x] **M4.1.2 — test PTY resize and hangup.** Cover `TIOCSWINSZ`, `SIGWINCH`,
   slave close, master EOF, and child reaping. Commit: `test: cover PTY resize
   and hangup`.
 - [ ] **M4.1.3 — prove tmux's minimum contract.** Turn the existing tmux test
