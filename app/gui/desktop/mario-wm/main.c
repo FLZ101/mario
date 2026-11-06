@@ -460,6 +460,29 @@ static void client_reject(wm_client *client, gui_protocol_type failed_type,
 		client->hello = -1;
 }
 
+static void wm_notify_shell_window(wm_server *server, gui_protocol_type type,
+				   const wm_client *window)
+{
+	uint8_t message[sizeof(gui_protocol_wire_window_list)] = { 0 };
+
+	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+		wm_client *shell = &server->clients[index];
+
+		if (shell->fd < 0 || shell->role != GUI_PROTOCOL_ENDPOINT_SHELL ||
+		    shell->hello <= 0)
+			continue;
+		put_u32(message, window->window_id);
+		put_u32(message + 4, window->x);
+		put_u32(message + 8, window->y);
+		put_u32(message + 12, window->width);
+		put_u32(message + 16, window->height);
+		put_u32(message + 20, window->focused);
+		put_u32(message + 24, window->stack_order);
+		if (client_enqueue(shell, type, message, sizeof(message)) < 0)
+			shell->hello = -1;
+	}
+}
+
 static int client_stage_surface(wm_client *client, const uint8_t *bytes)
 {
 	wm_state *state = &client->server->state;
@@ -645,6 +668,7 @@ static void wm_set_input_owner(wm_server *server, wm_client *client)
 		if (client_enqueue_focus(previous, 0) < 0 ||
 		    client_enqueue_input_reset(previous) < 0)
 			previous->hello = -1;
+		wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, previous);
 	}
 	server->input_owner = client;
 	if (client != NULL) {
@@ -653,6 +677,7 @@ static void wm_set_input_owner(wm_server *server, wm_client *client)
 		if (client_enqueue_focus(client, 1) < 0 ||
 		    client_enqueue_input_reset(client) < 0)
 			client->hello = -1;
+		wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, client);
 	}
 }
 
@@ -677,6 +702,7 @@ static void wm_disconnect_client(wm_server *server, wm_client *client)
 		stop_requested = 1;
 		return;
 	}
+	wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_REMOVE, client);
 	if (server->input_owner == client) {
 		/* The peer is gone, but clearing ownership prevents state leakage. */
 		wm_set_input_owner(server, NULL);
@@ -786,8 +812,10 @@ static void client_message(void *context, const gui_protocol_header *header,
 		if (client_enqueue(client, GUI_PROTOCOL_WINDOW_CREATE_REPLY, reply,
 				   sizeof(reply)) < 0)
 			client->hello = -1;
-		else
+		else {
+			wm_notify_shell_window(client->server, GUI_PROTOCOL_WINDOW_LIST_ADD, client);
 			wm_set_input_owner(client->server, client);
+		}
 		return;
 	}
 	if (header->type == GUI_PROTOCOL_SURFACE_BEGIN &&
@@ -837,6 +865,10 @@ static void client_message(void *context, const gui_protocol_header *header,
 		client_discard_staging(client);
 		client_discard_committed(client);
 		client->window_id = 0;
+		return;
+	}
+	if (header->type == GUI_PROTOCOL_SHELL_ACTIVATE_WINDOW && payload_bytes == 4) {
+		client_reject(client, GUI_PROTOCOL_SHELL_ACTIVATE_WINDOW, -EPERM);
 		return;
 	}
 	client->hello = -1;

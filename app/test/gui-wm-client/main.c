@@ -259,6 +259,11 @@ static void test_public_shell(void)
 	put32(frame + GUI_PROTOCOL_HEADER_SIZE, 1);
 	assert(write(fd, frame, sizeof(frame)) == sizeof(frame));
 	read_error(fd, -EPERM, GUI_PROTOCOL_DESKTOP_CREATE);
+	assert(gui_protocol_encode_header(frame, sizeof(frame),
+		GUI_PROTOCOL_SHELL_ACTIVATE_WINDOW, sizeof(gui_protocol_wire_window_id)) == 0);
+	put32(frame + GUI_PROTOCOL_HEADER_SIZE, 1);
+	assert(write(fd, frame, 12) == 12);
+	read_error(fd, -EPERM, GUI_PROTOCOL_SHELL_ACTIVATE_WINDOW);
 	close(fd);
 }
 
