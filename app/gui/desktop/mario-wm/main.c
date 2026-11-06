@@ -868,7 +868,29 @@ static void client_message(void *context, const gui_protocol_header *header,
 		return;
 	}
 	if (header->type == GUI_PROTOCOL_SHELL_ACTIVATE_WINDOW && payload_bytes == 4) {
-		client_reject(client, GUI_PROTOCOL_SHELL_ACTIVATE_WINDOW, -EPERM);
+		if (client->role != GUI_PROTOCOL_ENDPOINT_SHELL) {
+			client_reject(client, GUI_PROTOCOL_SHELL_ACTIVATE_WINDOW, -EPERM);
+		} else {
+			wm_client *target = NULL;
+
+			for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+				wm_client *candidate = &client->server->clients[index];
+
+				if (candidate->fd >= 0 &&
+				    candidate->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
+				    candidate->window_id == get_u32(bytes)) {
+					target = candidate;
+					break;
+				}
+			}
+			if (target == NULL)
+				client_reject(client, GUI_PROTOCOL_SHELL_ACTIVATE_WINDOW, -ENOENT);
+			else {
+				wm_set_input_owner(client->server, target);
+				if (wm_compose(client->server) == GUI_FLUSH_ERROR)
+					client->hello = -1;
+			}
+		}
 		return;
 	}
 	client->hello = -1;
