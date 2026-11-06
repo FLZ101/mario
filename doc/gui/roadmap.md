@@ -842,7 +842,7 @@ gui: add window manager server and shell client
 
 ## M4: PTY Prerequisite Gate
 
-- [ ] **M4.1.1 — test PTY allocation and controlling terminals.** Cover
+- [x] **M4.1.1 — test PTY allocation and controlling terminals.** Cover
   master/slave allocation, `setsid()`, `TIOCSCTTY`, and terminal attributes.
   Commit: `test: cover terminal PTY setup`.
 - [ ] **M4.1.2 — test PTY resize and hangup.** Cover `TIOCSWINSZ`, `SIGWINCH`,

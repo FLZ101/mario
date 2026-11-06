@@ -8,7 +8,37 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <unistd.h>
+
+static void test_terminal_attributes(int slave)
+{
+	struct termios saved;
+	struct termios changed;
+	struct termios observed;
+
+	assert(tcgetattr(slave, &saved) == 0);
+	assert(saved.c_lflag & ICANON);
+	assert(saved.c_lflag & ECHO);
+	assert(saved.c_oflag & OPOST);
+	assert(saved.c_oflag & ONLCR);
+
+	changed = saved;
+	changed.c_lflag &= ~(ICANON | ECHO);
+	changed.c_oflag &= ~OPOST;
+	changed.c_cc[VMIN] = 3;
+	changed.c_cc[VTIME] = 4;
+	assert(tcsetattr(slave, TCSANOW, &changed) == 0);
+	assert(tcgetattr(slave, &observed) == 0);
+	assert(!(observed.c_lflag & ICANON));
+	assert(!(observed.c_lflag & ECHO));
+	assert(!(observed.c_oflag & OPOST));
+	assert(observed.c_cc[VMIN] == 3);
+	assert(observed.c_cc[VTIME] == 4);
+
+	/* Keep subsequent I/O assertions in the PTY's default canonical mode. */
+	assert(tcsetattr(slave, TCSANOW, &saved) == 0);
+}
 
 int main(void)
 {
@@ -34,6 +64,7 @@ int main(void)
 	assert(ioctl(master, TIOCSPTLCK, &locked) == 0);
 	slave = open(path, O_RDWR | O_NOCTTY);
 	assert(slave >= 0);
+	test_terminal_attributes(slave);
 	if (!fork()) {
 		int tty;
 
@@ -51,6 +82,7 @@ int main(void)
 	assert(wait(NULL) > 0);
 	assert(read(master, buf, 6) == 6);
 	assert(!memcmp(buf, "ctty\r\n", 6));
+	puts("pty-setup-ok");
 
 	assert(write(master, "ping\n", 5) == 5);
 	assert(read(slave, buf, 5) == 5);
