@@ -22,7 +22,11 @@ GUI-CHECK-RECT: 48 48 1 1 15 23 42
 GUI-SEND-KEY: f1
 SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done; test "$(cat /tmp/mario-wm.frame)" -ge 1 && echo wm-shell: text frame retained
 SERIAL-CHECK: wm-shell: text frame retained
+# A ready shell is replaced exactly once without dropping the WM session.
+SERIAL: old_shell=$(pgrep mario-desktop); kill "$old_shell"; while :; do replacement=$(pgrep mario-desktop); test -n "$replacement" && test "$replacement" != "$old_shell" && break; sleep 1; done; test -e /tmp/mario-wm.started && echo wm-shell: replacement spawned
+SERIAL-CHECK: wm-shell: replacement spawned
+# A replacement shell has no further retry budget, so its loss ends the session.
 SERIAL: kill $(pgrep mario-desktop); while test -e /tmp/mario-wm.started; do sleep 1; done
-SERIAL: test ! -e /tmp/mario-wm.sock && test ! -e /tmp/mario-wm.ready && test ! -e /tmp/mario-wm.frame && echo wm-shell: initial failure cleaned up
-SERIAL-CHECK: wm-shell: initial failure cleaned up
+SERIAL: test ! -e /tmp/mario-wm.sock && test ! -e /tmp/mario-wm.ready && test ! -e /tmp/mario-wm.frame && echo wm-shell: retry limit cleaned up
+SERIAL-CHECK: wm-shell: retry limit cleaned up
 EXIT:

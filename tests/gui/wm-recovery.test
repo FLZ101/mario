@@ -1,0 +1,32 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/gui-wm-client.exe --recovery-only >/tmp/wm-recovery.log 2>&1 & echo $! >/tmp/wm-recovery.pid
+SERIAL: while ! grep -q 'wm-client: recovery ready' /tmp/wm-recovery.log; do sleep 1; done
+SERIAL-CHECK: wm-client: recovery ready
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 70 70 1 1 255 0 0
+# Re-entering graphics must recompose live committed client surfaces.
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 70 70 1 1 255 0 0
+# Preserve the old desktop while a single replacement shell learns live windows.
+SERIAL: old_shell=$(pgrep mario-desktop); kill "$old_shell"; while :; do replacement=$(pgrep mario-desktop); test -n "$replacement" && test "$replacement" != "$old_shell" && break; sleep 1; done; test -e /tmp/mario-wm.started && echo wm-recovery: shell replaced
+SERIAL-CHECK: wm-recovery: shell replaced
+GUI-CHECK-RECT: 70 70 1 1 255 0 0
+# The recovered shell must keep recomposing and remove a disconnected ordinary client.
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 70 70 1 1 255 0 0
+SERIAL: kill $(cat /tmp/wm-recovery.pid)
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 70 70 1 1 31 41 51
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

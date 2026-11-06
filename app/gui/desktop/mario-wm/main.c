@@ -121,6 +121,8 @@ typedef struct wm_client {
 struct wm_server {
 	wm_state state;
 	wm_client clients[WM_CLIENT_LIMIT];
+	gui_surface *desktop_snapshot;
+	size_t desktop_snapshot_bytes;
 	uint32_t next_window_id;
 	uint64_t next_placement;
 	uint64_t next_stack_order;
@@ -135,7 +137,11 @@ struct wm_server {
 	int32_t capture_window_y;
 	uint32_t capture_width;
 	uint32_t capture_height;
+	int shell_ready;
+	int shell_replacement_started;
 };
+
+static int wm_start_shell(wm_server *server);
 
 static uint32_t wm_allocate_window_id(wm_server *server)
 {
@@ -182,6 +188,13 @@ static int write_status_file(const char *path, const char *temporary_path,
 		return -1;
 	}
 	return 0;
+}
+
+static int mark_close_on_exec(int fd)
+{
+	int flags = fcntl(fd, F_GETFD);
+
+	return flags < 0 || fcntl(fd, F_SETFD, flags | FD_CLOEXEC) < 0 ? -1 : 0;
 }
 
 static int wm_publish_completed_frame(wm_state *state)
@@ -376,7 +389,7 @@ static void wm_draw_window(wm_state *state, const wm_client *client)
 static gui_flush_result wm_compose(wm_server *server)
 {
 	wm_state *state = &server->state;
-	gui_surface *desktop = NULL;
+	gui_surface *desktop = server->desktop_snapshot;
 
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
 		wm_client *client = &server->clients[index];
@@ -430,6 +443,10 @@ static gui_flush_result wm_compose(wm_server *server)
 static wm_client *wm_add_client(wm_server *server, int fd,
 				gui_protocol_endpoint_role role)
 {
+	if (mark_close_on_exec(fd) < 0) {
+		close(fd);
+		return NULL;
+	}
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
 		wm_client *client = &server->clients[index];
 
@@ -643,8 +660,9 @@ static void wm_notify_shell_window(wm_server *server, gui_protocol_type type,
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
 		wm_client *shell = &server->clients[index];
 
+		/* Bootstrap sends only the create reply and its following snapshot. */
 		if (shell->fd < 0 || shell->role != GUI_PROTOCOL_ENDPOINT_SHELL ||
-		    shell->hello <= 0)
+		    shell->hello <= 0 || shell->window_id == 0)
 			continue;
 		put_u32(message, window->window_id);
 		put_u32(message + 4, window->x);
@@ -655,6 +673,30 @@ static void wm_notify_shell_window(wm_server *server, gui_protocol_type type,
 		put_u32(message + 24, window->stack_order);
 		if (client_enqueue(shell, type, message, sizeof(message)) < 0)
 			shell->hello = -1;
+	}
+}
+
+static void wm_send_shell_snapshot(wm_server *server, wm_client *shell)
+{
+	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+		wm_client *window = &server->clients[index];
+		uint8_t message[sizeof(gui_protocol_wire_window_list)] = { 0 };
+
+		if (window->fd < 0 || window->role != GUI_PROTOCOL_ENDPOINT_ORDINARY ||
+		    window->window_id == 0)
+			continue;
+		put_u32(message, window->window_id);
+		put_u32(message + 4, window->x);
+		put_u32(message + 8, window->y);
+		put_u32(message + 12, window->width);
+		put_u32(message + 16, window->height);
+		put_u32(message + 20, window->focused);
+		put_u32(message + 24, window->stack_order);
+		if (client_enqueue(shell, GUI_PROTOCOL_WINDOW_LIST_SNAPSHOT, message,
+			   sizeof(message)) < 0) {
+			shell->hello = -1;
+			return;
+		}
 	}
 }
 
@@ -770,6 +812,17 @@ static int client_commit_surface(wm_client *client, const uint8_t *bytes)
 	}
 	client->staging_frame_serial = 0;
 	client->staging_pixels = 0;
+	if (client->role == GUI_PROTOCOL_ENDPOINT_SHELL) {
+		/* Keep the old desktop on screen until this complete replacement is visible. */
+		if (client->server->desktop_snapshot != NULL) {
+			client->server->state.surface_bytes -=
+				client->server->desktop_snapshot_bytes;
+			gui_surface_destroy(client->server->desktop_snapshot);
+			client->server->desktop_snapshot = NULL;
+			client->server->desktop_snapshot_bytes = 0;
+		}
+		client->server->shell_ready = 1;
+	}
 	return 0;
 }
 
@@ -1047,9 +1100,26 @@ static void wm_disconnect_client(wm_server *server, wm_client *client)
 	if (server->capture_client == client)
 		wm_cancel_capture(server);
 	if (client->role == GUI_PROTOCOL_ENDPOINT_SHELL) {
-		/* M3.4 has no shell-relaunch policy, so a shell loss ends the session. */
+		if (server->shell_replacement_started || !server->shell_ready ||
+		    client->committed == NULL ||
+		    server->desktop_snapshot != NULL) {
+			client_destroy(client);
+			stop_requested = 1;
+			return;
+		}
+		/* The last complete shell frame remains input-inert during replacement. */
+		server->desktop_snapshot = client->committed;
+		server->desktop_snapshot_bytes = client->committed_bytes;
+		client->committed = NULL;
+		client->committed_bytes = 0;
+		if (server->input_owner == client)
+			wm_set_input_owner(server, wm_next_focus(server));
 		client_destroy(client);
-		stop_requested = 1;
+		server->shell_ready = 0;
+		/* The session permits one recovery attempt, never an unbounded respawn loop. */
+		server->shell_replacement_started = 1;
+		if (wm_start_shell(server) < 0 || wm_compose(server) == GUI_FLUSH_ERROR)
+			stop_requested = 1;
 		return;
 	}
 	if (server->input_owner == client) {
@@ -1385,7 +1455,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 			}
 		}
 		if (compose && wm_compose(server) == GUI_FLUSH_ERROR)
-			stop_requested = 1;
+				stop_requested = 1;
 	}
 	client = server->input_owner;
 	if (client == NULL)
@@ -1517,6 +1587,8 @@ static void client_message(void *context, const gui_protocol_header *header,
 			if (client_enqueue(client, GUI_PROTOCOL_DESKTOP_CREATE_REPLY, reply,
 				   sizeof(reply)) < 0)
 				client->hello = -1;
+			else
+				wm_send_shell_snapshot(client->server, client);
 		}
 		return;
 	}
@@ -1647,6 +1719,13 @@ static int bind_listener(void)
 	listener = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
 	if (listener < 0)
 		return -1;
+	if (mark_close_on_exec(listener) < 0) {
+		int saved_errno = errno;
+
+		close(listener);
+		errno = saved_errno;
+		return -1;
+	}
 	memset(&address, 0, sizeof(address));
 	address.sun_family = AF_UNIX;
 	memcpy(address.sun_path, WM_SOCKET_PATH, sizeof(WM_SOCKET_PATH));
@@ -1669,10 +1748,7 @@ static void shell_exec(int fd)
 			_exit(127);
 		close(fd);
 	}
-	/* Standard streams are diagnostics; fd 3 is the shell's only capability. */
-	for (int inherited_fd = WM_SHELL_FD + 1; inherited_fd < 1024;
-	     inherited_fd++)
-		close(inherited_fd);
+	/* All server descriptors are close-on-exec; fd 3 is the shell's only capability. */
 	execl(WM_SHELL_PATH, WM_SHELL_PATH, "--wm-fd=3", NULL);
 	_exit(127);
 }
@@ -1711,6 +1787,7 @@ int main(void)
 {
 	struct sigaction action = { .sa_handler = request_stop };
 	struct sigaction ignore_pipe = { .sa_handler = SIG_IGN };
+	struct sigaction ignore_child = { .sa_handler = SIG_IGN };
 	struct pollfd pollfds[WM_CLIENT_LIMIT + 4];
 	struct mario_gui_key_event events[16];
 	struct mario_psaux_event mouse_events[16];
@@ -1723,7 +1800,7 @@ int main(void)
 
 	/* Acquire both descriptors before F8 may expose the graphics seat. */
 	server.state.framebuffer = open("/dev/fb0", O_RDWR);
-	if (server.state.framebuffer < 0)
+	if (server.state.framebuffer < 0 || mark_close_on_exec(server.state.framebuffer) < 0)
 		goto out;
 	if (wm_init_surface_budget(&server.state) < 0)
 		goto out;
@@ -1734,11 +1811,11 @@ int main(void)
 	server.state.cursor_x = server.state.width > WM_CURSOR_WIDTH ? WM_CURSOR_WIDTH : 0;
 	server.state.cursor_y = server.state.height > WM_CURSOR_HEIGHT ? WM_CURSOR_HEIGHT : 0;
 	server.state.gui = open("/dev/gui", O_RDONLY | O_NONBLOCK);
-	if (server.state.gui < 0)
+	if (server.state.gui < 0 || mark_close_on_exec(server.state.gui) < 0)
 		goto out;
 	/* The seat owner reads both input streams so the cursor cannot be spoofed. */
 	server.state.mouse = open("/dev/psaux", O_RDONLY | O_NONBLOCK);
-	if (server.state.mouse < 0)
+	if (server.state.mouse < 0 || mark_close_on_exec(server.state.mouse) < 0)
 		goto out;
 	server.state.owns_status = 1;
 	/* Only the exclusive owner may discard a predecessor's stale status. */
@@ -1756,7 +1833,8 @@ int main(void)
 	/* Socket write failures are handled per-client by the output queue. */
 	if (sigaction(SIGTERM, &action, NULL) < 0 ||
 	    sigaction(SIGINT, &action, NULL) < 0 ||
-	    sigaction(SIGPIPE, &ignore_pipe, NULL) < 0)
+	    sigaction(SIGPIPE, &ignore_pipe, NULL) < 0 ||
+	    sigaction(SIGCHLD, &ignore_child, NULL) < 0)
 		goto out;
 	while (!stop_requested) {
 		int ready;
@@ -1873,6 +1951,10 @@ int main(void)
 out:
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++)
 		client_destroy(&server.clients[index]);
+	if (server.desktop_snapshot != NULL) {
+		server.state.surface_bytes -= server.desktop_snapshot_bytes;
+		gui_surface_destroy(server.desktop_snapshot);
+	}
 	if (status != 0)
 		perror("mario-wm");
 	wm_cleanup(&server.state);

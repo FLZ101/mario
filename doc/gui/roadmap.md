@@ -716,7 +716,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
   typed launcher requests to the server; only the server forks, reaps, and
   starts approved client binaries. Test launcher action-to-window mapping.
   Commit: `desktop: add shell diagnostics`.
-- [ ] **M3.6.2 — preserve session state over F1/F8 and one shell relaunch.**
+- [x] **M3.6.2 — preserve session state over F1/F8 and one shell relaunch.**
   Recompose committed client surfaces after re-entry without publishing a stale
   frame. On shell disconnect retain ordinary clients and the last desktop
   snapshot, launch one replacement shell, then atomically replace the snapshot

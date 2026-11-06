@@ -325,7 +325,8 @@ static int desktop_handle_window_list(desktop_state *state,
 		return 0;
 	}
 	window = desktop_window_by_id(state, window_id);
-	if (type == GUI_PROTOCOL_WINDOW_LIST_ADD) {
+	if (type == GUI_PROTOCOL_WINDOW_LIST_SNAPSHOT ||
+	    type == GUI_PROTOCOL_WINDOW_LIST_ADD) {
 		if (window == NULL) {
 			for (size_t index = 0; index < DESKTOP_WINDOW_LIMIT; index++) {
 				if (state->windows[index].window_id == 0) {
@@ -350,7 +351,8 @@ static int desktop_handle_message(desktop_state *state,
 				  const gui_protocol_header *header,
 				  const uint8_t *payload, size_t payload_bytes)
 {
-	if (header->type == GUI_PROTOCOL_WINDOW_LIST_ADD ||
+	if (header->type == GUI_PROTOCOL_WINDOW_LIST_SNAPSHOT ||
+	    header->type == GUI_PROTOCOL_WINDOW_LIST_ADD ||
 	    header->type == GUI_PROTOCOL_WINDOW_LIST_CHANGE ||
 	    header->type == GUI_PROTOCOL_WINDOW_LIST_REMOVE)
 		return desktop_handle_window_list(state, header->type, payload, payload_bytes);
@@ -751,8 +753,10 @@ int main(int argc, char **argv)
 		if (diagnostic_connect(&diagnostics[index], index) < 0)
 			return 1;
 	}
-	puts("mario-desktop: private connection ready");
-	fflush(stdout);
+	/* The WM may have forked after another shell wrote stdout. */
+	if (write_full(STDOUT_FILENO, "mario-desktop: private connection ready\n",
+		       sizeof("mario-desktop: private connection ready\n") - 1) < 0)
+		return 1;
 	for (;;) {
 		if (state.redraw) {
 			state.redraw = 0;

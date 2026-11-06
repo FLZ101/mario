@@ -359,6 +359,20 @@ static void test_commit(void)
 		pause();
 }
 
+static void test_recovery(void)
+{
+	int fd = connect_client();
+	uint32_t window_id;
+
+	window_id = create_window(fd, 21, 64, 48);
+	commit_color_surface(fd, window_id, 64, 48, 0x00ff0000);
+	puts("wm-client: recovery ready");
+	fflush(stdout);
+	/* Keep the committed owner alive while the shell is replaced. */
+	for (;;)
+		pause();
+}
+
 static void test_public_shell(void)
 {
 	uint8_t frame[sizeof(gui_protocol_wire_header) +
@@ -563,6 +577,7 @@ int main(int argc, char **argv)
 
 	assert(argc == 1 || (argc == 2 && (!strcmp(argv[1], "--surface-only") ||
 		!strcmp(argv[1], "--commit-only") ||
+		!strcmp(argv[1], "--recovery-only") ||
 		!strcmp(argv[1], "--public-shell-only") || !strcmp(argv[1], "--stack-only") ||
 		!strcmp(argv[1], "--taskbar-only") || !strcmp(argv[1], "--shortcuts-only") ||
 		!strcmp(argv[1], "--interact-only") || !strcmp(argv[1], "--launch-only"))));
@@ -572,6 +587,8 @@ int main(int argc, char **argv)
 			puts("wm-client: staging ok");
 		} else if (!strcmp(argv[1], "--commit-only")) {
 			test_commit();
+		} else if (!strcmp(argv[1], "--recovery-only")) {
+			test_recovery();
 		} else if (!strcmp(argv[1], "--stack-only")) {
 			test_stack();
 		} else if (!strcmp(argv[1], "--taskbar-only")) {
