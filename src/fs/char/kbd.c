@@ -507,6 +507,15 @@ void irq_PS2(void)
 			state = 3;
 			break;
 		}
+		if (graphics_console_active()) {
+			uint16_t scancode = gui_scancode(__b, 1);
+
+			/* Super is GUI-visible even though the text key table has no entry. */
+			if (scancode)
+				gui_receive_key(scancode, 1);
+			state = 0;
+			break;
+		}
 		__i = get_e0_key(__b);
 		if (__i != 0) {
 			k->v_key    = __i;
@@ -529,6 +538,14 @@ void irq_PS2(void)
 	case 3:
 		if (__b == 0x7c) {
 			state = PRINT_R;
+			break;
+		}
+		if (graphics_console_active()) {
+			uint16_t scancode = gui_scancode(__b, 1);
+
+			if (scancode)
+				gui_receive_key(scancode, 0);
+			state = 0;
 			break;
 		}
 		__i = get_e0_key(__b);

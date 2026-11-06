@@ -42,6 +42,15 @@ static uint32_t get32(const uint8_t *bytes)
 	       (uint32_t)bytes[2] << 16 | (uint32_t)bytes[3] << 24;
 }
 
+static uint64_t get64(const uint8_t *bytes)
+{
+	uint64_t value = 0;
+
+	for (unsigned int index = 0; index < 8; index++)
+		value |= (uint64_t)bytes[index] << (index * 8);
+	return value;
+}
+
 static void read_full(int fd, void *buffer, size_t byte_count)
 {
 	uint8_t *bytes = buffer;
@@ -203,6 +212,60 @@ static void commit_color_surface(int fd, uint32_t window_id, uint32_t width, uin
 		offset += count;
 	}
 	commit_surface(fd, window_id, 1);
+}
+
+static void read_configure(int fd, uint32_t window_id, uint64_t serial,
+			   uint32_t width, uint32_t height)
+{
+	uint8_t frame[64];
+
+	for (;;) {
+		gui_protocol_header header;
+
+		read_full(fd, frame, GUI_PROTOCOL_HEADER_SIZE);
+		assert(gui_protocol_decode_header(frame, GUI_PROTOCOL_HEADER_SIZE, &header) == 0);
+		assert(header.length <= sizeof(frame));
+		read_full(fd, frame + GUI_PROTOCOL_HEADER_SIZE,
+			header.length - GUI_PROTOCOL_HEADER_SIZE);
+		if (header.type == GUI_PROTOCOL_WINDOW_CONFIGURE) {
+			assert(get32(frame + 8) == window_id && get64(frame + 12) == serial &&
+			       get32(frame + 20) == width && get32(frame + 24) == height);
+			return;
+		}
+		/* Pointer motion before a border press still follows ordinary focus routing. */
+		assert(header.type == GUI_PROTOCOL_INPUT_EVENT);
+	}
+}
+
+static void read_close_request(int fd, uint32_t window_id)
+{
+	uint8_t frame[64];
+
+	for (;;) {
+		gui_protocol_header header;
+
+		read_full(fd, frame, GUI_PROTOCOL_HEADER_SIZE);
+		assert(gui_protocol_decode_header(frame, GUI_PROTOCOL_HEADER_SIZE, &header) == 0);
+		assert(header.length <= sizeof(frame));
+		read_full(fd, frame + GUI_PROTOCOL_HEADER_SIZE,
+			header.length - GUI_PROTOCOL_HEADER_SIZE);
+		if (header.type == GUI_PROTOCOL_WINDOW_CLOSE_REQUEST) {
+			assert(get32(frame + 8) == window_id);
+			return;
+		}
+		/* Super-W may follow a release or modifier event; neither closes the window. */
+		assert(header.type == GUI_PROTOCOL_INPUT_EVENT);
+	}
+}
+
+static void destroy_window(int fd, uint32_t window_id)
+{
+	uint8_t frame[sizeof(gui_protocol_wire_header) + sizeof(gui_protocol_wire_window_id)];
+
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_DESTROY,
+		sizeof(gui_protocol_wire_window_id)) == 0);
+	put32(frame + GUI_PROTOCOL_HEADER_SIZE, window_id);
+	assert(write(fd, frame, sizeof(frame)) == sizeof(frame));
 }
 
 static void test_staging(void)
@@ -381,6 +444,43 @@ static void test_shortcuts(void)
 		pause();
 }
 
+static void test_interact(void)
+{
+	int fd = connect_client();
+	uint32_t window_id;
+
+	window_id = create_window(fd, 60, 64, 48);
+	commit_color_surface(fd, window_id, 64, 48, 0x00ff0000);
+	puts("wm-client: interact ready");
+	fflush(stdout);
+	/* Each border drag emits one server-owned configure with its next serial. */
+	read_configure(fd, window_id, 2, 84, 68);
+	puts("wm-client: top-left resize ready");
+	fflush(stdout);
+	read_configure(fd, window_id, 3, 104, 88);
+	puts("wm-client: top-right resize ready");
+	fflush(stdout);
+	read_configure(fd, window_id, 4, 124, 108);
+	puts("wm-client: bottom-left resize ready");
+	fflush(stdout);
+	read_configure(fd, window_id, 5, 144, 128);
+	puts("wm-client: bottom-right resize ready");
+	fflush(stdout);
+	read_configure(fd, window_id, 6, 64, 48);
+	puts("wm-client: minimum resize ready");
+	fflush(stdout);
+	/* The first request is deferred; the second cooperatively destroys the owner. */
+	read_close_request(fd, window_id);
+	puts("wm-client: close deferred");
+	fflush(stdout);
+	read_close_request(fd, window_id);
+	destroy_window(fd, window_id);
+	puts("wm-client: close accepted");
+	fflush(stdout);
+	for (;;)
+		pause();
+}
+
 int main(int argc, char **argv)
 {
 	uint8_t frame[64];
@@ -391,7 +491,8 @@ int main(int argc, char **argv)
 	assert(argc == 1 || (argc == 2 && (!strcmp(argv[1], "--surface-only") ||
 		!strcmp(argv[1], "--commit-only") ||
 		!strcmp(argv[1], "--public-shell-only") || !strcmp(argv[1], "--stack-only") ||
-		!strcmp(argv[1], "--taskbar-only") || !strcmp(argv[1], "--shortcuts-only"))));
+		!strcmp(argv[1], "--taskbar-only") || !strcmp(argv[1], "--shortcuts-only") ||
+		!strcmp(argv[1], "--interact-only"))));
 	if (argc == 2) {
 		if (!strcmp(argv[1], "--surface-only")) {
 			test_staging();
@@ -404,6 +505,8 @@ int main(int argc, char **argv)
 			test_taskbar();
 		} else if (!strcmp(argv[1], "--shortcuts-only")) {
 			test_shortcuts();
+		} else if (!strcmp(argv[1], "--interact-only")) {
+			test_interact();
 		} else {
 			test_public_shell();
 			puts("wm-client: public shell denied");

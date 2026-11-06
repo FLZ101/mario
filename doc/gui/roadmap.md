@@ -705,7 +705,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
   Alt-Tab and Super-W before client delivery. Test focus change, input
   isolation, taskbar activation, and rejected public shell controls. Commit:
   `gui: route focused client input`.
-- [ ] **M3.5.3 — add move, cooperative close, and resize.** Implement hit
+- [x] **M3.5.3 — add move, cooperative close, and resize.** Implement hit
   testing, capture, server-owned configure delivery, and old/new rectangle
   damage. A title-bar close or Super-W sends `WINDOW_CLOSE_REQUEST`; only the
   owner may destroy its window and M3 has no forced-close timeout. Test

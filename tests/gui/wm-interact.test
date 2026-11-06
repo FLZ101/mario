@@ -1,0 +1,70 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/gui-wm-client.exe --interact-only >/tmp/wm-interact.log 2>&1 & echo $! >/tmp/wm-interact.pid
+SERIAL: while ! grep -q 'wm-client: interact ready' /tmp/wm-interact.log; do sleep 1; done
+GUI-CHECK-RECT: 64 64 1 1 255 0 0
+GUI-CHECK-RECT: 64 40 1 1 37 99 235
+GUI-MOUSE-MOVE: 64,34
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 100,100
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 164 164 1 1 255 0 0
+GUI-CHECK-RECT: 164 140 1 1 37 99 235
+GUI-MOUSE-MOVE: -17,-11
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: -20,-20
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q 'wm-client: top-left resize ready' /tmp/wm-interact.log; do sleep 1; done
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 144 144 1 1 255 0 0
+GUI-CHECK-RECT: 220 200 1 1 248 250 252
+GUI-MOUSE-MOVE: 85,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 20,-20
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q 'wm-client: top-right resize ready' /tmp/wm-interact.log; do sleep 1; done
+GUI-MOUSE-MOVE: -105,113
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: -20,20
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q 'wm-client: bottom-left resize ready' /tmp/wm-interact.log; do sleep 1; done
+GUI-MOUSE-MOVE: 125,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 20,20
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q 'wm-client: bottom-right resize ready' /tmp/wm-interact.log; do sleep 1; done
+GUI-MOUSE-MOVE: -145,-153
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 277,301
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q 'wm-client: minimum resize ready' /tmp/wm-interact.log; do sleep 1; done
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 204 204 1 1 255 0 0
+GUI-MOUSE-MOVE: -150,-210
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q 'wm-client: close deferred' /tmp/wm-interact.log; do sleep 1; done
+GUI-CHECK-RECT: 204 204 1 1 255 0 0
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while ! grep -q 'wm-client: close accepted' /tmp/wm-interact.log; do sleep 1; done
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 204 204 1 1 31 41 51
+SERIAL: kill $(cat /tmp/wm-interact.pid); kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:
