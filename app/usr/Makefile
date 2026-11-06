@@ -52,3 +52,21 @@ include zlib.mk
 include sqlite.mk
 
 include python.mk
+
+TERMINAL_EXE := terminal/terminal.exe
+TERMINAL_UI_DIR := $(ROOT)/../gui/libmario-ui
+
+.PHONY build:: build-terminal
+build-terminal: $(TERMINAL_EXE)
+
+.PHONY clean:: clean-terminal
+clean-terminal:
+	$(RM) $(TERMINAL_EXE) terminal/*.o terminal/*.d
+
+$(TERMINAL_UI_DIR)/libmario-ui.a:
+	$(MAKE) -C $(TERMINAL_UI_DIR)
+
+terminal/terminal.exe: terminal/main.c $(TERMINAL_UI_DIR)/libmario-ui.a
+	$(CC) -o $@ $< -I$(TERMINAL_UI_DIR)/include \
+		-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
+		-L$(TERMINAL_UI_DIR) -static -lmario-ui

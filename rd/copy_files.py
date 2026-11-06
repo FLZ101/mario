@@ -192,6 +192,7 @@ def copy_rootfs_files(
         "rd/tools/rd-make.c": "root/work/rd-make.c",
         "app/usr/sbase-install/bin/*": "usr/bin/sbase",
         "app/usr/ubase-install/bin/*": "usr/bin/ubase",
+        "app/usr/terminal/terminal.exe": "usr/bin/terminal",
         "app/example/*/*.exe": "usr/bin/example",
         "app/test/*/*.exe": "usr/bin/test",
         "app/test/musl/*/*.exe": "usr/bin/test",

@@ -547,7 +547,7 @@ static void test_launch(void)
 	put32(frame + 8, 1);
 	put16(frame + 12, GUI_PROTOCOL_LAUNCH_TERMINAL);
 	write_full(fd, frame, 16);
-	read_launch_result(fd, 1, -ENOSYS);
+	read_launch_result(fd, 1, 0);
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
 		       sizeof(gui_protocol_wire_launch_request) + path_bytes) == 0);
 	put32(frame + 8, 2);
@@ -599,7 +599,7 @@ int main(int argc, char **argv)
 			test_interact();
 		} else if (!strcmp(argv[1], "--launch-only")) {
 			test_launch();
-			puts("wm-client: launch requests rejected safely");
+			puts("wm-client: launch requests handled safely");
 		} else {
 			test_public_shell();
 			puts("wm-client: public shell denied");

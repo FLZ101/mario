@@ -888,7 +888,7 @@ Checkpoint:
 
 ## M5: GUI Terminal
 
-- [ ] **M5.1.1 — create a terminal protocol client.** Connect to `mario-wm`,
+- [x] **M5.1.1 — create a terminal protocol client.** Connect to `mario-wm`,
   create a window through the protocol, render a deterministic placeholder
   grid, and clean up on close; no PTY yet. Add a `GUI-VISUAL-TEST:` opening and
   closing regression. Enable `LAUNCH_TERMINAL` only after the server can exec

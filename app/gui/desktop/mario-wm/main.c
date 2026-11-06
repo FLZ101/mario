@@ -25,6 +25,7 @@
 #define WM_CLIENT_LIMIT 8
 #define WM_SHELL_PATH "/usr/bin/mario-desktop"
 #define WM_SHELL_FD 3
+#define WM_TERMINAL_PATH "/usr/bin/terminal"
 #define WM_CURSOR_PATH "/usr/share/mario/cursor-arrow-16.rgba"
 #define WM_CURSOR_WIDTH 16U
 #define WM_CURSOR_HEIGHT 16U
@@ -142,6 +143,7 @@ struct wm_server {
 };
 
 static int wm_start_shell(wm_server *server);
+static int wm_start_terminal(void);
 
 static uint32_t wm_allocate_window_id(wm_server *server)
 {
@@ -626,7 +628,20 @@ static void client_handle_launch_request(wm_client *client, const uint8_t *bytes
 			client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
 			return;
 		}
-		break;
+		if (wm_start_terminal() < 0) {
+			put_u32(result, request_id);
+			put_u32(result + 4, (uint32_t)-errno);
+			if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
+				   sizeof(result)) < 0)
+				client->hello = -1;
+			return;
+		}
+		put_u32(result, request_id);
+		put_u32(result + 4, 0);
+		if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
+			   sizeof(result)) < 0)
+			client->hello = -1;
+		return;
 	case GUI_PROTOCOL_LAUNCH_FILE_MANAGER:
 	case GUI_PROTOCOL_LAUNCH_IMAGE_VIEWER:
 	case GUI_PROTOCOL_LAUNCH_OPEN_TEXT:
@@ -1780,6 +1795,20 @@ static int wm_start_shell(wm_server *server)
 	close(fds[1]);
 	if (wm_add_client(server, fds[0], GUI_PROTOCOL_ENDPOINT_SHELL) == NULL)
 		return -1;
+	return 0;
+}
+
+static int wm_start_terminal(void)
+{
+	pid_t pid = fork();
+
+	if (pid < 0)
+		return -1;
+	if (pid == 0) {
+		/* Server-owned descriptors are close-on-exec, so clients get no seat access. */
+		execl(WM_TERMINAL_PATH, WM_TERMINAL_PATH, NULL);
+		_exit(127);
+	}
 	return 0;
 }
 
