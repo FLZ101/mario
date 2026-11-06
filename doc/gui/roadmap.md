@@ -851,9 +851,11 @@ gui: add window manager server and shell client
 - [x] **M4.1.3 — prove tmux's minimum contract.** Turn the existing tmux test
   into explicit prerequisites: pane output, resize, and clean server exit. Do
   not change GUI code. Commit: `test: define tmux PTY prerequisites`.
-- [ ] **M4.2 — fix one proven PTY gap per commit.** A fix follows its failing
-  regression and names that regression in the commit. If M4.1 is green, record
-  the audit result and create no implementation commit.
+- [x] **M4.2 — audit proven PTY gaps.** M4.1 passed on SMP=16: `pty.test`
+  covers allocation, controlling terminals, terminal attributes, resize,
+  `SIGWINCH`, EOF, and child reaping; `tmux-1.test` covers pane output, resize,
+  and clean server exit. No PTY implementation gap was found, so this audit
+  adds no implementation commit.
 
 ### Detailed Specification
 
