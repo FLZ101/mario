@@ -41,6 +41,8 @@ static void remove_status_files(void)
 	unlink(WM_STARTED_PATH);
 	unlink(WM_READY_PATH);
 	unlink(WM_FRAME_PATH);
+	unlink(WM_READY_PATH ".new");
+	unlink(WM_FRAME_PATH ".new");
 }
 
 typedef struct {
@@ -55,6 +57,7 @@ typedef struct {
 	size_t scanout_stride;
 	size_t surface_limit;
 	size_t surface_bytes;
+	uint64_t frame_number;
 } wm_state;
 
 typedef struct wm_server wm_server;
@@ -70,7 +73,7 @@ typedef struct wm_client {
 	uint64_t configure_serial;
 	uint64_t staging_frame_serial;
 	size_t staging_bytes;
-	uint32_t staging_rows;
+	size_t staging_pixels;
 	gui_surface *staging;
 	size_t committed_bytes;
 	gui_surface *committed;
@@ -85,6 +88,66 @@ struct wm_server {
 	/* All focus and future grab transitions enter through this owner. */
 	wm_client *input_owner;
 };
+
+static int write_status_file(const char *path, const char *temporary_path,
+			     const char *contents, size_t byte_count)
+{
+	int fd = open(temporary_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+
+	if (fd < 0)
+		return -1;
+	while (byte_count != 0) {
+		ssize_t count = write(fd, contents, byte_count);
+
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0) {
+			int saved_errno = count == 0 ? EIO : errno;
+
+			close(fd);
+			unlink(temporary_path);
+			errno = saved_errno;
+			return -1;
+		}
+		contents += count;
+		byte_count -= count;
+	}
+	if (close(fd) < 0) {
+		int saved_errno = errno;
+
+		unlink(temporary_path);
+		errno = saved_errno;
+		return -1;
+	}
+	if (rename(temporary_path, path) < 0) {
+		int saved_errno = errno;
+
+		unlink(temporary_path);
+		errno = saved_errno;
+		return -1;
+	}
+	return 0;
+}
+
+static int wm_publish_completed_frame(wm_state *state)
+{
+	char marker[32];
+	uint64_t frame_number = state->frame_number + 1;
+	int length = snprintf(marker, sizeof(marker), "%llu\n",
+		(unsigned long long)frame_number);
+
+	if (length < 0 || (size_t)length >= sizeof(marker)) {
+		errno = EOVERFLOW;
+		return -1;
+	}
+	/* Rename keeps a reader from observing a truncated counter during an update. */
+	if (write_status_file(WM_FRAME_PATH, WM_FRAME_PATH ".new", marker,
+			      (size_t)length) < 0)
+		return -1;
+	state->frame_number = frame_number;
+	/* Readiness is published only after the corresponding frame is visible. */
+	return write_status_file(WM_READY_PATH, WM_READY_PATH ".new", "ready\n", 6);
+}
 
 static uint16_t get_u16(const uint8_t *bytes)
 {
@@ -133,7 +196,7 @@ static void client_discard_staging(wm_client *client)
 		client->staging_bytes = 0;
 		client->staging_frame_serial = 0;
 	}
-	client->staging_rows = 0;
+	client->staging_pixels = 0;
 }
 
 static void client_discard_committed(wm_client *client)
@@ -155,6 +218,48 @@ static void client_destroy(wm_client *client)
 	gui_protocol_input_destroy(client->input);
 	gui_protocol_output_destroy(client->output);
 	*client = (wm_client) { .fd = -1 };
+}
+
+static gui_flush_result wm_compose(wm_server *server)
+{
+	wm_state *state = &server->state;
+	gui_surface *desktop = NULL;
+
+	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+		wm_client *client = &server->clients[index];
+
+		if (client->fd >= 0 && client->role == GUI_PROTOCOL_ENDPOINT_SHELL &&
+		    client->committed != NULL)
+			desktop = client->committed;
+	}
+	if (!state->graphics)
+		return GUI_FLUSH_COMPLETE;
+	if (desktop != NULL) {
+		gui_flush_result result = gui_surface_flush_rect_fd(desktop,
+			(gui_rect) { .x = 0, .y = 0, .w = desktop->width,
+				.h = desktop->height }, state->scanout_stride,
+			state->framebuffer);
+
+		if (result != GUI_FLUSH_COMPLETE)
+			return result;
+	}
+	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+		wm_client *client = &server->clients[index];
+
+		if (client->fd >= 0 && client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
+		    client->committed != NULL) {
+			gui_flush_result result = gui_surface_flush_rect_fd(client->committed,
+				(gui_rect) { .x = 0, .y = 0,
+					.w = client->committed->width,
+					.h = client->committed->height },
+				state->scanout_stride, state->framebuffer);
+
+			if (result != GUI_FLUSH_COMPLETE)
+				return result;
+		}
+	}
+	return wm_publish_completed_frame(state) == 0 ? GUI_FLUSH_COMPLETE :
+		GUI_FLUSH_ERROR;
 }
 
 static wm_client *wm_add_client(wm_server *server, int fd,
@@ -283,7 +388,7 @@ static int client_stage_surface(wm_client *client, const uint8_t *bytes)
 	client->staging = surface;
 	client->staging_bytes = bytes_needed;
 	client->staging_frame_serial = frame_serial;
-	client->staging_rows = 0;
+	client->staging_pixels = 0;
 	state->surface_bytes += bytes_needed;
 	return 0;
 }
@@ -294,27 +399,29 @@ static int client_surface_data(wm_client *client, const uint8_t *bytes,
 	uint32_t window_id = get_u32(bytes);
 	uint64_t configure_serial = get_u64(bytes + 4);
 	uint64_t frame_serial = get_u64(bytes + 12);
-	uint32_t row_offset = get_u32(bytes + 20);
-	uint32_t rows = get_u32(bytes + 24);
-	size_t row_bytes;
+	uint32_t pixel_offset = get_u32(bytes + 20);
+	uint32_t pixel_count = get_u32(bytes + 24);
+	size_t surface_pixels;
 	size_t byte_count;
 
 	if (client->staging == NULL || window_id != client->window_id ||
 	    configure_serial != client->configure_serial ||
-	    frame_serial != client->staging_frame_serial || rows == 0 ||
-	    row_offset != client->staging_rows || row_offset > client->height ||
-	    rows > client->height - row_offset ||
-	    client->width > SIZE_MAX / sizeof(gui_color) ||
-	    (row_bytes = (size_t)client->width * sizeof(gui_color)) > SIZE_MAX / rows ||
-	    (byte_count = row_bytes * rows) !=
+	    frame_serial != client->staging_frame_serial || pixel_count == 0 ||
+	    client->width > SIZE_MAX / client->height ||
+	    (surface_pixels = (size_t)client->width * client->height) > UINT32_MAX ||
+	    pixel_offset != client->staging_pixels || pixel_offset > surface_pixels ||
+	    pixel_count > surface_pixels - pixel_offset ||
+	    pixel_count > SIZE_MAX / sizeof(gui_color) ||
+	    (byte_count = (size_t)pixel_count * sizeof(gui_color)) !=
 		payload_bytes - sizeof(gui_protocol_wire_surface_data)) {
 		client_reject(client, GUI_PROTOCOL_SURFACE_DATA, -EINVAL);
 		return 0;
 	}
-	memcpy(client->staging->pixels + (size_t)row_offset * client->staging->stride,
+	memcpy(client->staging->pixels + pixel_offset,
 	       bytes + sizeof(gui_protocol_wire_surface_data), byte_count);
-	client->staging_rows += rows;
-	return 0;
+	client->staging_pixels += pixel_count;
+	return client_enqueue(client, GUI_PROTOCOL_SURFACE_DATA_REPLY, bytes,
+			      sizeof(gui_protocol_wire_surface_data));
 }
 
 static int client_commit_surface(wm_client *client, const uint8_t *bytes)
@@ -327,27 +434,35 @@ static int client_commit_surface(wm_client *client, const uint8_t *bytes)
 	if (client->staging == NULL || window_id != client->window_id ||
 	    configure_serial != client->configure_serial ||
 	    frame_serial != client->staging_frame_serial ||
-	    client->staging_rows != client->height) {
+	    client->staging_pixels != (size_t)client->width * client->height) {
 		client_reject(client, GUI_PROTOCOL_SURFACE_COMMIT, -EINVAL);
 		return 0;
 	}
-	result = gui_surface_flush_rect_fd(client->staging,
-		(gui_rect) { .x = 0, .y = 0, .w = client->staging->width,
-			.h = client->staging->height },
-		client->server->state.scanout_stride, client->server->state.framebuffer);
-	if (result != GUI_FLUSH_COMPLETE) {
-		client_reject(client, GUI_PROTOCOL_SURFACE_COMMIT,
-			      result == GUI_FLUSH_BUSY ? -EBUSY : -EIO);
-		return 0;
+	{
+		gui_surface *old = client->committed;
+		size_t old_bytes = client->committed_bytes;
+
+		client->committed = client->staging;
+		client->committed_bytes = client->staging_bytes;
+		client->staging = NULL;
+		client->staging_bytes = 0;
+		result = wm_compose(client->server);
+		if (result != GUI_FLUSH_COMPLETE) {
+			client->staging = client->committed;
+			client->staging_bytes = client->committed_bytes;
+			client->committed = old;
+			client->committed_bytes = old_bytes;
+			client_reject(client, GUI_PROTOCOL_SURFACE_COMMIT,
+				      result == GUI_FLUSH_BUSY ? -EBUSY : -EIO);
+			return 0;
+		}
+		if (old != NULL) {
+			client->server->state.surface_bytes -= old_bytes;
+			gui_surface_destroy(old);
+		}
 	}
-	/* Leave the previous complete frame owned until its replacement is visible. */
-	client_discard_committed(client);
-	client->committed = client->staging;
-	client->committed_bytes = client->staging_bytes;
-	client->staging = NULL;
-	client->staging_bytes = 0;
 	client->staging_frame_serial = 0;
-	client->staging_rows = 0;
+	client->staging_pixels = 0;
 	return 0;
 }
 
@@ -418,7 +533,9 @@ static wm_client *wm_next_focus(wm_server *server)
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
 		wm_client *client = &server->clients[index];
 
-		if (client->fd >= 0 && client->hello > 0 && client->window_id != 0)
+		if (client->fd >= 0 && client->hello > 0 &&
+		    client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
+		    client->window_id != 0)
 			return client;
 	}
 	return NULL;
@@ -427,7 +544,7 @@ static wm_client *wm_next_focus(wm_server *server)
 static void wm_disconnect_client(wm_server *server, wm_client *client)
 {
 	if (client->role == GUI_PROTOCOL_ENDPOINT_SHELL) {
-		/* M3.4.1 has no desktop snapshot yet, so an unready shell ends the session. */
+		/* M3.4 has no shell-relaunch policy, so a shell loss ends the session. */
 		client_destroy(client);
 		stop_requested = 1;
 		return;
@@ -528,8 +645,22 @@ static void client_message(void *context, const gui_protocol_header *header,
 	    payload_bytes == sizeof(gui_protocol_wire_desktop_create)) {
 		if (client->role != GUI_PROTOCOL_ENDPOINT_SHELL)
 			client_reject(client, GUI_PROTOCOL_DESKTOP_CREATE, -EPERM);
-		else
-			client->hello = -1;
+		else if (client->window_id != 0)
+			client_reject(client, GUI_PROTOCOL_DESKTOP_CREATE, -EBUSY);
+		else {
+			client->window_id = 1;
+			client->width = client->server->state.width;
+			client->height = client->server->state.height;
+			client->configure_serial = 1;
+			put_u32(reply, get_u32(bytes));
+			put_u32(reply + 4, client->window_id);
+			put_u64(reply + 8, client->configure_serial);
+			put_u32(reply + 16, client->width);
+			put_u32(reply + 20, client->height);
+			if (client_enqueue(client, GUI_PROTOCOL_DESKTOP_CREATE_REPLY, reply,
+				   sizeof(reply)) < 0)
+				client->hello = -1;
+		}
 		return;
 	}
 	if (header->type == GUI_PROTOCOL_WINDOW_DESTROY && payload_bytes == 4 &&
@@ -693,11 +824,16 @@ int main(void)
 			.events = POLLPRI };
 		pollfds[2] = (struct pollfd) { .fd = server.state.listener, .events = POLLIN };
 		for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+			short events = POLLIN;
+
 			if (server.clients[index].fd < 0)
 				continue;
+			/* A socket stays writable while idle, so polling POLLOUT would spin. */
+			if (gui_protocol_output_pending(server.clients[index].output))
+				events |= POLLOUT;
 			pollfds[poll_count++] = (struct pollfd) {
 				.fd = server.clients[index].fd,
-				.events = POLLIN | POLLOUT,
+				.events = events,
 			};
 		}
 		ready = poll(pollfds, poll_count, -1);
@@ -714,6 +850,16 @@ int main(void)
 				  &graphics) < 0)
 				goto out;
 			server.state.graphics = graphics == FB_CONSOLE_GRAPHICS;
+			if (!server.state.graphics) {
+				/* A stale completed frame is never a readiness signal in text mode. */
+				unlink(WM_READY_PATH);
+			} else {
+				gui_flush_result result = wm_compose(&server);
+
+				if (result == GUI_FLUSH_ERROR)
+					goto out;
+				/* EBUSY leaves the prior frame counter and readiness untouched. */
+			}
 			/* A console switch invalidates every physical pressed-state bit. */
 			wm_reset_input_owner(&server);
 		}
@@ -740,7 +886,7 @@ int main(void)
 					    gui_protocol_input_drain(server.clients[index].input, client_message,
 							     &server.clients[index]) < 0 ||
 					    client_flush(&server.clients[index]) < 0)
-						server.clients[index].hello = -1;
+					server.clients[index].hello = -1;
 				}
 				if (count == 0 ||
 				    (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK))

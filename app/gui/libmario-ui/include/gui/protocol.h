@@ -35,6 +35,7 @@ typedef enum {
 	GUI_PROTOCOL_WINDOW_CLOSE_REQUEST,
 	GUI_PROTOCOL_SURFACE_BEGIN,
 	GUI_PROTOCOL_SURFACE_DATA,
+	GUI_PROTOCOL_SURFACE_DATA_REPLY,
 	GUI_PROTOCOL_SURFACE_COMMIT,
 	GUI_PROTOCOL_INPUT_EVENT,
 	GUI_PROTOCOL_INPUT_RESET,
@@ -141,9 +142,11 @@ typedef struct __attribute__((packed)) {
 	uint32_t window_id_le;
 	uint64_t configure_serial_le;
 	uint64_t frame_serial_le;
-	uint32_t row_offset_le;
-	uint32_t rows_le;
+	uint32_t pixel_offset_le;
+	uint32_t pixel_count_le;
 } gui_protocol_wire_surface_data;
+
+typedef gui_protocol_wire_surface_data gui_protocol_wire_surface_data_reply;
 
 typedef struct __attribute__((packed)) {
 	uint32_t window_id_le;
@@ -255,6 +258,7 @@ int gui_protocol_output_enqueue(gui_protocol_output *output,
 				const void *message, size_t byte_count);
 int gui_protocol_output_enqueue_motion(gui_protocol_output *output,
 				       const void *message, size_t byte_count);
+int gui_protocol_output_pending(const gui_protocol_output *output);
 gui_protocol_output_result gui_protocol_output_flush(
 	gui_protocol_output *output, gui_protocol_write_fn writer, void *context);
 

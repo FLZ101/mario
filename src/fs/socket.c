@@ -114,6 +114,20 @@ static struct unix_socket *socket_peer(struct unix_socket *socket)
 	return pair->endpoint[socket == pair->endpoint[0]];
 }
 
+/* Queue before releasing the condition lock so a peer cannot lose the wakeup. */
+static void socket_wait_locked(wait_queue_t *wait, spinlock_t *lock,
+			       unsigned long flags)
+{
+	wait_queue_node_t node;
+
+	init_wait_queue_node(&node, current);
+	current->state = TASK_INTERRUPTIBLE;
+	in_wait_queue(wait, &node);
+	spin_unlock_irqrestore(lock, flags);
+	schedule();
+	out_wait_queue(wait, &node);
+}
+
 static void socket_destroy(struct unix_socket *socket)
 {
 	while (socket->rights_count) {
@@ -238,12 +252,15 @@ static int socket_read_data(struct file *f, char *buf, int count,
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return 0;
 		}
-		spin_unlock_irqrestore(&socket->pair->lock, flags);
-		if (f->f_flags & O_NONBLOCK)
+		if (f->f_flags & O_NONBLOCK) {
+			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return -EAGAIN;
-		if (current->signal & ~current->blocked)
+		}
+		if (current->signal & ~current->blocked) {
+			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return -ERESTARTSYS;
-		sleep_on(&socket->wait_read, TASK_INTERRUPTIBLE, NULL);
+		}
+		socket_wait_locked(&socket->wait_read, &socket->pair->lock, flags);
 	}
 }
 
@@ -276,12 +293,15 @@ static int socket_write(struct inode *i, struct file *f, char *buf, int count)
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return n;
 		}
-		spin_unlock_irqrestore(&socket->pair->lock, flags);
-		if (f->f_flags & O_NONBLOCK)
+		if (f->f_flags & O_NONBLOCK) {
+			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return -EAGAIN;
-		if (current->signal & ~current->blocked)
+		}
+		if (current->signal & ~current->blocked) {
+			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return -ERESTARTSYS;
-		sleep_on(&peer->wait_write, TASK_INTERRUPTIBLE, NULL);
+		}
+		socket_wait_locked(&peer->wait_write, &socket->pair->lock, flags);
 	}
 }
 
@@ -686,12 +706,15 @@ int sys_accept4(int fd, void *address, unsigned int *length, int flags)
 			spin_unlock_irqrestore(&unix_lock, irq_flags);
 			break;
 		}
-		spin_unlock_irqrestore(&unix_lock, irq_flags);
-		if (file->f_flags & O_NONBLOCK)
+		if (file->f_flags & O_NONBLOCK) {
+			spin_unlock_irqrestore(&unix_lock, irq_flags);
 			return -EAGAIN;
-		if (current->signal & ~current->blocked)
+		}
+		if (current->signal & ~current->blocked) {
+			spin_unlock_irqrestore(&unix_lock, irq_flags);
 			return -ERESTARTSYS;
-		sleep_on(&listener->wait_accept, TASK_INTERRUPTIBLE, NULL);
+		}
+		socket_wait_locked(&listener->wait_accept, &unix_lock, irq_flags);
 	}
 	err = socket_install(socket, flags, newfd);
 	if (err)
@@ -868,12 +891,16 @@ int sys_sendmsg(int fd, struct socket_msghdr *user_msg, int flags)
 				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
 				return message_length;
 			}
-			spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
-			if (file->f_flags & O_NONBLOCK)
+			if (file->f_flags & O_NONBLOCK) {
+				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
 				return -EAGAIN;
-			if (current->signal & ~current->blocked)
+			}
+			if (current->signal & ~current->blocked) {
+				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
 				return -ERESTARTSYS;
-			sleep_on(&peer->wait_write, TASK_INTERRUPTIBLE, NULL);
+			}
+			socket_wait_locked(&peer->wait_write, &socket->pair->lock,
+					   irq_flags);
 		}
 	}
 	for (int index = 0; index < msg.iovlen; index++) {
@@ -898,12 +925,16 @@ int sys_sendmsg(int fd, struct socket_msghdr *user_msg, int flags)
 					break;
 				goto next_iov;
 			}
-			spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
-			if (file->f_flags & O_NONBLOCK)
+			if (file->f_flags & O_NONBLOCK) {
+				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
 				return total ? total : -EAGAIN;
-			if (current->signal & ~current->blocked)
+			}
+			if (current->signal & ~current->blocked) {
+				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
 				return total ? total : -ERESTARTSYS;
-			sleep_on(&peer->wait_write, TASK_INTERRUPTIBLE, NULL);
+			}
+			socket_wait_locked(&peer->wait_write, &socket->pair->lock,
+					   irq_flags);
 		}
 		break;
 	next_iov:

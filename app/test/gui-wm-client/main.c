@@ -129,12 +129,24 @@ static void read_error(int fd, int status, gui_protocol_type failed_type)
 	assert(get16(frame + 12) == failed_type);
 }
 
-static void send_surface_data(int fd, uint32_t row_offset, uint32_t rows,
+static void read_surface_data_reply(int fd, uint32_t pixel_offset,
+				    uint32_t pixel_count, uint64_t frame_serial)
+{
+	uint8_t frame[sizeof(gui_protocol_wire_header) +
+		      sizeof(gui_protocol_wire_surface_data_reply)];
+
+	read_frame(fd, frame, GUI_PROTOCOL_SURFACE_DATA_REPLY);
+	assert(get32(frame + 8) == 1 && get32(frame + 12) == 1 &&
+	       get32(frame + 20) == (uint32_t)frame_serial &&
+	       get32(frame + 24) == (uint32_t)(frame_serial >> 32) &&
+	       get32(frame + 28) == pixel_offset && get32(frame + 32) == pixel_count);
+}
+
+static void send_surface_data(int fd, uint32_t pixel_offset, uint32_t pixel_count,
 			      uint64_t frame_serial, gui_color color)
 {
 	uint8_t frame[sizeof(gui_protocol_wire_header) +
 		      sizeof(gui_protocol_wire_surface_data) + 16];
-	size_t pixel_count = (size_t)rows * 2;
 	size_t payload_bytes = sizeof(gui_protocol_wire_surface_data) +
 		pixel_count * sizeof(gui_color);
 
@@ -143,8 +155,8 @@ static void send_surface_data(int fd, uint32_t row_offset, uint32_t rows,
 	put32(frame + 8, 1);
 	put64(frame + 12, 1);
 	put64(frame + 20, frame_serial);
-	put32(frame + 28, row_offset);
-	put32(frame + 32, rows);
+	put32(frame + 28, pixel_offset);
+	put32(frame + 32, pixel_count);
 	for (size_t index = 0; index < pixel_count; index++)
 		put32(frame + 36 + index * sizeof(gui_color), color);
 	assert(write(fd, frame, GUI_PROTOCOL_HEADER_SIZE + payload_bytes) ==
@@ -194,7 +206,8 @@ static void test_commit(void)
 	begin_surface(fd, 2, 2, 1);
 	send_surface_data(fd, 1, 1, 1, 0x00ff0000);
 	read_error(fd, -EINVAL, GUI_PROTOCOL_SURFACE_DATA);
-	send_surface_data(fd, 0, 2, 1, 0x00ff0000);
+	send_surface_data(fd, 0, 4, 1, 0x00ff0000);
+	read_surface_data_reply(fd, 0, 4, 1);
 	commit_surface(fd, 1);
 	begin_surface(fd, 2, 2, 2);
 	/* A stale update cannot overwrite the committed red frame. */
@@ -204,6 +217,7 @@ static void test_commit(void)
 	read_error(fd, -EINVAL, GUI_PROTOCOL_SURFACE_COMMIT);
 	/* Dropping a partially transferred replacement must retain the old frame. */
 	send_surface_data(fd, 0, 1, 2, 0x000000ff);
+	read_surface_data_reply(fd, 0, 1, 2);
 	assert(shutdown(fd, SHUT_WR) == 0);
 	assert(read(fd, &(uint8_t) { 0 }, 1) == 0);
 	close(fd);

@@ -151,6 +151,11 @@ int gui_protocol_output_enqueue_motion(gui_protocol_output *output,
 	return 0;
 }
 
+int gui_protocol_output_pending(const gui_protocol_output *output)
+{
+	return output != NULL && output->head != NULL;
+}
+
 gui_protocol_output_result gui_protocol_output_flush(
 	gui_protocol_output *output, gui_protocol_write_fn writer, void *context)
 {
