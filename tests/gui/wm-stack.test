@@ -1,0 +1,11 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/gui-wm-client.exe --stack-only >/tmp/wm-stack.log 2>&1 & echo $! >/tmp/wm-stack.pid
+SERIAL: while ! grep -q 'wm-client: stack ready' /tmp/wm-stack.log; do sleep 1; done
+GUI-CHECK-RECT: 70 70 1 1 255 0 0
+GUI-CHECK-RECT: 100 90 1 1 0 255 0
+SERIAL: kill $(cat /tmp/wm-stack.pid); kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

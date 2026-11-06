@@ -11,6 +11,13 @@
 #include <gui/protocol.h>
 #include <gui/surface.h>
 
+#define SURFACE_PIXELS_PER_MESSAGE 1000U
+
+/* Large pixel runs must not consume the small initial userspace stack. */
+static uint8_t surface_frame[sizeof(gui_protocol_wire_header) +
+			     sizeof(gui_protocol_wire_surface_data) +
+			     SURFACE_PIXELS_PER_MESSAGE * sizeof(gui_color)];
+
 static void put32(uint8_t *bytes, uint32_t value)
 {
 	for (unsigned int index = 0; index < 4; index++)
@@ -145,21 +152,20 @@ static void read_surface_data_reply(int fd, uint32_t pixel_offset,
 static void send_surface_data(int fd, uint32_t pixel_offset, uint32_t pixel_count,
 			      uint64_t frame_serial, gui_color color)
 {
-	uint8_t frame[sizeof(gui_protocol_wire_header) +
-		      sizeof(gui_protocol_wire_surface_data) + 16];
 	size_t payload_bytes = sizeof(gui_protocol_wire_surface_data) +
 		pixel_count * sizeof(gui_color);
 
-	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_SURFACE_DATA,
+	assert(pixel_count <= SURFACE_PIXELS_PER_MESSAGE);
+	assert(gui_protocol_encode_header(surface_frame, sizeof(surface_frame), GUI_PROTOCOL_SURFACE_DATA,
 				  payload_bytes) == 0);
-	put32(frame + 8, 1);
-	put64(frame + 12, 1);
-	put64(frame + 20, frame_serial);
-	put32(frame + 28, pixel_offset);
-	put32(frame + 32, pixel_count);
+	put32(surface_frame + 8, 1);
+	put64(surface_frame + 12, 1);
+	put64(surface_frame + 20, frame_serial);
+	put32(surface_frame + 28, pixel_offset);
+	put32(surface_frame + 32, pixel_count);
 	for (size_t index = 0; index < pixel_count; index++)
-		put32(frame + 36 + index * sizeof(gui_color), color);
-	assert(write(fd, frame, GUI_PROTOCOL_HEADER_SIZE + payload_bytes) ==
+		put32(surface_frame + 36 + index * sizeof(gui_color), color);
+	assert(write(fd, surface_frame, GUI_PROTOCOL_HEADER_SIZE + payload_bytes) ==
 	       (ssize_t)(GUI_PROTOCOL_HEADER_SIZE + payload_bytes));
 }
 
@@ -174,6 +180,23 @@ static void commit_surface(int fd, uint64_t frame_serial)
 	put64(frame + 12, 1);
 	put64(frame + 20, frame_serial);
 	assert(write(fd, frame, sizeof(frame)) == sizeof(frame));
+}
+
+static void commit_color_surface(int fd, uint32_t width, uint32_t height,
+				 gui_color color)
+{
+	uint32_t total = width * height;
+
+	begin_surface(fd, width, height, 1);
+	for (uint32_t offset = 0; offset < total;) {
+		uint32_t count = total - offset > SURFACE_PIXELS_PER_MESSAGE ?
+			SURFACE_PIXELS_PER_MESSAGE : total - offset;
+
+		send_surface_data(fd, offset, count, 1, color);
+		read_surface_data_reply(fd, offset, count, 1);
+		offset += count;
+	}
+	commit_surface(fd, 1);
 }
 
 static void test_staging(void)
@@ -239,6 +262,22 @@ static void test_public_shell(void)
 	close(fd);
 }
 
+static void test_stack(void)
+{
+	int back = connect_client();
+	int front;
+
+	create_window(back, 30, 64, 48);
+	commit_color_surface(back, 64, 48, 0x00ff0000);
+	front = connect_client();
+	create_window(front, 31, 64, 48);
+	commit_color_surface(front, 64, 48, 0x0000ff00);
+	puts("wm-client: stack ready");
+	fflush(stdout);
+	for (;;)
+		pause();
+}
+
 int main(int argc, char **argv)
 {
 	uint8_t frame[64];
@@ -247,7 +286,7 @@ int main(int argc, char **argv)
 
 	assert(argc == 1 || (argc == 2 && (!strcmp(argv[1], "--surface-only") ||
 		!strcmp(argv[1], "--commit-only") ||
-		!strcmp(argv[1], "--public-shell-only"))));
+		!strcmp(argv[1], "--public-shell-only") || !strcmp(argv[1], "--stack-only"))));
 	if (argc == 2) {
 		if (!strcmp(argv[1], "--surface-only")) {
 			test_staging();
@@ -255,6 +294,8 @@ int main(int argc, char **argv)
 		} else if (!strcmp(argv[1], "--commit-only")) {
 			test_commit();
 			puts("wm-client: commit ok");
+		} else if (!strcmp(argv[1], "--stack-only")) {
+			test_stack();
 		} else {
 			test_public_shell();
 			puts("wm-client: public shell denied");

@@ -5,6 +5,6 @@ GUI-SEND-KEY: f8
 GUI-CHECK-RECT: 32 32 960 700 31 41 51
 SERIAL: /usr/bin/test/gui-wm-client.exe --commit-only
 SERIAL-CHECK: wm-client: commit ok
-GUI-CHECK-RECT: 0 0 2 2 255 0 0
+GUI-CHECK-RECT: 64 64 2 2 255 0 0
 SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
 EXIT:

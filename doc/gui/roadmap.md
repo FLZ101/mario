@@ -696,7 +696,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
 - [x] **M3.4.3 — draw shell panel and server cursor.** Have the shell draw the
   panel, fixed `--:--` clock, and launcher into its desktop surface while the
   server draws the cursor. Add panel/cursor goldens. Commit: `desktop: draw shell panel`.
-- [ ] **M3.5.1 — add server window storage and paint order.** Define window
+- [x] **M3.5.1 — add server window storage and paint order.** Define window
   lifetime, rectangles, clipping, and top-to-bottom z-order. Test overlap and
   occlusion pixels. Commit: `gui: compose window stack`.
 - [ ] **M3.5.2 — add focus, shell taskbar, and client input delivery.**

@@ -78,6 +78,9 @@ typedef struct wm_client {
 	uint32_t window_id;
 	uint32_t width;
 	uint32_t height;
+	int32_t x;
+	int32_t y;
+	uint64_t stack_order;
 	uint64_t configure_serial;
 	uint64_t staging_frame_serial;
 	size_t staging_bytes;
@@ -93,6 +96,7 @@ typedef struct wm_client {
 struct wm_server {
 	wm_state state;
 	wm_client clients[WM_CLIENT_LIMIT];
+	uint64_t next_stack_order;
 	/* All focus and future grab transitions enter through this owner. */
 	wm_client *input_owner;
 };
@@ -314,16 +318,25 @@ static gui_flush_result wm_compose(wm_server *server)
 			&(gui_rect) { .x = 0, .y = 0, .w = desktop->width,
 				.h = desktop->height });
 	}
-	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
-		wm_client *client = &server->clients[index];
+	/* Select the next layer by serial so a freed client slot cannot reorder windows. */
+	for (uint64_t painted = 0;;) {
+		wm_client *next = NULL;
 
-		if (client->fd >= 0 && client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
-		    client->committed != NULL) {
-			gui_blit(state->composite, 0, 0, client->committed,
-				&(gui_rect) { .x = 0, .y = 0,
-					.w = client->committed->width,
-					.h = client->committed->height });
+		for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+			wm_client *client = &server->clients[index];
+
+			if (client->fd >= 0 &&
+			    client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
+			    client->committed != NULL && client->stack_order > painted &&
+			    (next == NULL || client->stack_order < next->stack_order))
+				next = client;
 		}
+		if (next == NULL)
+			break;
+		gui_blit(state->composite, next->x, next->y, next->committed,
+			&(gui_rect) { .x = 0, .y = 0,
+				.w = next->committed->width, .h = next->committed->height });
+		painted = next->stack_order;
 	}
 	/* The server-owned sprite is always the final layer, independent of focus. */
 	wm_draw_cursor(state);
@@ -360,6 +373,22 @@ static wm_client *wm_add_client(wm_server *server, int fd,
 	}
 	close(fd);
 	return NULL;
+}
+
+static void wm_place_window(wm_server *server, wm_client *client)
+{
+	uint64_t layer = server->next_stack_order++;
+	uint64_t wanted_x = 64 + layer * 32;
+	uint64_t wanted_y = 64 + layer * 16;
+	uint32_t maximum_x = client->width < server->state.width ?
+		server->state.width - client->width : 0;
+	uint32_t maximum_y = client->height < server->state.height ?
+		server->state.height - client->height : 0;
+
+	/* Cascade predictable initial rectangles while keeping every surface on-screen. */
+	client->x = wanted_x > maximum_x ? maximum_x : (int32_t)wanted_x;
+	client->y = wanted_y > maximum_y ? maximum_y : (int32_t)wanted_y;
+	client->stack_order = layer + 1;
 }
 
 static int surface_bytes(uint32_t width, uint32_t height, size_t *bytes)
@@ -710,6 +739,7 @@ static void client_message(void *context, const gui_protocol_header *header,
 		client->window_id = 1;
 		client->width = get_u32(bytes + 4);
 		client->height = get_u32(bytes + 8);
+		wm_place_window(client->server, client);
 		client->configure_serial = 1;
 		put_u32(reply, get_u32(bytes));
 		put_u32(reply + 4, client->window_id);
