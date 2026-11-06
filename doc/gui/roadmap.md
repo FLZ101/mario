@@ -848,7 +848,7 @@ gui: add window manager server and shell client
 - [x] **M4.1.2 — test PTY resize and hangup.** Cover `TIOCSWINSZ`, `SIGWINCH`,
   slave close, master EOF, and child reaping. Commit: `test: cover PTY resize
   and hangup`.
-- [ ] **M4.1.3 — prove tmux's minimum contract.** Turn the existing tmux test
+- [x] **M4.1.3 — prove tmux's minimum contract.** Turn the existing tmux test
   into explicit prerequisites: pane output, resize, and clean server exit. Do
   not change GUI code. Commit: `test: define tmux PTY prerequisites`.
 - [ ] **M4.2 — fix one proven PTY gap per commit.** A fix follows its failing

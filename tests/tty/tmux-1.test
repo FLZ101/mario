@@ -26,3 +26,11 @@ TTY-CHECK: PANE_TWO
 TTY-CHECK: PANE_THREE
 TTY-CHECK-NOT: server exited unexpectedly
 TTY-CHECK-PANEL: tmux-1.txt
+TTY-SEND: tmux resize-pane -x 20 -y 5 && tmux display-message -p '#{pane_height} #{pane_width}' && echo TMUX-RESIZE-OK
+TTY-CHECK: 5 20
+TTY-CHECK: TMUX-RESIZE-OK
+TTY-SEND: tmux kill-server
+SLEEP: 1
+TTY-CHECK: MARIO_TTY_PROMPT>
+TTY-SEND: if tmux -L tty has-session -t tty; then echo TMUX-SERVER-LEFT-RUNNING; else echo TMUX-CLEAN-EXIT; fi
+TTY-CHECK: TMUX-CLEAN-EXIT
