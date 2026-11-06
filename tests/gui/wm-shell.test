@@ -6,14 +6,21 @@ SERIAL: test ! -e /tmp/mario-wm.ready && test ! -e /tmp/mario-wm.frame && echo w
 SERIAL-CHECK: wm-shell: text shell ready
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-GUI-CHECK-RECT: 0 0 1024 768 0 0 0
+GUI-CHECK-RECT: 32 32 960 700 31 41 51
 GUI-CHECK-SCREEN-RECT: assets/desktop-background.ppm,0,0,1,1
+GUI-CHECK-RECT: 128 752 1 1 17 24 39
+GUI-CHECK-RECT: 10 745 1 1 37 99 235
+GUI-CHECK-RECT: 16 16 1 1 15 23 42
 SERIAL: test -e /tmp/mario-wm.ready && test "$(cat /tmp/mario-wm.frame)" = 1 && echo wm-shell: first frame ready
 SERIAL-CHECK: wm-shell: first frame ready
 SERIAL: /usr/bin/gui-wm-client --public-shell-only
 SERIAL-CHECK: wm-client: public shell denied
+GUI-MOUSE-MOVE: 32,32
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 16 16 1 1 31 41 51
+GUI-CHECK-RECT: 48 48 1 1 15 23 42
 GUI-SEND-KEY: f1
-SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done; test "$(cat /tmp/mario-wm.frame)" = 1 && echo wm-shell: text frame retained
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done; test "$(cat /tmp/mario-wm.frame)" -ge 1 && echo wm-shell: text frame retained
 SERIAL-CHECK: wm-shell: text frame retained
 SERIAL: kill $(pgrep mario-desktop); while test -e /tmp/mario-wm.started; do sleep 1; done
 SERIAL: test ! -e /tmp/mario-wm.sock && test ! -e /tmp/mario-wm.ready && test ! -e /tmp/mario-wm.frame && echo wm-shell: initial failure cleaned up

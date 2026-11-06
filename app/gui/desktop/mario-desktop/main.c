@@ -9,6 +9,11 @@
 
 #define WM_FD 3
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
+#define DESKTOP_BACKGROUND 0x001f2933U
+#define DESKTOP_PANEL 0x00111827U
+#define DESKTOP_LAUNCHER 0x002563ebU
+#define DESKTOP_TEXT 0x00f8fafcU
+#define DESKTOP_PANEL_HEIGHT 28U
 
 /* Keep the largest wire frame out of the small initial userspace stack. */
 static uint8_t desktop_frame[GUI_PROTOCOL_HEADER_SIZE +
@@ -75,6 +80,65 @@ static uint64_t get64(const uint8_t *bytes)
 	return value;
 }
 
+static int glyph_pixel(char character, unsigned int column, unsigned int row)
+{
+	static const uint8_t glyphs[][5] = {
+		/* - */ { 0x00, 0x00, 0x07, 0x00, 0x00 },
+		/* : */ { 0x00, 0x02, 0x00, 0x02, 0x00 },
+		/* E */ { 0x07, 0x04, 0x06, 0x04, 0x07 },
+		/* M */ { 0x05, 0x07, 0x07, 0x05, 0x05 },
+		/* N */ { 0x05, 0x07, 0x07, 0x07, 0x05 },
+		/* U */ { 0x05, 0x05, 0x05, 0x05, 0x07 },
+	};
+	const uint8_t *glyph;
+
+	if (column >= 3 || row >= 5)
+		return 0;
+	switch (character) {
+	case '-': glyph = glyphs[0]; break;
+	case ':': glyph = glyphs[1]; break;
+	case 'E': glyph = glyphs[2]; break;
+	case 'M': glyph = glyphs[3]; break;
+	case 'N': glyph = glyphs[4]; break;
+	case 'U': glyph = glyphs[5]; break;
+	default: return 0;
+	}
+	return glyph[row] & (1U << (2 - column));
+}
+
+static int text_pixel(const char *text, uint32_t x, uint32_t y,
+		      uint32_t origin_x, uint32_t origin_y)
+{
+	uint32_t character_index;
+
+	if (x < origin_x || y < origin_y || y >= origin_y + 10)
+		return 0;
+	character_index = (x - origin_x) / 8;
+	if (character_index >= strlen(text))
+		return 0;
+	return glyph_pixel(text[character_index],
+		((x - origin_x) % 8) / 2, (y - origin_y) / 2);
+}
+
+static uint32_t desktop_pixel(uint32_t width, uint32_t height, uint32_t offset)
+{
+	uint32_t x = offset % width;
+	uint32_t y = offset / width;
+	uint32_t panel_y = height > DESKTOP_PANEL_HEIGHT ?
+		height - DESKTOP_PANEL_HEIGHT : 0;
+
+	if (y < panel_y)
+		return DESKTOP_BACKGROUND;
+	if (x >= 8 && x < 56 && y >= panel_y + 4 && y < panel_y + 24) {
+		if (text_pixel("MENU", x, y, 12, panel_y + 9))
+			return DESKTOP_TEXT;
+		return DESKTOP_LAUNCHER;
+	}
+	if (width >= 40 && text_pixel("--:--", x, y, width - 40, panel_y + 9))
+		return DESKTOP_TEXT;
+	return DESKTOP_PANEL;
+}
+
 static int read_surface_data_reply(uint32_t pixel_offset, uint32_t pixel_count)
 {
 	uint8_t reply[GUI_PROTOCOL_HEADER_SIZE +
@@ -123,6 +187,11 @@ static int send_desktop(uint32_t width, uint32_t height)
 		put32(desktop_frame + 8, 1); put64(desktop_frame + 12, 1);
 		put64(desktop_frame + 20, 1);
 		put32(desktop_frame + 28, pixel_offset); put32(desktop_frame + 32, pixels);
+		/* Build the static shell scene incrementally to stay within the socket ring. */
+		for (uint32_t index = 0; index < pixels; index++)
+			put32(desktop_frame + GUI_PROTOCOL_HEADER_SIZE +
+				sizeof(gui_protocol_wire_surface_data) + index * sizeof(uint32_t),
+				desktop_pixel(width, height, pixel_offset + index));
 		if (write_full(WM_FD, desktop_frame,
 			GUI_PROTOCOL_HEADER_SIZE + payload) < 0)
 			return -1;

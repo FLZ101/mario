@@ -2,7 +2,7 @@ GUI-VISUAL-TEST:
 SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 GUI-SEND-KEY: f8
-GUI-CHECK-RECT: 0 0 1024 768 0 0 0
+GUI-CHECK-RECT: 32 32 960 700 31 41 51
 SERIAL: /usr/bin/test/gui-wm-client.exe --commit-only
 SERIAL-CHECK: wm-client: commit ok
 GUI-CHECK-RECT: 0 0 2 2 255 0 0

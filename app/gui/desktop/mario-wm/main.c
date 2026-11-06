@@ -25,6 +25,9 @@
 #define WM_CLIENT_LIMIT 8
 #define WM_SHELL_PATH "/usr/bin/mario-desktop"
 #define WM_SHELL_FD 3
+#define WM_CURSOR_PATH "/usr/share/mario/cursor-arrow-16.rgba"
+#define WM_CURSOR_WIDTH 16U
+#define WM_CURSOR_HEIGHT 16U
 
 static volatile sig_atomic_t stop_requested;
 
@@ -48,6 +51,7 @@ static void remove_status_files(void)
 typedef struct {
 	int framebuffer;
 	int gui;
+	int mouse;
 	int listener;
 	int owns_status;
 	int graphics;
@@ -58,6 +62,10 @@ typedef struct {
 	size_t surface_limit;
 	size_t surface_bytes;
 	uint64_t frame_number;
+	uint32_t cursor_x;
+	uint32_t cursor_y;
+	uint8_t cursor_rgba[WM_CURSOR_WIDTH * WM_CURSOR_HEIGHT * 4];
+	gui_surface *composite;
 } wm_state;
 
 typedef struct wm_server wm_server;
@@ -220,6 +228,71 @@ static void client_destroy(wm_client *client)
 	*client = (wm_client) { .fd = -1 };
 }
 
+static int wm_load_cursor(wm_state *state)
+{
+	uint8_t *bytes = state->cursor_rgba;
+	uint8_t extra;
+	size_t remaining = sizeof(state->cursor_rgba);
+	int fd = open(WM_CURSOR_PATH, O_RDONLY);
+
+	if (fd < 0)
+		return -1;
+	while (remaining != 0) {
+		ssize_t count = read(fd, bytes, remaining);
+
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0) {
+			int saved_errno = count == 0 ? EIO : errno;
+
+			close(fd);
+			errno = saved_errno;
+			return -1;
+		}
+		bytes += count;
+		remaining -= count;
+	}
+	if (read(fd, &extra, 1) != 0) {
+		int saved_errno = errno == 0 ? EIO : errno;
+
+		close(fd);
+		errno = saved_errno;
+		return -1;
+	}
+	if (close(fd) < 0)
+		return -1;
+	for (size_t index = 3; index < sizeof(state->cursor_rgba); index += 4) {
+		if (state->cursor_rgba[index] != 0 && state->cursor_rgba[index] != 255) {
+			errno = EINVAL;
+			return -1;
+		}
+	}
+	return 0;
+}
+
+static void wm_draw_cursor(wm_state *state)
+{
+	for (uint32_t row = 0; row < WM_CURSOR_HEIGHT; row++) {
+		uint32_t y = state->cursor_y + row;
+
+		if (y >= state->height)
+			break;
+		for (uint32_t column = 0; column < WM_CURSOR_WIDTH; column++) {
+			uint32_t x = state->cursor_x + column;
+			size_t source = ((size_t)row * WM_CURSOR_WIDTH + column) * 4;
+
+			if (x >= state->width)
+				break;
+			if (state->cursor_rgba[source + 3] != 0) {
+				state->composite->pixels[(size_t)y * state->composite->stride + x] =
+					(uint32_t)state->cursor_rgba[source] << 16 |
+					(uint32_t)state->cursor_rgba[source + 1] << 8 |
+					state->cursor_rgba[source + 2];
+			}
+		}
+	}
+}
+
 static gui_flush_result wm_compose(wm_server *server)
 {
 	wm_state *state = &server->state;
@@ -234,29 +307,34 @@ static gui_flush_result wm_compose(wm_server *server)
 	}
 	if (!state->graphics)
 		return GUI_FLUSH_COMPLETE;
+	gui_fill_rect(state->composite, (gui_rect) { .x = 0, .y = 0,
+		.w = state->composite->width, .h = state->composite->height }, 0);
 	if (desktop != NULL) {
-		gui_flush_result result = gui_surface_flush_rect_fd(desktop,
-			(gui_rect) { .x = 0, .y = 0, .w = desktop->width,
-				.h = desktop->height }, state->scanout_stride,
-			state->framebuffer);
-
-		if (result != GUI_FLUSH_COMPLETE)
-			return result;
+		gui_blit(state->composite, 0, 0, desktop,
+			&(gui_rect) { .x = 0, .y = 0, .w = desktop->width,
+				.h = desktop->height });
 	}
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
 		wm_client *client = &server->clients[index];
 
 		if (client->fd >= 0 && client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
 		    client->committed != NULL) {
-			gui_flush_result result = gui_surface_flush_rect_fd(client->committed,
-				(gui_rect) { .x = 0, .y = 0,
+			gui_blit(state->composite, 0, 0, client->committed,
+				&(gui_rect) { .x = 0, .y = 0,
 					.w = client->committed->width,
-					.h = client->committed->height },
-				state->scanout_stride, state->framebuffer);
-
-			if (result != GUI_FLUSH_COMPLETE)
-				return result;
+					.h = client->committed->height });
 		}
+	}
+	/* The server-owned sprite is always the final layer, independent of focus. */
+	wm_draw_cursor(state);
+	{
+		gui_flush_result result = gui_surface_flush_rect_fd(state->composite,
+			(gui_rect) { .x = 0, .y = 0, .w = state->composite->width,
+				.h = state->composite->height }, state->scanout_stride,
+			state->framebuffer);
+
+		if (result != GUI_FLUSH_COMPLETE)
+			return result;
 	}
 	return wm_publish_completed_frame(state) == 0 ? GUI_FLUSH_COMPLETE :
 		GUI_FLUSH_ERROR;
@@ -570,7 +648,29 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 		wm_reset_input_owner(server);
 		return;
 	}
-	if (!server->state.graphics || client == NULL)
+	if (!server->state.graphics)
+		return;
+	if (event->type == GUI_INPUT_EVENT_MOUSE) {
+		wm_state *state = &server->state;
+		int64_t x = (int64_t)state->cursor_x + event->mouse.dx;
+		int64_t y = (int64_t)state->cursor_y - event->mouse.dy;
+
+		if (x < 0)
+			x = 0;
+		else if ((uint64_t)x >= state->width)
+			x = state->width - 1;
+		if (y < 0)
+			y = 0;
+		else if ((uint64_t)y >= state->height)
+			y = state->height - 1;
+		if (state->cursor_x != (uint32_t)x || state->cursor_y != (uint32_t)y) {
+			state->cursor_x = x;
+			state->cursor_y = y;
+			if (wm_compose(server) == GUI_FLUSH_ERROR)
+				stop_requested = 1;
+		}
+	}
+	if (client == NULL)
 		return;
 	put_u32(message, client->window_id);
 	put_u32(message + 4, event->type);
@@ -682,8 +782,11 @@ static void wm_cleanup(wm_state *state)
 		close(state->listener);
 	if (state->gui >= 0)
 		close(state->gui);
+	if (state->mouse >= 0)
+		close(state->mouse);
 	if (state->framebuffer >= 0)
 		close(state->framebuffer);
+	gui_surface_destroy(state->composite);
 	if (state->owns_status)
 		remove_status_files();
 }
@@ -779,10 +882,11 @@ int main(void)
 {
 	struct sigaction action = { .sa_handler = request_stop };
 	struct sigaction ignore_pipe = { .sa_handler = SIG_IGN };
-	struct pollfd pollfds[WM_CLIENT_LIMIT + 3];
+	struct pollfd pollfds[WM_CLIENT_LIMIT + 4];
 	struct mario_gui_key_event events[16];
+	struct mario_psaux_event mouse_events[16];
 	wm_server server = { .state = { .framebuffer = -1, .gui = -1,
-		.listener = -1 } };
+		.mouse = -1, .listener = -1 } };
 	int status = 1;
 
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++)
@@ -794,8 +898,18 @@ int main(void)
 		goto out;
 	if (wm_init_surface_budget(&server.state) < 0)
 		goto out;
+	server.state.composite = gui_surface_create(server.state.width, server.state.height);
+	if (server.state.composite == NULL || wm_load_cursor(&server.state) < 0)
+		goto out;
+	/* Keep the initial sprite clear of the origin used by desktop-frame checks. */
+	server.state.cursor_x = server.state.width > WM_CURSOR_WIDTH ? WM_CURSOR_WIDTH : 0;
+	server.state.cursor_y = server.state.height > WM_CURSOR_HEIGHT ? WM_CURSOR_HEIGHT : 0;
 	server.state.gui = open("/dev/gui", O_RDONLY | O_NONBLOCK);
 	if (server.state.gui < 0)
+		goto out;
+	/* The seat owner reads both input streams so the cursor cannot be spoofed. */
+	server.state.mouse = open("/dev/psaux", O_RDONLY | O_NONBLOCK);
+	if (server.state.mouse < 0)
 		goto out;
 	server.state.owns_status = 1;
 	/* Only the exclusive owner may discard a predecessor's stale status. */
@@ -817,12 +931,13 @@ int main(void)
 		goto out;
 	while (!stop_requested) {
 		int ready;
-		size_t poll_count = 3;
+		size_t poll_count = 4;
 
 		pollfds[0] = (struct pollfd) { .fd = server.state.gui, .events = POLLIN };
 		pollfds[1] = (struct pollfd) { .fd = server.state.framebuffer,
 			.events = POLLPRI };
 		pollfds[2] = (struct pollfd) { .fd = server.state.listener, .events = POLLIN };
+		pollfds[3] = (struct pollfd) { .fd = server.state.mouse, .events = POLLIN };
 		for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
 			short events = POLLIN;
 
@@ -874,7 +989,18 @@ int main(void)
 			if (errno != EAGAIN)
 				goto out;
 		}
-		for (size_t index = 0, poll_index = 3; index < WM_CLIENT_LIMIT; index++) {
+		if (pollfds[3].revents & POLLIN) {
+			ssize_t event_bytes;
+
+			while ((event_bytes = read(server.state.mouse, mouse_events,
+					       sizeof(mouse_events))) > 0) {
+				gui_input_normalize_mouse_records(mouse_events,
+					event_bytes / sizeof(mouse_events[0]), wm_emit_input, &server);
+			}
+			if (errno != EAGAIN)
+				goto out;
+		}
+		for (size_t index = 0, poll_index = 4; index < WM_CLIENT_LIMIT; index++) {
 			uint8_t bytes[4096];
 			ssize_t count = -1;
 

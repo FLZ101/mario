@@ -20,13 +20,13 @@ SERIAL: cat /tmp/mario-wm.log
 SERIAL-CHECK: mario-wm: listening
 SERIAL-CHECK: mario-wm: listening
 GUI-SEND-KEY: f8
-GUI-CHECK-RECT: 0 0 1024 768 0 0 0
+GUI-CHECK-RECT: 32 32 960 700 31 41 51
 # A second startup fails without stealing the first server's seat.
 SERIAL: /usr/bin/mario-wm >/tmp/mario-wm-second.log 2>&1; echo wm-second-status:$?
 SERIAL-CHECK: wm-second-status:1
 SERIAL: test -e /tmp/mario-wm.started; echo wm-owner-status:$?
 SERIAL-CHECK: wm-owner-status:0
-GUI-CHECK-RECT: 0 0 1024 768 0 0 0
+GUI-CHECK-RECT: 32 32 960 700 31 41 51
 SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
 # Closing the last seat descriptors restores the previous text VT without a
 # synthetic function-key transition.

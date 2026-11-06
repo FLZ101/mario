@@ -688,12 +688,12 @@ libmario-ui: add surfaces, TTF rendering, and event loop
   device/listener fds; an initial shell that cannot become shell-ready (`HELLO`
   plus a full desktop commit) returns the session to text without a retry loop.
   Commit: `desktop: start shell through window manager`.
-- [ ] **M3.4.2 — commit the desktop surface and first frame.** Accept one
+- [x] **M3.4.2 — commit the desktop surface and first frame.** Accept one
   shell-only `DESKTOP_CREATE`, composite its background beneath ordinary client
   surfaces, and publish ready/frame status only after a successful full flush.
   Add one desktop golden; reject a public `DESKTOP_CREATE`; prove `EBUSY` does
   not advance the frame. Commit: `gui: compose shell desktop surface`.
-- [ ] **M3.4.3 — draw shell panel and server cursor.** Have the shell draw the
+- [x] **M3.4.3 — draw shell panel and server cursor.** Have the shell draw the
   panel, fixed `--:--` clock, and launcher into its desktop surface while the
   server draws the cursor. Add panel/cursor goldens. Commit: `desktop: draw shell panel`.
 - [ ] **M3.5.1 — add server window storage and paint order.** Define window

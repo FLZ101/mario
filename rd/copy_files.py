@@ -198,6 +198,7 @@ def copy_rootfs_files(
         "app/test/gui-wm-client/gui-wm-client.exe": "usr/bin/gui-wm-client",
         "app/gui/desktop/mario-desktop/mario-desktop.exe": "usr/bin/mario-desktop",
         "app/gui/desktop/mario-wm/mario-wm.exe": "usr/bin/mario-wm",
+        "app/gui/desktop/assets/cursor-arrow-16.rgba": "usr/share/mario/cursor-arrow-16.rgba",
         "app/gui/libmario-ui/assets/fonts/*.ttf": "usr/share/fonts",
         "app/usr/ncurses-6.6-install/share/terminfo/a/ansi": "usr/share/terminfo/a/ansi",
         "app/usr/ncurses-6.6-install/share/terminfo/l/linux": "usr/share/terminfo/l/linux",
