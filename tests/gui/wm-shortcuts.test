@@ -1,0 +1,15 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 32 32 1 1 31 41 51
+SERIAL: /usr/bin/test/gui-wm-client.exe --shortcuts-only >/tmp/wm-shortcuts.log 2>&1 & echo $! >/tmp/wm-shortcuts.pid
+SERIAL: while ! grep -q 'wm-client: shortcuts ready' /tmp/wm-shortcuts.log; do sleep 1; done
+GUI-SEND-KEYS: alt,tab
+GUI-WAIT-FRAME:
+SERIAL: while ! grep -q 'wm-client: alt-tab intercepted' /tmp/wm-shortcuts.log; do sleep 1; done
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while ! grep -q 'wm-client: super-w intercepted' /tmp/wm-shortcuts.log; do sleep 1; done
+SERIAL: kill $(cat /tmp/wm-shortcuts.pid); kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

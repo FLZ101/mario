@@ -1,0 +1,22 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/gui-wm-client.exe --taskbar-only >/tmp/wm-taskbar.log 2>&1 & echo $! >/tmp/wm-taskbar.pid
+SERIAL: while ! grep -q 'wm-client: taskbar ready' /tmp/wm-taskbar.log; do sleep 1; done
+GUI-CHECK-RECT: 110 750 1 1 71 85 105
+GUI-CHECK-RECT: 170 750 1 1 37 99 235
+GUI-MOUSE-MOVE: 54,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,99
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+SERIAL: while ! grep -q 'wm-client: taskbar activation ready' /tmp/wm-taskbar.log; do sleep 1; done
+GUI-CHECK-RECT: 110 750 1 1 37 99 235
+GUI-MOUSE-BUTTON: left,up
+SERIAL: kill $(cat /tmp/wm-taskbar.pid); kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

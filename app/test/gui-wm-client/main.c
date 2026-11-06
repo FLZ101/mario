@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <errno.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -87,10 +88,11 @@ static void hello(int fd)
 	read_frame(fd, frame, GUI_PROTOCOL_HELLO_REPLY);
 }
 
-static void create_window(int fd, uint32_t request_id, uint32_t width,
-			  uint32_t height)
+static uint32_t create_window(int fd, uint32_t request_id, uint32_t width,
+			      uint32_t height)
 {
 	uint8_t frame[64];
+	uint32_t window_id;
 
 	hello(fd);
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_CREATE,
@@ -102,14 +104,16 @@ static void create_window(int fd, uint32_t request_id, uint32_t width,
 	put32(frame + 16, height);
 	assert(write(fd, frame, 24) == 24);
 	read_frame(fd, frame, GUI_PROTOCOL_WINDOW_CREATE_REPLY);
-	assert(get32(frame + 8) == request_id && get32(frame + 12) == 1);
+	window_id = get32(frame + 12);
+	assert(get32(frame + 8) == request_id && window_id != 0);
 	read_frame(fd, frame, GUI_PROTOCOL_WINDOW_FOCUS);
-	assert(get32(frame + 8) == 1 && get32(frame + 12) == 1);
+	assert(get32(frame + 8) == window_id && get32(frame + 12) == 1);
 	read_frame(fd, frame, GUI_PROTOCOL_INPUT_RESET);
 	assert(get32(frame) == GUI_PROTOCOL_HEADER_SIZE);
+	return window_id;
 }
 
-static void begin_surface(int fd, uint32_t width, uint32_t height,
+static void begin_surface(int fd, uint32_t window_id, uint32_t width, uint32_t height,
 			  uint64_t frame_serial)
 {
 	uint8_t frame[sizeof(gui_protocol_wire_header) +
@@ -117,7 +121,7 @@ static void begin_surface(int fd, uint32_t width, uint32_t height,
 
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_SURFACE_BEGIN,
 				  sizeof(gui_protocol_wire_surface_begin)) == 0);
-	put32(frame + 8, 1);
+	put32(frame + 8, window_id);
 	put64(frame + 12, 1);
 	put64(frame + 20, frame_serial);
 	put32(frame + 28, 0);
@@ -136,20 +140,22 @@ static void read_error(int fd, int status, gui_protocol_type failed_type)
 	assert(get16(frame + 12) == failed_type);
 }
 
-static void read_surface_data_reply(int fd, uint32_t pixel_offset,
+static void read_surface_data_reply(int fd, uint32_t window_id, uint32_t pixel_offset,
 				    uint32_t pixel_count, uint64_t frame_serial)
 {
 	uint8_t frame[sizeof(gui_protocol_wire_header) +
 		      sizeof(gui_protocol_wire_surface_data_reply)];
 
 	read_frame(fd, frame, GUI_PROTOCOL_SURFACE_DATA_REPLY);
-	assert(get32(frame + 8) == 1 && get32(frame + 12) == 1 &&
+	assert(get32(frame + 8) == window_id && get32(frame + 12) == 1 &&
 	       get32(frame + 20) == (uint32_t)frame_serial &&
 	       get32(frame + 24) == (uint32_t)(frame_serial >> 32) &&
 	       get32(frame + 28) == pixel_offset && get32(frame + 32) == pixel_count);
 }
 
-static void send_surface_data(int fd, uint32_t pixel_offset, uint32_t pixel_count,
+
+static void send_surface_data(int fd, uint32_t window_id, uint32_t pixel_offset,
+			      uint32_t pixel_count,
 			      uint64_t frame_serial, gui_color color)
 {
 	size_t payload_bytes = sizeof(gui_protocol_wire_surface_data) +
@@ -158,7 +164,7 @@ static void send_surface_data(int fd, uint32_t pixel_offset, uint32_t pixel_coun
 	assert(pixel_count <= SURFACE_PIXELS_PER_MESSAGE);
 	assert(gui_protocol_encode_header(surface_frame, sizeof(surface_frame), GUI_PROTOCOL_SURFACE_DATA,
 				  payload_bytes) == 0);
-	put32(surface_frame + 8, 1);
+	put32(surface_frame + 8, window_id);
 	put64(surface_frame + 12, 1);
 	put64(surface_frame + 20, frame_serial);
 	put32(surface_frame + 28, pixel_offset);
@@ -169,51 +175,54 @@ static void send_surface_data(int fd, uint32_t pixel_offset, uint32_t pixel_coun
 	       (ssize_t)(GUI_PROTOCOL_HEADER_SIZE + payload_bytes));
 }
 
-static void commit_surface(int fd, uint64_t frame_serial)
+static void commit_surface(int fd, uint32_t window_id, uint64_t frame_serial)
 {
 	uint8_t frame[sizeof(gui_protocol_wire_header) +
 		      sizeof(gui_protocol_wire_surface_commit)];
 
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_SURFACE_COMMIT,
 				  sizeof(gui_protocol_wire_surface_commit)) == 0);
-	put32(frame + 8, 1);
+	put32(frame + 8, window_id);
 	put64(frame + 12, 1);
 	put64(frame + 20, frame_serial);
 	assert(write(fd, frame, sizeof(frame)) == sizeof(frame));
 }
 
-static void commit_color_surface(int fd, uint32_t width, uint32_t height,
+static void commit_color_surface(int fd, uint32_t window_id, uint32_t width, uint32_t height,
 				 gui_color color)
 {
 	uint32_t total = width * height;
 
-	begin_surface(fd, width, height, 1);
+	begin_surface(fd, window_id, width, height, 1);
 	for (uint32_t offset = 0; offset < total;) {
 		uint32_t count = total - offset > SURFACE_PIXELS_PER_MESSAGE ?
 			SURFACE_PIXELS_PER_MESSAGE : total - offset;
 
-		send_surface_data(fd, offset, count, 1, color);
-		read_surface_data_reply(fd, offset, count, 1);
+		send_surface_data(fd, window_id, offset, count, 1, color);
+		read_surface_data_reply(fd, window_id, offset, count, 1);
 		offset += count;
 	}
-	commit_surface(fd, 1);
+	commit_surface(fd, window_id, 1);
 }
 
 static void test_staging(void)
 {
 	int stager = connect_client();
 	int large[3];
+	uint32_t stager_id;
+	uint32_t large_id[3];
 
-	create_window(stager, 9, 64, 48);
-	begin_surface(stager, UINT32_MAX, 48, 1);
+	stager_id = create_window(stager, 9, 64, 48);
+	begin_surface(stager, stager_id, UINT32_MAX, 48, 1);
 	read_error(stager, -EINVAL, GUI_PROTOCOL_SURFACE_BEGIN);
-	begin_surface(stager, 64, 48, 1);
-	begin_surface(stager, 64, 48, 2);
+	begin_surface(stager, stager_id, 64, 48, 1);
+	begin_surface(stager, stager_id, 64, 48, 2);
 	read_error(stager, -EBUSY, GUI_PROTOCOL_SURFACE_BEGIN);
 	for (size_t index = 0; index < sizeof(large) / sizeof(large[0]); index++) {
 		large[index] = connect_client();
-		create_window(large[index], (uint32_t)(10 + index), 1024, 768);
-		begin_surface(large[index], 1024, 768, 1);
+		large_id[index] = create_window(large[index], (uint32_t)(10 + index),
+			1024, 768);
+		begin_surface(large[index], large_id[index], 1024, 768, 1);
 	}
 	read_error(large[2], -ENOMEM, GUI_PROTOCOL_SURFACE_BEGIN);
 	for (size_t index = 0; index < sizeof(large) / sizeof(large[0]); index++)
@@ -224,26 +233,29 @@ static void test_staging(void)
 static void test_commit(void)
 {
 	int fd = connect_client();
+	uint32_t window_id;
 
-	create_window(fd, 20, 2, 2);
-	begin_surface(fd, 2, 2, 1);
-	send_surface_data(fd, 1, 1, 1, 0x00ff0000);
+	window_id = create_window(fd, 20, 2, 2);
+	begin_surface(fd, window_id, 2, 2, 1);
+	send_surface_data(fd, window_id, 1, 1, 1, 0x00ff0000);
 	read_error(fd, -EINVAL, GUI_PROTOCOL_SURFACE_DATA);
-	send_surface_data(fd, 0, 4, 1, 0x00ff0000);
-	read_surface_data_reply(fd, 0, 4, 1);
-	commit_surface(fd, 1);
-	begin_surface(fd, 2, 2, 2);
+	send_surface_data(fd, window_id, 0, 4, 1, 0x00ff0000);
+	read_surface_data_reply(fd, window_id, 0, 4, 1);
+	commit_surface(fd, window_id, 1);
+	begin_surface(fd, window_id, 2, 2, 2);
 	/* A stale update cannot overwrite the committed red frame. */
-	send_surface_data(fd, 0, 1, 1, 0x000000ff);
+	send_surface_data(fd, window_id, 0, 1, 1, 0x000000ff);
 	read_error(fd, -EINVAL, GUI_PROTOCOL_SURFACE_DATA);
-	commit_surface(fd, 1);
+	commit_surface(fd, window_id, 1);
 	read_error(fd, -EINVAL, GUI_PROTOCOL_SURFACE_COMMIT);
 	/* Dropping a partially transferred replacement must retain the old frame. */
-	send_surface_data(fd, 0, 1, 2, 0x000000ff);
-	read_surface_data_reply(fd, 0, 1, 2);
-	assert(shutdown(fd, SHUT_WR) == 0);
-	assert(read(fd, &(uint8_t) { 0 }, 1) == 0);
-	close(fd);
+	send_surface_data(fd, window_id, 0, 1, 2, 0x000000ff);
+	read_surface_data_reply(fd, window_id, 0, 1, 2);
+	/* Keep the owner alive while the visual test proves staging did not leak. */
+	puts("wm-client: commit ok");
+	fflush(stdout);
+	for (;;)
+		pause();
 }
 
 static void test_public_shell(void)
@@ -272,12 +284,14 @@ static void test_stack(void)
 	int back = connect_client();
 	int front;
 	uint8_t frame[64];
+	uint32_t back_id;
+	uint32_t front_id;
 
-	create_window(back, 30, 64, 48);
-	commit_color_surface(back, 64, 48, 0x00ff0000);
+	back_id = create_window(back, 30, 64, 48);
+	commit_color_surface(back, back_id, 64, 48, 0x00ff0000);
 	front = connect_client();
-	create_window(front, 31, 64, 48);
-	commit_color_surface(front, 64, 48, 0x0000ff00);
+	front_id = create_window(front, 31, 64, 48);
+	commit_color_surface(front, front_id, 64, 48, 0x0000ff00);
 	/* Creating the front window transfers the initial focus away from back. */
 	read_frame(back, frame, GUI_PROTOCOL_WINDOW_FOCUS);
 	assert(get32(frame + 12) == 0);
@@ -296,24 +310,100 @@ static void test_stack(void)
 		pause();
 }
 
+static void test_taskbar(void)
+{
+	int back = connect_client();
+	int front;
+	uint8_t frame[64];
+	struct pollfd pollfd;
+	uint32_t back_id;
+	uint32_t front_id;
+
+	back_id = create_window(back, 40, 64, 48);
+	commit_color_surface(back, back_id, 64, 48, 0x00ff0000);
+	front = connect_client();
+	front_id = create_window(front, 41, 64, 48);
+	commit_color_surface(front, front_id, 64, 48, 0x0000ff00);
+	/* The second create focused front, leaving back as an inactive task button. */
+	read_frame(back, frame, GUI_PROTOCOL_WINDOW_FOCUS);
+	assert(get32(frame + 12) == 0);
+	read_frame(back, frame, GUI_PROTOCOL_INPUT_RESET);
+	puts("wm-client: taskbar ready");
+	fflush(stdout);
+	/* A panel click is delivered to the shell, which requests this activation. */
+	read_frame(back, frame, GUI_PROTOCOL_WINDOW_FOCUS);
+	assert(get32(frame + 12) == 1);
+	read_frame(back, frame, GUI_PROTOCOL_INPUT_RESET);
+	pollfd = (struct pollfd) { .fd = back, .events = POLLIN };
+	assert(poll(&pollfd, 1, 100) == 0);
+	puts("wm-client: taskbar activation ready");
+	fflush(stdout);
+	for (;;)
+		pause();
+}
+
+static void test_shortcuts(void)
+{
+	int back = connect_client();
+	int front;
+	uint8_t frame[64];
+	struct pollfd pollfd;
+	uint32_t back_id;
+
+	back_id = create_window(back, 50, 64, 48);
+	front = connect_client();
+	(void)create_window(front, 51, 64, 48);
+	read_frame(back, frame, GUI_PROTOCOL_WINDOW_FOCUS);
+	assert(get32(frame + 8) == back_id && get32(frame + 12) == 0);
+	read_frame(back, frame, GUI_PROTOCOL_INPUT_RESET);
+	puts("wm-client: shortcuts ready");
+	fflush(stdout);
+	/* Alt reaches the previous owner, but the Tab chord itself changes focus. */
+	read_frame(back, frame, GUI_PROTOCOL_WINDOW_FOCUS);
+	assert(get32(frame + 8) == back_id && get32(frame + 12) == 1);
+	read_frame(back, frame, GUI_PROTOCOL_INPUT_RESET);
+	pollfd = (struct pollfd) { .fd = back, .events = POLLIN };
+	assert(poll(&pollfd, 1, 100) == 0);
+	puts("wm-client: alt-tab intercepted");
+	fflush(stdout);
+	/* A modifier event is allowed, but Super-W must never forward the W keysym. */
+	pollfd = (struct pollfd) { .fd = back, .events = POLLIN };
+	while (poll(&pollfd, 1, 100) > 0) {
+		read_frame(back, frame, GUI_PROTOCOL_INPUT_EVENT);
+		assert(get32(frame + 8) == back_id &&
+		       get32(frame + 12) == GUI_INPUT_EVENT_KEY);
+		assert(get32(frame + 16) != 'w');
+		pollfd.revents = 0;
+	}
+	puts("wm-client: super-w intercepted");
+	fflush(stdout);
+	for (;;)
+		pause();
+}
+
 int main(int argc, char **argv)
 {
 	uint8_t frame[64];
 	int first;
 	int second;
+	uint32_t first_id;
 
 	assert(argc == 1 || (argc == 2 && (!strcmp(argv[1], "--surface-only") ||
 		!strcmp(argv[1], "--commit-only") ||
-		!strcmp(argv[1], "--public-shell-only") || !strcmp(argv[1], "--stack-only"))));
+		!strcmp(argv[1], "--public-shell-only") || !strcmp(argv[1], "--stack-only") ||
+		!strcmp(argv[1], "--taskbar-only") || !strcmp(argv[1], "--shortcuts-only"))));
 	if (argc == 2) {
 		if (!strcmp(argv[1], "--surface-only")) {
 			test_staging();
 			puts("wm-client: staging ok");
 		} else if (!strcmp(argv[1], "--commit-only")) {
 			test_commit();
-			puts("wm-client: commit ok");
 		} else if (!strcmp(argv[1], "--stack-only")) {
 			test_stack();
+		} else if (!strcmp(argv[1], "--taskbar-only")) {
+			test_taskbar();
+		} else if (!strcmp(argv[1], "--shortcuts-only")) {
+			test_shortcuts();
 		} else {
 			test_public_shell();
 			puts("wm-client: public shell denied");
@@ -322,16 +412,16 @@ int main(int argc, char **argv)
 	}
 	first = connect_client();
 
-	create_window(first, 7, 64, 48);
+	first_id = create_window(first, 7, 64, 48);
 	second = connect_client();
-	create_window(second, 8, 64, 48);
+	(void)create_window(second, 8, 64, 48);
 	read_frame(first, frame, GUI_PROTOCOL_WINDOW_FOCUS);
-	assert(get32(frame + 8) == 1 && get32(frame + 12) == 0);
+	assert(get32(frame + 8) == first_id && get32(frame + 12) == 0);
 	read_frame(first, frame, GUI_PROTOCOL_INPUT_RESET);
 	close(second);
 	/* The first owner must be reset again before it can receive later input. */
 	read_frame(first, frame, GUI_PROTOCOL_WINDOW_FOCUS);
-	assert(get32(frame + 8) == 1 && get32(frame + 12) == 1);
+	assert(get32(frame + 8) == first_id && get32(frame + 12) == 1);
 	read_frame(first, frame, GUI_PROTOCOL_INPUT_RESET);
 	puts("wm-client: focus reset ready");
 	fflush(stdout);
@@ -343,12 +433,12 @@ int main(int argc, char **argv)
 	puts("wm-client: graphics seat reset ready");
 	fflush(stdout);
 	read_frame(first, frame, GUI_PROTOCOL_INPUT_EVENT);
-	assert(get32(frame + 8) == 1 && get32(frame + 12) == GUI_INPUT_EVENT_KEY);
+	assert(get32(frame + 8) == first_id && get32(frame + 12) == GUI_INPUT_EVENT_KEY);
 	/* GUI-TYPE sends the matching key release after the key press. */
 	read_frame(first, frame, GUI_PROTOCOL_INPUT_EVENT);
-	assert(get32(frame + 8) == 1 && get32(frame + 12) == GUI_INPUT_EVENT_KEY);
+	assert(get32(frame + 8) == first_id && get32(frame + 12) == GUI_INPUT_EVENT_KEY);
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_DESTROY, 4) == 0);
-	put32(frame + 8, 1);
+	put32(frame + 8, first_id);
 	assert(write(first, frame, 12) == 12);
 	close(first);
 	puts("wm-client: ownership resets ok");

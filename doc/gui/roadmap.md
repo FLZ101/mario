@@ -699,7 +699,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
 - [x] **M3.5.1 — add server window storage and paint order.** Define window
   lifetime, rectangles, clipping, and top-to-bottom z-order. Test overlap and
   occlusion pixels. Commit: `gui: compose window stack`.
-- [ ] **M3.5.2 — add focus, shell taskbar, and client input delivery.**
+- [x] **M3.5.2 — add focus, shell taskbar, and client input delivery.**
   Implement click/focus, MRU ordering, focused-client key routing, and ordered
   shell-only window-list notifications/activate requests. The server intercepts
   Alt-Tab and Super-W before client delivery. Test focus change, input

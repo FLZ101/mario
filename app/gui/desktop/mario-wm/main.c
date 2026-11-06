@@ -64,7 +64,9 @@ typedef struct {
 	uint64_t frame_number;
 	uint32_t cursor_x;
 	uint32_t cursor_y;
+	uint32_t modifiers;
 	uint8_t mouse_buttons;
+	uint8_t key_down[512];
 	uint8_t cursor_rgba[WM_CURSOR_WIDTH * WM_CURSOR_HEIGHT * 4];
 	gui_surface *composite;
 } wm_state;
@@ -97,11 +99,19 @@ typedef struct wm_client {
 struct wm_server {
 	wm_state state;
 	wm_client clients[WM_CLIENT_LIMIT];
+	uint32_t next_window_id;
 	uint64_t next_placement;
 	uint64_t next_stack_order;
 	/* All focus and future grab transitions enter through this owner. */
 	wm_client *input_owner;
 };
+
+static uint32_t wm_allocate_window_id(wm_server *server)
+{
+	if (server->next_window_id == UINT32_MAX)
+		return 0;
+	return ++server->next_window_id;
+}
 
 static int write_status_file(const char *path, const char *temporary_path,
 			     const char *contents, size_t byte_count)
@@ -465,6 +475,10 @@ static void wm_notify_shell_window(wm_server *server, gui_protocol_type type,
 {
 	uint8_t message[sizeof(gui_protocol_wire_window_list)] = { 0 };
 
+	/* The private shell tracks ordinary taskbar targets, never itself. */
+	if (window->role != GUI_PROTOCOL_ENDPOINT_ORDINARY || window->window_id == 0)
+		return;
+
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
 		wm_client *shell = &server->clients[index];
 
@@ -638,6 +652,18 @@ static wm_client *wm_hit_test(wm_server *server, uint32_t x, uint32_t y)
 	return hit;
 }
 
+static wm_client *wm_shell_client(wm_server *server)
+{
+	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+		wm_client *client = &server->clients[index];
+
+		if (client->fd >= 0 && client->hello > 0 &&
+		    client->role == GUI_PROTOCOL_ENDPOINT_SHELL && client->window_id != 0)
+			return client;
+	}
+	return NULL;
+}
+
 static int client_enqueue_input_reset(wm_client *client)
 {
 	return client_enqueue(client, GUI_PROTOCOL_INPUT_RESET, NULL, 0);
@@ -664,34 +690,43 @@ static void wm_set_input_owner(wm_server *server, wm_client *client)
 	 * pointer-grab transitions use this same ordered boundary.
 	 */
 	if (previous != NULL) {
-		previous->focused = 0;
-		if (client_enqueue_focus(previous, 0) < 0 ||
-		    client_enqueue_input_reset(previous) < 0)
+		if (previous->role == GUI_PROTOCOL_ENDPOINT_ORDINARY) {
+			previous->focused = 0;
+			if (client_enqueue_focus(previous, 0) < 0)
+				previous->hello = -1;
+			wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, previous);
+		}
+		if (client_enqueue_input_reset(previous) < 0)
 			previous->hello = -1;
-		wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, previous);
 	}
 	server->input_owner = client;
 	if (client != NULL) {
-		client->stack_order = ++server->next_stack_order;
-		client->focused = 1;
-		if (client_enqueue_focus(client, 1) < 0 ||
-		    client_enqueue_input_reset(client) < 0)
+		if (client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY) {
+			client->stack_order = ++server->next_stack_order;
+			client->focused = 1;
+			if (client_enqueue_focus(client, 1) < 0)
+				client->hello = -1;
+			wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, client);
+		}
+		if (client_enqueue_input_reset(client) < 0)
 			client->hello = -1;
-		wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, client);
 	}
 }
 
 static wm_client *wm_next_focus(wm_server *server)
 {
+	wm_client *next = NULL;
+
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
 		wm_client *client = &server->clients[index];
 
 		if (client->fd >= 0 && client->hello > 0 &&
 		    client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
-		    client->window_id != 0)
-			return client;
+		    client->window_id != 0 &&
+		    (next == NULL || client->stack_order > next->stack_order))
+			next = client;
 	}
-	return NULL;
+	return next;
 }
 
 static void wm_disconnect_client(wm_server *server, wm_client *client)
@@ -702,32 +737,197 @@ static void wm_disconnect_client(wm_server *server, wm_client *client)
 		stop_requested = 1;
 		return;
 	}
-	wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_REMOVE, client);
 	if (server->input_owner == client) {
-		/* The peer is gone, but clearing ownership prevents state leakage. */
+		/* Focus loss must precede removal so the shell never sees a stale change. */
 		wm_set_input_owner(server, NULL);
+		wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_REMOVE, client);
 		client_destroy(client);
 		wm_set_input_owner(server, wm_next_focus(server));
 		return;
 	}
+	wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_REMOVE, client);
 	client_destroy(client);
+}
+
+static void wm_reset_key_state(wm_state *state)
+{
+	state->modifiers = 0;
+	memset(state->key_down, 0, sizeof(state->key_down));
+}
+
+static void wm_update_modifiers(wm_state *state, uint16_t scancode, int pressed)
+{
+	uint32_t modifier = 0;
+
+	switch (scancode) {
+	case 0x2a:
+	case 0x36:
+		modifier = GUI_MOD_SHIFT;
+		break;
+	case 0x1d:
+	case 0x11d:
+		modifier = GUI_MOD_CTRL;
+		break;
+	case 0x38:
+	case 0x138:
+		modifier = GUI_MOD_ALT;
+		break;
+	case 0x15b:
+	case 0x15c:
+		modifier = GUI_MOD_SUPER;
+		break;
+	case 0x3a:
+		if (pressed && !state->key_down[scancode])
+			state->modifiers ^= GUI_MOD_CAPS_LOCK;
+		break;
+	default:
+		break;
+	}
+	if (modifier != 0) {
+		if (pressed)
+			state->modifiers |= modifier;
+		else
+			state->modifiers &= ~modifier;
+	}
+	if (scancode < sizeof(state->key_down))
+		state->key_down[scancode] = pressed;
+}
+
+static uint32_t wm_keysym(uint16_t scancode, uint32_t modifiers)
+{
+	static const struct {
+		uint16_t scancode;
+		char plain;
+		char shifted;
+	} punctuation[] = {
+		{ 0x02, '1', '!' }, { 0x03, '2', '@' }, { 0x04, '3', '#' },
+		{ 0x05, '4', '$' }, { 0x06, '5', '%' }, { 0x07, '6', '^' },
+		{ 0x08, '7', '&' }, { 0x09, '8', '*' }, { 0x0a, '9', '(' },
+		{ 0x0b, '0', ')' }, { 0x0c, '-', '_' }, { 0x0d, '=', '+' },
+		{ 0x1a, '[', '{' }, { 0x1b, ']', '}' }, { 0x27, ';', ':' },
+		{ 0x28, '\'', '"' }, { 0x29, '`', '~' }, { 0x2b, '\\', '|' },
+		{ 0x33, ',', '<' }, { 0x34, '.', '>' }, { 0x35, '/', '?' },
+	};
+	static const struct {
+		uint16_t scancode;
+		char letter;
+	} letters[] = {
+		{ 0x10, 'q' }, { 0x11, 'w' }, { 0x12, 'e' }, { 0x13, 'r' },
+		{ 0x14, 't' }, { 0x15, 'y' }, { 0x16, 'u' }, { 0x17, 'i' },
+		{ 0x18, 'o' }, { 0x19, 'p' }, { 0x1e, 'a' }, { 0x1f, 's' },
+		{ 0x20, 'd' }, { 0x21, 'f' }, { 0x22, 'g' }, { 0x23, 'h' },
+		{ 0x24, 'j' }, { 0x25, 'k' }, { 0x26, 'l' }, { 0x2c, 'z' },
+		{ 0x2d, 'x' }, { 0x2e, 'c' }, { 0x2f, 'v' }, { 0x30, 'b' },
+		{ 0x31, 'n' }, { 0x32, 'm' },
+	};
+	int shifted = !!(modifiers & GUI_MOD_SHIFT);
+
+	for (size_t index = 0; index < sizeof(letters) / sizeof(letters[0]); index++) {
+		if (letters[index].scancode == scancode) {
+			if (shifted ^ !!(modifiers & GUI_MOD_CAPS_LOCK))
+				return (uint32_t)(letters[index].letter - 'a' + 'A');
+			return letters[index].letter;
+		}
+	}
+	for (size_t index = 0; index < sizeof(punctuation) / sizeof(punctuation[0]); index++) {
+		if (punctuation[index].scancode == scancode)
+			return (unsigned char)(shifted ? punctuation[index].shifted :
+				punctuation[index].plain);
+	}
+	switch (scancode) {
+	case 0x01: return GUI_KEYSYM_ESCAPE;
+	case 0x0e: return GUI_KEYSYM_BACKSPACE;
+	case 0x0f: return '\t';
+	case 0x1c: return '\n';
+	case 0x39: return ' ';
+	case 0x147: return GUI_KEYSYM_HOME;
+	case 0x149: return GUI_KEYSYM_PAGE_UP;
+	case 0x14b: return GUI_KEYSYM_LEFT;
+	case 0x14d: return GUI_KEYSYM_RIGHT;
+	case 0x14f: return GUI_KEYSYM_END;
+	case 0x150: return GUI_KEYSYM_DOWN;
+	case 0x151: return GUI_KEYSYM_PAGE_DOWN;
+	case 0x152: return GUI_KEYSYM_INSERT;
+	case 0x153: return GUI_KEYSYM_DELETE;
+	case 0x2a:
+	case 0x36: return GUI_KEYSYM_SHIFT;
+	case 0x1d:
+	case 0x11d: return GUI_KEYSYM_CTRL;
+	case 0x38:
+	case 0x138: return GUI_KEYSYM_ALT;
+	case 0x15b:
+	case 0x15c: return GUI_KEYSYM_SUPER;
+	default: return 0;
+	}
+}
+
+static wm_client *wm_alt_tab_target(wm_server *server)
+{
+	wm_client *current = server->input_owner;
+	wm_client *next = NULL;
+	wm_client *wrap = NULL;
+
+	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+		wm_client *candidate = &server->clients[index];
+
+		if (candidate->fd < 0 || candidate->hello <= 0 ||
+		    candidate->role != GUI_PROTOCOL_ENDPOINT_ORDINARY ||
+		    candidate->window_id == 0)
+			continue;
+		if (wrap == NULL || candidate->stack_order > wrap->stack_order)
+			wrap = candidate;
+		if (current != NULL && current->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
+		    candidate->stack_order < current->stack_order &&
+		    (next == NULL || candidate->stack_order > next->stack_order))
+			next = candidate;
+	}
+	return next != NULL ? next : wrap;
 }
 
 static void wm_emit_input(void *context, const gui_input_event *event)
 {
 	wm_server *server = context;
-	wm_client *client = server->input_owner;
+	wm_state *state = &server->state;
+	wm_client *client;
 	uint8_t message[sizeof(gui_protocol_wire_input_event)] = { 0 };
+	uint32_t keysym = 0;
+	int32_t x;
+	int32_t y;
 
-	if (event->type == GUI_INPUT_EVENT_KEY_RESET ||
-	    event->type == GUI_INPUT_EVENT_MOUSE_RESET) {
+	if (event->type == GUI_INPUT_EVENT_KEY_RESET) {
+		wm_reset_key_state(state);
+		wm_reset_input_owner(server);
+		return;
+	}
+	if (event->type == GUI_INPUT_EVENT_MOUSE_RESET) {
+		state->mouse_buttons = 0;
 		wm_reset_input_owner(server);
 		return;
 	}
 	if (!server->state.graphics)
 		return;
+	if (event->type == GUI_INPUT_EVENT_KEY) {
+		wm_update_modifiers(state, event->key.scancode, event->key.pressed);
+		if (!event->key.pressed)
+			return;
+		keysym = wm_keysym(event->key.scancode, state->modifiers);
+		if (keysym == '\t' && (state->modifiers & GUI_MOD_ALT)) {
+			wm_client *target = wm_alt_tab_target(server);
+
+			if (target != NULL) {
+				wm_set_input_owner(server, target);
+				if (wm_compose(server) == GUI_FLUSH_ERROR)
+					stop_requested = 1;
+			}
+			return;
+		}
+		/* M3.5.3 assigns this shortcut its close-request side effect. */
+		if (keysym == 'w' && (state->modifiers & GUI_MOD_SUPER))
+			return;
+		if (keysym == 0)
+			return;
+	}
 	if (event->type == GUI_INPUT_EVENT_MOUSE) {
-		wm_state *state = &server->state;
 		uint8_t previous_buttons = state->mouse_buttons;
 		int64_t x = (int64_t)state->cursor_x + event->mouse.dx;
 		int64_t y = (int64_t)state->cursor_y - event->mouse.dy;
@@ -750,6 +950,8 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 		if (!(previous_buttons & 1) && (state->mouse_buttons & 1)) {
 			wm_client *hit = wm_hit_test(server, state->cursor_x, state->cursor_y);
 
+			if (hit == NULL)
+				hit = wm_shell_client(server);
 			if (hit != NULL) {
 				wm_set_input_owner(server, hit);
 				if (wm_compose(server) == GUI_FLUSH_ERROR)
@@ -763,9 +965,16 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	put_u32(message, client->window_id);
 	put_u32(message + 4, event->type);
 	if (event->type == GUI_INPUT_EVENT_KEY)
-		put_u32(message + 8, event->key.scancode);
-	put_u32(message + 16, server->state.cursor_x);
-	put_u32(message + 20, server->state.cursor_y);
+		put_u32(message + 8, keysym);
+	put_u32(message + 12, state->modifiers);
+	x = state->cursor_x;
+	y = state->cursor_y;
+	if (client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY) {
+		x -= client->x;
+		y -= client->y;
+	}
+	put_u32(message + 16, (uint32_t)x);
+	put_u32(message + 20, (uint32_t)y);
 	if (event->type == GUI_INPUT_EVENT_MOUSE)
 		message[24] = event->mouse.buttons;
 	put_u32(message + 28, event->ticks);
@@ -799,7 +1008,11 @@ static void client_message(void *context, const gui_protocol_header *header,
 	    payload_bytes >= sizeof(gui_protocol_wire_window_create) &&
 	    payload_bytes == sizeof(gui_protocol_wire_window_create) + get_u16(bytes + 12) &&
 	    get_u32(bytes + 4) != 0 && get_u32(bytes + 8) != 0) {
-		client->window_id = 1;
+		client->window_id = wm_allocate_window_id(client->server);
+		if (client->window_id == 0) {
+			client_reject(client, GUI_PROTOCOL_WINDOW_CREATE, -EOVERFLOW);
+			return;
+		}
 		client->width = get_u32(bytes + 4);
 		client->height = get_u32(bytes + 8);
 		wm_place_window(client->server, client);
@@ -843,7 +1056,11 @@ static void client_message(void *context, const gui_protocol_header *header,
 		else if (client->window_id != 0)
 			client_reject(client, GUI_PROTOCOL_DESKTOP_CREATE, -EBUSY);
 		else {
-			client->window_id = 1;
+			client->window_id = wm_allocate_window_id(client->server);
+			if (client->window_id == 0) {
+				client_reject(client, GUI_PROTOCOL_DESKTOP_CREATE, -EOVERFLOW);
+				return;
+			}
 			client->width = client->server->state.width;
 			client->height = client->server->state.height;
 			client->configure_serial = 1;

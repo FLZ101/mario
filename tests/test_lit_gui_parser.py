@@ -89,6 +89,14 @@ class GuiDirectiveParserTests(unittest.TestCase):
         with self.assertRaises(GuiTestError):
             self.parse("GUI-WAIT-FRAME: /tmp/mario-wm.frame")
 
+    def test_parses_and_validates_key_chords(self) -> None:
+        test = self.parse("GUI-SEND-KEYS: alt, tab")
+        self.assertIn(("send-keys", ("alt", "tab")), test.actions)
+        for value in ("", "alt,", "alt, tab-1"):
+            with self.subTest(value=value):
+                with self.assertRaises(GuiTestError):
+                    self.parse(f"GUI-SEND-KEYS: {value}")
+
     def test_rejects_wait_frame_in_a_halt_fixture(self) -> None:
         with self.assertRaises(GuiTestError):
             self.parse("EXPECT-HALT: expected\nGUI-WAIT-FRAME:")

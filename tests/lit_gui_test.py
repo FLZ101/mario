@@ -184,6 +184,13 @@ class GuiTest:
                     self.actions.append(("serial", value))
             elif line.startswith("GUI-SEND-KEY:"):
                 self.actions.append(("send-key", line.split(":", 1)[1].strip()))
+            elif line.startswith("GUI-SEND-KEYS:"):
+                keys = tuple(
+                    key.strip() for key in line.split(":", 1)[1].strip().split(",")
+                )
+                if not keys or any(not key.replace("_", "").isalnum() for key in keys):
+                    raise GuiTestError(f"{self.path}: invalid GUI-SEND-KEYS")
+                self.actions.append(("send-keys", keys))
             elif line.startswith("GUI-TYPE:"):
                 value = line.split(":", 1)[1]
                 if value.startswith(" "):
@@ -306,6 +313,7 @@ class GuiTest:
                 "serial-script",
                 "serial-wait-file",
                 "send-key",
+                "send-keys",
                 "type",
                 "mouse-move",
                 "mouse-button",
@@ -560,6 +568,12 @@ def send_key(qmp: Qmp, key: str) -> None:
     qmp.command("send-key", {"keys": [{"type": "qcode", "data": key}]})
 
 
+def send_keys(qmp: Qmp, keys: tuple[str, ...]) -> None:
+    qmp.command(
+        "send-key", {"keys": [{"type": "qcode", "data": key} for key in keys]}
+    )
+
+
 def type_text(qmp: Qmp, text: str) -> None:
     plain = {" ": "spc", "'": "apostrophe"}
     shifted = {"|": "backslash", ":": "semicolon"}
@@ -777,6 +791,10 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                 if track_frames:
                     frame_baseline = snapshot_guest_frame_counter(child, timeout)
                 send_key(qmp, value)
+            elif action == "send-keys":
+                if track_frames:
+                    frame_baseline = snapshot_guest_frame_counter(child, timeout)
+                send_keys(qmp, value)
             elif action == "type":
                 if track_frames:
                     frame_baseline = snapshot_guest_frame_counter(child, timeout)
