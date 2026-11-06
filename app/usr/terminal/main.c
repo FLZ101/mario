@@ -1,11 +1,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <pty.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <gui/protocol.h>
@@ -336,12 +338,79 @@ static int terminal_create_window(terminal_state *state)
 		state->width != 0 && state->height != 0 ? 0 : -1;
 }
 
-int main(void)
+static int terminal_spawn_pty(const char *command, int *master, pid_t *child)
+{
+	pid_t pid = forkpty(master, NULL, NULL, NULL);
+	int flags;
+
+	if (pid < 0)
+		return -1;
+	if (pid == 0) {
+		if (command != NULL)
+			execl("/bin/oksh", "oksh", "-c", command, NULL);
+		else
+			execl("/bin/oksh", "oksh", NULL);
+		_exit(127);
+	}
+	flags = fcntl(*master, F_GETFL);
+	if (flags < 0 || fcntl(*master, F_SETFL, flags | O_NONBLOCK) < 0) {
+		close(*master);
+		return -1;
+	}
+	*child = pid;
+	return 0;
+}
+
+static int terminal_finish_child(int master, pid_t child)
+{
+	int status;
+
+	if (close(master) < 0 || waitpid(child, &status, 0) != child)
+		return -1;
+	if (!WIFEXITED(status)) {
+		fprintf(stderr, "terminal: child did not exit normally\n");
+		return -1;
+	}
+	printf("terminal: child exit %d\n", WEXITSTATUS(status));
+	fflush(stdout);
+	return WEXITSTATUS(status) == 0 ? 0 : -1;
+}
+
+static int terminal_drain_pty(int master)
+{
+	uint8_t buffer[512];
+
+	for (;;) {
+		ssize_t count = read(master, buffer, sizeof(buffer));
+
+		if (count > 0) {
+			if (write_full(STDOUT_FILENO, buffer, count) < 0)
+				return -1;
+			continue;
+		}
+		if (count == 0 || (count < 0 && errno == EIO))
+			return 1;
+		if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+			return 0;
+		if (count < 0 && errno == EINTR)
+			continue;
+		return -1;
+	}
+}
+
+int main(int argc, char **argv)
 {
 	terminal_state state = { .fd = -1 };
 	uint8_t payload[sizeof(gui_protocol_wire_window_configure)];
+	const char *command = NULL;
+	pid_t child = -1;
+	int master = -1;
 	int status = 1;
 
+	if (argc == 3 && !strcmp(argv[1], "--command"))
+		command = argv[2];
+	else if (argc != 1)
+		return 1;
 	state.fd = terminal_connect();
 	if (state.fd < 0) {
 		fprintf(stderr, "terminal: connect failed: %d\n", errno);
@@ -355,21 +424,48 @@ int main(void)
 		fprintf(stderr, "terminal: initial frame failed\n");
 		goto out;
 	}
+	if (terminal_spawn_pty(command, &master, &child) < 0) {
+		fprintf(stderr, "terminal: PTY setup failed: %d\n", errno);
+		goto out;
+	}
 	puts("terminal: window ready");
 	fflush(stdout);
 	status = 0;
 	for (;;) {
 		gui_protocol_header header;
+		struct pollfd pollfds[2];
 		int result;
 
-		if (read_message(state.fd, &header, payload, sizeof(payload)) < 0)
+		pollfds[0] = (struct pollfd) { .fd = state.fd, .events = POLLIN };
+		pollfds[1] = (struct pollfd) { .fd = master, .events = POLLIN };
+		if (poll(pollfds, 2, -1) < 0) {
+			if (errno == EINTR)
+				continue;
 			break;
-		result = terminal_handle_message(&state, &header, payload,
-			header.length - GUI_PROTOCOL_HEADER_SIZE);
-		if (result < 0 || state.close_requested)
+		}
+		if (pollfds[0].revents & (POLLERR | POLLHUP | POLLNVAL))
 			break;
-		if (result > 0 && terminal_send_surface(&state) != 0)
-			break;
+		if (pollfds[0].revents & POLLIN) {
+			if (read_message(state.fd, &header, payload, sizeof(payload)) < 0 ||
+			    (result = terminal_handle_message(&state, &header, payload,
+		     header.length - GUI_PROTOCOL_HEADER_SIZE)) < 0)
+				break;
+			if (result > 0 && terminal_send_surface(&state) != 0)
+				break;
+			if (state.close_requested)
+				break;
+		}
+		if (pollfds[1].revents & (POLLIN | POLLHUP | POLLERR)) {
+			result = terminal_drain_pty(master);
+			if (result < 0)
+				break;
+			if (result > 0) {
+				status = terminal_finish_child(master, child) == 0 ? 0 : 1;
+				master = -1;
+				state.close_requested = 1;
+				break;
+			}
+		}
 	}
 	if (state.close_requested) {
 		uint8_t window_id[sizeof(gui_protocol_wire_window_id)];
@@ -379,6 +475,8 @@ int main(void)
 			sizeof(window_id));
 	}
 out:
+	if (master >= 0)
+		close(master);
 	if (state.fd >= 0)
 		close(state.fd);
 	return status;

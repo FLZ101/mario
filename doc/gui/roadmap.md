@@ -894,7 +894,7 @@ Checkpoint:
   closing regression. Enable `LAUNCH_TERMINAL` only after the server can exec
   this client without inherited seat/listener/client fds. Commit:
   `terminal: add window client`.
-- [ ] **M5.1.2 — attach a PTY child.** Allocate the PTY, establish the
+- [x] **M5.1.2 — attach a PTY child.** Allocate the PTY, establish the
   controlling terminal, spawn the shell, and drain plain output. Test a fixed
   command and child-exit status. Commit: `terminal: attach shell PTY`.
 - [ ] **M5.2.1 — parse printable text and basic controls.** Implement UTF-8

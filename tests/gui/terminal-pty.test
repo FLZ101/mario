@@ -1,0 +1,12 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/terminal-pty.log; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL: /usr/bin/terminal --command 'printf TERMINAL-PTY-OK' >/tmp/terminal-pty.log 2>&1 &
+SERIAL: while ! grep -q 'terminal: child exit 0' /tmp/terminal-pty.log; do sleep 1; done; cat /tmp/terminal-pty.log
+SERIAL-CHECK: TERMINAL-PTY-OK
+SERIAL-CHECK: terminal: child exit 0
+GUI-CHECK-RECT: 130 130 8 8 29 78 216
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:
