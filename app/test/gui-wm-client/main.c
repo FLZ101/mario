@@ -18,11 +18,18 @@
 static uint8_t surface_frame[sizeof(gui_protocol_wire_header) +
 			     sizeof(gui_protocol_wire_surface_data) +
 			     SURFACE_PIXELS_PER_MESSAGE * sizeof(gui_color)];
+static unsigned int test_window_placement;
 
 static void put32(uint8_t *bytes, uint32_t value)
 {
 	for (unsigned int index = 0; index < 4; index++)
 		bytes[index] = value >> (index * 8);
+}
+
+static void put16(uint8_t *bytes, uint16_t value)
+{
+	bytes[0] = value;
+	bytes[1] = value >> 8;
 }
 
 static void put64(uint8_t *bytes, uint64_t value)
@@ -64,6 +71,21 @@ static void read_full(int fd, void *buffer, size_t byte_count)
 	}
 }
 
+static void write_full(int fd, const void *buffer, size_t byte_count)
+{
+	const uint8_t *bytes = buffer;
+
+	while (byte_count != 0) {
+		ssize_t count = write(fd, bytes, byte_count);
+
+		if (count < 0 && errno == EINTR)
+			continue;
+		assert(count > 0);
+		bytes += count;
+		byte_count -= count;
+	}
+}
+
 static void read_frame(int fd, uint8_t *frame, gui_protocol_type type)
 {
 	gui_protocol_header header;
@@ -93,7 +115,7 @@ static void hello(int fd)
 	assert(gui_protocol_encode_hello(frame, sizeof(frame),
 		&(gui_protocol_hello) { GUI_PROTOCOL_VERSION_MAJOR,
 			GUI_PROTOCOL_VERSION_MINOR }) == 0);
-	assert(write(fd, frame, 12) == 12);
+	write_full(fd, frame, 12);
 	read_frame(fd, frame, GUI_PROTOCOL_HELLO_REPLY);
 }
 
@@ -102,6 +124,7 @@ static uint32_t create_window(int fd, uint32_t request_id, uint32_t width,
 {
 	uint8_t frame[64];
 	uint32_t window_id;
+	uint32_t placement = test_window_placement++;
 
 	hello(fd);
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_CREATE,
@@ -111,7 +134,7 @@ static uint32_t create_window(int fd, uint32_t request_id, uint32_t width,
 	put32(frame + 8, request_id);
 	put32(frame + 12, width);
 	put32(frame + 16, height);
-	assert(write(fd, frame, 24) == 24);
+	write_full(fd, frame, 24);
 	read_frame(fd, frame, GUI_PROTOCOL_WINDOW_CREATE_REPLY);
 	window_id = get32(frame + 12);
 	assert(get32(frame + 8) == request_id && window_id != 0);
@@ -119,6 +142,13 @@ static uint32_t create_window(int fd, uint32_t request_id, uint32_t width,
 	assert(get32(frame + 8) == window_id && get32(frame + 12) == 1);
 	read_frame(fd, frame, GUI_PROTOCOL_INPUT_RESET);
 	assert(get32(frame) == GUI_PROTOCOL_HEADER_SIZE);
+	/* Keep fixture geometry independent of the shell's ordinary diagnostics. */
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_MOVE,
+		       sizeof(gui_protocol_wire_window_move)) == 0);
+	put32(frame + 8, window_id);
+	put32(frame + 12, 64 + placement * 32);
+	put32(frame + 16, 64 + placement * 16);
+	write_full(fd, frame, 20);
 	return window_id;
 }
 
@@ -137,7 +167,7 @@ static void begin_surface(int fd, uint32_t window_id, uint32_t width, uint32_t h
 	put32(frame + 32, 0);
 	put32(frame + 36, width);
 	put32(frame + 40, height);
-	assert(write(fd, frame, sizeof(frame)) == sizeof(frame));
+	write_full(fd, frame, sizeof(frame));
 }
 
 static void read_error(int fd, int status, gui_protocol_type failed_type)
@@ -147,6 +177,15 @@ static void read_error(int fd, int status, gui_protocol_type failed_type)
 	read_frame(fd, frame, GUI_PROTOCOL_ERROR);
 	assert((int32_t)get32(frame + 8) == status);
 	assert(get16(frame + 12) == failed_type);
+}
+
+static void read_launch_result(int fd, uint32_t request_id, int status)
+{
+	uint8_t frame[sizeof(gui_protocol_wire_header) +
+		      sizeof(gui_protocol_wire_launch_result)];
+
+	read_frame(fd, frame, GUI_PROTOCOL_LAUNCH_RESULT);
+	assert(get32(frame + 8) == request_id && (int32_t)get32(frame + 12) == status);
 }
 
 static void read_surface_data_reply(int fd, uint32_t window_id, uint32_t pixel_offset,
@@ -180,8 +219,7 @@ static void send_surface_data(int fd, uint32_t window_id, uint32_t pixel_offset,
 	put32(surface_frame + 32, pixel_count);
 	for (size_t index = 0; index < pixel_count; index++)
 		put32(surface_frame + 36 + index * sizeof(gui_color), color);
-	assert(write(fd, surface_frame, GUI_PROTOCOL_HEADER_SIZE + payload_bytes) ==
-	       (ssize_t)(GUI_PROTOCOL_HEADER_SIZE + payload_bytes));
+	write_full(fd, surface_frame, GUI_PROTOCOL_HEADER_SIZE + payload_bytes);
 }
 
 static void commit_surface(int fd, uint32_t window_id, uint64_t frame_serial)
@@ -194,7 +232,7 @@ static void commit_surface(int fd, uint32_t window_id, uint64_t frame_serial)
 	put32(frame + 8, window_id);
 	put64(frame + 12, 1);
 	put64(frame + 20, frame_serial);
-	assert(write(fd, frame, sizeof(frame)) == sizeof(frame));
+	write_full(fd, frame, sizeof(frame));
 }
 
 static void commit_color_surface(int fd, uint32_t window_id, uint32_t width, uint32_t height,
@@ -265,7 +303,7 @@ static void destroy_window(int fd, uint32_t window_id)
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_DESTROY,
 		sizeof(gui_protocol_wire_window_id)) == 0);
 	put32(frame + GUI_PROTOCOL_HEADER_SIZE, window_id);
-	assert(write(fd, frame, sizeof(frame)) == sizeof(frame));
+	write_full(fd, frame, sizeof(frame));
 }
 
 static void test_staging(void)
@@ -332,12 +370,12 @@ static void test_public_shell(void)
 		GUI_PROTOCOL_DESKTOP_CREATE,
 		sizeof(gui_protocol_wire_desktop_create)) == 0);
 	put32(frame + GUI_PROTOCOL_HEADER_SIZE, 1);
-	assert(write(fd, frame, sizeof(frame)) == sizeof(frame));
+	write_full(fd, frame, sizeof(frame));
 	read_error(fd, -EPERM, GUI_PROTOCOL_DESKTOP_CREATE);
 	assert(gui_protocol_encode_header(frame, sizeof(frame),
 		GUI_PROTOCOL_SHELL_ACTIVATE_WINDOW, sizeof(gui_protocol_wire_window_id)) == 0);
 	put32(frame + GUI_PROTOCOL_HEADER_SIZE, 1);
-	assert(write(fd, frame, 12) == 12);
+	write_full(fd, frame, 12);
 	read_error(fd, -EPERM, GUI_PROTOCOL_SHELL_ACTIVATE_WINDOW);
 	close(fd);
 }
@@ -481,6 +519,41 @@ static void test_interact(void)
 		pause();
 }
 
+static void test_launch(void)
+{
+	static const char marker[] = "/tmp/mario-wm-launch-marker";
+	uint8_t frame[64] = { 0 };
+	int fd = connect_client();
+	size_t path_bytes = sizeof(marker) - 1;
+
+	unlink(marker);
+	hello(fd);
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
+		       sizeof(gui_protocol_wire_launch_request)) == 0);
+	put32(frame + 8, 1);
+	put16(frame + 12, GUI_PROTOCOL_LAUNCH_TERMINAL);
+	write_full(fd, frame, 16);
+	read_launch_result(fd, 1, -ENOSYS);
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
+		       sizeof(gui_protocol_wire_launch_request) + path_bytes) == 0);
+	put32(frame + 8, 2);
+	put16(frame + 12, GUI_PROTOCOL_LAUNCH_EXECUTABLE);
+	put16(frame + 14, path_bytes);
+	memcpy(frame + 16, marker, path_bytes);
+	write_full(fd, frame, 16 + path_bytes);
+	read_launch_result(fd, 2, -ENOSYS);
+	assert(access(marker, F_OK) < 0 && errno == ENOENT);
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
+		       sizeof(gui_protocol_wire_launch_request) + 1) == 0);
+	put32(frame + 8, 3);
+	put16(frame + 12, GUI_PROTOCOL_LAUNCH_TERMINAL);
+	put16(frame + 14, 1);
+	frame[16] = '/';
+	write_full(fd, frame, 17);
+	read_error(fd, -EINVAL, GUI_PROTOCOL_LAUNCH_REQUEST);
+	close(fd);
+}
+
 int main(int argc, char **argv)
 {
 	uint8_t frame[64];
@@ -492,7 +565,7 @@ int main(int argc, char **argv)
 		!strcmp(argv[1], "--commit-only") ||
 		!strcmp(argv[1], "--public-shell-only") || !strcmp(argv[1], "--stack-only") ||
 		!strcmp(argv[1], "--taskbar-only") || !strcmp(argv[1], "--shortcuts-only") ||
-		!strcmp(argv[1], "--interact-only"))));
+		!strcmp(argv[1], "--interact-only") || !strcmp(argv[1], "--launch-only"))));
 	if (argc == 2) {
 		if (!strcmp(argv[1], "--surface-only")) {
 			test_staging();
@@ -507,6 +580,9 @@ int main(int argc, char **argv)
 			test_shortcuts();
 		} else if (!strcmp(argv[1], "--interact-only")) {
 			test_interact();
+		} else if (!strcmp(argv[1], "--launch-only")) {
+			test_launch();
+			puts("wm-client: launch requests rejected safely");
 		} else {
 			test_public_shell();
 			puts("wm-client: public shell denied");
@@ -542,7 +618,7 @@ int main(int argc, char **argv)
 	assert(get32(frame + 8) == first_id && get32(frame + 12) == GUI_INPUT_EVENT_KEY);
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_DESTROY, 4) == 0);
 	put32(frame + 8, first_id);
-	assert(write(first, frame, 12) == 12);
+	write_full(first, frame, 12);
 	close(first);
 	puts("wm-client: ownership resets ok");
 	return 0;

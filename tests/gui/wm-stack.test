@@ -1,6 +1,7 @@
 GUI-VISUAL-TEST:
 SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
 SERIAL: /usr/bin/test/gui-wm-client.exe --stack-only >/tmp/wm-stack.log 2>&1 & echo $! >/tmp/wm-stack.pid

@@ -583,6 +583,54 @@ static void client_reject(wm_client *client, gui_protocol_type failed_type,
 		client->hello = -1;
 }
 
+static void client_handle_launch_request(wm_client *client, const uint8_t *bytes,
+					 size_t payload_bytes)
+{
+	uint8_t result[sizeof(gui_protocol_wire_launch_result)];
+	uint32_t request_id;
+	uint16_t launch_type;
+	uint16_t path_bytes;
+
+	if (payload_bytes < sizeof(gui_protocol_wire_launch_request)) {
+		client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
+		return;
+	}
+	request_id = get_u32(bytes);
+	launch_type = get_u16(bytes + 4);
+	path_bytes = get_u16(bytes + 6);
+	if (request_id == 0 || path_bytes > GUI_PROTOCOL_MAX_PATH_BYTES ||
+	    payload_bytes != sizeof(gui_protocol_wire_launch_request) + path_bytes) {
+		client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
+		return;
+	}
+	switch (launch_type) {
+	case GUI_PROTOCOL_LAUNCH_TERMINAL:
+		if (path_bytes != 0) {
+			client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
+			return;
+		}
+		break;
+	case GUI_PROTOCOL_LAUNCH_FILE_MANAGER:
+	case GUI_PROTOCOL_LAUNCH_IMAGE_VIEWER:
+	case GUI_PROTOCOL_LAUNCH_OPEN_TEXT:
+	case GUI_PROTOCOL_LAUNCH_EXECUTABLE:
+		if (path_bytes == 0 || bytes[sizeof(gui_protocol_wire_launch_request)] != '/' ||
+		    memchr(bytes + sizeof(gui_protocol_wire_launch_request), '\0', path_bytes) != NULL) {
+			client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
+			return;
+		}
+		break;
+	default:
+		client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
+		return;
+	}
+	/* Only later milestones map these approved requests to server-owned children. */
+	put_u32(result, request_id);
+	put_u32(result + 4, (uint32_t)-ENOSYS);
+	if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result, sizeof(result)) < 0)
+		client->hello = -1;
+}
+
 static void wm_notify_shell_window(wm_server *server, gui_protocol_type type,
 				   const wm_client *window)
 {
@@ -1383,6 +1431,10 @@ static void client_message(void *context, const gui_protocol_header *header,
 		client->hello = client_enqueue(client, GUI_PROTOCOL_HELLO_REPLY, reply, 4) == 0;
 		if (!client->hello)
 			client->hello = -1;
+		return;
+	}
+	if (header->type == GUI_PROTOCOL_LAUNCH_REQUEST) {
+		client_handle_launch_request(client, bytes, payload_bytes);
 		return;
 	}
 	if (header->type == GUI_PROTOCOL_WINDOW_CREATE) {

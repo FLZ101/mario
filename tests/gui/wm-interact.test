@@ -1,6 +1,7 @@
 GUI-VISUAL-TEST:
 SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
 SERIAL: /usr/bin/test/gui-wm-client.exe --interact-only >/tmp/wm-interact.log 2>&1 & echo $! >/tmp/wm-interact.pid
@@ -65,6 +66,6 @@ GUI-CHECK-RECT: 204 204 1 1 255 0 0
 GUI-SEND-KEYS: meta_l,w
 SERIAL: while ! grep -q 'wm-client: close accepted' /tmp/wm-interact.log; do sleep 1; done
 GUI-WAIT-FRAME:
-GUI-CHECK-RECT: 204 204 1 1 31 41 51
+GUI-CHECK-RECT: 204 204 1 1 29 78 216
 SERIAL: kill $(cat /tmp/wm-interact.pid); kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
 EXIT:

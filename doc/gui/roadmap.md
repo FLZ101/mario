@@ -711,7 +711,7 @@ libmario-ui: add surfaces, TTF rendering, and event loop
   owner may destroy its window and M3 has no forced-close timeout. Test
   press/drag/release, every resize corner, accepted/deferred close, and minimum
   size. Commit: `gui: interact with client windows`.
-- [ ] **M3.6.1 — add shell diagnostics and launcher placeholders.** Create
+- [x] **M3.6.1 — add shell diagnostics and launcher placeholders.** Create
   `Welcome`, `Display`, and error windows as normal shell-client windows. Send
   typed launcher requests to the server; only the server forks, reaps, and
   starts approved client binaries. Test launcher action-to-window mapping.

@@ -1,8 +1,9 @@
 GUI-VISUAL-TEST:
 SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8
-GUI-CHECK-RECT: 32 32 960 700 31 41 51
+GUI-CHECK-RECT: 32 32 32 32 31 41 51
 SERIAL: /usr/bin/test/gui-wm-client.exe >/tmp/wm-client.log 2>&1 &
 SERIAL: while ! grep -q 'wm-client: focus reset ready' /tmp/wm-client.log; do sleep 1; done
 GUI-SEND-KEY: f6

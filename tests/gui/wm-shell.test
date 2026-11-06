@@ -6,9 +6,9 @@ SERIAL: test ! -e /tmp/mario-wm.ready && test ! -e /tmp/mario-wm.frame && echo w
 SERIAL-CHECK: wm-shell: text shell ready
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-GUI-CHECK-RECT: 32 32 960 700 31 41 51
+GUI-CHECK-RECT: 32 32 32 32 31 41 51
 GUI-CHECK-SCREEN-RECT: assets/desktop-background.ppm,0,0,1,1
-GUI-CHECK-RECT: 128 752 1 1 17 24 39
+GUI-CHECK-RECT: 128 752 1 1 71 85 105
 GUI-CHECK-RECT: 10 745 1 1 37 99 235
 GUI-CHECK-RECT: 16 16 1 1 15 23 42
 SERIAL: test -e /tmp/mario-wm.ready && test "$(cat /tmp/mario-wm.frame)" = 1 && echo wm-shell: first frame ready

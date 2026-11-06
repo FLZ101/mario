@@ -1,14 +1,18 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include <gui/input.h>
 #include <gui/protocol.h>
 
 #define WM_FD 3
+#define WM_SOCKET_PATH "/tmp/mario-wm.sock"
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
 #define DESKTOP_BACKGROUND 0x001f2933U
 #define DESKTOP_PANEL 0x00111827U
@@ -22,6 +26,42 @@
 #define DESKTOP_TASKBAR_BUTTON_WIDTH 96U
 #define DESKTOP_TASKBAR_BUTTON_STRIDE 100U
 #define DESKTOP_TASKBAR_BUTTON_HEIGHT 20U
+#define DIAGNOSTIC_WELCOME 0U
+#define DIAGNOSTIC_DISPLAY 1U
+#define DIAGNOSTIC_COUNT 2U
+
+typedef struct {
+	int fd;
+	uint32_t window_id;
+	uint64_t configure_serial;
+	uint64_t frame_serial;
+	uint32_t width;
+	uint32_t height;
+	uint32_t color;
+	int32_t x;
+	int32_t y;
+	int redraw;
+} diagnostic_client;
+
+typedef struct {
+	const char *title;
+	uint32_t width;
+	uint32_t height;
+	uint32_t color;
+	int32_t x;
+	int32_t y;
+} diagnostic_definition;
+
+static const diagnostic_definition diagnostic_definitions[DIAGNOSTIC_COUNT] = {
+	[DIAGNOSTIC_WELCOME] = {
+		.title = "Welcome", .width = 360, .height = 220,
+		.color = 0x001d4ed8U, .x = 96, .y = 96,
+	},
+	[DIAGNOSTIC_DISPLAY] = {
+		.title = "Display", .width = 320, .height = 192,
+		.color = 0x000f766eU, .x = 480, .y = 220,
+	},
+};
 
 typedef struct {
 	uint32_t window_id;
@@ -36,6 +76,7 @@ typedef struct {
 	uint32_t height;
 	uint64_t frame_serial;
 	uint8_t mouse_buttons;
+	uint8_t launch_diagnostic;
 	int redraw;
 	desktop_window windows[DESKTOP_WINDOW_LIMIT];
 } desktop_state;
@@ -221,18 +262,24 @@ static uint32_t desktop_pixel(const desktop_state *state, uint32_t offset)
 	return DESKTOP_PANEL;
 }
 
-static int desktop_read_message(gui_protocol_header *header, uint8_t *payload,
-					size_t payload_capacity)
+static int read_message(int fd, gui_protocol_header *header, uint8_t *payload,
+				size_t payload_capacity)
 {
 	uint8_t wire_header[GUI_PROTOCOL_HEADER_SIZE];
 
-	read_full(WM_FD, wire_header, sizeof(wire_header));
+	read_full(fd, wire_header, sizeof(wire_header));
 	if (gui_protocol_decode_header(wire_header, sizeof(wire_header), header) < 0 ||
 	    header->length < GUI_PROTOCOL_HEADER_SIZE ||
 	    header->length - GUI_PROTOCOL_HEADER_SIZE > payload_capacity)
 		return -1;
-	read_full(WM_FD, payload, header->length - GUI_PROTOCOL_HEADER_SIZE);
+	read_full(fd, payload, header->length - GUI_PROTOCOL_HEADER_SIZE);
 	return 0;
+}
+
+static int desktop_read_message(gui_protocol_header *header, uint8_t *payload,
+					size_t payload_capacity)
+{
+	return read_message(WM_FD, header, payload, payload_capacity);
 }
 
 static int desktop_activate_window(uint32_t window_id)
@@ -245,6 +292,18 @@ static int desktop_activate_window(uint32_t window_id)
 		return -1;
 	put32(frame + GUI_PROTOCOL_HEADER_SIZE, window_id);
 	return write_full(WM_FD, frame, sizeof(frame));
+}
+
+static int send_message(int fd, gui_protocol_type type, const void *payload,
+			 size_t payload_bytes)
+{
+	uint8_t header[GUI_PROTOCOL_HEADER_SIZE];
+
+	if (gui_protocol_encode_header(header, sizeof(header), type, payload_bytes) < 0 ||
+	    write_full(fd, header, sizeof(header)) < 0 ||
+	    (payload_bytes != 0 && write_full(fd, payload, payload_bytes) < 0))
+		return -1;
+	return 0;
 }
 
 static int desktop_handle_window_list(desktop_state *state,
@@ -314,6 +373,16 @@ static int desktop_handle_message(desktop_state *state,
 		x = get32(payload + 16);
 		y = get32(payload + 20);
 		buttons = payload[24];
+		if (!(state->mouse_buttons & 1) && (buttons & 1) &&
+		    x >= 8 && x < 56 && y >= (state->height > DESKTOP_PANEL_HEIGHT ?
+		    state->height - DESKTOP_PANEL_HEIGHT : 0) + 4 &&
+		    y < (state->height > DESKTOP_PANEL_HEIGHT ?
+		    state->height - DESKTOP_PANEL_HEIGHT : 0) + 24) {
+			state->launch_diagnostic = x < 32 ? DIAGNOSTIC_WELCOME + 1 :
+				DIAGNOSTIC_DISPLAY + 1;
+			state->mouse_buttons = buttons;
+			return 0;
+		}
 		window = desktop_taskbar_window(state, x, y);
 		if (!(state->mouse_buttons & 1) && (buttons & 1) && window != NULL &&
 		    desktop_activate_window(window->window_id) < 0)
@@ -406,6 +475,221 @@ static int send_desktop(desktop_state *state)
 	return write_full(WM_FD, commit, sizeof(commit));
 }
 
+static void diagnostic_reset(diagnostic_client *client)
+{
+	if (client->fd >= 0)
+		close(client->fd);
+	*client = (diagnostic_client) { .fd = -1 };
+}
+
+static int diagnostic_handle_message(diagnostic_client *client,
+				     const gui_protocol_header *header,
+				     const uint8_t *payload, size_t payload_bytes)
+{
+	if (header->type == GUI_PROTOCOL_WINDOW_CONFIGURE) {
+		if (payload_bytes != sizeof(gui_protocol_wire_window_configure) ||
+		    get32(payload) != client->window_id || get64(payload + 4) == 0 ||
+		    get32(payload + 12) == 0 || get32(payload + 16) == 0)
+			return -1;
+		client->configure_serial = get64(payload + 4);
+		client->width = get32(payload + 12);
+		client->height = get32(payload + 16);
+		client->redraw = 1;
+		return 0;
+	}
+	if (header->type == GUI_PROTOCOL_WINDOW_CLOSE_REQUEST) {
+		uint8_t destroy[sizeof(gui_protocol_wire_window_id)];
+
+		if (payload_bytes != sizeof(destroy) || get32(payload) != client->window_id)
+			return -1;
+		put32(destroy, client->window_id);
+		if (send_message(client->fd, GUI_PROTOCOL_WINDOW_DESTROY, destroy,
+				 sizeof(destroy)) < 0)
+			return -1;
+		/* Closing the ordinary endpoint makes launcher recreation unambiguous. */
+		diagnostic_reset(client);
+		return 0;
+	}
+	if (header->type == GUI_PROTOCOL_WINDOW_FOCUS) {
+		if (payload_bytes != sizeof(gui_protocol_wire_window_focus) ||
+		    get32(payload) != client->window_id || get32(payload + 4) > 1)
+			return -1;
+		return 0;
+	}
+	if (header->type == GUI_PROTOCOL_INPUT_RESET)
+		return payload_bytes == 0 ? 0 : -1;
+	if (header->type == GUI_PROTOCOL_INPUT_EVENT) {
+		if (payload_bytes != sizeof(gui_protocol_wire_input_event) ||
+		    get32(payload) != client->window_id)
+			return -1;
+		return 0;
+	}
+	return -1;
+}
+
+static int diagnostic_read_surface_reply(diagnostic_client *client,
+					 uint64_t frame_serial, uint32_t pixel_offset,
+					 uint32_t pixel_count)
+{
+	uint8_t payload[sizeof(gui_protocol_wire_window_list) + GUI_PROTOCOL_MAX_TITLE_BYTES];
+
+	for (;;) {
+		gui_protocol_header header;
+
+		if (read_message(client->fd, &header, payload, sizeof(payload)) < 0)
+			return -1;
+		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY) {
+			if (header.length != GUI_PROTOCOL_HEADER_SIZE +
+			    sizeof(gui_protocol_wire_surface_data_reply) ||
+			    get32(payload) != client->window_id ||
+			    get64(payload + 4) != client->configure_serial ||
+			    get64(payload + 12) != frame_serial ||
+			    get32(payload + 20) != pixel_offset ||
+			    get32(payload + 24) != pixel_count)
+				return -1;
+			return 0;
+		}
+		if (diagnostic_handle_message(client, &header, payload,
+			    header.length - GUI_PROTOCOL_HEADER_SIZE) < 0 || client->fd < 0)
+			return -1;
+	}
+}
+
+static int send_diagnostic(diagnostic_client *client)
+{
+	uint8_t begin[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_begin)] = { 0 };
+	uint8_t commit[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_commit)];
+	uint64_t frame_serial = ++client->frame_serial;
+	uint32_t total;
+
+	if (frame_serial == 0 || (client->width != 0 &&
+	    client->height > UINT32_MAX / client->width))
+		return -1;
+	total = client->width * client->height;
+	if (gui_protocol_encode_header(begin, sizeof(begin), GUI_PROTOCOL_SURFACE_BEGIN,
+		sizeof(gui_protocol_wire_surface_begin)) < 0)
+		return -1;
+	put32(begin + 8, client->window_id);
+	put64(begin + 12, client->configure_serial);
+	put64(begin + 20, frame_serial);
+	put32(begin + 36, client->width); put32(begin + 40, client->height);
+	if (write_full(client->fd, begin, sizeof(begin)) < 0)
+		return -1;
+	for (uint32_t pixel_offset = 0; pixel_offset < total;) {
+		uint32_t pixels = total - pixel_offset > SURFACE_PIXELS_PER_MESSAGE ?
+			SURFACE_PIXELS_PER_MESSAGE : total - pixel_offset;
+		size_t payload = sizeof(gui_protocol_wire_surface_data) +
+			pixels * sizeof(uint32_t);
+
+		if (gui_protocol_encode_header(desktop_frame, sizeof(desktop_frame),
+			GUI_PROTOCOL_SURFACE_DATA, payload) < 0)
+			return -1;
+		put32(desktop_frame + 8, client->window_id);
+		put64(desktop_frame + 12, client->configure_serial);
+		put64(desktop_frame + 20, frame_serial);
+		put32(desktop_frame + 28, pixel_offset); put32(desktop_frame + 32, pixels);
+		for (uint32_t index = 0; index < pixels; index++)
+			put32(desktop_frame + GUI_PROTOCOL_HEADER_SIZE +
+				sizeof(gui_protocol_wire_surface_data) + index * sizeof(uint32_t),
+				client->color);
+		if (write_full(client->fd, desktop_frame, GUI_PROTOCOL_HEADER_SIZE + payload) < 0 ||
+		    diagnostic_read_surface_reply(client, frame_serial, pixel_offset, pixels) < 0)
+			return -1;
+		pixel_offset += pixels;
+	}
+	if (gui_protocol_encode_header(commit, sizeof(commit), GUI_PROTOCOL_SURFACE_COMMIT,
+		sizeof(gui_protocol_wire_surface_commit)) < 0)
+		return -1;
+	put32(commit + 8, client->window_id);
+	put64(commit + 12, client->configure_serial);
+	put64(commit + 20, frame_serial);
+	return write_full(client->fd, commit, sizeof(commit));
+}
+
+static int diagnostic_connect(diagnostic_client *client, unsigned int index)
+{
+	const diagnostic_definition *definition = &diagnostic_definitions[index];
+	struct sockaddr_un address = { .sun_family = AF_UNIX };
+	uint8_t frame[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_create) +
+		GUI_PROTOCOL_MAX_TITLE_BYTES] = { 0 };
+	uint8_t payload[sizeof(gui_protocol_wire_window_list) + GUI_PROTOCOL_MAX_TITLE_BYTES];
+	gui_protocol_header header;
+	size_t title_bytes = strlen(definition->title);
+	size_t create_bytes = sizeof(gui_protocol_wire_window_create) + title_bytes;
+
+	if (title_bytes > GUI_PROTOCOL_MAX_TITLE_BYTES ||
+	    (client->fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0)
+		return -1;
+	strcpy(address.sun_path, WM_SOCKET_PATH);
+	if (connect(client->fd, (struct sockaddr *)&address, sizeof(address)) < 0 ||
+	    gui_protocol_encode_hello(frame, sizeof(frame),
+		&(gui_protocol_hello) { GUI_PROTOCOL_VERSION_MAJOR,
+			GUI_PROTOCOL_VERSION_MINOR }) < 0 ||
+	    write_full(client->fd, frame, GUI_PROTOCOL_HEADER_SIZE +
+		sizeof(gui_protocol_wire_hello)) < 0 ||
+	    read_message(client->fd, &header, payload, sizeof(payload)) < 0 ||
+	    header.type != GUI_PROTOCOL_HELLO_REPLY ||
+	    header.length != GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_hello))
+		goto fail;
+	if (gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_CREATE,
+		create_bytes) < 0)
+		goto fail;
+	put32(frame + 8, index + 1);
+	put32(frame + 12, definition->width);
+	put32(frame + 16, definition->height);
+	frame[20] = (uint8_t)title_bytes;
+	frame[21] = (uint8_t)(title_bytes >> 8);
+	memcpy(frame + GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_create),
+		definition->title, title_bytes);
+	if (write_full(client->fd, frame, GUI_PROTOCOL_HEADER_SIZE + create_bytes) < 0 ||
+	    read_message(client->fd, &header, payload, sizeof(payload)) < 0 ||
+	    header.type != GUI_PROTOCOL_WINDOW_CREATE_REPLY ||
+	    header.length != GUI_PROTOCOL_HEADER_SIZE +
+		sizeof(gui_protocol_wire_window_create_reply) || get32(payload) != index + 1)
+		goto fail;
+	client->window_id = get32(payload + 4);
+	client->configure_serial = get64(payload + 8);
+	client->width = get32(payload + 16);
+	client->height = get32(payload + 20);
+	client->color = definition->color;
+	client->x = definition->x;
+	client->y = definition->y;
+	if (client->window_id == 0 || client->configure_serial == 0 ||
+	    client->width == 0 || client->height == 0)
+		goto fail;
+	/* Creation focus and reset are ordered before this client can draw. */
+	for (unsigned int count = 0; count < 2; count++) {
+		if (read_message(client->fd, &header, payload, sizeof(payload)) < 0 ||
+		    diagnostic_handle_message(client, &header, payload,
+			header.length - GUI_PROTOCOL_HEADER_SIZE) < 0)
+			goto fail;
+	}
+	put32(frame, client->window_id);
+	put32(frame + 4, (uint32_t)client->x);
+	put32(frame + 8, (uint32_t)client->y);
+	if (send_message(client->fd, GUI_PROTOCOL_WINDOW_MOVE, frame,
+		sizeof(gui_protocol_wire_window_move)) < 0 || send_diagnostic(client) < 0)
+		goto fail;
+	return 0;
+
+fail:
+	diagnostic_reset(client);
+	return -1;
+}
+
+static int desktop_launch_diagnostic(desktop_state *state,
+				     diagnostic_client *diagnostics, unsigned int index)
+{
+	diagnostic_client *client = &diagnostics[index];
+
+	if (client->fd >= 0)
+		return desktop_activate_window(client->window_id);
+	if (diagnostic_connect(client, index) < 0)
+		return -1;
+	state->redraw = 1;
+	return 0;
+}
+
 static int private_fd_only(void)
 {
 	if (fcntl(WM_FD, F_GETFD) < 0)
@@ -420,9 +704,14 @@ static int private_fd_only(void)
 int main(int argc, char **argv)
 {
 	desktop_state state = { 0 };
+	diagnostic_client diagnostics[DIAGNOSTIC_COUNT];
 	uint8_t frame[64];
 	uint8_t payload[sizeof(gui_protocol_wire_window_list) + GUI_PROTOCOL_MAX_TITLE_BYTES];
 	gui_protocol_header header;
+	struct pollfd pollfds[DIAGNOSTIC_COUNT + 1];
+
+	for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++)
+		diagnostics[index].fd = -1;
 
 	if (argc != 2 || strcmp(argv[1], "--wm-fd=3") != 0 || private_fd_only() < 0) {
 		fprintf(stderr, "mario-desktop: invalid inherited descriptors\n");
@@ -458,6 +747,10 @@ int main(int argc, char **argv)
 		return 1;
 	if (send_desktop(&state) < 0)
 		return 1;
+	for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
+		if (diagnostic_connect(&diagnostics[index], index) < 0)
+			return 1;
+	}
 	puts("mario-desktop: private connection ready");
 	fflush(stdout);
 	for (;;) {
@@ -467,9 +760,48 @@ int main(int argc, char **argv)
 				return 1;
 			continue;
 		}
-		if (desktop_read_message(&header, payload, sizeof(payload)) < 0 ||
-		    desktop_handle_message(&state, &header, payload,
-			    header.length - GUI_PROTOCOL_HEADER_SIZE) < 0)
+		for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
+			if (diagnostics[index].fd >= 0 && diagnostics[index].redraw) {
+				diagnostics[index].redraw = 0;
+				if (send_diagnostic(&diagnostics[index]) < 0)
+					return 1;
+				break;
+			}
+		}
+		if (state.launch_diagnostic != 0) {
+			unsigned int index = state.launch_diagnostic - 1;
+
+			state.launch_diagnostic = 0;
+			if (index >= DIAGNOSTIC_COUNT ||
+			    desktop_launch_diagnostic(&state, diagnostics, index) < 0)
+				return 1;
+			continue;
+		}
+		pollfds[0] = (struct pollfd) { .fd = WM_FD, .events = POLLIN };
+		for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
+			pollfds[index + 1] = (struct pollfd) {
+				.fd = diagnostics[index].fd,
+				.events = diagnostics[index].fd >= 0 ? POLLIN : 0,
+			};
+		}
+		if (poll(pollfds, DIAGNOSTIC_COUNT + 1, -1) < 0) {
+			if (errno == EINTR)
+				continue;
 			return 1;
+		}
+		if (pollfds[0].revents & (POLLERR | POLLHUP | POLLNVAL) ||
+		    (pollfds[0].revents & POLLIN &&
+		     (desktop_read_message(&header, payload, sizeof(payload)) < 0 ||
+		      desktop_handle_message(&state, &header, payload,
+			header.length - GUI_PROTOCOL_HEADER_SIZE) < 0)))
+			return 1;
+		for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
+			if (!(pollfds[index + 1].revents & POLLIN))
+				continue;
+			if (read_message(diagnostics[index].fd, &header, payload,
+			    sizeof(payload)) < 0 || diagnostic_handle_message(&diagnostics[index],
+			    &header, payload, header.length - GUI_PROTOCOL_HEADER_SIZE) < 0)
+				return 1;
+		}
 	}
 }
