@@ -390,6 +390,35 @@ static void test_titles_and_direct_color(void)
 	assert(memcmp(title, "second title", title_bytes) == 0);
 }
 
+static void test_dec_private_modes(void)
+{
+	static const uint8_t enable[] = "\x1b[?1h\x1b[?25l";
+	static const uint8_t disable[] = "\x1b[?1l\x1b[?25h";
+	terminal_vt_cell cells[2];
+	terminal_vt_cell alternate_cells[2];
+	terminal_vt terminal;
+
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 1, 2) == 0);
+	assert(terminal.cursor_visible && !terminal.application_cursor);
+	terminal_vt_feed(&terminal, enable, sizeof(enable) - 1);
+	assert(terminal.application_cursor && !terminal.cursor_visible);
+	terminal_vt_feed(&terminal, disable, sizeof(disable) - 1);
+	assert(!terminal.application_cursor && terminal.cursor_visible);
+}
+
+static void test_charset_designation(void)
+{
+	static const uint8_t text[] = "A\x1b(BZ";
+	terminal_vt_cell cells[3];
+	terminal_vt_cell alternate_cells[3];
+	terminal_vt terminal;
+
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 1, 3) == 0);
+	terminal_vt_feed(&terminal, text, sizeof(text) - 1);
+	assert(cells[0].codepoint == 'A' && cells[1].codepoint == 'Z' &&
+	       cells[2].codepoint == 0);
+}
+
 int main(void)
 {
 	test_cases();
@@ -401,6 +430,8 @@ int main(void)
 	test_resize();
 	test_scrollback_and_tabs();
 	test_titles_and_direct_color();
+	test_dec_private_modes();
+	test_charset_designation();
 	puts("terminal-vt: basic controls ok");
 	puts("terminal-vt: UTF-8 ok");
 	puts("terminal-vt: CSI ok");
@@ -408,5 +439,7 @@ int main(void)
 	puts("terminal-vt: resize ok");
 	puts("terminal-vt: scrollback and tabs ok");
 	puts("terminal-vt: titles and RGB ok");
+	puts("terminal-vt: DEC modes ok");
+	puts("terminal-vt: charset designation ok");
 	return 0;
 }

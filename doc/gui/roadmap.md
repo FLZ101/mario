@@ -919,7 +919,7 @@ Checkpoint:
 - [x] **M5.4.1 — add titles and direct color.** Implement OSC title and RGB
   SGR parsing/rendering. Test one title update and truecolor golden. Commit:
   `terminal: support titles and RGB`.
-- [ ] **M5.4.2 — validate tmux and full-screen apps.** Add only the DEC modes
+- [x] **M5.4.2 — validate tmux and full-screen apps.** Add only the DEC modes
   required by `tmux`, `less`, and `vim`; each new mode gets a parser regression.
   Commit: `terminal: support tmux compatibility`.
 

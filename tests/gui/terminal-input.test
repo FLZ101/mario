@@ -1,0 +1,15 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/terminal-input.log /tmp/terminal-input.pid; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL: /usr/bin/terminal --command 'read line; printf "TERM:%s COLOR:%s INPUT:%s\n" "$TERM" "$COLORTERM" "$line"; sleep 70' >/tmp/terminal-input.log 2>&1 & echo $! >/tmp/terminal-input.pid
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/terminal-input.log; do sleep 1; done
+GUI-CHECK-RECT: 130 130 8 8 17 24 39
+GUI-TYPE: go
+SERIAL: sleep 2; cat /tmp/terminal-input.log
+SERIAL-CHECK: TERM:xterm-direct COLOR:truecolor INPUT:go
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while pgrep terminal >/dev/null; do sleep 1; done
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

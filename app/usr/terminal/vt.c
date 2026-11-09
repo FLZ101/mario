@@ -8,6 +8,7 @@
 #define TERMINAL_VT_STATE_CSI 2U
 #define TERMINAL_VT_STATE_OSC 3U
 #define TERMINAL_VT_STATE_OSC_ESCAPE 4U
+#define TERMINAL_VT_STATE_CHARSET 5U
 
 static void terminal_vt_set_cursor(terminal_vt *terminal, uint32_t row,
 				   uint32_t column);
@@ -267,6 +268,8 @@ static void terminal_vt_reset(terminal_vt *terminal)
 	terminal->cursor_column = 0;
 	terminal->scroll_top = 0;
 	terminal->scroll_bottom = terminal->rows - 1;
+	terminal->application_cursor = 0;
+	terminal->cursor_visible = 1;
 	terminal_vt_reset_rendition(terminal);
 	terminal_vt_save_cursor(terminal);
 	terminal_vt_reset_utf8(terminal);
@@ -363,12 +366,18 @@ static void terminal_vt_set_sgr(terminal_vt *terminal)
 static void terminal_vt_execute_private_csi(terminal_vt *terminal,
 					    uint8_t final)
 {
-	if (terminal_vt_csi_value(terminal, 0) != 1049)
-		return;
-	if (final == 'h')
-		terminal_vt_enter_alternate(terminal);
-	else if (final == 'l')
-		terminal_vt_leave_alternate(terminal);
+	for (uint8_t index = 0; index < terminal->csi_parameter_count; index++) {
+		uint32_t parameter = terminal_vt_csi_value(terminal, index);
+
+		if (parameter == 1)
+			terminal->application_cursor = final == 'h';
+		else if (parameter == 25)
+			terminal->cursor_visible = final == 'h';
+		else if (parameter == 1049 && final == 'h')
+			terminal_vt_enter_alternate(terminal);
+		else if (parameter == 1049 && final == 'l')
+			terminal_vt_leave_alternate(terminal);
+	}
 }
 
 static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
@@ -521,6 +530,8 @@ static void terminal_vt_feed_escape(terminal_vt *terminal, uint8_t byte)
 		terminal_vt_begin_csi(terminal);
 	else if (byte == ']')
 		terminal_vt_begin_osc(terminal);
+	else if (byte == '(' || byte == ')')
+		terminal->parser_state = TERMINAL_VT_STATE_CHARSET;
 	else if (byte == 'H') {
 		terminal_vt_reset_escape(terminal);
 		if (terminal->cursor_column < sizeof(terminal->tab_stops))
@@ -585,6 +596,10 @@ again:
 			terminal_vt_reset_escape(terminal);
 			goto again;
 		}
+		return;
+	}
+	if (terminal->parser_state == TERMINAL_VT_STATE_CHARSET) {
+		terminal_vt_reset_escape(terminal);
 		return;
 	}
 	if (byte == 0x1b) {

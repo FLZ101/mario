@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include <gui/font.h>
+#include <gui/input.h>
 #include <gui/protocol.h>
 #include <gui/surface.h>
 
@@ -324,7 +325,7 @@ static int terminal_render(terminal_state *state)
 					TERMINAL_CELL_WIDTH, 1,
 				}, foreground);
 		}
-	if (state->vt.cursor_row < state->vt.rows &&
+	if (state->vt.cursor_visible && state->vt.cursor_row < state->vt.rows &&
 	    state->vt.cursor_column < state->vt.columns)
 		gui_fill_rect(&state->surface, (gui_rect) {
 			TERMINAL_MARGIN + state->vt.cursor_column * TERMINAL_CELL_WIDTH,
@@ -341,6 +342,43 @@ static uint32_t terminal_pixel(const terminal_state *state, uint32_t offset)
 	uint32_t y = offset / state->surface.width;
 
 	return state->surface.pixels[y * state->surface.stride + x];
+}
+
+static int terminal_write_input(terminal_state *state, uint32_t keysym,
+				uint32_t modifiers)
+{
+	static const char cursor_sequences[][3] = { "\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D" };
+	uint8_t byte;
+	const char *sequence = NULL;
+
+	if (state->master < 0)
+		return 0;
+	switch (keysym) {
+	case GUI_KEYSYM_UP: sequence = cursor_sequences[0]; break;
+	case GUI_KEYSYM_DOWN: sequence = cursor_sequences[1]; break;
+	case GUI_KEYSYM_RIGHT: sequence = cursor_sequences[2]; break;
+	case GUI_KEYSYM_LEFT: sequence = cursor_sequences[3]; break;
+	default: break;
+	}
+	if (sequence != NULL) {
+		if (state->vt.application_cursor)
+			return write_full(state->master, "\x1bO", 2) < 0 ||
+				write_full(state->master, sequence + 2, 1) < 0 ? -1 : 0;
+		return write_full(state->master, sequence, 3) < 0 ? -1 : 0;
+	}
+	if (keysym == GUI_KEYSYM_ESCAPE)
+		byte = '\x1b';
+	else if (keysym == GUI_KEYSYM_BACKSPACE)
+		byte = '\x7f';
+	else if (keysym == '\n')
+		byte = '\r';
+	else if (keysym <= 0x7f) {
+		byte = keysym;
+		if (modifiers & GUI_MOD_CTRL)
+			byte &= 0x1f;
+	} else
+		return 0;
+	return write_full(state->master, &byte, sizeof(byte)) < 0 ? -1 : 0;
 }
 
 static int terminal_handle_message(terminal_state *state,
@@ -373,9 +411,15 @@ static int terminal_handle_message(terminal_state *state,
 			get32(payload) == state->window_id ? 0 : -1;
 	if (header->type == GUI_PROTOCOL_INPUT_RESET)
 		return payload_bytes == 0 ? 0 : -1;
-	if (header->type == GUI_PROTOCOL_INPUT_EVENT)
-		return payload_bytes == sizeof(gui_protocol_wire_input_event) &&
-			get32(payload) == state->window_id ? 0 : -1;
+	if (header->type == GUI_PROTOCOL_INPUT_EVENT) {
+		if (payload_bytes != sizeof(gui_protocol_wire_input_event) ||
+		    get32(payload) != state->window_id)
+			return -1;
+		if (get32(payload + 4) == GUI_INPUT_EVENT_KEY && get32(payload + 8) != 0 &&
+		    terminal_write_input(state, get32(payload + 8), get32(payload + 12)) < 0)
+			return -1;
+		return 0;
+	}
 	return -1;
 }
 
@@ -602,6 +646,8 @@ static int terminal_spawn_pty(const char *command, const terminal_state *state,
 	if (pid < 0)
 		return -1;
 	if (pid == 0) {
+		setenv("TERM", "xterm-direct", 1);
+		setenv("COLORTERM", "truecolor", 1);
 		if (command != NULL)
 			execl("/bin/oksh", "oksh", "-c", command, NULL);
 		else
