@@ -900,7 +900,7 @@ Checkpoint:
 - [x] **M5.2.1 — parse printable text and basic controls.** Implement UTF-8
   feed, CR/LF/BS, wrapping, scrolling, and cursor movement in a pure module.
   Add table-driven parser tests. Commit: `terminal: parse basic text`.
-- [ ] **M5.2.2 — parse CSI erase and cursor sequences.** Add CUP/CHA/CUU/CUD/
+- [x] **M5.2.2 — parse CSI erase and cursor sequences.** Add CUP/CHA/CUU/CUD/
   CUF/CUB plus ED/EL and scroll regions. Test each sequence independently.
   Commit: `terminal: parse CSI cursor and erase`.
 - [ ] **M5.2.3 — parse attributes and screen buffers.** Add SGR, save/restore
