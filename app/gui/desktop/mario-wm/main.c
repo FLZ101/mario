@@ -117,6 +117,8 @@ typedef struct wm_client {
 	gui_protocol_input *input;
 	gui_protocol_output *output;
 	wm_server *server;
+	uint16_t title_bytes;
+	uint8_t title[GUI_PROTOCOL_MAX_TITLE_BYTES];
 } wm_client;
 
 struct wm_server {
@@ -666,7 +668,7 @@ static void client_handle_launch_request(wm_client *client, const uint8_t *bytes
 static void wm_notify_shell_window(wm_server *server, gui_protocol_type type,
 				   const wm_client *window)
 {
-	uint8_t message[sizeof(gui_protocol_wire_window_list)] = { 0 };
+	uint8_t message[sizeof(gui_protocol_wire_window_list) + GUI_PROTOCOL_MAX_TITLE_BYTES] = { 0 };
 
 	/* The private shell tracks ordinary taskbar targets, never itself. */
 	if (window->role != GUI_PROTOCOL_ENDPOINT_ORDINARY || window->window_id == 0)
@@ -686,7 +688,11 @@ static void wm_notify_shell_window(wm_server *server, gui_protocol_type type,
 		put_u32(message + 16, window->height);
 		put_u32(message + 20, window->focused);
 		put_u32(message + 24, window->stack_order);
-		if (client_enqueue(shell, type, message, sizeof(message)) < 0)
+		put_u16(message + 28, window->title_bytes);
+		memcpy(message + sizeof(gui_protocol_wire_window_list), window->title,
+		       window->title_bytes);
+		if (client_enqueue(shell, type, message,
+			    sizeof(gui_protocol_wire_window_list) + window->title_bytes) < 0)
 			shell->hello = -1;
 	}
 }
@@ -695,7 +701,7 @@ static void wm_send_shell_snapshot(wm_server *server, wm_client *shell)
 {
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
 		wm_client *window = &server->clients[index];
-		uint8_t message[sizeof(gui_protocol_wire_window_list)] = { 0 };
+		uint8_t message[sizeof(gui_protocol_wire_window_list) + GUI_PROTOCOL_MAX_TITLE_BYTES] = { 0 };
 
 		if (window->fd < 0 || window->role != GUI_PROTOCOL_ENDPOINT_ORDINARY ||
 		    window->window_id == 0)
@@ -707,8 +713,11 @@ static void wm_send_shell_snapshot(wm_server *server, wm_client *shell)
 		put_u32(message + 16, window->height);
 		put_u32(message + 20, window->focused);
 		put_u32(message + 24, window->stack_order);
+		put_u16(message + 28, window->title_bytes);
+		memcpy(message + sizeof(gui_protocol_wire_window_list), window->title,
+		       window->title_bytes);
 		if (client_enqueue(shell, GUI_PROTOCOL_WINDOW_LIST_SNAPSHOT, message,
-			   sizeof(message)) < 0) {
+			   sizeof(gui_protocol_wire_window_list) + window->title_bytes) < 0) {
 			shell->hello = -1;
 			return;
 		}
@@ -1539,7 +1548,9 @@ static void client_message(void *context, const gui_protocol_header *header,
 			client_reject(client, GUI_PROTOCOL_WINDOW_CREATE, -EBUSY);
 		else if (payload_bytes < sizeof(gui_protocol_wire_window_create) ||
 			 payload_bytes != sizeof(gui_protocol_wire_window_create) +
-			 get_u16(bytes + 12) || get_u32(bytes + 4) == 0 ||
+			 get_u16(bytes + 12) || get_u16(bytes + 12) > GUI_PROTOCOL_MAX_TITLE_BYTES ||
+			 memchr(bytes + sizeof(gui_protocol_wire_window_create), '\0',
+				get_u16(bytes + 12)) != NULL || get_u32(bytes + 4) == 0 ||
 			 get_u32(bytes + 8) == 0 ||
 			 surface_bytes(get_u32(bytes + 4), get_u32(bytes + 8),
 				       &window_bytes) < 0 ||
@@ -1554,6 +1565,9 @@ static void client_message(void *context, const gui_protocol_header *header,
 		}
 		client->width = get_u32(bytes + 4);
 		client->height = get_u32(bytes + 8);
+		client->title_bytes = get_u16(bytes + 12);
+		memcpy(client->title, bytes + sizeof(gui_protocol_wire_window_create),
+		       client->title_bytes);
 		wm_place_window(client->server, client);
 		client->configure_serial = 1;
 		put_u32(reply, get_u32(bytes));
@@ -1568,6 +1582,25 @@ static void client_message(void *context, const gui_protocol_header *header,
 			wm_notify_shell_window(client->server, GUI_PROTOCOL_WINDOW_LIST_ADD, client);
 			wm_set_input_owner(client->server, client);
 		}
+		}
+		return;
+	}
+	if (header->type == GUI_PROTOCOL_WINDOW_SET_TITLE) {
+		uint16_t title_bytes;
+
+		if (client->role != GUI_PROTOCOL_ENDPOINT_ORDINARY)
+			client_reject(client, GUI_PROTOCOL_WINDOW_SET_TITLE, -EPERM);
+		else if (payload_bytes < sizeof(gui_protocol_wire_window_set_title) ||
+			 get_u32(bytes) != client->window_id || client->window_id == 0 ||
+			 (title_bytes = get_u16(bytes + 4)) > GUI_PROTOCOL_MAX_TITLE_BYTES ||
+			 payload_bytes != sizeof(gui_protocol_wire_window_set_title) + title_bytes ||
+			 memchr(bytes + sizeof(gui_protocol_wire_window_set_title), '\0', title_bytes) != NULL)
+			client_reject(client, GUI_PROTOCOL_WINDOW_SET_TITLE, -EINVAL);
+		else {
+			client->title_bytes = title_bytes;
+			memcpy(client->title, bytes + sizeof(gui_protocol_wire_window_set_title),
+			       title_bytes);
+			wm_notify_shell_window(client->server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, client);
 		}
 		return;
 	}

@@ -161,10 +161,12 @@ static int read_message(int fd, gui_protocol_header *header, uint8_t *payload,
 	return read_full(fd, payload, header->length - GUI_PROTOCOL_HEADER_SIZE);
 }
 
-static gui_color terminal_color(uint8_t color, gui_color default_color)
+static gui_color terminal_color(uint32_t color, gui_color default_color)
 {
-	return color == TERMINAL_VT_COLOR_DEFAULT ? default_color :
-		terminal_palette[color];
+	if ((color & ~TERMINAL_VT_COLOR_RGB_MASK) == TERMINAL_VT_COLOR_RGB_TAG)
+		return color & TERMINAL_VT_COLOR_RGB_MASK;
+	return color < sizeof(terminal_palette) / sizeof(terminal_palette[0]) ?
+		terminal_palette[color] : default_color;
 }
 
 static size_t terminal_encode_utf8(uint32_t codepoint, char bytes[4])
@@ -567,6 +569,26 @@ static int terminal_send_current_surface(terminal_state *state, int master)
 	return 0;
 }
 
+static int terminal_send_title(terminal_state *state)
+{
+	uint8_t message[sizeof(gui_protocol_wire_window_set_title) +
+		GUI_PROTOCOL_MAX_TITLE_BYTES] = { 0 };
+	const uint8_t *title;
+	uint16_t title_bytes;
+	size_t message_bytes;
+
+	if (!terminal_vt_take_title(&state->vt, &title, &title_bytes))
+		return 0;
+	if (title_bytes > GUI_PROTOCOL_MAX_TITLE_BYTES)
+		return -1;
+	put32(message, state->window_id);
+	put16(message + 4, title_bytes);
+	memcpy(message + sizeof(gui_protocol_wire_window_set_title), title, title_bytes);
+	message_bytes = sizeof(gui_protocol_wire_window_set_title) + title_bytes;
+	/* OSC updates are metadata, independent of the next surface commit. */
+	return send_message(state->fd, GUI_PROTOCOL_WINDOW_SET_TITLE, message, message_bytes);
+}
+
 static int terminal_spawn_pty(const char *command, const terminal_state *state,
 			      int *master, pid_t *child)
 {
@@ -710,6 +732,8 @@ int main(int argc, char **argv)
 			if (result < 0)
 				break;
 			if (updated && terminal_send_current_surface(&state, master) < 0)
+				break;
+			if (terminal_send_title(&state) < 0)
 				break;
 			if (result > 0) {
 				status = terminal_finish_child(master, child) == 0 ? 0 : 1;

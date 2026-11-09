@@ -6,6 +6,8 @@
 #define TERMINAL_VT_STATE_TEXT 0U
 #define TERMINAL_VT_STATE_ESCAPE 1U
 #define TERMINAL_VT_STATE_CSI 2U
+#define TERMINAL_VT_STATE_OSC 3U
+#define TERMINAL_VT_STATE_OSC_ESCAPE 4U
 
 static void terminal_vt_set_cursor(terminal_vt *terminal, uint32_t row,
 				   uint32_t column);
@@ -106,6 +108,11 @@ static void terminal_vt_reset_escape(terminal_vt *terminal)
 	terminal->csi_parameter_count = 0;
 	terminal->csi_ignored = 0;
 	terminal->csi_private = 0;
+	terminal->csi_colon_parameters = 0;
+	terminal->osc_command = 0;
+	terminal->osc_title_bytes = 0;
+	terminal->osc_separator_seen = 0;
+	terminal->osc_ignored = 0;
 }
 
 static void terminal_vt_begin_csi(terminal_vt *terminal)
@@ -114,7 +121,17 @@ static void terminal_vt_begin_csi(terminal_vt *terminal)
 	terminal->csi_parameter_count = 1;
 	terminal->csi_ignored = 0;
 	terminal->csi_private = 0;
+	terminal->csi_colon_parameters = 0;
 	terminal->csi_parameters[0] = 0;
+}
+
+static void terminal_vt_begin_osc(terminal_vt *terminal)
+{
+	terminal->parser_state = TERMINAL_VT_STATE_OSC;
+	terminal->osc_command = 0;
+	terminal->osc_title_bytes = 0;
+	terminal->osc_separator_seen = 0;
+	terminal->osc_ignored = 0;
 }
 
 static void terminal_vt_save_cursor(terminal_vt *terminal)
@@ -270,6 +287,33 @@ static void terminal_vt_set_scroll_region(terminal_vt *terminal)
 	terminal_vt_set_cursor(terminal, 0, 0);
 }
 
+static int terminal_vt_set_direct_color(const terminal_vt *terminal, uint8_t index,
+					uint32_t *color, uint8_t *consumed)
+{
+	uint8_t rgb_index;
+
+	if (index + 1 >= terminal->csi_parameter_count ||
+	    terminal_vt_csi_value(terminal, index + 1) != 2)
+		return 0;
+	rgb_index = index + 2;
+	/* Colon-form SGR permits an empty color-space field before RGB. */
+	if (rgb_index < terminal->csi_parameter_count &&
+	    (terminal->csi_colon_parameters & (1U << rgb_index)) != 0 &&
+	    terminal_vt_csi_value(terminal, rgb_index) == 0)
+		rgb_index++;
+	if (rgb_index + 2 >= terminal->csi_parameter_count ||
+	    terminal_vt_csi_value(terminal, rgb_index) > UINT8_MAX ||
+	    terminal_vt_csi_value(terminal, rgb_index + 1) > UINT8_MAX ||
+	    terminal_vt_csi_value(terminal, rgb_index + 2) > UINT8_MAX)
+		return 0;
+	*color = TERMINAL_VT_COLOR_RGB_TAG |
+		(terminal_vt_csi_value(terminal, rgb_index) << 16) |
+		(terminal_vt_csi_value(terminal, rgb_index + 1) << 8) |
+		terminal_vt_csi_value(terminal, rgb_index + 2);
+	*consumed = rgb_index + 3 - index;
+	return 1;
+}
+
 static void terminal_vt_set_sgr(terminal_vt *terminal)
 {
 	for (uint8_t index = 0; index < terminal->csi_parameter_count; index++) {
@@ -301,6 +345,18 @@ static void terminal_vt_set_sgr(terminal_vt *terminal)
 			terminal->foreground = parameter - 90 + 8;
 		else if (parameter >= 100 && parameter <= 107)
 			terminal->background = parameter - 100 + 8;
+		else if (parameter == 38 || parameter == 48) {
+			uint32_t color;
+			uint8_t consumed;
+
+			if (terminal_vt_set_direct_color(terminal, index, &color, &consumed)) {
+				if (parameter == 38)
+					terminal->foreground = color;
+				else
+					terminal->background = color;
+				index += consumed - 1;
+			}
+		}
 	}
 }
 
@@ -402,11 +458,15 @@ static void terminal_vt_feed_csi(terminal_vt *terminal, uint8_t byte)
 			terminal->csi_ignored = 1;
 		return;
 	}
-	if (byte == ';') {
+	if (byte == ';' || byte == ':') {
 		if (terminal->csi_parameter_count == TERMINAL_VT_CSI_PARAMETERS)
 			terminal->csi_ignored = 1;
-		else if (!terminal->csi_ignored)
+		else if (!terminal->csi_ignored) {
+			if (byte == ':')
+				terminal->csi_colon_parameters |=
+					1U << terminal->csi_parameter_count;
 			terminal->csi_parameters[terminal->csi_parameter_count++] = 0;
+		}
 		return;
 	}
 	if (byte >= 0x40 && byte <= 0x7e && !terminal->csi_ignored)
@@ -414,10 +474,53 @@ static void terminal_vt_feed_csi(terminal_vt *terminal, uint8_t byte)
 	terminal_vt_reset_escape(terminal);
 }
 
+static void terminal_vt_finish_osc(terminal_vt *terminal)
+{
+	if (terminal->osc_separator_seen &&
+	    (terminal->osc_command == 0 || terminal->osc_command == 2)) {
+		memcpy(terminal->title, terminal->osc_title, terminal->osc_title_bytes);
+		terminal->title_bytes = terminal->osc_title_bytes;
+		terminal->title_changed = 1;
+	}
+	terminal_vt_reset_escape(terminal);
+}
+
+static void terminal_vt_feed_osc(terminal_vt *terminal, uint8_t byte)
+{
+	if (byte == 0x07) {
+		terminal_vt_finish_osc(terminal);
+		return;
+	}
+	if (byte == 0x1b) {
+		terminal->parser_state = TERMINAL_VT_STATE_OSC_ESCAPE;
+		return;
+	}
+	if (terminal->osc_ignored)
+		return;
+	if (!terminal->osc_separator_seen) {
+		if (byte == ';') {
+			terminal->osc_separator_seen = 1;
+			return;
+		}
+		if (byte < '0' || byte > '9' ||
+		    terminal->osc_command > (UINT32_MAX - (byte - '0')) / 10) {
+			terminal->osc_ignored = 1;
+			return;
+		}
+		terminal->osc_command = terminal->osc_command * 10 + byte - '0';
+		return;
+	}
+	if (byte >= 0x20 && byte != 0x7f &&
+	    terminal->osc_title_bytes < TERMINAL_VT_TITLE_BYTES)
+		terminal->osc_title[terminal->osc_title_bytes++] = byte;
+}
+
 static void terminal_vt_feed_escape(terminal_vt *terminal, uint8_t byte)
 {
 	if (byte == '[')
 		terminal_vt_begin_csi(terminal);
+	else if (byte == ']')
+		terminal_vt_begin_osc(terminal);
 	else if (byte == 'H') {
 		terminal_vt_reset_escape(terminal);
 		if (terminal->cursor_column < sizeof(terminal->tab_stops))
@@ -469,6 +572,19 @@ again:
 	}
 	if (terminal->parser_state == TERMINAL_VT_STATE_CSI) {
 		terminal_vt_feed_csi(terminal, byte);
+		return;
+	}
+	if (terminal->parser_state == TERMINAL_VT_STATE_OSC) {
+		terminal_vt_feed_osc(terminal, byte);
+		return;
+	}
+	if (terminal->parser_state == TERMINAL_VT_STATE_OSC_ESCAPE) {
+		if (byte == '\\')
+			terminal_vt_finish_osc(terminal);
+		else {
+			terminal_vt_reset_escape(terminal);
+			goto again;
+		}
 		return;
 	}
 	if (byte == 0x1b) {
@@ -636,6 +752,17 @@ const terminal_vt_cell *terminal_vt_scrollback_line(const terminal_vt *terminal,
 	return terminal->scrollback_cells +
 		(size_t)((terminal->scrollback_head + line) % terminal->scrollback_lines) *
 		terminal->columns;
+}
+
+int terminal_vt_take_title(terminal_vt *terminal, const uint8_t **title,
+			   uint16_t *title_bytes)
+{
+	if (terminal == NULL || title == NULL || title_bytes == NULL || !terminal->title_changed)
+		return 0;
+	*title = terminal->title;
+	*title_bytes = terminal->title_bytes;
+	terminal->title_changed = 0;
+	return 1;
 }
 
 void terminal_vt_feed(terminal_vt *terminal, const uint8_t *bytes,

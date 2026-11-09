@@ -916,7 +916,7 @@ Checkpoint:
 - [x] **M5.3.3 — add scrollback and tabs.** Keep bounded scrollback and tab
   stops without selection/clipboard. Test scrollback bounds and tab commands.
   Commit: `terminal: add scrollback and tabs`.
-- [ ] **M5.4.1 — add titles and direct color.** Implement OSC title and RGB
+- [x] **M5.4.1 — add titles and direct color.** Implement OSC title and RGB
   SGR parsing/rendering. Test one title update and truecolor golden. Commit:
   `terminal: support titles and RGB`.
 - [ ] **M5.4.2 — validate tmux and full-screen apps.** Add only the DEC modes

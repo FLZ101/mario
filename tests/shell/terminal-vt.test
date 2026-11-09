@@ -5,3 +5,4 @@ CHECK: terminal-vt: CSI ok
 CHECK: terminal-vt: attributes ok
 CHECK: terminal-vt: resize ok
 CHECK: terminal-vt: scrollback and tabs ok
+CHECK: terminal-vt: titles and RGB ok

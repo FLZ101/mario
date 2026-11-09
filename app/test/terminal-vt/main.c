@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <vt.h>
 
@@ -356,6 +357,39 @@ static void test_scrollback_and_tabs(void)
 	assert(cells[0].codepoint == 'B' && cells[4].codepoint == 'C');
 }
 
+static void test_titles_and_direct_color(void)
+{
+	static const uint8_t semicolon_rgb[] =
+		"\x1b[38;2;1;2;3;48;2;4;5;6mA";
+	static const uint8_t colon_rgb[] =
+		"\x1b[38:2::7:8:9;48:2::10:11:12mB";
+	static const uint8_t bel_title[] = "\x1b]0;first title\x07";
+	static const uint8_t st_title[] = "\x1b]2;second title\x1b\\";
+	terminal_vt_cell cells[4];
+	terminal_vt_cell alternate_cells[4];
+	terminal_vt terminal;
+	const uint8_t *title;
+	uint16_t title_bytes;
+
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 2, 2) == 0);
+	terminal_vt_feed(&terminal, semicolon_rgb, sizeof(semicolon_rgb) - 1);
+	terminal_vt_feed(&terminal, colon_rgb, sizeof(colon_rgb) - 1);
+	assert(cells[0].foreground == (TERMINAL_VT_COLOR_RGB_TAG | 0x00010203U));
+	assert(cells[0].background == (TERMINAL_VT_COLOR_RGB_TAG | 0x00040506U));
+	assert(cells[1].foreground == (TERMINAL_VT_COLOR_RGB_TAG | 0x00070809U));
+	assert(cells[1].background == (TERMINAL_VT_COLOR_RGB_TAG | 0x000a0b0cU));
+
+	terminal_vt_feed(&terminal, bel_title, sizeof(bel_title) - 1);
+	assert(terminal_vt_take_title(&terminal, &title, &title_bytes));
+	assert(title_bytes == sizeof("first title") - 1);
+	assert(memcmp(title, "first title", title_bytes) == 0);
+	assert(!terminal_vt_take_title(&terminal, &title, &title_bytes));
+	terminal_vt_feed(&terminal, st_title, sizeof(st_title) - 1);
+	assert(terminal_vt_take_title(&terminal, &title, &title_bytes));
+	assert(title_bytes == sizeof("second title") - 1);
+	assert(memcmp(title, "second title", title_bytes) == 0);
+}
+
 int main(void)
 {
 	test_cases();
@@ -366,11 +400,13 @@ int main(void)
 	test_alternate_screen_and_reset();
 	test_resize();
 	test_scrollback_and_tabs();
+	test_titles_and_direct_color();
 	puts("terminal-vt: basic controls ok");
 	puts("terminal-vt: UTF-8 ok");
 	puts("terminal-vt: CSI ok");
 	puts("terminal-vt: attributes ok");
 	puts("terminal-vt: resize ok");
 	puts("terminal-vt: scrollback and tabs ok");
+	puts("terminal-vt: titles and RGB ok");
 	return 0;
 }
