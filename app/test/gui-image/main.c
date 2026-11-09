@@ -1,8 +1,12 @@
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <gui/image.h>
 
@@ -16,6 +20,12 @@ static void put32(uint8_t *bytes, uint32_t value)
 {
 	for (unsigned int index = 0; index < 4; index++)
 		bytes[index] = value >> (index * 8);
+}
+
+static void put_be32(uint8_t *bytes, uint32_t value)
+{
+	for (unsigned int index = 0; index < 4; index++)
+		bytes[index] = value >> ((3 - index) * 8);
 }
 
 static void bmp_header(uint8_t bytes[70], uint32_t width, int32_t height)
@@ -97,11 +107,57 @@ static void test_decode(void)
 	gui_surface_destroy(surface);
 }
 
+static uint8_t *read_fixture(const char *path, size_t *byte_count)
+{
+	struct stat status;
+	uint8_t *bytes;
+	int fd;
+
+	fd = open(path, O_RDONLY);
+	assert(fd >= 0 && fstat(fd, &status) == 0 && status.st_size > 0);
+	bytes = malloc((size_t)status.st_size);
+	assert(bytes != NULL);
+	for (size_t offset = 0; offset < (size_t)status.st_size;) {
+		ssize_t count = read(fd, bytes + offset, (size_t)status.st_size - offset);
+
+		assert(count > 0);
+		offset += (size_t)count;
+	}
+	assert(close(fd) == 0);
+	*byte_count = (size_t)status.st_size;
+	return bytes;
+}
+
+static void test_png_decode(void)
+{
+	uint8_t *bytes;
+	size_t byte_count;
+	gui_surface *surface = NULL;
+	gui_surface *previous;
+
+	bytes = read_fixture("/usr/share/mario-tests/gui/alpha-128.png", &byte_count);
+	assert(gui_png_decode(bytes, byte_count, &surface) == 0);
+	assert(surface->width == 128 && surface->height == 128);
+	previous = surface;
+	assert(gui_png_decode(bytes, 7, &surface) == -1 && errno == EINVAL);
+	assert(surface == previous);
+	/* libpng rejects the IHDR limit before a malformed replacement is allocated. */
+	put_be32(bytes + 16, GUI_IMAGE_MAX_DIMENSION + 1);
+	assert(gui_png_decode(bytes, byte_count, &surface) == -1 && errno == EINVAL);
+	assert(surface == previous);
+	bytes[0] = 0;
+	assert(gui_png_decode(bytes, byte_count, &surface) == -1 && errno == EINVAL);
+	assert(surface == previous);
+	gui_surface_destroy(surface);
+	free(bytes);
+}
+
 int main(void)
 {
 	test_valid();
 	test_invalid();
 	test_decode();
-	puts("gui-image: BMP decode ok");
+	test_png_decode();
+	puts("gui-image: BMP and PNG decode ok");
 	return 0;
 }

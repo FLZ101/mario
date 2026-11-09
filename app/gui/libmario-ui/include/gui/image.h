@@ -27,4 +27,7 @@ int gui_bmp_metadata_parse(const void *bytes, size_t byte_count,
 /* Decode a validated 24-bit BI_RGB BMP into a newly allocated XRGB8888 surface. */
 int gui_bmp_decode(const void *bytes, size_t byte_count, gui_surface **surface);
 
+/* Decode one bounded, non-interlaced 8-bit RGB or RGBA PNG frame. */
+int gui_png_decode(const void *bytes, size_t byte_count, gui_surface **surface);
+
 #endif

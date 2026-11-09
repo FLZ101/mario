@@ -999,7 +999,7 @@ terminal: run oksh in a GUI terminal over a PTY
 - [x] **M6.2.1 — pin and build PNG support.** Add the selected decoder and its
   checksum/build rule independently of the viewer. Test a decoder smoke
   executable. Commit: `imageviewer: build PNG decoder`.
-- [ ] **M6.2.2 — decode bounded PNG frames.** Enforce dimensions, row bytes,
+- [x] **M6.2.2 — decode bounded PNG frames.** Enforce dimensions, row bytes,
   and allocation limits; leave the prior frame untouched on a decode error.
   Unit test corrupt/truncated PNGs. Commit: `imageviewer: validate PNG input`.
 - [ ] **M6.2.3 — render PNG and bound the cache.** Add PNG display plus exactly
