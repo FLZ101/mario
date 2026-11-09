@@ -909,8 +909,9 @@ Checkpoint:
 - [x] **M5.3.1 — render terminal cells.** Map parser cells to toolkit glyphs,
   colors, cursor, and CP437 fallback. Add a stable text golden. Commit:
   `terminal: render terminal cells`.
-- [ ] **M5.3.2 — propagate resize.** Convert window dimensions to rows/columns,
-  send `TIOCSWINSZ`, handle `SIGWINCH`, and redraw. Test `stty size`. Commit:
+- [x] **M5.3.2 — propagate resize.** Convert window dimensions to rows/columns,
+  send `TIOCSWINSZ`, handle `SIGWINCH`, and redraw. Test child-side
+  `TIOCGWINSZ` reporting and the resized terminal frame. Commit:
   `terminal: resize PTY grid`.
 - [ ] **M5.3.3 — add scrollback and tabs.** Keep bounded scrollback and tab
   stops without selection/clipboard. Test scrollback bounds and tab commands.
@@ -957,7 +958,8 @@ make quick-run-gtk
 Checkpoint:
 
 - `oksh`, `vim`, `top`, `less`, and interactive Python render acceptably.
-- Resizing the window changes `stty size` and redraws the grid.
+- Resizing the window changes the child-visible `TIOCGWINSZ` size and redraws
+  the grid.
 - Ctrl-C interrupts the foreground process.
 - `printf '\033[48;2;1;2;3m \033[0m'` and the colon-form equivalent render
   the exact direct-RGB background in the terminal screenshot; `echo $TERM`

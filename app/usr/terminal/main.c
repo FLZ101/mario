@@ -4,7 +4,9 @@
 #include <pty.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/wait.h>
@@ -27,12 +29,11 @@
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
 #define TERMINAL_BACKGROUND 0x00111827U
 #define TERMINAL_CURSOR 0x00f8fafcU
-#define TERMINAL_ROWS ((TERMINAL_HEIGHT - TERMINAL_MARGIN * 2) / TERMINAL_CELL_HEIGHT)
-#define TERMINAL_COLUMNS ((TERMINAL_WIDTH - TERMINAL_MARGIN * 2) / TERMINAL_CELL_WIDTH)
 #define TERMINAL_FONT_PATH "/usr/share/fonts/DejaVuSansMono.ttf"
 
 typedef struct {
 	int fd;
+	int master;
 	uint32_t window_id;
 	uint64_t configure_serial;
 	uint64_t frame_serial;
@@ -40,21 +41,21 @@ typedef struct {
 	uint32_t height;
 	int close_requested;
 	terminal_vt vt;
+	terminal_vt_cell *primary_cells;
+	terminal_vt_cell *alternate_cells;
+	gui_surface surface;
+	gui_color *pixels;
 	gui_font *font;
 } terminal_state;
+
+static int terminal_resize_pty(int master, const terminal_state *state);
 
 /* Keep the largest outbound wire frame out of Mario's small initial stack. */
 static uint8_t terminal_frame[GUI_PROTOCOL_HEADER_SIZE +
 	sizeof(gui_protocol_wire_surface_data) +
 	SURFACE_PIXELS_PER_MESSAGE * sizeof(uint32_t)];
-static terminal_vt_cell terminal_primary_cells[TERMINAL_ROWS * TERMINAL_COLUMNS];
-static terminal_vt_cell terminal_alternate_cells[TERMINAL_ROWS * TERMINAL_COLUMNS];
-/* Resize support replaces this fixed native terminal backing store in M5.3.2. */
-static gui_color terminal_pixels[TERMINAL_WIDTH * TERMINAL_HEIGHT];
-static gui_surface terminal_surface = {
-	.stride = TERMINAL_WIDTH,
-	.pixels = terminal_pixels,
-};
+/* Surface replies can be interleaved with any server-to-client event. */
+static uint8_t terminal_input[GUI_PROTOCOL_MAX_MESSAGE_SIZE - GUI_PROTOCOL_HEADER_SIZE];
 
 static const gui_color terminal_palette[16] = {
 	0x00111827, 0x00ef4444, 0x0022c55e, 0x00eab308,
@@ -188,14 +189,91 @@ static size_t terminal_encode_utf8(uint32_t codepoint, char bytes[4])
 	return 4;
 }
 
+static void terminal_grid_dimensions(uint32_t width, uint32_t height,
+				     uint32_t *rows, uint32_t *columns)
+{
+	*columns = width > 2 * TERMINAL_MARGIN ?
+		(width - 2 * TERMINAL_MARGIN) / TERMINAL_CELL_WIDTH : 1;
+	*rows = height > 2 * TERMINAL_MARGIN ?
+		(height - 2 * TERMINAL_MARGIN) / TERMINAL_CELL_HEIGHT : 1;
+	if (*columns == 0)
+		*columns = 1;
+	if (*rows == 0)
+		*rows = 1;
+}
+
+static int terminal_resize_grid(terminal_state *state, uint32_t width,
+				uint32_t height)
+{
+	terminal_vt_cell *primary_cells;
+	terminal_vt_cell *alternate_cells;
+	gui_color *pixels;
+	uint32_t rows;
+	uint32_t columns;
+	size_t cell_count;
+	size_t pixel_count;
+	terminal_vt resized;
+
+	pixels = NULL;
+
+	if (width == 0 || height == 0 || width > UINT32_MAX / height ||
+	    width > SIZE_MAX / height)
+		return -1;
+	terminal_grid_dimensions(width, height, &rows, &columns);
+	if (rows > SIZE_MAX / columns / sizeof(*primary_cells))
+		return -1;
+	cell_count = (size_t)rows * columns;
+	pixel_count = (size_t)width * height;
+	if (pixel_count > SIZE_MAX / sizeof(*pixels))
+		return -1;
+	primary_cells = calloc(cell_count, sizeof(*primary_cells));
+	alternate_cells = calloc(cell_count, sizeof(*alternate_cells));
+	if (primary_cells == NULL || alternate_cells == NULL)
+		goto out;
+	if (state->primary_cells == NULL) {
+		if (terminal_vt_init(&resized, primary_cells, alternate_cells, rows,
+			columns) < 0)
+			goto out;
+	} else {
+		resized = state->vt;
+		if (terminal_vt_resize(&resized, primary_cells, alternate_cells,
+			rows, columns) < 0)
+			goto out;
+	}
+	/* Every frame repaints every pixel, so reclaim this large buffer first. */
+	free(state->pixels);
+	state->pixels = NULL;
+	pixels = malloc(pixel_count * sizeof(*pixels));
+	if (pixels == NULL)
+		goto out;
+	free(state->primary_cells);
+	free(state->alternate_cells);
+	free(state->pixels);
+	state->primary_cells = primary_cells;
+	state->alternate_cells = alternate_cells;
+	state->pixels = pixels;
+	state->vt = resized;
+	state->width = width;
+	state->height = height;
+	state->surface = (gui_surface) {
+		.width = width,
+		.height = height,
+		.stride = width,
+		.pixels = pixels,
+	};
+	return 0;
+out:
+	free(primary_cells);
+	free(alternate_cells);
+	free(pixels);
+	return -1;
+}
+
 static int terminal_render(terminal_state *state)
 {
-	if (state->width > TERMINAL_WIDTH || state->height > TERMINAL_HEIGHT ||
-	    state->font == NULL)
+	if (state->font == NULL || state->surface.pixels == NULL)
 		return -1;
-	terminal_surface.width = state->width;
-	terminal_surface.height = state->height;
-	gui_fill_rect(&terminal_surface, (gui_rect) { 0, 0, state->width, state->height },
+	gui_fill_rect(&state->surface, (gui_rect) { 0, 0, state->width, state->height },
 		TERMINAL_BACKGROUND);
 	for (uint32_t row = 0; row < state->vt.rows; row++)
 		for (uint32_t column = 0; column < state->vt.columns; column++) {
@@ -212,7 +290,7 @@ static int terminal_render(terminal_state *state)
 				foreground = background;
 				background = color;
 			}
-			gui_fill_rect(&terminal_surface, (gui_rect) {
+			gui_fill_rect(&state->surface, (gui_rect) {
 				x, y, TERMINAL_CELL_WIDTH, TERMINAL_CELL_HEIGHT,
 			}, background);
 			if (cell->codepoint != 0) {
@@ -220,18 +298,18 @@ static int terminal_render(terminal_state *state)
 
 				/* The UI font helper uses its CP437 fallback for missing glyphs. */
 				terminal_encode_utf8(cell->codepoint, bytes);
-				gui_font_draw_text(&terminal_surface, x,
+				gui_font_draw_text(&state->surface, x,
 					y + TERMINAL_FONT_HEIGHT, state->font, bytes, foreground);
 			}
 			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_UNDERLINE)
-				gui_fill_rect(&terminal_surface, (gui_rect) {
+				gui_fill_rect(&state->surface, (gui_rect) {
 					x, y + TERMINAL_CELL_HEIGHT - 2,
 					TERMINAL_CELL_WIDTH, 1,
 				}, foreground);
 		}
 	if (state->vt.cursor_row < state->vt.rows &&
 	    state->vt.cursor_column < state->vt.columns)
-		gui_fill_rect(&terminal_surface, (gui_rect) {
+		gui_fill_rect(&state->surface, (gui_rect) {
 			TERMINAL_MARGIN + state->vt.cursor_column * TERMINAL_CELL_WIDTH,
 			TERMINAL_MARGIN + state->vt.cursor_row * TERMINAL_CELL_HEIGHT +
 				TERMINAL_CELL_HEIGHT - 2,
@@ -240,12 +318,12 @@ static int terminal_render(terminal_state *state)
 	return 0;
 }
 
-static uint32_t terminal_pixel(uint32_t offset)
+static uint32_t terminal_pixel(const terminal_state *state, uint32_t offset)
 {
-	uint32_t x = offset % terminal_surface.width;
-	uint32_t y = offset / terminal_surface.width;
+	uint32_t x = offset % state->surface.width;
+	uint32_t y = offset / state->surface.width;
 
-	return terminal_surface.pixels[y * terminal_surface.stride + x];
+	return state->surface.pixels[y * state->surface.stride + x];
 }
 
 static int terminal_handle_message(terminal_state *state,
@@ -257,9 +335,13 @@ static int terminal_handle_message(terminal_state *state,
 		    get32(payload) != state->window_id || get64(payload + 4) == 0 ||
 		    get32(payload + 12) == 0 || get32(payload + 16) == 0)
 			return -1;
+		if (terminal_resize_grid(state, get32(payload + 12), get32(payload + 16)) < 0) {
+			fprintf(stderr, "terminal: grid resize failed\n");
+			return -1;
+		}
 		state->configure_serial = get64(payload + 4);
-		state->width = get32(payload + 12);
-		state->height = get32(payload + 16);
+		if (state->master >= 0 && terminal_resize_pty(state->master, state) < 0)
+			return -1;
 		return 1;
 	}
 	if (header->type == GUI_PROTOCOL_WINDOW_CLOSE_REQUEST) {
@@ -283,42 +365,32 @@ static int terminal_handle_message(terminal_state *state,
 static int read_surface_data_reply(terminal_state *state, uint64_t frame_serial,
 				   uint32_t pixel_offset, uint32_t pixel_count)
 {
-	uint8_t payload[sizeof(gui_protocol_wire_surface_data_reply)];
-
 	for (;;) {
 		gui_protocol_header header;
 		int result;
 
-		if (read_message(state->fd, &header, payload, sizeof(payload)) < 0)
-		{
-			fprintf(stderr, "terminal: surface reply read failed\n");
+		if (read_message(state->fd, &header, terminal_input, sizeof(terminal_input)) < 0)
 			return -1;
-		}
 		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY) {
 			if (header.length != GUI_PROTOCOL_HEADER_SIZE +
 			    sizeof(gui_protocol_wire_surface_data_reply) ||
-			    get32(payload) != state->window_id ||
-			    get64(payload + 4) != state->configure_serial ||
-			    get64(payload + 12) != frame_serial ||
-			    get32(payload + 20) != pixel_offset ||
-			    get32(payload + 24) != pixel_count)
-			{
-				fprintf(stderr, "terminal: malformed surface reply\n");
+			    get32(terminal_input) != state->window_id ||
+			    get64(terminal_input + 4) != state->configure_serial ||
+			    get64(terminal_input + 12) != frame_serial ||
+			    get32(terminal_input + 20) != pixel_offset ||
+			    get32(terminal_input + 24) != pixel_count)
 				return -1;
-			}
 			return 0;
 		}
 		if (header.type == GUI_PROTOCOL_ERROR &&
 		    header.length == GUI_PROTOCOL_HEADER_SIZE +
 		    sizeof(gui_protocol_wire_error)) {
 			fprintf(stderr, "terminal: protocol error type %u status %d\n",
-				get16(payload + 4), (int32_t)get32(payload));
+				get16(terminal_input + 4), (int32_t)get32(terminal_input));
 			return -1;
 		}
-		result = terminal_handle_message(state, &header, payload,
+		result = terminal_handle_message(state, &header, terminal_input,
 			header.length - GUI_PROTOCOL_HEADER_SIZE);
-		if (result < 0)
-			fprintf(stderr, "terminal: unexpected message %u\n", header.type);
 		if (result < 0 || state->close_requested)
 			return -1;
 		if (result > 0)
@@ -366,7 +438,7 @@ static int terminal_send_surface(terminal_state *state)
 		for (uint32_t index = 0; index < pixel_count; index++)
 			put32(terminal_frame + GUI_PROTOCOL_HEADER_SIZE +
 				sizeof(gui_protocol_wire_surface_data) + index * sizeof(uint32_t),
-				terminal_pixel(pixel_offset + index));
+				terminal_pixel(state, pixel_offset + index));
 		if (write_full(state->fd, terminal_frame,
 			GUI_PROTOCOL_HEADER_SIZE + payload_bytes) < 0)
 			return -1;
@@ -443,11 +515,53 @@ static int terminal_create_window(terminal_state *state)
 		state->width != 0 && state->height != 0 ? 0 : -1;
 }
 
-static int terminal_spawn_pty(const char *command, int *master, pid_t *child)
+static int terminal_winsize(const terminal_state *state, struct winsize *size)
 {
-	pid_t pid = forkpty(master, NULL, NULL, NULL);
+	if (state->vt.rows > UINT16_MAX || state->vt.columns > UINT16_MAX ||
+	    state->width > UINT16_MAX || state->height > UINT16_MAX)
+		return -1;
+	*size = (struct winsize) {
+		.ws_row = state->vt.rows,
+		.ws_col = state->vt.columns,
+		.ws_xpixel = state->width,
+		.ws_ypixel = state->height,
+	};
+	return 0;
+}
+
+static int terminal_resize_pty(int master, const terminal_state *state)
+{
+	struct winsize size;
+
+	if (terminal_winsize(state, &size) < 0)
+		return -1;
+	/* TIOCSWINSZ notifies the PTY foreground process group with SIGWINCH. */
+	return ioctl(master, TIOCSWINSZ, &size);
+}
+
+static int terminal_send_current_surface(terminal_state *state, int master)
+{
+	int result;
+
+	/* A configure may arrive while the server acknowledges a surface chunk. */
+	do {
+		result = terminal_send_surface(state);
+		if (result < 0)
+			return -1;
+	} while (result > 0);
+	return 0;
+}
+
+static int terminal_spawn_pty(const char *command, const terminal_state *state,
+			      int *master, pid_t *child)
+{
+	struct winsize size;
+	pid_t pid;
 	int flags;
 
+	if (terminal_winsize(state, &size) < 0)
+		return -1;
+	pid = forkpty(master, NULL, NULL, &size);
 	if (pid < 0)
 		return -1;
 	if (pid == 0) {
@@ -507,8 +621,7 @@ static int terminal_drain_pty(int master, terminal_vt *vt, int *updated)
 
 int main(int argc, char **argv)
 {
-	terminal_state state = { .fd = -1 };
-	uint8_t payload[sizeof(gui_protocol_wire_window_configure)];
+	terminal_state state = { .fd = -1, .master = -1 };
 	const char *command = NULL;
 	pid_t child = -1;
 	int master = -1;
@@ -527,9 +640,8 @@ int main(int argc, char **argv)
 		fprintf(stderr, "terminal: create failed\n");
 		goto out;
 	}
-	if (terminal_vt_init(&state.vt, terminal_primary_cells,
-			     terminal_alternate_cells, TERMINAL_ROWS, TERMINAL_COLUMNS) < 0) {
-		fprintf(stderr, "terminal: VT setup failed\n");
+	if (terminal_resize_grid(&state, state.width, state.height) < 0) {
+		fprintf(stderr, "terminal: grid setup failed\n");
 		goto out;
 	}
 	state.font = gui_font_load(TERMINAL_FONT_PATH, TERMINAL_FONT_HEIGHT);
@@ -541,10 +653,11 @@ int main(int argc, char **argv)
 		fprintf(stderr, "terminal: initial frame failed\n");
 		goto out;
 	}
-	if (terminal_spawn_pty(command, &master, &child) < 0) {
+	if (terminal_spawn_pty(command, &state, &master, &child) < 0) {
 		fprintf(stderr, "terminal: PTY setup failed: %d\n", errno);
 		goto out;
 	}
+	state.master = master;
 	puts("terminal: window ready");
 	fflush(stdout);
 	status = 0;
@@ -563,12 +676,15 @@ int main(int argc, char **argv)
 		if (pollfds[0].revents & (POLLERR | POLLHUP | POLLNVAL))
 			break;
 		if (pollfds[0].revents & POLLIN) {
-			if (read_message(state.fd, &header, payload, sizeof(payload)) < 0 ||
-			    (result = terminal_handle_message(&state, &header, payload,
+			if (read_message(state.fd, &header, terminal_input,
+					 sizeof(terminal_input)) < 0 ||
+			    (result = terminal_handle_message(&state, &header, terminal_input,
 		     header.length - GUI_PROTOCOL_HEADER_SIZE)) < 0)
 				break;
-			if (result > 0 && terminal_send_surface(&state) != 0)
+			if (result > 0 && terminal_send_current_surface(&state, master) < 0) {
+				fprintf(stderr, "terminal: resized frame failed\n");
 				break;
+			}
 			if (state.close_requested)
 				break;
 		}
@@ -578,11 +694,12 @@ int main(int argc, char **argv)
 			result = terminal_drain_pty(master, &state.vt, &updated);
 			if (result < 0)
 				break;
-			if (updated && terminal_send_surface(&state) != 0)
+			if (updated && terminal_send_current_surface(&state, master) < 0)
 				break;
 			if (result > 0) {
 				status = terminal_finish_child(master, child) == 0 ? 0 : 1;
 				master = -1;
+				state.master = -1;
 				state.close_requested = 1;
 				break;
 			}
@@ -599,6 +716,9 @@ out:
 	if (master >= 0)
 		close(master);
 	gui_font_destroy(state.font);
+	free(state.primary_cells);
+	free(state.alternate_cells);
+	free(state.pixels);
 	if (state.fd >= 0)
 		close(state.fd);
 	return status;

@@ -1,0 +1,18 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/terminal-resize.log /tmp/terminal-resize.pid /tmp/terminal-size; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL: /usr/bin/terminal --command "exec /usr/bin/test/terminal-winsize.exe" >/tmp/terminal-resize.log 2>&1 & echo $! >/tmp/terminal-resize.pid
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/terminal-resize.log; do sleep 1; done
+GUI-MOUSE-MOVE: 432,184
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/terminal-resize.log; do sleep 1; done; cat /tmp/terminal-resize.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 496 200 8 8 17 24 39
+SERIAL: kill -TERM $(cat /tmp/terminal-resize.pid); kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

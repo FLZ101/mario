@@ -483,6 +483,66 @@ int terminal_vt_init(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 	return 0;
 }
 
+static void terminal_vt_copy_resize_cells(terminal_vt_cell *destination,
+					  uint32_t destination_columns,
+					  const terminal_vt_cell *source,
+					  uint32_t source_rows,
+					  uint32_t source_columns,
+					  uint32_t rows, uint32_t columns)
+{
+	uint32_t copied_rows = source_rows < rows ? source_rows : rows;
+	uint32_t copied_columns = source_columns < columns ? source_columns : columns;
+
+	for (uint32_t row = 0; row < copied_rows; row++)
+		memcpy(destination + (size_t)row * destination_columns,
+		       source + (size_t)row * source_columns,
+		       (size_t)copied_columns * sizeof(*source));
+}
+
+int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
+		       terminal_vt_cell *alternate_cells, uint32_t rows,
+		       uint32_t columns)
+{
+	terminal_vt resized;
+	size_t cell_count;
+
+	if (terminal == NULL || primary_cells == NULL || alternate_cells == NULL ||
+	    primary_cells == alternate_cells || rows == 0 || columns == 0 ||
+	    rows > SIZE_MAX / columns / sizeof(*primary_cells))
+		return -1;
+	cell_count = (size_t)rows * columns;
+	memset(primary_cells, 0, cell_count * sizeof(*primary_cells));
+	memset(alternate_cells, 0, cell_count * sizeof(*alternate_cells));
+	terminal_vt_copy_resize_cells(primary_cells, columns, terminal->primary_cells,
+		terminal->rows, terminal->columns, rows, columns);
+	terminal_vt_copy_resize_cells(alternate_cells, columns, terminal->alternate_cells,
+		terminal->rows, terminal->columns, rows, columns);
+	resized = *terminal;
+	resized.cells = terminal->using_alternate ? alternate_cells : primary_cells;
+	resized.primary_cells = primary_cells;
+	resized.alternate_cells = alternate_cells;
+	resized.rows = rows;
+	resized.columns = columns;
+	resized.cursor_row = resized.cursor_row < rows ? resized.cursor_row : rows - 1;
+	resized.cursor_column = resized.cursor_column < columns ?
+		resized.cursor_column : columns - 1;
+	resized.saved_cursor_row = resized.saved_cursor_row < rows ?
+		resized.saved_cursor_row : rows - 1;
+	resized.saved_cursor_column = resized.saved_cursor_column < columns ?
+		resized.saved_cursor_column : columns - 1;
+	resized.primary_cursor_row = resized.primary_cursor_row < rows ?
+		resized.primary_cursor_row : rows - 1;
+	resized.primary_cursor_column = resized.primary_cursor_column < columns ?
+		resized.primary_cursor_column : columns - 1;
+	/* Old margins cannot describe the new grid, so reset them to full screen. */
+	resized.scroll_top = 0;
+	resized.scroll_bottom = rows - 1;
+	resized.primary_scroll_top = 0;
+	resized.primary_scroll_bottom = rows - 1;
+	*terminal = resized;
+	return 0;
+}
+
 void terminal_vt_feed(terminal_vt *terminal, const uint8_t *bytes,
 		      size_t byte_count)
 {

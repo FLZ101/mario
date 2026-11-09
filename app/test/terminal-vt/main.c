@@ -300,6 +300,34 @@ static void test_alternate_screen_and_reset(void)
 	       terminal.attributes == 0);
 }
 
+static void test_resize(void)
+{
+	static const uint8_t primary[] = "ab\r\nde";
+	static const uint8_t alternate[] = "\x1b[?1049hXY";
+	terminal_vt_cell cells[6];
+	terminal_vt_cell alternate_cells[6];
+	terminal_vt_cell resized_cells[12];
+	terminal_vt_cell resized_alternate_cells[12];
+	terminal_vt terminal;
+
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 2, 3) == 0);
+	terminal_vt_feed(&terminal, primary, sizeof(primary) - 1);
+	terminal_vt_feed(&terminal, alternate, sizeof(alternate) - 1);
+	assert(terminal_vt_resize(&terminal, resized_cells, resized_alternate_cells,
+		3, 4) == 0);
+	assert(terminal.rows == 3 && terminal.columns == 4);
+	assert(terminal.using_alternate);
+	assert(terminal.cells == resized_alternate_cells);
+	assert(resized_alternate_cells[0].codepoint == 'X' &&
+	       resized_alternate_cells[1].codepoint == 'Y');
+	terminal_vt_feed(&terminal, (const uint8_t *)"\x1b[?1049l", 8);
+	assert(terminal.cells == resized_cells);
+	assert(resized_cells[0].codepoint == 'a' &&
+	       resized_cells[1].codepoint == 'b' &&
+	       resized_cells[4].codepoint == 'd' &&
+	       resized_cells[5].codepoint == 'e');
+}
+
 int main(void)
 {
 	test_cases();
@@ -308,9 +336,11 @@ int main(void)
 	test_scroll_region();
 	test_attributes_and_saved_cursor();
 	test_alternate_screen_and_reset();
+	test_resize();
 	puts("terminal-vt: basic controls ok");
 	puts("terminal-vt: UTF-8 ok");
 	puts("terminal-vt: CSI ok");
 	puts("terminal-vt: attributes ok");
+	puts("terminal-vt: resize ok");
 	return 0;
 }

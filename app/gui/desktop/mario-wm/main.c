@@ -854,6 +854,16 @@ static int client_flush(wm_client *client)
 	       GUI_PROTOCOL_OUTPUT_ERROR ? 0 : -1;
 }
 
+static void wm_flush_client_outputs(wm_server *server)
+{
+	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+		wm_client *client = &server->clients[index];
+
+		if (client->fd >= 0 && client_flush(client) < 0)
+			client->hello = -1;
+	}
+}
+
 static int client_enqueue_focus(wm_client *client, int focused)
 {
 	uint8_t focus[sizeof(gui_protocol_wire_window_focus)];
@@ -1937,6 +1947,8 @@ int main(void)
 			if (errno != EAGAIN)
 				goto out;
 		}
+		/* Mouse-driven moves and resizes queue configure messages without I/O. */
+		wm_flush_client_outputs(&server);
 		for (size_t index = 0, poll_index = 4; index < WM_CLIENT_LIMIT; index++) {
 			uint8_t bytes[4096];
 			ssize_t count = -1;

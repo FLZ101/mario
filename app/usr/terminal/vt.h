@@ -57,6 +57,9 @@ typedef struct {
 int terminal_vt_init(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 		     terminal_vt_cell *alternate_cells, uint32_t rows,
 		     uint32_t columns);
+int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
+		       terminal_vt_cell *alternate_cells, uint32_t rows,
+		       uint32_t columns);
 void terminal_vt_feed(terminal_vt *terminal, const uint8_t *bytes,
 		      size_t byte_count);
 
