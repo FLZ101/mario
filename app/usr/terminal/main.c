@@ -12,6 +12,8 @@
 
 #include <gui/protocol.h>
 
+#include "vt.h"
+
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
 #define TERMINAL_WIDTH 320U
 #define TERMINAL_HEIGHT 192U
@@ -20,6 +22,8 @@
 #define TERMINAL_BACKGROUND 0x00111827U
 #define TERMINAL_GRID 0x002563ebU
 #define TERMINAL_CURSOR 0x00f8fafcU
+#define TERMINAL_ROWS 24U
+#define TERMINAL_COLUMNS 80U
 
 typedef struct {
 	int fd;
@@ -29,12 +33,14 @@ typedef struct {
 	uint32_t width;
 	uint32_t height;
 	int close_requested;
+	terminal_vt vt;
 } terminal_state;
 
 /* Keep the largest outbound wire frame out of Mario's small initial stack. */
 static uint8_t terminal_frame[GUI_PROTOCOL_HEADER_SIZE +
 	sizeof(gui_protocol_wire_surface_data) +
 	SURFACE_PIXELS_PER_MESSAGE * sizeof(uint32_t)];
+static terminal_vt_cell terminal_cells[TERMINAL_ROWS * TERMINAL_COLUMNS];
 
 static void put16(uint8_t *bytes, uint16_t value)
 {
@@ -376,7 +382,7 @@ static int terminal_finish_child(int master, pid_t child)
 	return WEXITSTATUS(status) == 0 ? 0 : -1;
 }
 
-static int terminal_drain_pty(int master)
+static int terminal_drain_pty(int master, terminal_vt *vt)
 {
 	uint8_t buffer[512];
 
@@ -384,6 +390,7 @@ static int terminal_drain_pty(int master)
 		ssize_t count = read(master, buffer, sizeof(buffer));
 
 		if (count > 0) {
+			terminal_vt_feed(vt, buffer, count);
 			if (write_full(STDOUT_FILENO, buffer, count) < 0)
 				return -1;
 			continue;
@@ -424,6 +431,11 @@ int main(int argc, char **argv)
 		fprintf(stderr, "terminal: initial frame failed\n");
 		goto out;
 	}
+	if (terminal_vt_init(&state.vt, terminal_cells, TERMINAL_ROWS,
+			     TERMINAL_COLUMNS) < 0) {
+		fprintf(stderr, "terminal: VT setup failed\n");
+		goto out;
+	}
 	if (terminal_spawn_pty(command, &master, &child) < 0) {
 		fprintf(stderr, "terminal: PTY setup failed: %d\n", errno);
 		goto out;
@@ -456,7 +468,7 @@ int main(int argc, char **argv)
 				break;
 		}
 		if (pollfds[1].revents & (POLLIN | POLLHUP | POLLERR)) {
-			result = terminal_drain_pty(master);
+			result = terminal_drain_pty(master, &state.vt);
 			if (result < 0)
 				break;
 			if (result > 0) {

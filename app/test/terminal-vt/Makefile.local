@@ -1,0 +1,3 @@
+# Link the test against the terminal's production parser implementation.
+CFLAGS += -I$(ROOT)/usr/terminal
+OBJS += $(ROOT)/usr/terminal/vt.o

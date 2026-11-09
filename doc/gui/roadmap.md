@@ -897,7 +897,7 @@ Checkpoint:
 - [x] **M5.1.2 — attach a PTY child.** Allocate the PTY, establish the
   controlling terminal, spawn the shell, and drain plain output. Test a fixed
   command and child-exit status. Commit: `terminal: attach shell PTY`.
-- [ ] **M5.2.1 — parse printable text and basic controls.** Implement UTF-8
+- [x] **M5.2.1 — parse printable text and basic controls.** Implement UTF-8
   feed, CR/LF/BS, wrapping, scrolling, and cursor movement in a pure module.
   Add table-driven parser tests. Commit: `terminal: parse basic text`.
 - [ ] **M5.2.2 — parse CSI erase and cursor sequences.** Add CUP/CHA/CUU/CUD/
