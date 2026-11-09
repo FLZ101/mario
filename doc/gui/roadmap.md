@@ -985,7 +985,7 @@ terminal: run oksh in a GUI terminal over a PTY
 
 ## M6: Image Viewer
 
-- [ ] **M6.1.1 — install immutable image fixtures.** Add tiny/large BMP and PNG
+- [x] **M6.1.1 — install immutable image fixtures.** Add tiny/large BMP and PNG
   files with recorded dimensions and hashes; copy them into the common image.
   Test fixture installation only. Commit: `imageviewer: install test assets`.
 - [ ] **M6.1.2 — parse bounded BMP metadata.** Validate signatures, dimensions,

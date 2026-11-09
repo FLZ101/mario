@@ -1,0 +1,6 @@
+RUN: sha256sum /usr/share/mario-tests/gui/checker-64.bmp
+CHECK: d0c414a8c058c42b44a4918286ebcb8aca05194db344f07338d5e320df48d7f9  /usr/share/mario-tests/gui/checker-64.bmp
+RUN: sha256sum /usr/share/mario-tests/gui/alpha-128.png
+CHECK: 8db9fc5f353bc8f96337922e912d62fe1d1ed5580d5db9261985226b8b4a493c  /usr/share/mario-tests/gui/alpha-128.png
+RUN: sha256sum /usr/share/mario-tests/gui/large-1600x1200.png
+CHECK: ca467fd8fb71a0486be862f8ca2ffaebe574fca7c2671a5fd3c9851a0415ab71  /usr/share/mario-tests/gui/large-1600x1200.png
