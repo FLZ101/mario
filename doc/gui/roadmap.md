@@ -996,7 +996,7 @@ terminal: run oksh in a GUI terminal over a PTY
   aspect-preserving fit-to-window, and add one `GUI-VISUAL-TEST:` BMP golden.
   Enable the bounded `LAUNCH_IMAGE_VIEWER` path form. Commit:
   `imageviewer: display BMP images`.
-- [ ] **M6.2.1 — pin and build PNG support.** Add the selected decoder and its
+- [x] **M6.2.1 — pin and build PNG support.** Add the selected decoder and its
   checksum/build rule independently of the viewer. Test a decoder smoke
   executable. Commit: `imageviewer: build PNG decoder`.
 - [ ] **M6.2.2 — decode bounded PNG frames.** Enforce dimensions, row bytes,

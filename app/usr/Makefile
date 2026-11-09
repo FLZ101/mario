@@ -49,6 +49,7 @@ include less.mk
 
 include readline.mk
 include zlib.mk
+include libpng.mk
 include sqlite.mk
 
 include python.mk

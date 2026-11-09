@@ -1,0 +1,2 @@
+RUN: /usr/bin/test/png-decoder.exe
+CHECK: png-decoder: libpng 1.6.59
