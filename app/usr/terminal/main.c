@@ -40,7 +40,8 @@ typedef struct {
 static uint8_t terminal_frame[GUI_PROTOCOL_HEADER_SIZE +
 	sizeof(gui_protocol_wire_surface_data) +
 	SURFACE_PIXELS_PER_MESSAGE * sizeof(uint32_t)];
-static terminal_vt_cell terminal_cells[TERMINAL_ROWS * TERMINAL_COLUMNS];
+static terminal_vt_cell terminal_primary_cells[TERMINAL_ROWS * TERMINAL_COLUMNS];
+static terminal_vt_cell terminal_alternate_cells[TERMINAL_ROWS * TERMINAL_COLUMNS];
 
 static void put16(uint8_t *bytes, uint16_t value)
 {
@@ -431,8 +432,8 @@ int main(int argc, char **argv)
 		fprintf(stderr, "terminal: initial frame failed\n");
 		goto out;
 	}
-	if (terminal_vt_init(&state.vt, terminal_cells, TERMINAL_ROWS,
-			     TERMINAL_COLUMNS) < 0) {
+	if (terminal_vt_init(&state.vt, terminal_primary_cells,
+			     terminal_alternate_cells, TERMINAL_ROWS, TERMINAL_COLUMNS) < 0) {
 		fprintf(stderr, "terminal: VT setup failed\n");
 		goto out;
 	}

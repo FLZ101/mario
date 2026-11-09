@@ -2,3 +2,4 @@ RUN: /usr/bin/test/terminal-vt.exe
 CHECK: terminal-vt: basic controls ok
 CHECK: terminal-vt: UTF-8 ok
 CHECK: terminal-vt: CSI ok
+CHECK: terminal-vt: attributes ok

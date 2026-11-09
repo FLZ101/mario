@@ -66,13 +66,14 @@ static void test_cases(void)
 
 	for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
 		terminal_vt_cell cells[8];
+		terminal_vt_cell alternate_cells[8];
 		terminal_vt terminal;
 		const terminal_vt_case *test_case = &cases[index];
 
 		assert(test_case->rows * test_case->columns <=
 		       sizeof(cells) / sizeof(cells[0]));
-		assert(terminal_vt_init(&terminal, cells, test_case->rows,
-					test_case->columns) == 0);
+		assert(terminal_vt_init(&terminal, cells, alternate_cells,
+					test_case->rows, test_case->columns) == 0);
 		for (size_t input = 0; input < test_case->input_count; input++)
 			terminal_vt_feed(&terminal, test_case->inputs[input].bytes,
 					 test_case->inputs[input].byte_count);
@@ -131,10 +132,11 @@ static void test_csi_cursor(void)
 
 	for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
 		terminal_vt_cell cells[15];
+		terminal_vt_cell alternate_cells[15];
 		terminal_vt terminal;
 		const terminal_vt_cursor_case *test_case = &cases[index];
 
-		assert(terminal_vt_init(&terminal, cells, 3, 5) == 0);
+		assert(terminal_vt_init(&terminal, cells, alternate_cells, 3, 5) == 0);
 		terminal.cursor_row = test_case->start_row;
 		terminal.cursor_column = test_case->start_column;
 		for (size_t input = 0; input < test_case->input_count; input++)
@@ -187,10 +189,11 @@ static void test_csi_erase(void)
 
 	for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
 		terminal_vt_cell cells[12];
+		terminal_vt_cell alternate_cells[12];
 		terminal_vt terminal;
 		const terminal_vt_erase_case *test_case = &cases[index];
 
-		assert(terminal_vt_init(&terminal, cells, 3, 4) == 0);
+		assert(terminal_vt_init(&terminal, cells, alternate_cells, 3, 4) == 0);
 		terminal_vt_feed(&terminal, fill, sizeof(fill) - 1);
 		terminal_vt_feed(&terminal, cursor, sizeof(cursor) - 1);
 		terminal_vt_feed(&terminal, test_case->sequence,
@@ -210,14 +213,91 @@ static void test_scroll_region(void)
 		't', 'w', 'o', 0, 'l', 'o', 'w', 0,
 	};
 	terminal_vt_cell cells[16];
+	terminal_vt_cell alternate_cells[16];
 	terminal_vt terminal;
 
-	assert(terminal_vt_init(&terminal, cells, 4, 4) == 0);
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 4, 4) == 0);
 	terminal_vt_feed(&terminal, input, sizeof(input) - 1);
 	for (size_t cell = 0; cell < sizeof(cells) / sizeof(cells[0]); cell++)
 		assert(cells[cell].codepoint == expected[cell]);
 	assert(terminal.scroll_top == 1 && terminal.scroll_bottom == 2);
 	assert(terminal.cursor_row == 2 && terminal.cursor_column == 3);
+}
+
+static void test_attributes_and_saved_cursor(void)
+{
+	static const uint8_t initial[] =
+		"\x1b[31;44;1mA\x1b[4;7;92;105mB"
+		"\x1b[22;24;27;39;49mC";
+	static const uint8_t dec_save[] = "\x1b" "7\x1b[2;6H\x1b[0m\x1b" "8D";
+	static const uint8_t csi_save[] =
+		"\x1b[2;1H\x1b[32m\x1b[s\x1b[1;1H\x1b[0m\x1b[uE";
+	terminal_vt_cell cells[12];
+	terminal_vt_cell alternate_cells[12];
+	terminal_vt terminal;
+
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 2, 6) == 0);
+	terminal_vt_feed(&terminal, initial, sizeof(initial) - 1);
+	assert(cells[0].codepoint == 'A' && cells[0].foreground == 1 &&
+	       cells[0].background == 4 &&
+	       cells[0].attributes == TERMINAL_VT_ATTRIBUTE_BOLD);
+	assert(cells[1].codepoint == 'B' && cells[1].foreground == 10 &&
+	       cells[1].background == 13 &&
+	       cells[1].attributes == (TERMINAL_VT_ATTRIBUTE_BOLD |
+					TERMINAL_VT_ATTRIBUTE_UNDERLINE |
+					TERMINAL_VT_ATTRIBUTE_INVERSE));
+	assert(cells[2].codepoint == 'C' &&
+	       cells[2].foreground == TERMINAL_VT_COLOR_DEFAULT &&
+	       cells[2].background == TERMINAL_VT_COLOR_DEFAULT &&
+	       cells[2].attributes == 0);
+
+	terminal_vt_feed(&terminal, dec_save, sizeof(dec_save) - 1);
+	assert(cells[3].codepoint == 'D' &&
+	       cells[3].foreground == TERMINAL_VT_COLOR_DEFAULT &&
+	       cells[3].background == TERMINAL_VT_COLOR_DEFAULT &&
+	       cells[3].attributes == 0);
+	terminal_vt_feed(&terminal, csi_save, sizeof(csi_save) - 1);
+	assert(cells[6].codepoint == 'E' && cells[6].foreground == 2 &&
+	       cells[6].background == TERMINAL_VT_COLOR_DEFAULT &&
+	       cells[6].attributes == 0);
+}
+
+static void test_alternate_screen_and_reset(void)
+{
+	static const uint8_t primary[] = "pri";
+	static const uint8_t enter[] = "\x1b[?1049halt";
+	static const uint8_t leave[] = "\x1b[?1049lZ";
+	static const uint8_t reset[] = "\x1b[?1049hQ\x1b" "c";
+	terminal_vt_cell cells[8];
+	terminal_vt_cell alternate_cells[8];
+	terminal_vt terminal;
+
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 2, 4) == 0);
+	terminal_vt_feed(&terminal, primary, sizeof(primary) - 1);
+	terminal_vt_feed(&terminal, enter, sizeof(enter) - 1);
+	assert(terminal.using_alternate && terminal.cells == alternate_cells);
+	assert(alternate_cells[0].codepoint == 'a' &&
+	       alternate_cells[1].codepoint == 'l' &&
+	       alternate_cells[2].codepoint == 't');
+	assert(cells[0].codepoint == 'p' && cells[1].codepoint == 'r' &&
+	       cells[2].codepoint == 'i');
+
+	terminal_vt_feed(&terminal, leave, sizeof(leave) - 1);
+	assert(!terminal.using_alternate && terminal.cells == cells);
+	assert(cells[0].codepoint == 'p' && cells[1].codepoint == 'r' &&
+	       cells[2].codepoint == 'i' && cells[3].codepoint == 'Z');
+
+	terminal_vt_feed(&terminal, reset, sizeof(reset) - 1);
+	for (size_t index = 0; index < sizeof(cells) / sizeof(cells[0]); index++) {
+		assert(cells[index].codepoint == 0);
+		assert(alternate_cells[index].codepoint == 0);
+	}
+	assert(!terminal.using_alternate && terminal.cells == cells);
+	assert(terminal.cursor_row == 0 && terminal.cursor_column == 0);
+	assert(terminal.scroll_top == 0 && terminal.scroll_bottom == 1);
+	assert(terminal.foreground == TERMINAL_VT_COLOR_DEFAULT &&
+	       terminal.background == TERMINAL_VT_COLOR_DEFAULT &&
+	       terminal.attributes == 0);
 }
 
 int main(void)
@@ -226,8 +306,11 @@ int main(void)
 	test_csi_cursor();
 	test_csi_erase();
 	test_scroll_region();
+	test_attributes_and_saved_cursor();
+	test_alternate_screen_and_reset();
 	puts("terminal-vt: basic controls ok");
 	puts("terminal-vt: UTF-8 ok");
 	puts("terminal-vt: CSI ok");
+	puts("terminal-vt: attributes ok");
 	return 0;
 }

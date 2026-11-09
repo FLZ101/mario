@@ -7,6 +7,9 @@
 #define TERMINAL_VT_STATE_ESCAPE 1U
 #define TERMINAL_VT_STATE_CSI 2U
 
+static void terminal_vt_set_cursor(terminal_vt *terminal, uint32_t row,
+				   uint32_t column);
+
 static void terminal_vt_scroll_region(terminal_vt *terminal)
 {
 	size_t row_bytes = (size_t)terminal->columns * sizeof(*terminal->cells);
@@ -36,7 +39,12 @@ static void terminal_vt_line_feed(terminal_vt *terminal)
 static void terminal_vt_put(terminal_vt *terminal, uint32_t codepoint)
 {
 	terminal->cells[(size_t)terminal->cursor_row * terminal->columns +
-		terminal->cursor_column].codepoint = codepoint;
+		terminal->cursor_column] = (terminal_vt_cell) {
+			.codepoint = codepoint,
+			.foreground = terminal->foreground,
+			.background = terminal->background,
+			.attributes = terminal->attributes,
+		};
 	terminal->cursor_column++;
 	if (terminal->cursor_column == terminal->columns) {
 		terminal->cursor_column = 0;
@@ -70,6 +78,7 @@ static void terminal_vt_reset_escape(terminal_vt *terminal)
 	terminal->parser_state = TERMINAL_VT_STATE_TEXT;
 	terminal->csi_parameter_count = 0;
 	terminal->csi_ignored = 0;
+	terminal->csi_private = 0;
 }
 
 static void terminal_vt_begin_csi(terminal_vt *terminal)
@@ -77,7 +86,33 @@ static void terminal_vt_begin_csi(terminal_vt *terminal)
 	terminal->parser_state = TERMINAL_VT_STATE_CSI;
 	terminal->csi_parameter_count = 1;
 	terminal->csi_ignored = 0;
+	terminal->csi_private = 0;
 	terminal->csi_parameters[0] = 0;
+}
+
+static void terminal_vt_save_cursor(terminal_vt *terminal)
+{
+	terminal->saved_cursor_row = terminal->cursor_row;
+	terminal->saved_cursor_column = terminal->cursor_column;
+	terminal->saved_foreground = terminal->foreground;
+	terminal->saved_background = terminal->background;
+	terminal->saved_attributes = terminal->attributes;
+}
+
+static void terminal_vt_restore_cursor(terminal_vt *terminal)
+{
+	terminal_vt_set_cursor(terminal, terminal->saved_cursor_row,
+			       terminal->saved_cursor_column);
+	terminal->foreground = terminal->saved_foreground;
+	terminal->background = terminal->saved_background;
+	terminal->attributes = terminal->saved_attributes;
+}
+
+static void terminal_vt_reset_rendition(terminal_vt *terminal)
+{
+	terminal->foreground = TERMINAL_VT_COLOR_DEFAULT;
+	terminal->background = TERMINAL_VT_COLOR_DEFAULT;
+	terminal->attributes = 0;
 }
 
 static uint32_t terminal_vt_csi_value(const terminal_vt *terminal,
@@ -133,6 +168,67 @@ static void terminal_vt_set_cursor(terminal_vt *terminal, uint32_t row,
 		terminal->columns - 1 : column;
 }
 
+static void terminal_vt_clear_buffer(const terminal_vt *terminal,
+				     terminal_vt_cell *cells)
+{
+	memset(cells, 0, (size_t)terminal->rows * terminal->columns *
+		sizeof(*cells));
+}
+
+static void terminal_vt_enter_alternate(terminal_vt *terminal)
+{
+	if (terminal->using_alternate)
+		return;
+	/* DEC 1049 preserves the visible primary state before clearing the alt grid. */
+	terminal->primary_cursor_row = terminal->cursor_row;
+	terminal->primary_cursor_column = terminal->cursor_column;
+	terminal->primary_scroll_top = terminal->scroll_top;
+	terminal->primary_scroll_bottom = terminal->scroll_bottom;
+	terminal->primary_foreground = terminal->foreground;
+	terminal->primary_background = terminal->background;
+	terminal->primary_attributes = terminal->attributes;
+	terminal->cells = terminal->alternate_cells;
+	terminal->using_alternate = 1;
+	terminal->cursor_row = 0;
+	terminal->cursor_column = 0;
+	terminal->scroll_top = 0;
+	terminal->scroll_bottom = terminal->rows - 1;
+	terminal_vt_reset_rendition(terminal);
+	terminal_vt_clear_buffer(terminal, terminal->cells);
+}
+
+static void terminal_vt_leave_alternate(terminal_vt *terminal)
+{
+	if (!terminal->using_alternate)
+		return;
+	terminal->cells = terminal->primary_cells;
+	terminal->using_alternate = 0;
+	terminal->cursor_row = terminal->primary_cursor_row;
+	terminal->cursor_column = terminal->primary_cursor_column;
+	terminal->scroll_top = terminal->primary_scroll_top;
+	terminal->scroll_bottom = terminal->primary_scroll_bottom;
+	terminal->foreground = terminal->primary_foreground;
+	terminal->background = terminal->primary_background;
+	terminal->attributes = terminal->primary_attributes;
+}
+
+static void terminal_vt_reset(terminal_vt *terminal)
+{
+	/* RIS makes both screens blank, then resumes on the primary screen. */
+	terminal_vt_clear_buffer(terminal, terminal->primary_cells);
+	terminal_vt_clear_buffer(terminal, terminal->alternate_cells);
+	terminal->cells = terminal->primary_cells;
+	terminal->using_alternate = 0;
+	terminal->cursor_row = 0;
+	terminal->cursor_column = 0;
+	terminal->scroll_top = 0;
+	terminal->scroll_bottom = terminal->rows - 1;
+	terminal_vt_reset_rendition(terminal);
+	terminal_vt_save_cursor(terminal);
+	terminal_vt_reset_utf8(terminal);
+	terminal_vt_reset_escape(terminal);
+}
+
 static void terminal_vt_set_scroll_region(terminal_vt *terminal)
 {
 	uint32_t top = terminal_vt_csi_count(terminal, 0, 1);
@@ -145,10 +241,59 @@ static void terminal_vt_set_scroll_region(terminal_vt *terminal)
 	terminal_vt_set_cursor(terminal, 0, 0);
 }
 
+static void terminal_vt_set_sgr(terminal_vt *terminal)
+{
+	for (uint8_t index = 0; index < terminal->csi_parameter_count; index++) {
+		uint32_t parameter = terminal_vt_csi_value(terminal, index);
+
+		if (parameter == 0)
+			terminal_vt_reset_rendition(terminal);
+		else if (parameter == 1)
+			terminal->attributes |= TERMINAL_VT_ATTRIBUTE_BOLD;
+		else if (parameter == 4)
+			terminal->attributes |= TERMINAL_VT_ATTRIBUTE_UNDERLINE;
+		else if (parameter == 7)
+			terminal->attributes |= TERMINAL_VT_ATTRIBUTE_INVERSE;
+		else if (parameter == 22)
+			terminal->attributes &= ~TERMINAL_VT_ATTRIBUTE_BOLD;
+		else if (parameter == 24)
+			terminal->attributes &= ~TERMINAL_VT_ATTRIBUTE_UNDERLINE;
+		else if (parameter == 27)
+			terminal->attributes &= ~TERMINAL_VT_ATTRIBUTE_INVERSE;
+		else if (parameter >= 30 && parameter <= 37)
+			terminal->foreground = parameter - 30;
+		else if (parameter == 39)
+			terminal->foreground = TERMINAL_VT_COLOR_DEFAULT;
+		else if (parameter >= 40 && parameter <= 47)
+			terminal->background = parameter - 40;
+		else if (parameter == 49)
+			terminal->background = TERMINAL_VT_COLOR_DEFAULT;
+		else if (parameter >= 90 && parameter <= 97)
+			terminal->foreground = parameter - 90 + 8;
+		else if (parameter >= 100 && parameter <= 107)
+			terminal->background = parameter - 100 + 8;
+	}
+}
+
+static void terminal_vt_execute_private_csi(terminal_vt *terminal,
+					    uint8_t final)
+{
+	if (terminal_vt_csi_value(terminal, 0) != 1049)
+		return;
+	if (final == 'h')
+		terminal_vt_enter_alternate(terminal);
+	else if (final == 'l')
+		terminal_vt_leave_alternate(terminal);
+}
+
 static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
 {
 	uint32_t amount;
 
+	if (terminal->csi_private) {
+		terminal_vt_execute_private_csi(terminal, final);
+		return;
+	}
 	switch (final) {
 	case 'A':
 		amount = terminal_vt_csi_count(terminal, 0, 1);
@@ -187,14 +332,28 @@ static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
 	case 'K':
 		terminal_vt_clear_line(terminal, terminal_vt_csi_value(terminal, 0));
 		break;
+	case 'm':
+		terminal_vt_set_sgr(terminal);
+		break;
 	case 'r':
 		terminal_vt_set_scroll_region(terminal);
+		break;
+	case 's':
+		terminal_vt_save_cursor(terminal);
+		break;
+	case 'u':
+		terminal_vt_restore_cursor(terminal);
 		break;
 	}
 }
 
 static void terminal_vt_feed_csi(terminal_vt *terminal, uint8_t byte)
 {
+	if (byte == '?' && terminal->csi_parameter_count == 1 &&
+	    terminal->csi_parameters[0] == 0 && !terminal->csi_private) {
+		terminal->csi_private = 1;
+		return;
+	}
 	if (byte >= '0' && byte <= '9') {
 		uint32_t *value;
 
@@ -223,6 +382,15 @@ static void terminal_vt_feed_escape(terminal_vt *terminal, uint8_t byte)
 {
 	if (byte == '[')
 		terminal_vt_begin_csi(terminal);
+	else if (byte == '7') {
+		terminal_vt_reset_escape(terminal);
+		terminal_vt_save_cursor(terminal);
+	} else if (byte == '8') {
+		terminal_vt_reset_escape(terminal);
+		terminal_vt_restore_cursor(terminal);
+	} else if (byte == 'c') {
+		terminal_vt_reset(terminal);
+	}
 	else {
 		terminal_vt_reset_escape(terminal);
 		if (byte == 0x1b)
@@ -296,19 +464,22 @@ again:
 	terminal_vt_put(terminal, TERMINAL_VT_REPLACEMENT);
 }
 
-int terminal_vt_init(terminal_vt *terminal, terminal_vt_cell *cells,
-		     uint32_t rows, uint32_t columns)
+int terminal_vt_init(terminal_vt *terminal, terminal_vt_cell *primary_cells,
+		     terminal_vt_cell *alternate_cells, uint32_t rows,
+		     uint32_t columns)
 {
-	if (terminal == NULL || cells == NULL || rows == 0 || columns == 0 ||
-	    rows > SIZE_MAX / columns / sizeof(*cells))
+	if (terminal == NULL || primary_cells == NULL || alternate_cells == NULL ||
+	    primary_cells == alternate_cells || rows == 0 || columns == 0 ||
+	    rows > SIZE_MAX / columns / sizeof(*primary_cells))
 		return -1;
 	*terminal = (terminal_vt) {
-		.cells = cells,
+		.cells = primary_cells,
+		.primary_cells = primary_cells,
+		.alternate_cells = alternate_cells,
 		.rows = rows,
 		.columns = columns,
-		.scroll_bottom = rows - 1,
 	};
-	memset(cells, 0, (size_t)rows * columns * sizeof(*cells));
+	terminal_vt_reset(terminal);
 	return 0;
 }
 

@@ -903,7 +903,7 @@ Checkpoint:
 - [x] **M5.2.2 — parse CSI erase and cursor sequences.** Add CUP/CHA/CUU/CUD/
   CUF/CUB plus ED/EL and scroll regions. Test each sequence independently.
   Commit: `terminal: parse CSI cursor and erase`.
-- [ ] **M5.2.3 — parse attributes and screen buffers.** Add SGR, save/restore
+- [x] **M5.2.3 — parse attributes and screen buffers.** Add SGR, save/restore
   cursor, alternate screen, and reset. Test state transitions before rendering.
   Commit: `terminal: parse attributes and alternate screen`.
 - [ ] **M5.3.1 — render terminal cells.** Map parser cells to toolkit glyphs,
