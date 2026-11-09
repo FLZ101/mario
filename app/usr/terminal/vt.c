@@ -17,6 +17,22 @@ static void terminal_vt_scroll_region(terminal_vt *terminal)
 		(size_t)terminal->scroll_top * terminal->columns;
 	uint32_t row_count = terminal->scroll_bottom - terminal->scroll_top;
 
+	if (!terminal->using_alternate && terminal->scroll_top == 0 &&
+	    terminal->scroll_bottom == terminal->rows - 1 &&
+	    terminal->scrollback_lines != 0) {
+		terminal_vt_cell *destination = terminal->scrollback_cells +
+			(size_t)((terminal->scrollback_head + terminal->scrollback_count) %
+			terminal->scrollback_lines) * terminal->columns;
+
+		memcpy(destination, terminal->cells,
+		       (size_t)terminal->columns * sizeof(*destination));
+		if (terminal->scrollback_count < terminal->scrollback_lines)
+			terminal->scrollback_count++;
+		else
+			terminal->scrollback_head = (terminal->scrollback_head + 1) %
+				terminal->scrollback_lines;
+	}
+
 	/* A one-row margin clears its only line instead of reading past it. */
 	if (row_count != 0)
 		memmove(top, top + terminal->columns, row_bytes * row_count);
@@ -60,6 +76,17 @@ static void terminal_vt_control(terminal_vt *terminal, uint8_t byte)
 	}
 	if (byte == '\n') {
 		terminal_vt_line_feed(terminal);
+		return;
+	}
+	if (byte == '\t') {
+		for (uint32_t column = terminal->cursor_column + 1;
+		     column < terminal->columns; column++) {
+			if (column < sizeof(terminal->tab_stops) && terminal->tab_stops[column]) {
+				terminal->cursor_column = column;
+				return;
+			}
+		}
+		terminal->cursor_column = terminal->columns - 1;
 		return;
 	}
 	if (byte == '\b' && terminal->cursor_column != 0)
@@ -227,6 +254,8 @@ static void terminal_vt_reset(terminal_vt *terminal)
 	terminal_vt_save_cursor(terminal);
 	terminal_vt_reset_utf8(terminal);
 	terminal_vt_reset_escape(terminal);
+	for (uint32_t column = 0; column < sizeof(terminal->tab_stops); column++)
+		terminal->tab_stops[column] = column != 0 && column % 8 == 0;
 }
 
 static void terminal_vt_set_scroll_region(terminal_vt *terminal)
@@ -332,6 +361,13 @@ static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
 	case 'K':
 		terminal_vt_clear_line(terminal, terminal_vt_csi_value(terminal, 0));
 		break;
+	case 'g':
+		if (terminal_vt_csi_value(terminal, 0) == 0 &&
+		    terminal->cursor_column < sizeof(terminal->tab_stops))
+			terminal->tab_stops[terminal->cursor_column] = 0;
+		else if (terminal_vt_csi_value(terminal, 0) == 3)
+			memset(terminal->tab_stops, 0, sizeof(terminal->tab_stops));
+		break;
 	case 'm':
 		terminal_vt_set_sgr(terminal);
 		break;
@@ -382,6 +418,11 @@ static void terminal_vt_feed_escape(terminal_vt *terminal, uint8_t byte)
 {
 	if (byte == '[')
 		terminal_vt_begin_csi(terminal);
+	else if (byte == 'H') {
+		terminal_vt_reset_escape(terminal);
+		if (terminal->cursor_column < sizeof(terminal->tab_stops))
+			terminal->tab_stops[terminal->cursor_column] = 1;
+	}
 	else if (byte == '7') {
 		terminal_vt_reset_escape(terminal);
 		terminal_vt_save_cursor(terminal);
@@ -483,6 +524,23 @@ int terminal_vt_init(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 	return 0;
 }
 
+int terminal_vt_set_scrollback(terminal_vt *terminal,
+			       terminal_vt_cell *scrollback_cells,
+			       uint32_t scrollback_lines)
+{
+	if (terminal == NULL || (scrollback_lines != 0 && scrollback_cells == NULL) ||
+	    scrollback_lines > SIZE_MAX / terminal->columns / sizeof(*scrollback_cells))
+		return -1;
+	terminal->scrollback_cells = scrollback_cells;
+	terminal->scrollback_lines = scrollback_lines;
+	terminal->scrollback_head = 0;
+	terminal->scrollback_count = 0;
+	if (scrollback_lines != 0)
+		memset(scrollback_cells, 0, (size_t)scrollback_lines * terminal->columns *
+			sizeof(*scrollback_cells));
+	return 0;
+}
+
 static void terminal_vt_copy_resize_cells(terminal_vt_cell *destination,
 					  uint32_t destination_columns,
 					  const terminal_vt_cell *source,
@@ -500,15 +558,20 @@ static void terminal_vt_copy_resize_cells(terminal_vt_cell *destination,
 }
 
 int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
-		       terminal_vt_cell *alternate_cells, uint32_t rows,
-		       uint32_t columns)
+		       terminal_vt_cell *alternate_cells,
+		       terminal_vt_cell *scrollback_cells,
+		       uint32_t scrollback_lines, uint32_t rows, uint32_t columns)
 {
 	terminal_vt resized;
 	size_t cell_count;
+	uint32_t copied_scrollback;
+	uint32_t first_scrollback;
 
 	if (terminal == NULL || primary_cells == NULL || alternate_cells == NULL ||
 	    primary_cells == alternate_cells || rows == 0 || columns == 0 ||
-	    rows > SIZE_MAX / columns / sizeof(*primary_cells))
+	    rows > SIZE_MAX / columns / sizeof(*primary_cells) ||
+	    (scrollback_lines != 0 && scrollback_cells == NULL) ||
+	    scrollback_lines > SIZE_MAX / columns / sizeof(*scrollback_cells))
 		return -1;
 	cell_count = (size_t)rows * columns;
 	memset(primary_cells, 0, cell_count * sizeof(*primary_cells));
@@ -517,12 +580,34 @@ int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 		terminal->rows, terminal->columns, rows, columns);
 	terminal_vt_copy_resize_cells(alternate_cells, columns, terminal->alternate_cells,
 		terminal->rows, terminal->columns, rows, columns);
+	if (scrollback_lines != 0)
+		memset(scrollback_cells, 0, (size_t)scrollback_lines * columns *
+			sizeof(*scrollback_cells));
+	copied_scrollback = terminal->scrollback_count < scrollback_lines ?
+		terminal->scrollback_count : scrollback_lines;
+	first_scrollback = terminal->scrollback_count - copied_scrollback;
+	for (uint32_t line = 0; line < copied_scrollback; line++) {
+		uint32_t source_line = (terminal->scrollback_head + first_scrollback + line) %
+			terminal->scrollback_lines;
+
+		terminal_vt_copy_resize_cells(scrollback_cells + (size_t)line * columns,
+			columns, terminal->scrollback_cells +
+			(size_t)source_line * terminal->columns, 1, terminal->columns, 1,
+			columns);
+	}
 	resized = *terminal;
 	resized.cells = terminal->using_alternate ? alternate_cells : primary_cells;
 	resized.primary_cells = primary_cells;
 	resized.alternate_cells = alternate_cells;
 	resized.rows = rows;
 	resized.columns = columns;
+	resized.scrollback_cells = scrollback_cells;
+	resized.scrollback_lines = scrollback_lines;
+	resized.scrollback_head = 0;
+	resized.scrollback_count = copied_scrollback;
+	for (uint32_t column = terminal->columns;
+	     column < columns && column < sizeof(resized.tab_stops); column++)
+		resized.tab_stops[column] = column != 0 && column % 8 == 0;
 	resized.cursor_row = resized.cursor_row < rows ? resized.cursor_row : rows - 1;
 	resized.cursor_column = resized.cursor_column < columns ?
 		resized.cursor_column : columns - 1;
@@ -541,6 +626,16 @@ int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 	resized.primary_scroll_bottom = rows - 1;
 	*terminal = resized;
 	return 0;
+}
+
+const terminal_vt_cell *terminal_vt_scrollback_line(const terminal_vt *terminal,
+					     uint32_t line)
+{
+	if (terminal == NULL || line >= terminal->scrollback_count)
+		return NULL;
+	return terminal->scrollback_cells +
+		(size_t)((terminal->scrollback_head + line) % terminal->scrollback_lines) *
+		terminal->columns;
 }
 
 void terminal_vt_feed(terminal_vt *terminal, const uint8_t *bytes,

@@ -308,13 +308,14 @@ static void test_resize(void)
 	terminal_vt_cell alternate_cells[6];
 	terminal_vt_cell resized_cells[12];
 	terminal_vt_cell resized_alternate_cells[12];
+	terminal_vt_cell resized_scrollback_cells[24];
 	terminal_vt terminal;
 
 	assert(terminal_vt_init(&terminal, cells, alternate_cells, 2, 3) == 0);
 	terminal_vt_feed(&terminal, primary, sizeof(primary) - 1);
 	terminal_vt_feed(&terminal, alternate, sizeof(alternate) - 1);
 	assert(terminal_vt_resize(&terminal, resized_cells, resized_alternate_cells,
-		3, 4) == 0);
+		resized_scrollback_cells, 6, 3, 4) == 0);
 	assert(terminal.rows == 3 && terminal.columns == 4);
 	assert(terminal.using_alternate);
 	assert(terminal.cells == resized_alternate_cells);
@@ -328,6 +329,33 @@ static void test_resize(void)
 	       resized_cells[5].codepoint == 'e');
 }
 
+static void test_scrollback_and_tabs(void)
+{
+	static const uint8_t lines[] = "one\r\ntwo\r\nthr\r\nfor\r\nfiv\r\nsix\r\nsev";
+	static const uint8_t tabs[] = "\x1b[3g\x1b[5G\x1bH\rB\tC";
+	terminal_vt_cell cells[8];
+	terminal_vt_cell alternate_cells[8];
+	terminal_vt_cell scrollback_cells[12];
+	terminal_vt terminal;
+	const terminal_vt_cell *line;
+
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 2, 4) == 0);
+	assert(terminal_vt_set_scrollback(&terminal, scrollback_cells, 3) == 0);
+	terminal_vt_feed(&terminal, lines, sizeof(lines) - 1);
+	assert(terminal.scrollback_count == 3);
+	line = terminal_vt_scrollback_line(&terminal, 0);
+	assert(line != NULL && line[0].codepoint == 't');
+	line = terminal_vt_scrollback_line(&terminal, 1);
+	assert(line != NULL && line[0].codepoint == 'f' && line[1].codepoint == 'o');
+	line = terminal_vt_scrollback_line(&terminal, 2);
+	assert(line != NULL && line[0].codepoint == 'f' && line[1].codepoint == 'i');
+	assert(terminal_vt_scrollback_line(&terminal, 3) == NULL);
+
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 1, 8) == 0);
+	terminal_vt_feed(&terminal, tabs, sizeof(tabs) - 1);
+	assert(cells[0].codepoint == 'B' && cells[4].codepoint == 'C');
+}
+
 int main(void)
 {
 	test_cases();
@@ -337,10 +365,12 @@ int main(void)
 	test_attributes_and_saved_cursor();
 	test_alternate_screen_and_reset();
 	test_resize();
+	test_scrollback_and_tabs();
 	puts("terminal-vt: basic controls ok");
 	puts("terminal-vt: UTF-8 ok");
 	puts("terminal-vt: CSI ok");
 	puts("terminal-vt: attributes ok");
 	puts("terminal-vt: resize ok");
+	puts("terminal-vt: scrollback and tabs ok");
 	return 0;
 }

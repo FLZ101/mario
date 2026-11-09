@@ -4,3 +4,4 @@ CHECK: terminal-vt: UTF-8 ok
 CHECK: terminal-vt: CSI ok
 CHECK: terminal-vt: attributes ok
 CHECK: terminal-vt: resize ok
+CHECK: terminal-vt: scrollback and tabs ok

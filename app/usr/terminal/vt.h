@@ -21,8 +21,12 @@ typedef struct {
 	terminal_vt_cell *cells;
 	terminal_vt_cell *primary_cells;
 	terminal_vt_cell *alternate_cells;
+	terminal_vt_cell *scrollback_cells;
 	uint32_t rows;
 	uint32_t columns;
+	uint32_t scrollback_lines;
+	uint32_t scrollback_head;
+	uint32_t scrollback_count;
 	uint32_t cursor_row;
 	uint32_t cursor_column;
 	uint32_t saved_cursor_row;
@@ -51,15 +55,22 @@ typedef struct {
 	uint8_t primary_background;
 	uint8_t primary_attributes;
 	uint8_t using_alternate;
+	uint8_t tab_stops[256];
 } terminal_vt;
 
 /* Cells with codepoint zero are empty and render as the terminal background. */
 int terminal_vt_init(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 		     terminal_vt_cell *alternate_cells, uint32_t rows,
 		     uint32_t columns);
+int terminal_vt_set_scrollback(terminal_vt *terminal,
+			       terminal_vt_cell *scrollback_cells,
+			       uint32_t scrollback_lines);
 int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
-		       terminal_vt_cell *alternate_cells, uint32_t rows,
-		       uint32_t columns);
+		       terminal_vt_cell *alternate_cells,
+		       terminal_vt_cell *scrollback_cells,
+		       uint32_t scrollback_lines, uint32_t rows, uint32_t columns);
+const terminal_vt_cell *terminal_vt_scrollback_line(const terminal_vt *terminal,
+					     uint32_t line);
 void terminal_vt_feed(terminal_vt *terminal, const uint8_t *bytes,
 		      size_t byte_count);
 

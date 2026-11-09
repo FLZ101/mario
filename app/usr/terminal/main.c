@@ -29,6 +29,7 @@
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
 #define TERMINAL_BACKGROUND 0x00111827U
 #define TERMINAL_CURSOR 0x00f8fafcU
+#define TERMINAL_SCROLLBACK_LINES 128U
 #define TERMINAL_FONT_PATH "/usr/share/fonts/DejaVuSansMono.ttf"
 
 typedef struct {
@@ -43,6 +44,7 @@ typedef struct {
 	terminal_vt vt;
 	terminal_vt_cell *primary_cells;
 	terminal_vt_cell *alternate_cells;
+	terminal_vt_cell *scrollback_cells;
 	gui_surface surface;
 	gui_color *pixels;
 	gui_font *font;
@@ -207,14 +209,17 @@ static int terminal_resize_grid(terminal_state *state, uint32_t width,
 {
 	terminal_vt_cell *primary_cells;
 	terminal_vt_cell *alternate_cells;
+	terminal_vt_cell *scrollback_cells;
 	gui_color *pixels;
 	uint32_t rows;
 	uint32_t columns;
 	size_t cell_count;
+	size_t scrollback_cell_count;
 	size_t pixel_count;
 	terminal_vt resized;
 
 	pixels = NULL;
+	scrollback_cells = NULL;
 
 	if (width == 0 || height == 0 || width > UINT32_MAX / height ||
 	    width > SIZE_MAX / height)
@@ -223,21 +228,28 @@ static int terminal_resize_grid(terminal_state *state, uint32_t width,
 	if (rows > SIZE_MAX / columns / sizeof(*primary_cells))
 		return -1;
 	cell_count = (size_t)rows * columns;
+	if (TERMINAL_SCROLLBACK_LINES > SIZE_MAX / columns)
+		return -1;
+	scrollback_cell_count = (size_t)TERMINAL_SCROLLBACK_LINES * columns;
 	pixel_count = (size_t)width * height;
 	if (pixel_count > SIZE_MAX / sizeof(*pixels))
 		return -1;
 	primary_cells = calloc(cell_count, sizeof(*primary_cells));
 	alternate_cells = calloc(cell_count, sizeof(*alternate_cells));
-	if (primary_cells == NULL || alternate_cells == NULL)
+	scrollback_cells = calloc(scrollback_cell_count, sizeof(*scrollback_cells));
+	if (primary_cells == NULL || alternate_cells == NULL || scrollback_cells == NULL)
 		goto out;
 	if (state->primary_cells == NULL) {
 		if (terminal_vt_init(&resized, primary_cells, alternate_cells, rows,
 			columns) < 0)
 			goto out;
+		if (terminal_vt_set_scrollback(&resized, scrollback_cells,
+			TERMINAL_SCROLLBACK_LINES) < 0)
+			goto out;
 	} else {
 		resized = state->vt;
 		if (terminal_vt_resize(&resized, primary_cells, alternate_cells,
-			rows, columns) < 0)
+			scrollback_cells, TERMINAL_SCROLLBACK_LINES, rows, columns) < 0)
 			goto out;
 	}
 	/* Every frame repaints every pixel, so reclaim this large buffer first. */
@@ -248,9 +260,11 @@ static int terminal_resize_grid(terminal_state *state, uint32_t width,
 		goto out;
 	free(state->primary_cells);
 	free(state->alternate_cells);
+	free(state->scrollback_cells);
 	free(state->pixels);
 	state->primary_cells = primary_cells;
 	state->alternate_cells = alternate_cells;
+	state->scrollback_cells = scrollback_cells;
 	state->pixels = pixels;
 	state->vt = resized;
 	state->width = width;
@@ -265,6 +279,7 @@ static int terminal_resize_grid(terminal_state *state, uint32_t width,
 out:
 	free(primary_cells);
 	free(alternate_cells);
+	free(scrollback_cells);
 	free(pixels);
 	return -1;
 }
@@ -718,6 +733,7 @@ out:
 	gui_font_destroy(state.font);
 	free(state.primary_cells);
 	free(state.alternate_cells);
+	free(state.scrollback_cells);
 	free(state.pixels);
 	if (state.fd >= 0)
 		close(state.fd);

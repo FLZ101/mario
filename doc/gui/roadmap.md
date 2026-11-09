@@ -913,7 +913,7 @@ Checkpoint:
   send `TIOCSWINSZ`, handle `SIGWINCH`, and redraw. Test child-side
   `TIOCGWINSZ` reporting and the resized terminal frame. Commit:
   `terminal: resize PTY grid`.
-- [ ] **M5.3.3 — add scrollback and tabs.** Keep bounded scrollback and tab
+- [x] **M5.3.3 — add scrollback and tabs.** Keep bounded scrollback and tab
   stops without selection/clipboard. Test scrollback bounds and tab commands.
   Commit: `terminal: add scrollback and tabs`.
 - [ ] **M5.4.1 — add titles and direct color.** Implement OSC title and RGB
