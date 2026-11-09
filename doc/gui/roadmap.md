@@ -906,7 +906,7 @@ Checkpoint:
 - [x] **M5.2.3 — parse attributes and screen buffers.** Add SGR, save/restore
   cursor, alternate screen, and reset. Test state transitions before rendering.
   Commit: `terminal: parse attributes and alternate screen`.
-- [ ] **M5.3.1 — render terminal cells.** Map parser cells to toolkit glyphs,
+- [x] **M5.3.1 — render terminal cells.** Map parser cells to toolkit glyphs,
   colors, cursor, and CP437 fallback. Add a stable text golden. Commit:
   `terminal: render terminal cells`.
 - [ ] **M5.3.2 — propagate resize.** Convert window dimensions to rows/columns,

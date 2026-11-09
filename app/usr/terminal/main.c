@@ -10,20 +10,26 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <gui/font.h>
 #include <gui/protocol.h>
+#include <gui/surface.h>
 
 #include "vt.h"
 
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
 #define TERMINAL_WIDTH 320U
 #define TERMINAL_HEIGHT 192U
+#define TERMINAL_MARGIN 16U
+#define TERMINAL_CELL_WIDTH 8U
+#define TERMINAL_CELL_HEIGHT 16U
+#define TERMINAL_FONT_HEIGHT 14
 #define TERMINAL_TITLE "Terminal"
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
 #define TERMINAL_BACKGROUND 0x00111827U
-#define TERMINAL_GRID 0x002563ebU
 #define TERMINAL_CURSOR 0x00f8fafcU
-#define TERMINAL_ROWS 24U
-#define TERMINAL_COLUMNS 80U
+#define TERMINAL_ROWS ((TERMINAL_HEIGHT - TERMINAL_MARGIN * 2) / TERMINAL_CELL_HEIGHT)
+#define TERMINAL_COLUMNS ((TERMINAL_WIDTH - TERMINAL_MARGIN * 2) / TERMINAL_CELL_WIDTH)
+#define TERMINAL_FONT_PATH "/usr/share/fonts/DejaVuSansMono.ttf"
 
 typedef struct {
 	int fd;
@@ -34,6 +40,7 @@ typedef struct {
 	uint32_t height;
 	int close_requested;
 	terminal_vt vt;
+	gui_font *font;
 } terminal_state;
 
 /* Keep the largest outbound wire frame out of Mario's small initial stack. */
@@ -42,6 +49,19 @@ static uint8_t terminal_frame[GUI_PROTOCOL_HEADER_SIZE +
 	SURFACE_PIXELS_PER_MESSAGE * sizeof(uint32_t)];
 static terminal_vt_cell terminal_primary_cells[TERMINAL_ROWS * TERMINAL_COLUMNS];
 static terminal_vt_cell terminal_alternate_cells[TERMINAL_ROWS * TERMINAL_COLUMNS];
+/* Resize support replaces this fixed native terminal backing store in M5.3.2. */
+static gui_color terminal_pixels[TERMINAL_WIDTH * TERMINAL_HEIGHT];
+static gui_surface terminal_surface = {
+	.stride = TERMINAL_WIDTH,
+	.pixels = terminal_pixels,
+};
+
+static const gui_color terminal_palette[16] = {
+	0x00111827, 0x00ef4444, 0x0022c55e, 0x00eab308,
+	0x003b82f6, 0x00d946ef, 0x0006b6d4, 0x00cbd5e1,
+	0x00475569, 0x00f87171, 0x004ade80, 0x00facc15,
+	0x0060a5fa, 0x00e879f9, 0x0022d3ee, 0x00f8fafc,
+};
 
 static void put16(uint8_t *bytes, uint16_t value)
 {
@@ -138,17 +158,94 @@ static int read_message(int fd, gui_protocol_header *header, uint8_t *payload,
 	return read_full(fd, payload, header->length - GUI_PROTOCOL_HEADER_SIZE);
 }
 
-static uint32_t terminal_pixel(const terminal_state *state, uint32_t offset)
+static gui_color terminal_color(uint8_t color, gui_color default_color)
 {
-	uint32_t x = offset % state->width;
-	uint32_t y = offset / state->width;
+	return color == TERMINAL_VT_COLOR_DEFAULT ? default_color :
+		terminal_palette[color];
+}
 
-	if (x == 24 && y >= 24 && y < 40)
-		return TERMINAL_CURSOR;
-	if (x >= 16 && y >= 16 && x < state->width - 16 && y < state->height - 16 &&
-	    ((x - 16) % 16 == 0 || (y - 16) % 16 == 0))
-		return TERMINAL_GRID;
-	return TERMINAL_BACKGROUND;
+static size_t terminal_encode_utf8(uint32_t codepoint, char bytes[4])
+{
+	if (codepoint < 0x80) {
+		bytes[0] = codepoint;
+		return 1;
+	}
+	if (codepoint < 0x800) {
+		bytes[0] = 0xc0 | codepoint >> 6;
+		bytes[1] = 0x80 | codepoint & 0x3f;
+		return 2;
+	}
+	if (codepoint < 0x10000) {
+		bytes[0] = 0xe0 | codepoint >> 12;
+		bytes[1] = 0x80 | codepoint >> 6 & 0x3f;
+		bytes[2] = 0x80 | codepoint & 0x3f;
+		return 3;
+	}
+	bytes[0] = 0xf0 | codepoint >> 18;
+	bytes[1] = 0x80 | codepoint >> 12 & 0x3f;
+	bytes[2] = 0x80 | codepoint >> 6 & 0x3f;
+	bytes[3] = 0x80 | codepoint & 0x3f;
+	return 4;
+}
+
+static int terminal_render(terminal_state *state)
+{
+	if (state->width > TERMINAL_WIDTH || state->height > TERMINAL_HEIGHT ||
+	    state->font == NULL)
+		return -1;
+	terminal_surface.width = state->width;
+	terminal_surface.height = state->height;
+	gui_fill_rect(&terminal_surface, (gui_rect) { 0, 0, state->width, state->height },
+		TERMINAL_BACKGROUND);
+	for (uint32_t row = 0; row < state->vt.rows; row++)
+		for (uint32_t column = 0; column < state->vt.columns; column++) {
+			const terminal_vt_cell *cell = state->vt.cells +
+				(size_t)row * state->vt.columns + column;
+			gui_color foreground = terminal_color(cell->foreground, TERMINAL_CURSOR);
+			gui_color background = terminal_color(cell->background, TERMINAL_BACKGROUND);
+			int x = TERMINAL_MARGIN + column * TERMINAL_CELL_WIDTH;
+			int y = TERMINAL_MARGIN + row * TERMINAL_CELL_HEIGHT;
+
+			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_INVERSE) {
+				gui_color color = foreground;
+
+				foreground = background;
+				background = color;
+			}
+			gui_fill_rect(&terminal_surface, (gui_rect) {
+				x, y, TERMINAL_CELL_WIDTH, TERMINAL_CELL_HEIGHT,
+			}, background);
+			if (cell->codepoint != 0) {
+				char bytes[5] = { 0 };
+
+				/* The UI font helper uses its CP437 fallback for missing glyphs. */
+				terminal_encode_utf8(cell->codepoint, bytes);
+				gui_font_draw_text(&terminal_surface, x,
+					y + TERMINAL_FONT_HEIGHT, state->font, bytes, foreground);
+			}
+			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_UNDERLINE)
+				gui_fill_rect(&terminal_surface, (gui_rect) {
+					x, y + TERMINAL_CELL_HEIGHT - 2,
+					TERMINAL_CELL_WIDTH, 1,
+				}, foreground);
+		}
+	if (state->vt.cursor_row < state->vt.rows &&
+	    state->vt.cursor_column < state->vt.columns)
+		gui_fill_rect(&terminal_surface, (gui_rect) {
+			TERMINAL_MARGIN + state->vt.cursor_column * TERMINAL_CELL_WIDTH,
+			TERMINAL_MARGIN + state->vt.cursor_row * TERMINAL_CELL_HEIGHT +
+				TERMINAL_CELL_HEIGHT - 2,
+			TERMINAL_CELL_WIDTH, 2,
+		}, TERMINAL_CURSOR);
+	return 0;
+}
+
+static uint32_t terminal_pixel(uint32_t offset)
+{
+	uint32_t x = offset % terminal_surface.width;
+	uint32_t y = offset / terminal_surface.width;
+
+	return terminal_surface.pixels[y * terminal_surface.stride + x];
 }
 
 static int terminal_handle_message(terminal_state *state,
@@ -236,7 +333,8 @@ static int terminal_send_surface(terminal_state *state)
 	uint64_t frame_serial = ++state->frame_serial;
 	uint32_t total;
 
-	if (frame_serial == 0 || state->height > UINT32_MAX / state->width)
+	if (frame_serial == 0 || state->height > UINT32_MAX / state->width ||
+	    terminal_render(state) < 0)
 		return -1;
 	total = state->width * state->height;
 	if (gui_protocol_encode_header(begin, sizeof(begin), GUI_PROTOCOL_SURFACE_BEGIN,
@@ -268,7 +366,7 @@ static int terminal_send_surface(terminal_state *state)
 		for (uint32_t index = 0; index < pixel_count; index++)
 			put32(terminal_frame + GUI_PROTOCOL_HEADER_SIZE +
 				sizeof(gui_protocol_wire_surface_data) + index * sizeof(uint32_t),
-				terminal_pixel(state, pixel_offset + index));
+				terminal_pixel(pixel_offset + index));
 		if (write_full(state->fd, terminal_frame,
 			GUI_PROTOCOL_HEADER_SIZE + payload_bytes) < 0)
 			return -1;
@@ -383,7 +481,7 @@ static int terminal_finish_child(int master, pid_t child)
 	return WEXITSTATUS(status) == 0 ? 0 : -1;
 }
 
-static int terminal_drain_pty(int master, terminal_vt *vt)
+static int terminal_drain_pty(int master, terminal_vt *vt, int *updated)
 {
 	uint8_t buffer[512];
 
@@ -392,6 +490,7 @@ static int terminal_drain_pty(int master, terminal_vt *vt)
 
 		if (count > 0) {
 			terminal_vt_feed(vt, buffer, count);
+			*updated = 1;
 			if (write_full(STDOUT_FILENO, buffer, count) < 0)
 				return -1;
 			continue;
@@ -428,13 +527,18 @@ int main(int argc, char **argv)
 		fprintf(stderr, "terminal: create failed\n");
 		goto out;
 	}
-	if (terminal_send_surface(&state) != 0) {
-		fprintf(stderr, "terminal: initial frame failed\n");
-		goto out;
-	}
 	if (terminal_vt_init(&state.vt, terminal_primary_cells,
 			     terminal_alternate_cells, TERMINAL_ROWS, TERMINAL_COLUMNS) < 0) {
 		fprintf(stderr, "terminal: VT setup failed\n");
+		goto out;
+	}
+	state.font = gui_font_load(TERMINAL_FONT_PATH, TERMINAL_FONT_HEIGHT);
+	if (state.font == NULL) {
+		fprintf(stderr, "terminal: font setup failed\n");
+		goto out;
+	}
+	if (terminal_send_surface(&state) != 0) {
+		fprintf(stderr, "terminal: initial frame failed\n");
 		goto out;
 	}
 	if (terminal_spawn_pty(command, &master, &child) < 0) {
@@ -469,8 +573,12 @@ int main(int argc, char **argv)
 				break;
 		}
 		if (pollfds[1].revents & (POLLIN | POLLHUP | POLLERR)) {
-			result = terminal_drain_pty(master, &state.vt);
+			int updated = 0;
+
+			result = terminal_drain_pty(master, &state.vt, &updated);
 			if (result < 0)
+				break;
+			if (updated && terminal_send_surface(&state) != 0)
 				break;
 			if (result > 0) {
 				status = terminal_finish_child(master, child) == 0 ? 0 : 1;
@@ -490,6 +598,7 @@ int main(int argc, char **argv)
 out:
 	if (master >= 0)
 		close(master);
+	gui_font_destroy(state.font);
 	if (state.fd >= 0)
 		close(state.fd);
 	return status;
