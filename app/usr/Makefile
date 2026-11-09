@@ -55,6 +55,7 @@ include python.mk
 
 TERMINAL_EXE := terminal/terminal.exe
 TERMINAL_UI_DIR := $(ROOT)/../gui/libmario-ui
+IMAGEVIEWER_EXE := imageviewer/imageviewer.exe
 
 .PHONY build:: build-terminal
 build-terminal: $(TERMINAL_EXE)
@@ -72,3 +73,16 @@ terminal/terminal.exe: terminal/main.c terminal/vt.c $(TERMINAL_UI_DIR)/libmario
 		-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
 		-L$(TERMINAL_UI_DIR) -L$(FREETYPE_INSTALL_DIR)/lib -static \
 		-lmario-ui -lfreetype
+
+.PHONY build:: build-imageviewer
+build-imageviewer: $(IMAGEVIEWER_EXE)
+
+.PHONY clean:: clean-imageviewer
+clean-imageviewer:
+	$(RM) $(IMAGEVIEWER_EXE) imageviewer/*.o imageviewer/*.d
+
+imageviewer/imageviewer.exe: imageviewer/main.c $(TERMINAL_UI_DIR)/libmario-ui.a
+	$(CC) -o $@ imageviewer/main.c -I$(ROOT)/../include \
+		-I$(TERMINAL_UI_DIR)/include \
+		-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
+		-L$(TERMINAL_UI_DIR) -static -lmario-ui

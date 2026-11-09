@@ -991,7 +991,7 @@ terminal: run oksh in a GUI terminal over a PTY
 - [x] **M6.1.2 — parse bounded BMP metadata.** Validate signatures, dimensions,
   row stride, pixel offset, and allocation limits without rendering. Unit test
   each malformed-header rejection. Commit: `imageviewer: validate BMP input`.
-- [ ] **M6.1.3 — render BMP pixels in a client window.** Connect to
+- [x] **M6.1.3 — render BMP pixels in a client window.** Connect to
   `mario-wm`, decode supported BMP pixels into a client surface with
   aspect-preserving fit-to-window, and add one `GUI-VISUAL-TEST:` BMP golden.
   Enable the bounded `LAUNCH_IMAGE_VIEWER` path form. Commit:

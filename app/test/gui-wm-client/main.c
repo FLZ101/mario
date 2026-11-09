@@ -536,6 +536,7 @@ static void test_interact(void)
 static void test_launch(void)
 {
 	static const char marker[] = "/tmp/mario-wm-launch-marker";
+	static const char image[] = "/tmp/mario-wm-launch-marker.bmp";
 	uint8_t frame[64] = { 0 };
 	int fd = connect_client();
 	size_t path_bytes = sizeof(marker) - 1;
@@ -558,8 +559,16 @@ static void test_launch(void)
 	read_launch_result(fd, 2, -ENOSYS);
 	assert(access(marker, F_OK) < 0 && errno == ENOENT);
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
-		       sizeof(gui_protocol_wire_launch_request) + 1) == 0);
+		       sizeof(gui_protocol_wire_launch_request) + sizeof(image) - 1) == 0);
 	put32(frame + 8, 3);
+	put16(frame + 12, GUI_PROTOCOL_LAUNCH_IMAGE_VIEWER);
+	put16(frame + 14, sizeof(image) - 1);
+	memcpy(frame + 16, image, sizeof(image) - 1);
+	write_full(fd, frame, 16 + sizeof(image) - 1);
+	read_launch_result(fd, 3, 0);
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
+		       sizeof(gui_protocol_wire_launch_request) + 1) == 0);
+	put32(frame + 8, 4);
 	put16(frame + 12, GUI_PROTOCOL_LAUNCH_TERMINAL);
 	put16(frame + 14, 1);
 	frame[16] = '/';

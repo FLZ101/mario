@@ -35,6 +35,7 @@ int gui_bmp_metadata_parse(const void *data, size_t byte_count,
 
 	if (bytes == NULL || metadata == NULL ||
 	    byte_count < BMP_FILE_HEADER_BYTES + BMP_INFO_HEADER_BYTES ||
+	    byte_count > GUI_IMAGE_MAX_FILE_BYTES ||
 	    bytes[0] != 'B' || bytes[1] != 'M')
 		goto invalid;
 	file_bytes = gui_image_get32(bytes + 2);
@@ -72,4 +73,33 @@ int gui_bmp_metadata_parse(const void *data, size_t byte_count,
 invalid:
 	errno = EINVAL;
 	return -1;
+}
+
+int gui_bmp_decode(const void *data, size_t byte_count, gui_surface **surface)
+{
+	const uint8_t *bytes = data;
+	gui_bmp_metadata metadata;
+	gui_surface *decoded;
+
+	if (surface == NULL || gui_bmp_metadata_parse(data, byte_count, &metadata) < 0)
+		return -1;
+	decoded = gui_surface_create((int)metadata.width, (int)metadata.height);
+	if (decoded == NULL)
+		return -1;
+	for (uint32_t y = 0; y < metadata.height; y++) {
+		uint32_t source_y = metadata.top_down ? y : metadata.height - 1 - y;
+		const uint8_t *source = bytes + metadata.pixel_offset +
+			(size_t)source_y * metadata.row_bytes;
+		gui_color *destination = decoded->pixels + (size_t)y * decoded->stride;
+
+		for (uint32_t x = 0; x < metadata.width; x++) {
+			const uint8_t *pixel = source + x * BMP_PIXEL_BYTES;
+
+			/* BMP stores BGR triples; GUI surfaces use XRGB8888. */
+			destination[x] = (gui_color)pixel[2] << 16 |
+				(gui_color)pixel[1] << 8 | pixel[0];
+		}
+	}
+	*surface = decoded;
+	return 0;
 }

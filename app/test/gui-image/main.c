@@ -69,10 +69,39 @@ static void test_invalid(void)
 	assert(gui_bmp_metadata_parse(bytes, 53, &metadata) == -1);
 }
 
+static void test_decode(void)
+{
+	uint8_t bytes[70];
+	gui_surface *surface = NULL;
+
+	bmp_header(bytes, 2, 2);
+	/* Positive-height BMP rows are stored bottom first and padded to four bytes. */
+	bytes[54] = 0x11; bytes[55] = 0x22; bytes[56] = 0x33;
+	bytes[57] = 0x44; bytes[58] = 0x55; bytes[59] = 0x66;
+	bytes[62] = 0x77; bytes[63] = 0x88; bytes[64] = 0x99;
+	bytes[65] = 0xaa; bytes[66] = 0xbb; bytes[67] = 0xcc;
+	assert(gui_bmp_decode(bytes, sizeof(bytes), &surface) == 0);
+	assert(surface->width == 2 && surface->height == 2);
+	assert(surface->pixels[0] == 0x00998877 && surface->pixels[1] == 0x00ccbbaa);
+	assert(surface->pixels[2] == 0x00332211 && surface->pixels[3] == 0x00665544);
+	gui_surface_destroy(surface);
+
+	bmp_header(bytes, 2, -2);
+	bytes[54] = 0x11; bytes[55] = 0x22; bytes[56] = 0x33;
+	bytes[57] = 0x44; bytes[58] = 0x55; bytes[59] = 0x66;
+	bytes[62] = 0x77; bytes[63] = 0x88; bytes[64] = 0x99;
+	bytes[65] = 0xaa; bytes[66] = 0xbb; bytes[67] = 0xcc;
+	assert(gui_bmp_decode(bytes, sizeof(bytes), &surface) == 0);
+	assert(surface->pixels[0] == 0x00332211 && surface->pixels[1] == 0x00665544);
+	assert(surface->pixels[2] == 0x00998877 && surface->pixels[3] == 0x00ccbbaa);
+	gui_surface_destroy(surface);
+}
+
 int main(void)
 {
 	test_valid();
 	test_invalid();
-	puts("gui-image: BMP metadata ok");
+	test_decode();
+	puts("gui-image: BMP decode ok");
 	return 0;
 }

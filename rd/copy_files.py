@@ -193,6 +193,7 @@ def copy_rootfs_files(
         "app/usr/sbase-install/bin/*": "usr/bin/sbase",
         "app/usr/ubase-install/bin/*": "usr/bin/ubase",
         "app/usr/terminal/terminal.exe": "usr/bin/terminal",
+        "app/usr/imageviewer/imageviewer.exe": "usr/bin/imageviewer",
         "app/example/*/*.exe": "usr/bin/example",
         "app/test/*/*.exe": "usr/bin/test",
         "app/test/musl/*/*.exe": "usr/bin/test",

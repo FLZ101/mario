@@ -1,2 +1,2 @@
 RUN: /usr/bin/test/gui-image.exe
-CHECK: gui-image: BMP metadata ok
+CHECK: gui-image: BMP decode ok
