@@ -21,6 +21,7 @@
 #define IMAGEVIEWER_TITLE "Image Viewer"
 #define IMAGEVIEWER_BACKGROUND 0x00111827U
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
+#define PNG_SIGNATURE_BYTES 8U
 
 typedef struct {
 	int fd;
@@ -422,6 +423,18 @@ static int imageviewer_read_file(const char *path, uint8_t **contents,
 	return 0;
 }
 
+static int imageviewer_decode(const uint8_t *bytes, size_t byte_count,
+			      gui_surface **image)
+{
+	static const uint8_t png_signature[PNG_SIGNATURE_BYTES] =
+		{ 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n' };
+
+	if (byte_count >= PNG_SIGNATURE_BYTES &&
+	    memcmp(bytes, png_signature, sizeof(png_signature)) == 0)
+		return gui_png_decode(bytes, byte_count, image);
+	return gui_bmp_decode(bytes, byte_count, image);
+}
+
 int main(int argc, char **argv)
 {
 	imageviewer_state state = { .fd = -1 };
@@ -432,7 +445,7 @@ int main(int argc, char **argv)
 	if (argc != 2)
 		return 1;
 	if (imageviewer_read_file(argv[1], &file_bytes, &file_byte_count) < 0 ||
-	    gui_bmp_decode(file_bytes, file_byte_count, &state.image) < 0) {
+	    imageviewer_decode(file_bytes, file_byte_count, &state.image) < 0) {
 		fprintf(stderr, "imageviewer: load failed: %d\n", errno);
 		goto out;
 	}
