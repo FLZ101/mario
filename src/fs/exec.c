@@ -369,6 +369,10 @@ void setup_aux_vector(struct exec *exe, auxv_t *av)
 	av->a_type = AT_PAGESZ;
 	av->a_val = PAGE_SIZE;
 	++av;
+
+	/* libc scans until AT_NULL; stale stack words must never become aux entries. */
+	av->a_type = AT_NULL;
+	av->a_val = 0;
 }
 
 // Return number of words needed to store argc, argv[], envp[] and aux vector
