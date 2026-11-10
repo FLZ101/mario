@@ -1,0 +1,40 @@
+GUI-VISUAL-TEST:
+SERIAL: <<SETUP
+rm -rf /tmp/fm /tmp/mario-wm.* /tmp/fm.log /tmp/fm.pid
+mkdir /tmp/fm
+mkdir /tmp/fm/c
+printf inside >/tmp/fm/c/item
+sync
+/usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SETUP
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! /bin/toybox/grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do /bin/toybox/sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL: /usr/bin/filemanager /tmp/fm >/tmp/fm.log 2>&1 & echo $! >/tmp/fm.pid
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: window ready' /tmp/fm.log; do /bin/toybox/sleep 1; done
+# The client logs readiness after its first commit; allow the WM to deliver focus.
+SERIAL: /bin/toybox/sleep 1
+GUI-CHECK-RECT: 128 96 1 1 17 24 39
+# Slash opens absolute-path entry; GUI-TYPE submits it with Enter.
+GUI-SEND-KEY: slash
+GUI-WAIT-FRAME:
+GUI-TYPE: /tmp/fm/c
+GUI-WAIT-FRAME:
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: navigated: /tmp/fm/c' /tmp/fm.log; do /bin/toybox/sleep 1; done; cat /tmp/fm.log
+SERIAL-CHECK: filemanager: navigated: /tmp/fm/c
+# Backspace returns to the parent directory.
+GUI-SEND-KEY: backspace
+GUI-WAIT-FRAME:
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: navigated: /tmp/fm (' /tmp/fm.log; do /bin/toybox/sleep 1; done; cat /tmp/fm.log
+SERIAL-CHECK: filemanager: navigated: /tmp/fm (
+# A failed absolute path leaves the child listing and current path intact.
+GUI-SEND-KEY: slash
+GUI-WAIT-FRAME:
+GUI-TYPE: /no
+GUI-WAIT-FRAME:
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: navigation failed: /no' /tmp/fm.log; do /bin/toybox/sleep 1; done; cat /tmp/fm.log
+SERIAL-CHECK: filemanager: navigation failed: /no
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while /bin/toybox/pgrep filemanager >/dev/null; do /bin/toybox/sleep 1; done
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do /bin/toybox/sleep 1; done
+EXIT:

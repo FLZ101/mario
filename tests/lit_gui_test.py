@@ -590,7 +590,7 @@ def send_keys(qmp: Qmp, keys: tuple[str, ...]) -> None:
 
 
 def type_text(qmp: Qmp, text: str) -> None:
-    plain = {" ": "spc", "'": "apostrophe"}
+    plain = {" ": "spc", "'": "apostrophe", "/": "slash"}
     shifted = {"|": "backslash", ":": "semicolon"}
 
     for character in text:

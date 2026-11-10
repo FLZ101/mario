@@ -9,6 +9,8 @@ mkdir /tmp/filemanager-listing/docs
 ln -s alpha.txt /tmp/filemanager-listing/link-to-alpha
 touch -t 202401020304.05 /tmp/filemanager-listing/alpha.txt /tmp/filemanager-listing/notes /tmp/filemanager-listing/docs
 touch -h -t 202401020304.05 /tmp/filemanager-listing/link-to-alpha
+# Publish all fixture entries before a second SMP guest process reads them.
+sync
 /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
 SETUP
 SERIAL-WAIT-FILE: /tmp/mario-wm.started

@@ -1,0 +1,22 @@
+GUI-VISUAL-TEST:
+TIMEOUT: 120
+SERIAL: rm -f /tmp/mario-wm.* /tmp/filemanager-mariofs.log /tmp/filemanager-mariofs.pid; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+# The test mounts a fixture read-only and lets QEMU teardown release it.
+SERIAL: mount -t mariofs -o ro /dev/rd2 /mnt; echo mariofs-mount-status:$?
+SERIAL-CHECK: mariofs-mount-status:0
+SERIAL: /usr/bin/filemanager /mnt >/tmp/filemanager-mariofs.log 2>&1 & echo $! >/tmp/filemanager-mariofs.pid
+SERIAL: while ! grep -q 'filemanager: window ready: /mnt' /tmp/filemanager-mariofs.log; do sleep 1; done
+GUI-CHECK-RECT: 128 96 1 1 17 24 39
+GUI-SEND-KEY: slash
+GUI-WAIT-FRAME:
+GUI-TYPE: /mnt/quick
+GUI-WAIT-FRAME:
+SERIAL: while ! grep -q 'filemanager: navigated: /mnt/quick' /tmp/filemanager-mariofs.log; do sleep 1; done; cat /tmp/filemanager-mariofs.log
+SERIAL-CHECK: filemanager: navigated: /mnt/quick
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while pgrep filemanager >/dev/null; do sleep 1; done
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

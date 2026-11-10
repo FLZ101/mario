@@ -50,6 +50,26 @@ static void test_empty_directory(void)
 	assert(rmdir(path) == 0);
 }
 
+static void test_failed_load_keeps_listing(void)
+{
+	char path[64];
+	filemanager_directory directory;
+
+	assert(snprintf(path, sizeof(path), "/tmp/filemanager-transaction-%d", getpid()) > 0);
+	assert(mkdir(path, 0700) == 0);
+	assert(chdir(path) == 0);
+	assert(close(creat("retained", 0600)) == 0);
+	assert(chdir("/") == 0);
+	assert(filemanager_directory_load(&directory, path) == 0);
+	assert(directory.count == 1 && !strcmp(directory.entries[0].name, "retained"));
+	assert(filemanager_directory_load(&directory, "/tmp/filemanager-does-not-exist") < 0);
+	assert(directory.count == 1 && !strcmp(directory.entries[0].name, "retained"));
+	assert(chdir(path) == 0);
+	assert(unlink("retained") == 0);
+	assert(chdir("/") == 0);
+	assert(rmdir(path) == 0);
+}
+
 static void test_bounded_and_unknown_entries(void)
 {
 	char long_name[FILEMANAGER_NAME_BYTES + 2];
@@ -78,6 +98,7 @@ int main(void)
 {
 	test_sorted_directory();
 	test_empty_directory();
+	test_failed_load_keeps_listing();
 	test_bounded_and_unknown_entries();
 	puts("filemanager-model: sorted, empty, bounded, and unknown entries ok");
 	return 0;

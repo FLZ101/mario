@@ -1082,7 +1082,7 @@ imageviewer: decode BMP/PNG and add zoom/pan
 - [x] **M7.1.2 — render a directory listing.** Add name/type/size/time columns,
   selection, and deterministic clipping. Test one listing golden in a
   `GUI-VISUAL-TEST:` fixture. Commit: `filemanager: render directory listing`.
-- [ ] **M7.1.3 — navigate paths.** Add parent, selected-directory, and absolute
+- [x] **M7.1.3 — navigate paths.** Add parent, selected-directory, and absolute
   path entry navigation; retain the previous listing after an error. Test
   MarioFS, ext2, and vfat without mutating images. Commit: `filemanager:
   navigate filesystem paths`.
