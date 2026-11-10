@@ -1,6 +1,7 @@
 #include "model.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
 #include <stdint.h>
@@ -44,13 +45,21 @@
 #define FILEMANAGER_SIZE_CHARS 7U
 #define FILEMANAGER_TIME_CHARS 10U
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
+#define FILEMANAGER_COPY_BYTES 4096U
 
 typedef enum {
 	FILEMANAGER_INPUT_NONE,
 	FILEMANAGER_INPUT_PATH,
 	FILEMANAGER_INPUT_MKDIR,
 	FILEMANAGER_INPUT_RENAME,
+	FILEMANAGER_INPUT_CONFIRM_OVERWRITE,
 } filemanager_input_mode;
+
+typedef enum {
+	FILEMANAGER_CLIPBOARD_NONE,
+	FILEMANAGER_CLIPBOARD_COPY,
+	FILEMANAGER_CLIPBOARD_MOVE,
+} filemanager_clipboard_mode;
 
 typedef struct {
 	int fd;
@@ -62,9 +71,11 @@ typedef struct {
 	int close_requested;
 	size_t selected_entry;
 	filemanager_input_mode input_mode;
+	filemanager_clipboard_mode clipboard_mode;
 	char *path;
 	char *input;
 	char *rename_source;
+	char *clipboard_path;
 	char status[32];
 	gui_font *font;
 	gui_surface *surface;
@@ -84,6 +95,8 @@ static char filemanager_rename_source[FILEMANAGER_NAME_BYTES + 1];
 static char filemanager_operation_source[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
 static char filemanager_operation_target[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
 static char filemanager_resolved_path[PATH_MAX];
+static char filemanager_clipboard_path[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
+static uint8_t filemanager_copy_buffer[FILEMANAGER_COPY_BYTES];
 
 static void put16(uint8_t *bytes, uint16_t value)
 {
@@ -357,6 +370,76 @@ static void filemanager_set_error(filemanager_state *state, const char *operatio
 	fflush(stderr);
 }
 
+static int filemanager_copy_write_all(int fd, const uint8_t *bytes, size_t byte_count)
+{
+	while (byte_count != 0) {
+		ssize_t count = write(fd, bytes, byte_count);
+
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0) {
+			if (count == 0)
+				errno = EIO;
+			return -1;
+		}
+		bytes += count;
+		byte_count -= count;
+	}
+	return 0;
+}
+
+static int filemanager_copy_file(const char *source, const char *target, int overwrite)
+{
+	struct stat status;
+	int source_fd = -1;
+	int target_fd = -1;
+	int saved_errno = 0;
+
+	if ((source_fd = open(source, O_RDONLY)) < 0 || fstat(source_fd, &status) < 0 ||
+	    !S_ISREG(status.st_mode)) {
+		saved_errno = errno == 0 ? EINVAL : errno;
+		goto out;
+	}
+	target_fd = open(target, O_WRONLY | O_CREAT | (overwrite ? O_TRUNC : O_EXCL),
+		status.st_mode & 0777);
+	if (target_fd < 0) {
+		saved_errno = errno;
+		goto out;
+	}
+	for (;;) {
+		ssize_t count = read(source_fd, filemanager_copy_buffer, sizeof(filemanager_copy_buffer));
+
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count < 0) {
+			saved_errno = errno;
+			goto out;
+		}
+		if (count == 0)
+			break;
+		if (filemanager_copy_write_all(target_fd, filemanager_copy_buffer, count) < 0) {
+			saved_errno = errno;
+			goto out;
+		}
+	}
+	if (fsync(target_fd) < 0) {
+		saved_errno = errno;
+		goto out;
+	}
+out:
+	if (target_fd >= 0 && close(target_fd) < 0 && saved_errno == 0)
+		saved_errno = errno;
+	if (source_fd >= 0)
+		(void)close(source_fd);
+	if (saved_errno != 0 && !overwrite)
+		(void)unlink(target);
+	if (saved_errno != 0) {
+		errno = saved_errno;
+		return -1;
+	}
+	return 0;
+}
+
 static int filemanager_navigate(filemanager_state *state, const char *path)
 {
 	int saved_errno;
@@ -456,12 +539,112 @@ static int filemanager_mutate(filemanager_state *state)
 	return filemanager_refresh(state);
 }
 
+static int filemanager_stage_clipboard(filemanager_state *state,
+				       filemanager_clipboard_mode clipboard_mode)
+{
+	struct stat status;
+
+	if (state->selected_entry >= filemanager_directory_model.count)
+		return 0;
+	if (!filemanager_is_scratch_path(state->path)) {
+		(void)snprintf(state->status, sizeof(state->status), "Scratch only: /tmp");
+		return 1;
+	}
+	if (filemanager_child_path(state->clipboard_path, GUI_PROTOCOL_MAX_PATH_BYTES + 1,
+		state->path, filemanager_directory_model.entries[state->selected_entry].name) < 0 ||
+	    lstat(state->clipboard_path, &status) < 0 || !S_ISREG(status.st_mode)) {
+		filemanager_set_error(state, clipboard_mode == FILEMANAGER_CLIPBOARD_COPY ? "copy" : "move",
+			state->clipboard_path, errno == 0 ? EINVAL : errno);
+		return 1;
+	}
+	state->clipboard_mode = clipboard_mode;
+	(void)snprintf(state->status, sizeof(state->status), "%s ready",
+		clipboard_mode == FILEMANAGER_CLIPBOARD_COPY ? "Copy" : "Move");
+	printf("filemanager: %s staged: %s\n",
+		clipboard_mode == FILEMANAGER_CLIPBOARD_COPY ? "copy" : "move",
+		state->clipboard_path);
+	fflush(stdout);
+	return 1;
+}
+
+static int filemanager_paste(filemanager_state *state, int overwrite)
+{
+	struct stat status;
+	int saved_errno;
+
+	if (state->clipboard_mode == FILEMANAGER_CLIPBOARD_NONE) {
+		filemanager_set_error(state, "paste", "clipboard", EINVAL);
+		return 1;
+	}
+	if (!filemanager_is_scratch_path(state->path)) {
+		(void)snprintf(state->status, sizeof(state->status), "Scratch only: /tmp");
+		return 1;
+	}
+	if (filemanager_child_path(filemanager_operation_target,
+		sizeof(filemanager_operation_target), state->path,
+		strrchr(state->clipboard_path, '/') + 1) < 0) {
+		filemanager_set_error(state, "paste", state->clipboard_path, errno);
+		return 1;
+	}
+	if (!strcmp(state->clipboard_path, filemanager_operation_target)) {
+		filemanager_set_error(state, "paste", filemanager_operation_target, EINVAL);
+		return 1;
+	}
+	if (!overwrite) {
+		if (lstat(filemanager_operation_target, &status) == 0) {
+			state->input_mode = FILEMANAGER_INPUT_CONFIRM_OVERWRITE;
+			state->status[0] = '\0';
+			return 1;
+		}
+		if (errno != ENOENT) {
+			filemanager_set_error(state, "paste", filemanager_operation_target, errno);
+			return 1;
+		}
+	}
+	if (state->clipboard_mode == FILEMANAGER_CLIPBOARD_COPY) {
+		if (filemanager_copy_file(state->clipboard_path, filemanager_operation_target,
+			overwrite) < 0) {
+			filemanager_set_error(state, "copy", filemanager_operation_target, errno);
+			return 1;
+		}
+		printf("filemanager: copied: %s -> %s\n", state->clipboard_path,
+			filemanager_operation_target);
+	} else if (rename(state->clipboard_path, filemanager_operation_target) < 0) {
+		saved_errno = errno;
+		if (saved_errno != EXDEV || filemanager_copy_file(state->clipboard_path,
+			filemanager_operation_target, overwrite) < 0) {
+			filemanager_set_error(state, "move", filemanager_operation_target, errno);
+			return 1;
+		}
+		if (unlink(state->clipboard_path) < 0) {
+			saved_errno = errno;
+			if (!overwrite)
+				(void)unlink(filemanager_operation_target);
+			filemanager_set_error(state, "move", state->clipboard_path, saved_errno);
+			return 1;
+		}
+		printf("filemanager: moved across filesystems: %s -> %s\n",
+			state->clipboard_path, filemanager_operation_target);
+	} else {
+		printf("filemanager: moved: %s -> %s\n", state->clipboard_path,
+			filemanager_operation_target);
+	}
+	fflush(stdout);
+	if (state->clipboard_mode == FILEMANAGER_CLIPBOARD_MOVE) {
+		state->clipboard_mode = FILEMANAGER_CLIPBOARD_NONE;
+		state->clipboard_path[0] = '\0';
+	}
+	state->input_mode = FILEMANAGER_INPUT_NONE;
+	return filemanager_refresh(state);
+}
+
 static const char *filemanager_input_label(filemanager_input_mode input_mode)
 {
 	switch (input_mode) {
 	case FILEMANAGER_INPUT_PATH: return "Open:";
 	case FILEMANAGER_INPUT_MKDIR: return "Mkdir:";
 	case FILEMANAGER_INPUT_RENAME: return "Rename:";
+	case FILEMANAGER_INPUT_CONFIRM_OVERWRITE: return "Overwrite? y/N";
 	default: return "";
 	}
 }
@@ -470,6 +653,17 @@ static int filemanager_handle_input(filemanager_state *state, uint32_t keysym)
 {
 	size_t input_bytes;
 
+	if (state->input_mode == FILEMANAGER_INPUT_CONFIRM_OVERWRITE) {
+		if (keysym == 'y')
+			return filemanager_paste(state, 1);
+		if (keysym == GUI_KEYSYM_ESCAPE || keysym == 'n') {
+			state->input_mode = FILEMANAGER_INPUT_NONE;
+			printf("filemanager: paste cancelled\n");
+			fflush(stdout);
+			return 1;
+		}
+		return 0;
+	}
 	if (keysym == GUI_KEYSYM_ESCAPE) {
 		state->input_mode = FILEMANAGER_INPUT_NONE;
 		state->input[0] = '\0';
@@ -517,7 +711,8 @@ static int filemanager_handle_key(filemanager_state *state, uint32_t keysym)
 		(void)filemanager_navigate(state, state->input);
 		return 1;
 	}
-	if ((keysym == 'm' || keysym == 'r') && !filemanager_is_scratch_path(state->path)) {
+	if ((keysym == 'm' || keysym == 'r' || keysym == 'y' || keysym == 'd' || keysym == 'p') &&
+	    !filemanager_is_scratch_path(state->path)) {
 		(void)snprintf(state->status, sizeof(state->status), "Scratch only: /tmp");
 		fprintf(stderr, "filemanager: mutation rejected outside /tmp: %s\n", state->path);
 		fflush(stderr);
@@ -537,6 +732,12 @@ static int filemanager_handle_key(filemanager_state *state, uint32_t keysym)
 		state->status[0] = '\0';
 		return 1;
 	}
+	if (keysym == 'y')
+		return filemanager_stage_clipboard(state, FILEMANAGER_CLIPBOARD_COPY);
+	if (keysym == 'd')
+		return filemanager_stage_clipboard(state, FILEMANAGER_CLIPBOARD_MOVE);
+	if (keysym == 'p')
+		return filemanager_paste(state, 0);
 	if (keysym == '\n' && state->selected_entry < filemanager_directory_model.count) {
 		/* The transactional load is the final directory check and retains rows on error. */
 		if (filemanager_child_path(state->input, sizeof(filemanager_input_entry), state->path,
@@ -574,6 +775,12 @@ static void filemanager_render(filemanager_state *state)
 		gui_font_draw_text(state->surface, FILEMANAGER_NAME_X,
 			FILEMANAGER_HEADER_Y + FILEMANAGER_FONT_HEIGHT, state->font, state->status,
 			FILEMANAGER_FOREGROUND);
+		columns_y = FILEMANAGER_COLUMNS_Y;
+		rows_y = FILEMANAGER_PATH_ROWS_Y;
+	} else if (state->input_mode == FILEMANAGER_INPUT_CONFIRM_OVERWRITE) {
+		gui_font_draw_text(state->surface, FILEMANAGER_NAME_X,
+			FILEMANAGER_HEADER_Y + FILEMANAGER_FONT_HEIGHT, state->font,
+			filemanager_input_label(state->input_mode), FILEMANAGER_HEADER);
 		columns_y = FILEMANAGER_COLUMNS_Y;
 		rows_y = FILEMANAGER_PATH_ROWS_Y;
 	} else if (state->input_mode != FILEMANAGER_INPUT_NONE) {
@@ -853,7 +1060,8 @@ static int filemanager_create_window(filemanager_state *state)
 int main(int argc, char **argv)
 {
 	filemanager_state state = { .fd = -1, .path = filemanager_path,
-		.input = filemanager_input_entry, .rename_source = filemanager_rename_source };
+		.input = filemanager_input_entry, .rename_source = filemanager_rename_source,
+		.clipboard_path = filemanager_clipboard_path };
 	const char *path = argc == 2 ? argv[1] : "/";
 	const char *setup_step = "connect";
 	int status = 1;

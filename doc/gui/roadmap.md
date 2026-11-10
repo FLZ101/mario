@@ -1089,7 +1089,7 @@ imageviewer: decode BMP/PNG and add zoom/pan
 - [x] **M7.2.1 — create and rename in `/tmp`.** Implement mkdir and same-filesystem
   rename with input validation and post-operation refresh. Test success and
   duplicate-name errors. Commit: `filemanager: create and rename files`.
-- [ ] **M7.2.2 — copy and move in `/tmp`.** Add bounded streaming copy and
+- [x] **M7.2.2 — copy and move in `/tmp`.** Add bounded streaming copy and
   cross-filesystem move fallback; do not overwrite without confirmation. Test
   contents, error cleanup, and confirmation cancellation. Commit: `filemanager:
   copy and move files`.

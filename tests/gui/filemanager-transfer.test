@@ -1,0 +1,81 @@
+GUI-VISUAL-TEST:
+SERIAL: <<SETUP
+rm -rf /tmp/fm /tmp/mario-wm.* /tmp/fm.log /tmp/fm.pid
+mkdir /tmp/fm /tmp/fm/src /tmp/fm/dst
+printf alpha-data >/tmp/fm/src/alpha
+printf beta-data >/tmp/fm/src/beta
+printf gamma-data >/tmp/fm/src/gamma
+sync
+/usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SETUP
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! /bin/toybox/grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do /bin/toybox/sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL: /usr/bin/filemanager /tmp/fm/src >/tmp/fm.log 2>&1 & echo $! >/tmp/fm.pid
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: window ready' /tmp/fm.log; do /bin/toybox/sleep 1; done
+SERIAL: /bin/toybox/sleep 1
+GUI-CHECK-RECT: 128 96 1 1 17 24 39
+# y stages alpha, then p streams it into the scratch destination.
+GUI-SEND-KEY: y
+GUI-WAIT-FRAME:
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: copy staged: /tmp/fm/src/alpha' /tmp/fm.log; do /bin/toybox/sleep 1; done
+GUI-SEND-KEY: slash
+GUI-WAIT-FRAME:
+GUI-TYPE: /tmp/fm/dst
+GUI-WAIT-FRAME:
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: navigated: /tmp/fm/dst' /tmp/fm.log; do /bin/toybox/sleep 1; done
+GUI-SEND-KEY: p
+GUI-WAIT-FRAME:
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: copied: /tmp/fm/src/alpha -> /tmp/fm/dst/alpha' /tmp/fm.log; do /bin/toybox/sleep 1; done
+SERIAL: cmp /tmp/fm/src/alpha /tmp/fm/dst/alpha; echo copy-contents-status:$?
+SERIAL-CHECK: copy-contents-status:0
+# A second paste asks before replacement; n must leave the first copy intact.
+GUI-SEND-KEY: p
+GUI-WAIT-FRAME:
+GUI-SEND-KEY: n
+GUI-WAIT-FRAME:
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: paste cancelled' /tmp/fm.log; do /bin/toybox/sleep 1; done
+SERIAL: cmp /tmp/fm/src/alpha /tmp/fm/dst/alpha; echo cancel-contents-status:$?
+SERIAL-CHECK: cancel-contents-status:0
+# d stages beta and p moves it without leaving a duplicate source entry.
+GUI-SEND-KEY: slash
+GUI-WAIT-FRAME:
+GUI-TYPE: /tmp/fm/src
+GUI-WAIT-FRAME:
+GUI-SEND-KEY: down
+GUI-WAIT-FRAME:
+GUI-SEND-KEY: d
+GUI-WAIT-FRAME:
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: move staged: /tmp/fm/src/beta' /tmp/fm.log; do /bin/toybox/sleep 1; done
+GUI-SEND-KEY: slash
+GUI-WAIT-FRAME:
+GUI-TYPE: /tmp/fm/dst
+GUI-WAIT-FRAME:
+GUI-SEND-KEY: p
+GUI-WAIT-FRAME:
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: moved: /tmp/fm/src/beta -> /tmp/fm/dst/beta' /tmp/fm.log; do /bin/toybox/sleep 1; done
+SERIAL: test ! -e /tmp/fm/src/beta -a "$(cat /tmp/fm/dst/beta)" = beta-data; echo move-contents-status:$?
+SERIAL-CHECK: move-contents-status:0
+# If a staged source disappears, paste must not leave an empty destination file.
+GUI-SEND-KEY: slash
+GUI-WAIT-FRAME:
+GUI-TYPE: /tmp/fm/src
+GUI-WAIT-FRAME:
+GUI-SEND-KEY: down
+GUI-WAIT-FRAME:
+GUI-SEND-KEY: y
+GUI-WAIT-FRAME:
+SERIAL: rm /tmp/fm/src/gamma
+GUI-SEND-KEY: slash
+GUI-WAIT-FRAME:
+GUI-TYPE: /tmp/fm/dst
+GUI-WAIT-FRAME:
+GUI-SEND-KEY: p
+GUI-WAIT-FRAME:
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: copy failed: /tmp/fm/dst/gamma: 2' /tmp/fm.log; do /bin/toybox/sleep 1; done
+SERIAL: test ! -e /tmp/fm/dst/gamma; echo copy-cleanup-status:$?
+SERIAL-CHECK: copy-cleanup-status:0
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while /bin/toybox/pgrep filemanager >/dev/null; do /bin/toybox/sleep 1; done
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do /bin/toybox/sleep 1; done
+EXIT:
