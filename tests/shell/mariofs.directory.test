@@ -1,0 +1,21 @@
+# A newly appended entry must leave a zero marker after it.  Otherwise a reused
+# data block can make readdir() expose records left by a deleted directory.
+RUN: rm -rf /tmp/mariofs-dir-old /tmp/mariofs-dir-new
+RUN: mkdir /tmp/mariofs-dir-old; touch /tmp/mariofs-dir-old/stale; rm /tmp/mariofs-dir-old/stale; rmdir /tmp/mariofs-dir-old
+RUN: mkdir /tmp/mariofs-dir-new; touch /tmp/mariofs-dir-new/alpha
+RUN: python3 - <<'PY'
+import os
+
+names = sorted(os.listdir('/tmp/mariofs-dir-new'))
+assert names == ['alpha'], names
+PY
+RUN: touch /tmp/mariofs-dir-new/beta /tmp/mariofs-dir-new/gamma /tmp/mariofs-dir-new/delta /tmp/mariofs-dir-new/epsilon /tmp/mariofs-dir-new/zeta /tmp/mariofs-dir-new/eta
+RUN: python3 - <<'PY'
+import os
+
+names = sorted(os.listdir('/tmp/mariofs-dir-new'))
+assert names == ['alpha', 'beta', 'delta', 'epsilon', 'eta', 'gamma', 'zeta'], names
+print('mariofs-directory-terminator-ok')
+PY
+CHECK: mariofs-directory-terminator-ok
+RUN: rm -rf /tmp/mariofs-dir-new

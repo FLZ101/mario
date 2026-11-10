@@ -90,6 +90,7 @@ static int mario_add_entry(struct inode *dir, struct mario_dir_entry *__entry,
 	struct inode **res)
 {
 	int i, n, ret = 0;
+	int replaces_end = 0;
 	int block, block_size, *next_block;
 	struct buffer_head *bh;
 	struct mario_dir_entry *entry;
@@ -116,6 +117,7 @@ try:
 				block * block_size + i * MARIO_ENTRY_SIZE;
 			if (inode_is_busy(dir->i_sb, cand_ino))
 				continue;
+			replaces_end = !entry[i].data;
 			entry += i;
 			goto get_entry_done;
 		}
@@ -143,6 +145,10 @@ try:
 
 get_entry_done:
 	memcpy(entry, __entry, MARIO_ENTRY_SIZE);
+	if (replaces_end && (char *)(entry + 2) <= bh->b_data + block_size - 4) {
+		/* Reused data blocks may contain stale records after the logical end. */
+		memset(entry + 1, 0, MARIO_ENTRY_SIZE);
+	}
 	set_dirty(bh);
 
 	new_ino = block * block_size + (char *)entry - bh->b_data;
@@ -336,6 +342,8 @@ int mario_mkdir(struct inode *dir, char *name, int len, int mode)
 		goto tail_2;
 	}
 	pe = (struct mario_dir_entry *)bh->b_data;
+	/* A recycled data block must not expose stale records after . and ... */
+	memset(pe, 0, dir->i_block_size - 4);
 	pe[0].data = 0; // inode number. To be set
 	pe[0].mode = MODE_DIR | (mode & 0777);
 	pe[0].size = 0;
@@ -346,7 +354,6 @@ int mario_mkdir(struct inode *dir, char *name, int len, int mode)
 	pe[1].size = 0;
 	pe[1].blocks = 0;
 	strcpy(pe[1].name, "..");
-	memset(pe + 2, 0, MARIO_ENTRY_SIZE);	/* end of dir */
 
 	struct inode *inode = NULL;
 	ret = mario_add_entry(dir, &entry, &inode);
