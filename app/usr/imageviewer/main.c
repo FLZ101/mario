@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include <gui/image.h>
+#include <gui/image_cache.h>
 #include <gui/protocol.h>
 #include <gui/surface.h>
 
@@ -31,7 +32,7 @@ typedef struct {
 	uint32_t width;
 	uint32_t height;
 	int close_requested;
-	gui_surface *image;
+	gui_image_cache image_cache;
 	gui_surface *surface;
 } imageviewer_state;
 
@@ -150,6 +151,7 @@ static int imageviewer_resize_surface(imageviewer_state *state, uint32_t width,
 
 static void imageviewer_render(imageviewer_state *state)
 {
+	gui_surface *image = gui_image_cache_current(&state->image_cache);
 	uint32_t draw_width;
 	uint32_t draw_height;
 	uint32_t offset_x;
@@ -158,29 +160,26 @@ static void imageviewer_render(imageviewer_state *state)
 	gui_fill_rect(state->surface, (gui_rect) { .w = (int)state->width,
 		.h = (int)state->height }, IMAGEVIEWER_BACKGROUND);
 	/* Choose the limiting axis with 64-bit products before scaling the source. */
-	if ((uint64_t)state->width * state->image->height <=
-	    (uint64_t)state->height * state->image->width) {
+	if ((uint64_t)state->width * image->height <=
+	    (uint64_t)state->height * image->width) {
 		draw_width = state->width;
-		draw_height = (uint64_t)state->image->height * draw_width /
-			state->image->width;
+		draw_height = (uint64_t)image->height * draw_width / image->width;
 	} else {
 		draw_height = state->height;
-		draw_width = (uint64_t)state->image->width * draw_height /
-			state->image->height;
+		draw_width = (uint64_t)image->width * draw_height / image->height;
 	}
 	if (draw_width == 0 || draw_height == 0)
 		return;
 	offset_x = (state->width - draw_width) / 2;
 	offset_y = (state->height - draw_height) / 2;
 	for (uint32_t y = 0; y < draw_height; y++) {
-		uint32_t source_y = (uint64_t)y * state->image->height / draw_height;
+		uint32_t source_y = (uint64_t)y * image->height / draw_height;
 		gui_color *destination = state->surface->pixels +
 			(size_t)(offset_y + y) * state->surface->stride + offset_x;
-		const gui_color *source = state->image->pixels +
-			(size_t)source_y * state->image->stride;
+		const gui_color *source = image->pixels + (size_t)source_y * image->stride;
 
 		for (uint32_t x = 0; x < draw_width; x++)
-			destination[x] = source[(uint64_t)x * state->image->width / draw_width];
+			destination[x] = source[(uint64_t)x * image->width / draw_width];
 	}
 }
 
@@ -440,15 +439,19 @@ int main(int argc, char **argv)
 	imageviewer_state state = { .fd = -1 };
 	uint8_t *file_bytes = NULL;
 	size_t file_byte_count = 0;
+	gui_surface *image = NULL;
 	int status = 1;
 
 	if (argc != 2)
 		return 1;
+	gui_image_cache_init(&state.image_cache);
 	if (imageviewer_read_file(argv[1], &file_bytes, &file_byte_count) < 0 ||
-	    imageviewer_decode(file_bytes, file_byte_count, &state.image) < 0) {
+	    imageviewer_decode(file_bytes, file_byte_count, &image) < 0 ||
+	    gui_image_cache_set_current(&state.image_cache, argv[1], image) < 0) {
 		fprintf(stderr, "imageviewer: load failed: %d\n", errno);
 		goto out;
 	}
+	image = NULL;
 	free(file_bytes);
 	file_bytes = NULL;
 	state.fd = imageviewer_connect();
@@ -482,8 +485,9 @@ int main(int argc, char **argv)
 	}
 out:
 	free(file_bytes);
+	gui_surface_destroy(image);
 	gui_surface_destroy(state.surface);
-	gui_surface_destroy(state.image);
+	gui_image_cache_destroy(&state.image_cache);
 	if (state.fd >= 0)
 		close(state.fd);
 	return status;

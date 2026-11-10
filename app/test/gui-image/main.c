@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <gui/image.h>
+#include <gui/image_cache.h>
 
 static void put16(uint8_t *bytes, uint16_t value)
 {
@@ -152,12 +153,47 @@ static void test_png_decode(void)
 	free(bytes);
 }
 
+static gui_surface *cache_surface(gui_color color)
+{
+	gui_surface *surface = gui_surface_create(1, 1);
+
+	assert(surface != NULL);
+	surface->pixels[0] = color;
+	return surface;
+}
+
+static void test_cache(void)
+{
+	gui_image_cache cache;
+	gui_surface *first = cache_surface(0x00112233);
+	gui_surface *second = cache_surface(0x00445566);
+	gui_surface *replacement = cache_surface(0x00778899);
+
+	gui_image_cache_init(&cache);
+	assert(gui_image_cache_set_current(&cache, "first.bmp", first) == 0);
+	assert(gui_image_cache_current(&cache) == first);
+	assert(strcmp(gui_image_cache_current_path(&cache), "first.bmp") == 0);
+	assert(gui_image_cache_set_next(&cache, "second.png", second) == 0);
+	assert(gui_image_cache_next(&cache) == second);
+	/* Replacing next deterministically evicts the old preloaded frame. */
+	assert(gui_image_cache_set_next(&cache, "replacement.png", replacement) == 0);
+	assert(gui_image_cache_next(&cache) == replacement);
+	assert(strcmp(gui_image_cache_next_path(&cache), "replacement.png") == 0);
+	assert(gui_image_cache_promote_next(&cache) == 0);
+	assert(gui_image_cache_current(&cache) == replacement);
+	assert(gui_image_cache_next(&cache) == NULL);
+	assert(gui_image_cache_set_next(&cache, "replacement.png", replacement) == -1 &&
+		errno == EINVAL);
+	gui_image_cache_destroy(&cache);
+}
+
 int main(void)
 {
 	test_valid();
 	test_invalid();
 	test_decode();
 	test_png_decode();
+	test_cache();
 	puts("gui-image: BMP and PNG decode ok");
 	return 0;
 }

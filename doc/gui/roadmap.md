@@ -1002,7 +1002,7 @@ terminal: run oksh in a GUI terminal over a PTY
 - [x] **M6.2.2 — decode bounded PNG frames.** Enforce dimensions, row bytes,
   and allocation limits; leave the prior frame untouched on a decode error.
   Unit test corrupt/truncated PNGs. Commit: `imageviewer: validate PNG input`.
-- [ ] **M6.2.3 — render PNG and bound the cache.** Add PNG display plus exactly
+- [x] **M6.2.3 — render PNG and bound the cache.** Add PNG display plus exactly
   current/next decoded-frame caching and deterministic eviction. Test PNG
   golden and cache replacement. Commit: `imageviewer: display PNG images`.
 - [ ] **M6.3.1 — add view transforms.** Implement fit, 1:1, bounded zoom, and
