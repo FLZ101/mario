@@ -141,6 +141,8 @@ struct wm_server {
 	int32_t capture_window_y;
 	uint32_t capture_width;
 	uint32_t capture_height;
+	/* The private shell is server-owned and must not outlive the server. */
+	pid_t shell_pid;
 	int shell_ready;
 	int shell_replacement_started;
 };
@@ -1156,6 +1158,8 @@ static void wm_disconnect_client(wm_server *server, wm_client *client)
 	if (server->capture_client == client)
 		wm_cancel_capture(server);
 	if (client->role == GUI_PROTOCOL_ENDPOINT_SHELL) {
+		/* SIGCHLD is ignored, so a disconnected private shell is already reaped. */
+		server->shell_pid = 0;
 		if (server->shell_replacement_started || !server->shell_ready ||
 		    client->committed == NULL ||
 		    server->desktop_snapshot != NULL) {
@@ -1858,9 +1862,21 @@ static int wm_start_shell(wm_server *server)
 		shell_exec(fds[1]);
 	}
 	close(fds[1]);
-	if (wm_add_client(server, fds[0], GUI_PROTOCOL_ENDPOINT_SHELL) == NULL)
+	if (wm_add_client(server, fds[0], GUI_PROTOCOL_ENDPOINT_SHELL) == NULL) {
+		kill(pid, SIGTERM);
 		return -1;
+	}
+	server->shell_pid = pid;
 	return 0;
+}
+
+static void wm_stop_shell(wm_server *server)
+{
+	if (server->shell_pid <= 0)
+		return;
+	/* The private socket alone is not a lifetime guarantee during WM shutdown. */
+	kill(server->shell_pid, SIGTERM);
+	server->shell_pid = 0;
 }
 
 static int wm_start_terminal(void)
@@ -2065,6 +2081,7 @@ int main(void)
 	}
 	status = 0;
 out:
+	wm_stop_shell(&server);
 	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++)
 		client_destroy(&server.clients[index]);
 	if (server.desktop_snapshot != NULL) {

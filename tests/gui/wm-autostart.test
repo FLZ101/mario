@@ -1,0 +1,14 @@
+INIT-WM: keep
+GUI-VISUAL-TEST:
+# Init keeps the graphics owner dormant until this foreground transition.
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-CHECK-RECT: 32 32 32 32 31 41 51
+# An unexpected server death releases the seat; init starts a fresh session.
+SERIAL: old_wm=$(pgrep mario-wm); kill -KILL "$old_wm"; while :; do new_wm=$(pgrep mario-wm); test -n "$new_wm" && test "$new_wm" != "$old_wm" && break; sleep 1; done; echo wm-autostart: restarted
+SERIAL-CHECK: wm-autostart: restarted
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-CHECK-RECT: 32 32 32 32 31 41 51
+EXIT:

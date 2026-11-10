@@ -29,6 +29,9 @@ SERIAL: test -e /tmp/mario-wm.started; echo wm-owner-status:$?
 SERIAL-CHECK: wm-owner-status:0
 GUI-CHECK-RECT: 32 32 32 32 31 41 51
 SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+# The server owns its private shell and must not leave it running after exit.
+SERIAL: while pgrep mario-desktop >/dev/null; do sleep 1; done; echo wm-shell-cleanup: ok
+SERIAL-CHECK: wm-shell-cleanup: ok
 # Closing the last seat descriptors restores the previous text VT without a
 # synthetic function-key transition.
 GUI-CHECK-SCREEN: assets/fb-tty.ppm

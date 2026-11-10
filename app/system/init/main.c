@@ -14,6 +14,16 @@ static volatile sig_atomic_t sigchld = 0;
 static volatile sig_atomic_t sigint = 0;
 static volatile sig_atomic_t sigterm = 0;
 
+/* The compositor is a service only on framebuffer-capable boots. */
+static struct service {
+    const char *program;
+    pid_t pid;
+    time_t last_spawn;
+    int enabled;
+} window_manager = {
+    .program = "/usr/bin/mario-wm",
+};
+
 static void handle_sig(int sig)
 {
     switch (sig) {
@@ -79,6 +89,62 @@ int tty_check(const char *device)
     return 0;
 }
 
+static int framebuffer_available(void)
+{
+    int fd = open("/dev/fb0", O_RDONLY);
+
+    if (fd < 0)
+        return 0;
+    close(fd);
+    return 1;
+}
+
+static void spawn_window_manager(void)
+{
+    time_t now = time(NULL);
+    pid_t pid;
+
+    if (now - window_manager.last_spawn < 3)
+        sleep(3);
+
+    pid = fork();
+    if (pid == 0) {
+        int log = open("/tmp/mario-wm.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+        /* Keep the GUI service independent from init's controlling console. */
+        if (setsid() < 0)
+            _exit(EXIT_FAILURE);
+        if (log >= 0) {
+            dup2(log, STDOUT_FILENO);
+            dup2(log, STDERR_FILENO);
+            if (log > STDERR_FILENO)
+                close(log);
+        }
+        execl(window_manager.program, "mario-wm", NULL);
+        _exit(EXIT_FAILURE);
+    }
+    if (pid > 0) {
+        window_manager.pid = pid;
+        window_manager.last_spawn = time(NULL);
+        printf("[init] mario-wm\n");
+    }
+}
+
+static void start_window_manager(void)
+{
+    /* Text-only boots deliberately retain the original getty-only session. */
+    if (!framebuffer_available() || access(window_manager.program, X_OK) < 0)
+        return;
+    window_manager.enabled = 1;
+    spawn_window_manager();
+}
+
+static int window_manager_stopped(int status)
+{
+    /* mario-wm handles SIGTERM itself and reports its clean shutdown as zero. */
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
 void do_getty()
 {
     printf("[init] Press F1-6 to switch to /dev/tty1-6\n");
@@ -100,8 +166,15 @@ void do_getty()
 
             int status;
             pid_t pid;
-            // respawn getty and reap zombies
+            // respawn services and reap zombies
             while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+                if (window_manager.enabled && window_manager.pid == pid) {
+                    window_manager.pid = 0;
+                    /* Preserve a cleanly stopped GUI session until reboot. */
+                    if (!window_manager_stopped(status))
+                        spawn_window_manager();
+                    continue;
+                }
                 for (int i = 0; i < N_GETTY; i++) {
                     if (getties[i].pid == pid) {
                         spawn_getty(getties + i);
@@ -165,6 +238,7 @@ int main(int argc, char *argv[], char *envp[])
     HandleErr(signal(SIGHUP, SIG_IGN));
     HandleErr(signal(SIGQUIT, SIG_IGN));
 
+    start_window_manager();
     do_getty();
 
     while (1)

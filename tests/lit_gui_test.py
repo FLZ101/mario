@@ -2,6 +2,7 @@ r"""Run framebuffer tests through QMP against the GRUB4DOS VBE boot path.
 
 Directives:
   REBUILD-KERNEL: selftest-kmalloc
+  INIT-WM: keep
   EXPECT-HALT: Assertion 'block->magic == KMALLOC_MAGIC_ALLOC' failed
   SERIAL: <shell command>
   SERIAL: <<END
@@ -27,6 +28,10 @@ REBUILD-KERNEL must be the first directive.  It exclusively rebuilds the
 kernel and the VBE boot image, then restores both before a following test can
 boot.  A rebuilt fixture may either expect a fatal halt or use normal guest/QMP
 checks; those assertions determine whether the selected kernel is correct.
+
+Init starts a dormant window manager on framebuffer boots.  Fixtures normally
+terminate that service before their actions so they retain exclusive control of
+the graphics seat.  INIT-WM: keep opts into the production boot baseline.
 """
 
 from __future__ import annotations
@@ -114,6 +119,7 @@ class GuiTest:
     path: Path
     rebuild_kernel: str | None = None
     expect_halt: str | None = None
+    keep_init_wm: bool = False
     visual_test_markers: int = 0
     actions: list[tuple[str, object]] = field(default_factory=list)
 
@@ -128,7 +134,7 @@ class GuiTest:
             line = raw[1:] if raw.startswith("#") else raw
             if line.startswith("EXIT:"):
                 break
-            if not line.startswith("REBUILD-KERNEL:") and line.startswith(
+            if not line.startswith(("REBUILD-KERNEL:", "INIT-WM:")) and line.startswith(
                 ("SERIAL-CHECK:", "SERIAL:", "GUI-", "TIMEOUT:", "EXPECT-HALT:")
             ):
                 saw_instruction = True
@@ -142,6 +148,15 @@ class GuiTest:
                 self.rebuild_kernel = validate_rebuild_kernel(
                     line.split(":", 1)[1].strip(), self.path
                 )
+                saw_instruction = True
+            elif line.startswith("INIT-WM:"):
+                if self.actions or self.keep_init_wm:
+                    raise GuiTestError(
+                        f"{self.path}: INIT-WM must precede test actions"
+                    )
+                if line.split(":", 1)[1].strip() != "keep":
+                    raise GuiTestError(f"{self.path}: INIT-WM must be 'keep'")
+                self.keep_init_wm = True
                 saw_instruction = True
             elif line.startswith("EXPECT-HALT:"):
                 if self.actions:
@@ -728,6 +743,20 @@ def snapshot_guest_frame_counter(child: pexpect.spawn, timeout: float) -> int:
     return 0 if counter is None else counter
 
 
+def stop_init_window_manager(child: pexpect.spawn, timeout: float) -> str:
+    """Release init's dormant graphics seat for an isolated GUI fixture."""
+
+    return run_serial_script(
+        child,
+        """while ! test -e /tmp/mario-wm.started; do sleep 1; done
+kill -TERM $(pgrep mario-wm)
+while test -e /tmp/mario-wm.started; do sleep 1; done
+""",
+        timeout,
+        "stop init window manager",
+    )
+
+
 def run_test(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
     with kernel_artifacts(test.rebuild_kernel, "disk-image-vbe_1024x768"):
         return _run_test_locked(test, qemu, index, smp)
@@ -767,11 +796,14 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
             send_line(child, f"PS1='{PROMPT}'")
             expect_prompt(child, 10, "set GUI prompt")
             qmp.connect()
-            last_serial = ""
+            if test.keep_init_wm:
+                last_serial = ""
+            else:
+                last_serial = stop_init_window_manager(child, DEFAULT_TIMEOUT)
         # Low-level framebuffer fixtures also inject keys, but only fixtures
         # that opt into GUI-WAIT-FRAME require the WM-owned frame protocol.
         track_frames = any(action == "wait-frame" for action, _ in test.actions)
-        for action, value in test.actions:
+        for action_index, (action, value) in enumerate(test.actions, 1):
             if action == "visual-test":
                 continue
             if action == "serial":
@@ -812,11 +844,16 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                     raise GuiTestError(
                         "GUI-WAIT-FRAME requires a preceding GUI input action"
                     )
-                frame_baseline = wait_for_frame_advance(
-                    lambda: read_guest_frame_counter(child, timeout),
-                    frame_baseline,
-                    timeout,
-                )
+                try:
+                    frame_baseline = wait_for_frame_advance(
+                        lambda: read_guest_frame_counter(child, timeout),
+                        frame_baseline,
+                        timeout,
+                    )
+                except GuiTestError as exc:
+                    raise GuiTestError(
+                        f"action {action_index} GUI-WAIT-FRAME: {exc}"
+                    ) from exc
             elif action == "screen":
                 time.sleep(SCREEN_SETTLE_DELAY)
                 if not wait_for_screen(qmp, value, timeout):

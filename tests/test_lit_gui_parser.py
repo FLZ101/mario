@@ -83,6 +83,19 @@ class GuiDirectiveParserTests(unittest.TestCase):
                 with self.assertRaises(GuiTestError):
                     self.parse(f"SERIAL-WAIT-FILE: {value}")
 
+    def test_parses_init_window_manager_baseline(self) -> None:
+        test = self.parse("INIT-WM: keep\nGUI-CHECK-RECT: 0 0 1 1 1 2 3")
+        self.assertTrue(test.keep_init_wm)
+        for body in (
+            "INIT-WM: restart",
+            "SERIAL: true\nINIT-WM: keep",
+            "INIT-WM: keep\nINIT-WM: keep",
+            "INIT-WM: keep\nREBUILD-KERNEL: selftest-kmalloc",
+        ):
+            with self.subTest(body=body):
+                with self.assertRaises(GuiTestError):
+                    self.parse(body)
+
     def test_parses_and_validates_wait_frame(self) -> None:
         test = self.parse("GUI-WAIT-FRAME:")
         self.assertIn(("wait-frame", None), test.actions)

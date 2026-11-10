@@ -16,8 +16,9 @@ completion state, test gates, and commit boundaries.
 
 `mario-wm` has one explicit foreground-session lifecycle:
 
-1. **Dormant:** init has started the server, but F8 has not produced a
-   graphics foreground transition. It has already reserved writable
+1. **Dormant:** on a framebuffer-capable boot, init has started the server,
+   but F8 has not produced a graphics foreground transition. Text-only boots
+   remain getty-only. The dormant server has already reserved writable
    `/dev/fb0` and read-only `/dev/gui`, so F8 is eligible, but performs no
    framebuffer write and exposes no readiness file. It listens for clients;
    `mario-desktop` connects as the first shell client.
