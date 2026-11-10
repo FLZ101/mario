@@ -1093,7 +1093,7 @@ imageviewer: decode BMP/PNG and add zoom/pan
   cross-filesystem move fallback; do not overwrite without confirmation. Test
   contents, error cleanup, and confirmation cancellation. Commit: `filemanager:
   copy and move files`.
-- [ ] **M7.2.3 — delete safely in `/tmp`.** Add file delete and explicit
+- [x] **M7.2.3 — delete safely in `/tmp`.** Add file delete and explicit
   recursive-directory confirmation without following symlinks. Test nested
   trees, cancellation, and refresh. Commit: `filemanager: delete scratch
   files`.

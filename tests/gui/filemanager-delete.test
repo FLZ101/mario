@@ -1,0 +1,45 @@
+GUI-VISUAL-TEST:
+SERIAL: <<SETUP
+rm -rf /tmp/fm /tmp/mario-wm.* /tmp/fm.log /tmp/fm.pid
+mkdir /tmp/fm /tmp/fm/dir /tmp/fm/dir/nested /tmp/fm/target
+printf remove-me >/tmp/fm/file
+printf deep >/tmp/fm/dir/nested/deep
+printf keep >/tmp/fm/target/keep
+ln -s /tmp/fm/target /tmp/fm/dir/link
+sync
+/usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SETUP
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! /bin/toybox/grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do /bin/toybox/sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL: /usr/bin/filemanager /tmp/fm >/tmp/fm.log 2>&1 & echo $! >/tmp/fm.pid
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: window ready' /tmp/fm.log; do /bin/toybox/sleep 1; done
+SERIAL: /bin/toybox/sleep 1
+GUI-CHECK-RECT: 128 96 1 1 17 24 39
+# dir is selected first.  Cancelling preserves the full nested tree.
+GUI-SEND-KEY: x
+GUI-WAIT-FRAME:
+GUI-SEND-KEY: n
+GUI-WAIT-FRAME:
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: delete cancelled' /tmp/fm.log; do /bin/toybox/sleep 1; done
+SERIAL: test -f /tmp/fm/dir/nested/deep -a -L /tmp/fm/dir/link; echo delete-cancel-status:$?
+SERIAL-CHECK: delete-cancel-status:0
+# Confirming recursively removes the directory but unlinks rather than follows link.
+GUI-SEND-KEY: x
+GUI-WAIT-FRAME:
+GUI-SEND-KEY: y
+GUI-WAIT-FRAME:
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: deleted tree: /tmp/fm/dir' /tmp/fm.log; do /bin/toybox/sleep 1; done
+SERIAL: cat /tmp/fm.log
+SERIAL-CHECK: filemanager: deleted tree: /tmp/fm/dir
+SERIAL: test ! -e /tmp/fm/dir -a -f /tmp/fm/target/keep; echo delete-tree-status:$?
+SERIAL-CHECK: delete-tree-status:0
+# Refresh selects file first; x deletes regular files without a recursive prompt.
+GUI-SEND-KEY: x
+GUI-WAIT-FRAME:
+SERIAL: test ! -e /tmp/fm/file -a -f /tmp/fm/target/keep; echo delete-file-status:$?
+SERIAL-CHECK: delete-file-status:0
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while /bin/toybox/pgrep filemanager >/dev/null; do /bin/toybox/sleep 1; done
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do /bin/toybox/sleep 1; done
+EXIT:

@@ -270,10 +270,12 @@ tail_2:
 int mario_rmdir(struct inode *dir, char *name, int len)
 {
 	int ino, ret = 0;
-	struct inode *inode;
+	struct inode *inode = NULL;
 
-	if (len == 1 && name[0] == '.')
+	if (len == 1 && name[0] == '.') {
+		iput(dir);
 		return -EINVAL;
+	}
 
 	down(&dir->i_sem);
 	if (!(ino = mario_find_entry(dir, name, len))) {
@@ -301,9 +303,11 @@ int mario_rmdir(struct inode *dir, char *name, int len)
 		ret = -ENOTEMPTY;
 		goto tail;
 	}
-	mario_del_entry(inode, 1);
-	iput(inode);	/* This inode would not be got any more */
+	ret = mario_del_entry(inode, 1);
 tail:
+	/* iget() succeeds before checks that can reject the removal. */
+	if (inode)
+		iput(inode);
 	up(&dir->i_sem);
 	iput(dir);
 	return ret;
@@ -320,8 +324,10 @@ int mario_mkdir(struct inode *dir, char *name, int len, int mode)
 		goto tail_1;
 	}
 
-	if (len == 1 && name[0] == '.')
-		return -EINVAL;
+	if (len == 1 && name[0] == '.') {
+		ret = -EINVAL;
+		goto tail_1;
+	}
 
 	if (mario_find_entry(dir, name, len)) {
 		ret = -EEXIST;
@@ -382,10 +388,12 @@ tail_1:
 int mario_unlink(struct inode *dir, char *name, int len)
 {
 	int ino, ret = 0;
-	struct inode *inode;
+	struct inode *inode = NULL;
 
-	if (len == 1 && name[0] == '.')
+	if (len == 1 && name[0] == '.') {
+		iput(dir);
 		return -EINVAL;
+	}
 
 	down(&dir->i_sem);
 	if (!(ino = mario_find_entry(dir, name, len))) {
@@ -401,9 +409,11 @@ int mario_unlink(struct inode *dir, char *name, int len)
 		ret = -EBUSY;
 		goto tail;
 	}
-	mario_del_entry(inode, 1);
-	iput(inode);	/* This inode would not be got any more */
+	ret = mario_del_entry(inode, 1);
 tail:
+	/* Keep failed unlink attempts from pinning the target inode. */
+	if (inode)
+		iput(inode);
 	up(&dir->i_sem);
 	iput(dir);
 	return ret;
@@ -531,8 +541,10 @@ int mario_mknod(struct inode *dir, char *name, int len, int mode, int rdev)
 		goto tail_1;
 	}
 
-	if (len == 1 && name[0] == '.')
-		return -EINVAL;
+	if (len == 1 && name[0] == '.') {
+		error = -EINVAL;
+		goto tail_1;
+	}
 
 	down(&dir->i_sem);
 	if ((ino = mario_find_entry(dir, name, len))) {
@@ -560,6 +572,7 @@ int mario_symlink(struct inode *dir, char *basename, int namelen, char *oldname)
 {
 	int ino, error = 0;
 	struct mario_dir_entry entry = {0};
+	struct inode *inode = NULL;
 
 	int n = strlen(oldname);
 	if (n + 1 > dir->i_block_size - 4) {
@@ -584,7 +597,6 @@ int mario_symlink(struct inode *dir, char *basename, int namelen, char *oldname)
 	strncpy(entry.name, basename, namelen);
 	entry.name[namelen] = '\0';
 
-	struct inode *inode = NULL; // inode for the new entry
 	error = mario_add_entry(dir, &entry, &inode);
 	if (error)
 		goto tail_2;
@@ -609,8 +621,13 @@ int mario_symlink(struct inode *dir, char *basename, int namelen, char *oldname)
 	goto tail_2;
 
 tail_3:
-	mario_del_entry(inode, 1);
+	if (mario_del_entry(inode, 1) == 0)
+		/* Keep iput() from restoring an entry that this error path removed. */
+		MARIO_INODE_NAME(inode)[0] = '\0';
 tail_2:
+	/* mario_add_entry() returns a reference even after the new entry is initialized. */
+	if (inode)
+		iput(inode);
 	up(&dir->i_sem);
 tail_1:
 	iput(dir);

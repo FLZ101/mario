@@ -1,5 +1,6 @@
 #include "model.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -53,6 +54,7 @@ typedef enum {
 	FILEMANAGER_INPUT_MKDIR,
 	FILEMANAGER_INPUT_RENAME,
 	FILEMANAGER_INPUT_CONFIRM_OVERWRITE,
+	FILEMANAGER_INPUT_CONFIRM_DELETE_TREE,
 } filemanager_input_mode;
 
 typedef enum {
@@ -440,6 +442,68 @@ out:
 	return 0;
 }
 
+static int filemanager_remove_tree(const char *path)
+{
+	DIR *stream;
+	char *child_path;
+	int directory_fd;
+	int saved_errno = 0;
+
+	directory_fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (directory_fd < 0)
+		return -1;
+	stream = fdopendir(directory_fd);
+	if (stream == NULL) {
+		saved_errno = errno;
+		close(directory_fd);
+		errno = saved_errno;
+		return -1;
+	}
+	child_path = malloc(GUI_PROTOCOL_MAX_PATH_BYTES + 1);
+	if (child_path == NULL) {
+		saved_errno = errno;
+		closedir(stream);
+		errno = saved_errno;
+		return -1;
+	}
+	for (;;) {
+		struct dirent *entry;
+		struct stat status;
+
+		errno = 0;
+		entry = readdir(stream);
+		if (entry == NULL) {
+			if (errno != 0)
+				saved_errno = errno;
+			break;
+		}
+		if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+			continue;
+		if (filemanager_child_path(child_path, GUI_PROTOCOL_MAX_PATH_BYTES + 1, path,
+			entry->d_name) < 0 || lstat(child_path, &status) < 0) {
+			saved_errno = errno;
+			break;
+		}
+		if (S_ISDIR(status.st_mode)) {
+			if (filemanager_remove_tree(child_path) < 0) {
+				saved_errno = errno;
+				break;
+			}
+		} else if (unlink(child_path) < 0) {
+			saved_errno = errno;
+			break;
+		}
+	}
+	free(child_path);
+	if (closedir(stream) < 0 && saved_errno == 0)
+		saved_errno = errno;
+	if (saved_errno != 0) {
+		errno = saved_errno;
+		return -1;
+	}
+	return rmdir(path);
+}
+
 static int filemanager_navigate(filemanager_state *state, const char *path)
 {
 	int saved_errno;
@@ -638,6 +702,58 @@ static int filemanager_paste(filemanager_state *state, int overwrite)
 	return filemanager_refresh(state);
 }
 
+static int filemanager_delete_selected(filemanager_state *state)
+{
+	struct stat status;
+
+	if (state->selected_entry >= filemanager_directory_model.count)
+		return 0;
+	if (!filemanager_is_scratch_path(state->path)) {
+		(void)snprintf(state->status, sizeof(state->status), "Scratch only: /tmp");
+		return 1;
+	}
+	if (filemanager_child_path(filemanager_operation_target,
+		sizeof(filemanager_operation_target), state->path,
+		filemanager_directory_model.entries[state->selected_entry].name) < 0 ||
+	    lstat(filemanager_operation_target, &status) < 0) {
+		filemanager_set_error(state, "delete", filemanager_operation_target, errno);
+		return 1;
+	}
+	if (S_ISDIR(status.st_mode)) {
+		if (rmdir(filemanager_operation_target) == 0) {
+			printf("filemanager: deleted directory: %s\n", filemanager_operation_target);
+			fflush(stdout);
+			return filemanager_refresh(state);
+		}
+		if (errno == ENOTEMPTY) {
+			state->input_mode = FILEMANAGER_INPUT_CONFIRM_DELETE_TREE;
+			state->status[0] = '\0';
+			return 1;
+		}
+		filemanager_set_error(state, "delete", filemanager_operation_target, errno);
+		return 1;
+	}
+	if (unlink(filemanager_operation_target) < 0) {
+		filemanager_set_error(state, "delete", filemanager_operation_target, errno);
+		return 1;
+	}
+	printf("filemanager: deleted: %s\n", filemanager_operation_target);
+	fflush(stdout);
+	return filemanager_refresh(state);
+}
+
+static int filemanager_delete_tree(filemanager_state *state)
+{
+	if (filemanager_remove_tree(filemanager_operation_target) < 0) {
+		filemanager_set_error(state, "delete", filemanager_operation_target, errno);
+		return 1;
+	}
+	printf("filemanager: deleted tree: %s\n", filemanager_operation_target);
+	fflush(stdout);
+	state->input_mode = FILEMANAGER_INPUT_NONE;
+	return filemanager_refresh(state);
+}
+
 static const char *filemanager_input_label(filemanager_input_mode input_mode)
 {
 	switch (input_mode) {
@@ -645,6 +761,7 @@ static const char *filemanager_input_label(filemanager_input_mode input_mode)
 	case FILEMANAGER_INPUT_MKDIR: return "Mkdir:";
 	case FILEMANAGER_INPUT_RENAME: return "Rename:";
 	case FILEMANAGER_INPUT_CONFIRM_OVERWRITE: return "Overwrite? y/N";
+	case FILEMANAGER_INPUT_CONFIRM_DELETE_TREE: return "Delete tree? y/N";
 	default: return "";
 	}
 }
@@ -653,12 +770,17 @@ static int filemanager_handle_input(filemanager_state *state, uint32_t keysym)
 {
 	size_t input_bytes;
 
-	if (state->input_mode == FILEMANAGER_INPUT_CONFIRM_OVERWRITE) {
+	if (state->input_mode == FILEMANAGER_INPUT_CONFIRM_OVERWRITE ||
+	    state->input_mode == FILEMANAGER_INPUT_CONFIRM_DELETE_TREE) {
 		if (keysym == 'y')
-			return filemanager_paste(state, 1);
+			return state->input_mode == FILEMANAGER_INPUT_CONFIRM_OVERWRITE ?
+				filemanager_paste(state, 1) : filemanager_delete_tree(state);
 		if (keysym == GUI_KEYSYM_ESCAPE || keysym == 'n') {
+			filemanager_input_mode input_mode = state->input_mode;
+
 			state->input_mode = FILEMANAGER_INPUT_NONE;
-			printf("filemanager: paste cancelled\n");
+			printf("filemanager: %s cancelled\n",
+				input_mode == FILEMANAGER_INPUT_CONFIRM_OVERWRITE ? "paste" : "delete");
 			fflush(stdout);
 			return 1;
 		}
@@ -711,7 +833,8 @@ static int filemanager_handle_key(filemanager_state *state, uint32_t keysym)
 		(void)filemanager_navigate(state, state->input);
 		return 1;
 	}
-	if ((keysym == 'm' || keysym == 'r' || keysym == 'y' || keysym == 'd' || keysym == 'p') &&
+	if ((keysym == 'm' || keysym == 'r' || keysym == 'y' || keysym == 'd' || keysym == 'p' ||
+	     keysym == 'x') &&
 	    !filemanager_is_scratch_path(state->path)) {
 		(void)snprintf(state->status, sizeof(state->status), "Scratch only: /tmp");
 		fprintf(stderr, "filemanager: mutation rejected outside /tmp: %s\n", state->path);
@@ -738,6 +861,8 @@ static int filemanager_handle_key(filemanager_state *state, uint32_t keysym)
 		return filemanager_stage_clipboard(state, FILEMANAGER_CLIPBOARD_MOVE);
 	if (keysym == 'p')
 		return filemanager_paste(state, 0);
+	if (keysym == 'x')
+		return filemanager_delete_selected(state);
 	if (keysym == '\n' && state->selected_entry < filemanager_directory_model.count) {
 		/* The transactional load is the final directory check and retains rows on error. */
 		if (filemanager_child_path(state->input, sizeof(filemanager_input_entry), state->path,
