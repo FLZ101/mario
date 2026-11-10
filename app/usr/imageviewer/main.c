@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
@@ -27,6 +28,10 @@
 #define PNG_SIGNATURE_BYTES 8U
 #define IMAGEVIEWER_PAN_STEP 256
 
+static char imageviewer_directory_path[PATH_MAX];
+static char imageviewer_candidate_path[PATH_MAX];
+static char imageviewer_previous_path[PATH_MAX];
+
 typedef struct {
 	int fd;
 	uint32_t window_id;
@@ -48,6 +53,8 @@ static uint8_t imageviewer_frame[GUI_PROTOCOL_HEADER_SIZE +
 	sizeof(gui_protocol_wire_surface_data) +
 	SURFACE_PIXELS_PER_MESSAGE * sizeof(uint32_t)];
 static uint8_t imageviewer_input[GUI_PROTOCOL_MAX_MESSAGE_SIZE - GUI_PROTOCOL_HEADER_SIZE];
+
+static int imageviewer_navigate(imageviewer_state *state, int direction);
 
 static void put16(uint8_t *bytes, uint16_t value)
 {
@@ -200,6 +207,10 @@ static int imageviewer_handle_key(imageviewer_state *state, uint32_t keysym)
 		return gui_image_view_zoom(&state->view, 1);
 	if (keysym == '-')
 		return gui_image_view_zoom(&state->view, -1);
+	if (keysym == 'n' || keysym == GUI_KEYSYM_PAGE_DOWN)
+		return imageviewer_navigate(state, 1);
+	if (keysym == 'p' || keysym == GUI_KEYSYM_PAGE_UP)
+		return imageviewer_navigate(state, -1);
 	if (keysym == GUI_KEYSYM_LEFT || keysym == 'h')
 		pan_x = IMAGEVIEWER_PAN_STEP;
 	else if (keysym == GUI_KEYSYM_RIGHT || keysym == 'l')
@@ -489,16 +500,182 @@ static int imageviewer_read_file(const char *path, uint8_t **contents,
 	return 0;
 }
 
-static int imageviewer_decode(const uint8_t *bytes, size_t byte_count,
+static int imageviewer_extension_matches(const char *path, const char *extension)
+{
+	const char *suffix = strrchr(path, '.');
+
+	return suffix != NULL && strcmp(suffix, extension) == 0;
+}
+
+static int imageviewer_path_is_supported(const char *path)
+{
+	return imageviewer_extension_matches(path, ".bmp") ||
+		imageviewer_extension_matches(path, ".png");
+}
+
+static int imageviewer_decode(const char *path, const uint8_t *bytes, size_t byte_count,
 			      gui_surface **image)
 {
 	static const uint8_t png_signature[PNG_SIGNATURE_BYTES] =
 		{ 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n' };
+	int is_png = byte_count >= PNG_SIGNATURE_BYTES &&
+		memcmp(bytes, png_signature, sizeof(png_signature)) == 0;
+	int is_bmp = byte_count >= 2 && bytes[0] == 'B' && bytes[1] == 'M';
+	int result;
 
-	if (byte_count >= PNG_SIGNATURE_BYTES &&
-	    memcmp(bytes, png_signature, sizeof(png_signature)) == 0)
-		return gui_png_decode(bytes, byte_count, image);
-	return gui_bmp_decode(bytes, byte_count, image);
+	/* Prefer the filename type, but recover when a valid image has a wrong suffix. */
+	if (imageviewer_extension_matches(path, ".png")) {
+		result = gui_png_decode(bytes, byte_count, image);
+		return result == 0 || !is_bmp ? result : gui_bmp_decode(bytes, byte_count, image);
+	}
+	if (imageviewer_extension_matches(path, ".bmp")) {
+		result = gui_bmp_decode(bytes, byte_count, image);
+		return result == 0 || !is_png ? result : gui_png_decode(bytes, byte_count, image);
+	}
+	return is_png ? gui_png_decode(bytes, byte_count, image) : gui_bmp_decode(bytes,
+		byte_count, image);
+}
+
+static int imageviewer_load(const char *path, gui_surface **image)
+{
+	uint8_t *bytes = NULL;
+	size_t byte_count = 0;
+	int result;
+
+	if (imageviewer_read_file(path, &bytes, &byte_count) < 0)
+		return -1;
+	result = imageviewer_decode(path, bytes, byte_count, image);
+	free(bytes);
+	return result;
+}
+
+static const char *imageviewer_basename(const char *path)
+{
+	const char *slash = strrchr(path, '/');
+
+	return slash == NULL ? path : slash + 1;
+}
+
+static int imageviewer_directory(const char *path)
+{
+	const char *slash = strrchr(path, '/');
+	size_t length;
+
+	if (slash == NULL) {
+		strcpy(imageviewer_directory_path, ".");
+		return 0;
+	}
+	length = slash == path ? 1 : (size_t)(slash - path);
+	if (length >= sizeof(imageviewer_directory_path)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	memcpy(imageviewer_directory_path, path, length);
+	imageviewer_directory_path[length] = '\0';
+	return 0;
+}
+
+static int imageviewer_join_path(const char *name, char path[PATH_MAX])
+{
+	size_t directory_bytes = strlen(imageviewer_directory_path);
+	size_t name_bytes = strlen(name);
+	int separator = directory_bytes != 0 && imageviewer_directory_path[directory_bytes - 1] != '/';
+
+	if (directory_bytes + separator + name_bytes >= PATH_MAX) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	memcpy(path, imageviewer_directory_path, directory_bytes);
+	if (separator)
+		path[directory_bytes++] = '/';
+	memcpy(path + directory_bytes, name, name_bytes + 1);
+	return 0;
+}
+
+static int imageviewer_find_sibling(const char *current_path, int direction)
+{
+	DIR *directory;
+	const char *current_name = imageviewer_basename(current_path);
+	int found_current = 0;
+
+	if (imageviewer_directory(current_path) < 0)
+		return -1;
+	directory = opendir(imageviewer_directory_path);
+	if (directory == NULL)
+		return -1;
+	imageviewer_candidate_path[0] = '\0';
+	imageviewer_previous_path[0] = '\0';
+	for (;;) {
+		struct dirent *entry = readdir(directory);
+		struct stat status;
+
+		if (entry == NULL)
+			break;
+		if (!imageviewer_path_is_supported(entry->d_name) ||
+		    imageviewer_join_path(entry->d_name, imageviewer_candidate_path) < 0 ||
+		    stat(imageviewer_candidate_path, &status) < 0 || !S_ISREG(status.st_mode))
+			continue;
+		if (direction > 0 && found_current && strcmp(entry->d_name, current_name) != 0)
+			break;
+		if (strcmp(entry->d_name, current_name) == 0) {
+			found_current = 1;
+			if (direction < 0) {
+				if (imageviewer_previous_path[0] != '\0')
+					strcpy(imageviewer_candidate_path, imageviewer_previous_path);
+				else
+					imageviewer_candidate_path[0] = '\0';
+				break;
+			}
+			continue;
+		}
+		if (direction < 0)
+			strcpy(imageviewer_previous_path, imageviewer_candidate_path);
+	}
+	if (closedir(directory) < 0)
+		return -1;
+	if (!found_current || imageviewer_candidate_path[0] == '\0') {
+		errno = ENOENT;
+		return -1;
+	}
+	return 0;
+}
+
+static void imageviewer_preload_next(imageviewer_state *state)
+{
+	gui_surface *image = NULL;
+	const char *current_path = gui_image_cache_current_path(&state->image_cache);
+
+	if (imageviewer_find_sibling(current_path, 1) < 0 ||
+	    (gui_image_cache_next_path(&state->image_cache) != NULL &&
+	     strcmp(gui_image_cache_next_path(&state->image_cache), imageviewer_candidate_path) == 0) ||
+	    imageviewer_load(imageviewer_candidate_path, &image) < 0)
+		return;
+	if (gui_image_cache_set_next(&state->image_cache, imageviewer_candidate_path, image) == 0)
+		image = NULL;
+	gui_surface_destroy(image);
+}
+
+static int imageviewer_navigate(imageviewer_state *state, int direction)
+{
+	gui_surface *image = NULL;
+	const char *current_path = gui_image_cache_current_path(&state->image_cache);
+
+	if (imageviewer_find_sibling(current_path, direction) < 0)
+		return 0;
+	if (direction > 0 && gui_image_cache_next_path(&state->image_cache) != NULL &&
+	    strcmp(gui_image_cache_next_path(&state->image_cache), imageviewer_candidate_path) == 0) {
+		if (gui_image_cache_promote_next(&state->image_cache) < 0)
+			return -1;
+	} else if (imageviewer_load(imageviewer_candidate_path, &image) < 0 ||
+		   gui_image_cache_set_current(&state->image_cache, imageviewer_candidate_path,
+			image) < 0) {
+		gui_surface_destroy(image);
+		return 0;
+	} else
+		image = NULL;
+	gui_image_view_fit(&state->view);
+	imageviewer_preload_next(state);
+	return 1;
 }
 
 int main(int argc, char **argv)
@@ -514,7 +691,7 @@ int main(int argc, char **argv)
 	gui_image_cache_init(&state.image_cache);
 	gui_image_view_init(&state.view);
 	if (imageviewer_read_file(argv[1], &file_bytes, &file_byte_count) < 0 ||
-	    imageviewer_decode(file_bytes, file_byte_count, &image) < 0 ||
+	    imageviewer_decode(argv[1], file_bytes, file_byte_count, &image) < 0 ||
 	    gui_image_cache_set_current(&state.image_cache, argv[1], image) < 0) {
 		fprintf(stderr, "imageviewer: load failed: %d\n", errno);
 		goto out;
@@ -522,6 +699,7 @@ int main(int argc, char **argv)
 	image = NULL;
 	free(file_bytes);
 	file_bytes = NULL;
+	imageviewer_preload_next(&state);
 	state.fd = imageviewer_connect();
 	if (state.fd < 0 || imageviewer_create_window(&state) < 0 ||
 	    imageviewer_resize_surface(&state, state.width, state.height) < 0 ||

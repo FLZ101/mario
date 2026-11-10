@@ -265,7 +265,9 @@ View state and image cache:
 - Keyboard controls follow common terminal-viewer conventions: `f` returns to
   fit, `1` selects actual size, and `+`/`=` and `-` move through the bounded
   zoom levels. Arrow keys and Vim-style `h`, `j`, `k`, and `l` pan the clipped
-  viewport; a left-button drag moves the image directly.
+  viewport; a left-button drag moves the image directly. `n`/Page Down and
+  `p`/Page Up select the next and previous supported sibling in `readdir()`
+  order.
 - Pan is clipped to the intersection of the scaled image and the viewport; the
   cursor changes or a status hint indicates when panning is possible.
 - Next/previous iterate the same directory in `readdir` order, skipping

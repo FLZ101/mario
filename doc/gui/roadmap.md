@@ -1011,7 +1011,7 @@ terminal: run oksh in a GUI terminal over a PTY
 - [x] **M6.3.2 — add pan input.** Implement mouse-drag and arrow-key pan with
   clamped bounds. Test each input path and edge clamping. Commit: `imageviewer:
   pan scaled images`.
-- [ ] **M6.3.3 — add sibling navigation.** Traverse same-directory image files
+- [x] **M6.3.3 — add sibling navigation.** Traverse same-directory image files
   in `readdir()` order, skip unsupported inputs, and keep the old image on
   error. Test next/previous and a corrupt sibling. Commit: `imageviewer:
   navigate sibling images`.
