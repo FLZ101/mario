@@ -1073,7 +1073,7 @@ imageviewer: decode BMP/PNG and add zoom/pan
 
 ## M7: File Manager
 
-- [ ] **M7.1.1 — create a file-manager protocol client and bounded directory
+- [x] **M7.1.1 — create a file-manager protocol client and bounded directory
   model.** Connect to `mario-wm`, create a client window, and build typed
   entries from `readdir()` with explicit name/count limits and sorted display
   data. Enable the bounded `LAUNCH_FILE_MANAGER` path form. Unit test long

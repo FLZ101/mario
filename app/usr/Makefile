@@ -59,6 +59,7 @@ TERMINAL_UI_DIR := $(ROOT)/../gui/libmario-ui
 TERMINAL_UI_INPUTS := $(wildcard $(TERMINAL_UI_DIR)/src/*.c \
 	$(TERMINAL_UI_DIR)/include/gui/*.h)
 IMAGEVIEWER_EXE := imageviewer/imageviewer.exe
+FILEMANAGER_EXE := filemanager/filemanager.exe
 LIBPNG_INSTALL_DIR := $(ROOT)/libpng-1.6.59-install
 ZLIB_INSTALL_DIR := $(ROOT)/zlib-1.3.2-install
 
@@ -93,3 +94,17 @@ imageviewer/imageviewer.exe: imageviewer/main.c $(TERMINAL_UI_DIR)/libmario-ui.a
 		-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
 		-L$(TERMINAL_UI_DIR) -L$(LIBPNG_INSTALL_DIR)/lib \
 		-L$(ZLIB_INSTALL_DIR)/lib -static -lmario-ui -lpng16 -lz
+
+.PHONY build:: build-filemanager
+build-filemanager: $(FILEMANAGER_EXE)
+
+.PHONY clean:: clean-filemanager
+clean-filemanager:
+	$(RM) $(FILEMANAGER_EXE) filemanager/*.o filemanager/*.d
+
+filemanager/filemanager.exe: filemanager/main.c filemanager/model.c \
+	$(TERMINAL_UI_DIR)/libmario-ui.a
+	$(CC) -o $@ filemanager/main.c filemanager/model.c -I$(ROOT)/../include \
+		-I$(TERMINAL_UI_DIR)/include \
+		-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
+		-L$(TERMINAL_UI_DIR) -static -lmario-ui
