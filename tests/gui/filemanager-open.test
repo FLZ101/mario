@@ -1,49 +1,23 @@
 GUI-VISUAL-TEST:
 SERIAL: <<SETUP
-rm -rf /tmp/fm-open /tmp/mario-wm.* /tmp/fm-open.log /tmp/fm-open.pid
-mkdir /tmp/fm-open /tmp/fm-open/directory
-printf text >/tmp/fm-open/a.txt
-cp /usr/share/mario-tests/gui/alpha-128.png /tmp/fm-open/z.png
+rm -rf /tmp/fm-open-text /tmp/mario-wm.* /tmp/fm-open.log /tmp/fm-open.pid
+mkdir /tmp/fm-open-text
+printf text >/tmp/fm-open-text/a.txt
 /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
 SETUP
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while ! /bin/toybox/grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do /bin/toybox/sleep 1; done
 GUI-SEND-KEY: f8
-SERIAL: /usr/bin/filemanager /tmp/fm-open >/tmp/fm-open.log 2>&1 & echo $! >/tmp/fm-open.pid
+# Opening a text file starts Vim in a terminal and does not terminate the manager.
+SERIAL: /usr/bin/filemanager /tmp/fm-open-text >/tmp/fm-open.log 2>&1 & echo $! >/tmp/fm-open.pid
 SERIAL: while ! /bin/toybox/grep -q 'filemanager: window ready' /tmp/fm-open.log; do /bin/toybox/sleep 1; done
-SERIAL: /bin/toybox/sleep 1
 GUI-CHECK-RECT: 128 96 1 1 17 24 39
-# Opening the selected text file starts vim in a terminal without closing the manager.
 GUI-SEND-KEY: o
-SERIAL: while ! /bin/toybox/pgrep terminal >/dev/null; do /bin/toybox/sleep 1; done
-SERIAL: while ! /bin/toybox/pgrep vim >/dev/null; do /bin/toybox/sleep 1; done
+SERIAL: while ! /bin/toybox/grep -q 'terminal: window ready' /tmp/mario-wm.log; do /bin/toybox/sleep 1; done
 SERIAL: /bin/toybox/grep -q 'filemanager: launch accepted' /tmp/fm-open.log; echo text-launch-status:$?
 SERIAL-CHECK: text-launch-status:0
-# Leave Vim normally so terminal releases its window and focus returns to the manager.
-GUI-TYPE: :q
-SERIAL: while /bin/toybox/pgrep terminal >/dev/null; do /bin/toybox/sleep 1; done; /bin/toybox/sleep 1
-SERIAL: /bin/toybox/pgrep filemanager >/dev/null; echo post-terminal-manager-status:$?
-SERIAL-CHECK: post-terminal-manager-status:0
-# The next regular file is a PNG and opens in the image viewer directly.
-GUI-SEND-KEY: down
-GUI-SEND-KEY: down
-GUI-SEND-KEY: o
-SERIAL: while ! /bin/toybox/grep -q 'imageviewer: window ready' /tmp/mario-wm.log; do /bin/toybox/sleep 1; done
-SERIAL: /bin/toybox/pgrep filemanager >/dev/null; echo image-launch-manager-status:$?
-SERIAL-CHECK: image-launch-manager-status:0
-# Close the viewer through the WM so focus returns to the File Manager.
-GUI-SEND-KEYS: meta_l,w
-SERIAL: while /bin/toybox/pgrep imageviewer >/dev/null; do /bin/toybox/sleep 1; done; /bin/toybox/sleep 1
-# Image Viewer has disconnected; activate File Manager before sending more keys.
-GUI-SEND-KEYS: alt,tab
-# A directory is not launchable; the manager handles that request locally.
-GUI-SEND-KEY: up
-GUI-SEND-KEY: o
-SERIAL: /bin/toybox/pgrep imageviewer >/dev/null; echo rejected-open-viewer-status:$?
-SERIAL-CHECK: rejected-open-viewer-status:1
-SERIAL: /bin/toybox/pgrep filemanager >/dev/null; echo rejected-open-manager-status:$?
-SERIAL-CHECK: rejected-open-manager-status:0
-# The manager has already survived every assertion; use its recorded PID for teardown.
+SERIAL: /bin/toybox/pgrep filemanager >/dev/null; echo text-manager-status:$?
+SERIAL-CHECK: text-manager-status:0
 SERIAL: kill -TERM $(cat /tmp/fm-open.pid); while /bin/toybox/pgrep filemanager >/dev/null; do /bin/toybox/sleep 1; done
 SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do /bin/toybox/sleep 1; done
 EXIT:

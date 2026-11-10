@@ -10,6 +10,7 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <mario/fb.h>
@@ -23,6 +24,7 @@
 #define WM_READY_PATH "/tmp/mario-wm.ready"
 #define WM_FRAME_PATH "/tmp/mario-wm.frame"
 #define WM_CLIENT_LIMIT 8
+#define WM_LAUNCH_LIMIT WM_CLIENT_LIMIT
 #define WM_SHELL_PATH "/usr/bin/mario-desktop"
 #define WM_SHELL_FD 3
 #define WM_TERMINAL_PATH "/usr/bin/terminal"
@@ -42,11 +44,18 @@
 #define WM_WINDOW_CONTENT_COLOR 0x00f8fafcU
 
 static volatile sig_atomic_t stop_requested;
+static volatile sig_atomic_t child_reap_requested;
 
 static void request_stop(int signal_number)
 {
 	(void)signal_number;
 	stop_requested = 1;
+}
+
+static void request_child_reap(int signal_number)
+{
+	(void)signal_number;
+	child_reap_requested = 1;
 }
 
 static void remove_status_files(void)
@@ -123,9 +132,15 @@ typedef struct wm_client {
 	uint8_t title[GUI_PROTOCOL_MAX_TITLE_BYTES];
 } wm_client;
 
+typedef struct {
+	pid_t pid;
+	uint32_t origin_window_id;
+} wm_launch;
+
 struct wm_server {
 	wm_state state;
 	wm_client clients[WM_CLIENT_LIMIT];
+	wm_launch launches[WM_LAUNCH_LIMIT];
 	gui_surface *desktop_snapshot;
 	size_t desktop_snapshot_bytes;
 	uint32_t next_window_id;
@@ -151,6 +166,8 @@ struct wm_server {
 static int wm_start_shell(wm_server *server);
 static int wm_start_terminal(void);
 static int wm_start_terminal_command(const uint8_t *path, size_t path_bytes);
+static int wm_start_terminal_executable(wm_server *server, const uint8_t *path,
+					size_t path_bytes, uint32_t origin_window_id);
 static int wm_start_image_viewer(const uint8_t *path, size_t path_bytes);
 static int wm_start_file_manager(const uint8_t *path, size_t path_bytes);
 
@@ -599,6 +616,44 @@ static int client_enqueue(wm_client *client, gui_protocol_type type,
 	return result;
 }
 
+static void wm_reap_children(wm_server *server)
+{
+	int status;
+	pid_t pid;
+
+	while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+		if (pid == server->shell_pid) {
+			server->shell_pid = 0;
+			continue;
+		}
+		for (size_t index = 0; index < WM_LAUNCH_LIMIT; index++) {
+			wm_launch *launch = &server->launches[index];
+			uint8_t message[sizeof(gui_protocol_wire_app_exit)];
+
+			if (launch->pid != pid)
+				continue;
+			launch->pid = 0;
+			for (size_t client_index = 0; client_index < WM_CLIENT_LIMIT;
+			     client_index++) {
+				wm_client *client = &server->clients[client_index];
+
+				if (client->fd < 0 ||
+				    client->role != GUI_PROTOCOL_ENDPOINT_ORDINARY ||
+				    client->window_id != launch->origin_window_id)
+					continue;
+				put_u32(message, client->window_id);
+				put_u32(message + 4, (uint32_t)(WIFEXITED(status) ?
+					WEXITSTATUS(status) : -EINTR));
+				if (client_enqueue(client, GUI_PROTOCOL_APP_EXIT, message,
+					   sizeof(message)) < 0)
+					client->hello = -1;
+				break;
+			}
+			break;
+		}
+	}
+}
+
 static void client_reject(wm_client *client, gui_protocol_type failed_type,
 			  int status)
 {
@@ -720,7 +775,22 @@ static void client_handle_launch_request(wm_client *client, const uint8_t *bytes
 			client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
 			return;
 		}
-		break;
+		if (wm_start_terminal_executable(client->server,
+			bytes + sizeof(gui_protocol_wire_launch_request), path_bytes,
+			client->window_id) < 0) {
+			put_u32(result, request_id);
+			put_u32(result + 4, (uint32_t)-errno);
+			if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
+				   sizeof(result)) < 0)
+				client->hello = -1;
+			return;
+		}
+		put_u32(result, request_id);
+		put_u32(result + 4, 0);
+		if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
+		   sizeof(result)) < 0)
+			client->hello = -1;
+		return;
 	default:
 		client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
 		return;
@@ -1968,6 +2038,52 @@ static int wm_start_terminal_command(const uint8_t *path, size_t path_bytes)
 	return 0;
 }
 
+static int wm_start_terminal_executable(wm_server *server, const uint8_t *path,
+					size_t path_bytes, uint32_t origin_window_id)
+{
+	char command[GUI_PROTOCOL_MAX_PATH_BYTES * 5 + sizeof("exec ''")];
+	char *cursor = command;
+	wm_launch *launch = NULL;
+	pid_t pid;
+
+	if (path_bytes == 0 || path_bytes > GUI_PROTOCOL_MAX_PATH_BYTES ||
+	    origin_window_id == 0) {
+		errno = EINVAL;
+		return -1;
+	}
+	for (size_t index = 0; index < WM_LAUNCH_LIMIT; index++)
+		if (server->launches[index].pid == 0) {
+			launch = &server->launches[index];
+			break;
+		}
+	if (launch == NULL) {
+		errno = EAGAIN;
+		return -1;
+	}
+	/* terminal passes this command to oksh, so quote the pathname byte by byte. */
+	cursor += sprintf(cursor, "exec '");
+	for (size_t index = 0; index < path_bytes; index++) {
+		if (path[index] == '\'') {
+			memcpy(cursor, "'\\''", 4);
+			cursor += 4;
+		} else {
+			*cursor++ = path[index];
+		}
+	}
+	*cursor++ = '\'';
+	*cursor = '\0';
+	pid = fork();
+	if (pid < 0)
+		return -1;
+	if (pid == 0) {
+		execl(WM_TERMINAL_PATH, WM_TERMINAL_PATH, "--command", command, NULL);
+		_exit(127);
+	}
+	launch->pid = pid;
+	launch->origin_window_id = origin_window_id;
+	return 0;
+}
+
 static int wm_start_image_viewer(const uint8_t *path, size_t path_bytes)
 {
 	char argument[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
@@ -2015,7 +2131,7 @@ int main(void)
 {
 	struct sigaction action = { .sa_handler = request_stop };
 	struct sigaction ignore_pipe = { .sa_handler = SIG_IGN };
-	struct sigaction ignore_child = { .sa_handler = SIG_IGN };
+	struct sigaction child_action = { .sa_handler = request_child_reap };
 	struct pollfd pollfds[WM_CLIENT_LIMIT + 4];
 	struct mario_gui_key_event events[16];
 	struct mario_psaux_event mouse_events[16];
@@ -2062,11 +2178,16 @@ int main(void)
 	if (sigaction(SIGTERM, &action, NULL) < 0 ||
 	    sigaction(SIGINT, &action, NULL) < 0 ||
 	    sigaction(SIGPIPE, &ignore_pipe, NULL) < 0 ||
-	    sigaction(SIGCHLD, &ignore_child, NULL) < 0)
+	    sigaction(SIGCHLD, &child_action, NULL) < 0)
 		goto out;
 	while (!stop_requested) {
 		int ready;
 		size_t poll_count = 4;
+
+		if (child_reap_requested) {
+			child_reap_requested = 0;
+			wm_reap_children(&server);
+		}
 
 		pollfds[0] = (struct pollfd) { .fd = server.state.gui, .events = POLLIN };
 		pollfds[1] = (struct pollfd) { .fd = server.state.framebuffer,

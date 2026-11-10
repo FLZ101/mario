@@ -557,7 +557,8 @@ static void test_launch(void)
 	put16(frame + 14, path_bytes);
 	memcpy(frame + 16, marker, path_bytes);
 	write_full(fd, frame, 16 + path_bytes);
-	read_launch_result(fd, 2, -ENOSYS);
+	/* Executable completion is reported to the requesting window. */
+	read_launch_result(fd, 2, -EINVAL);
 	assert(access(marker, F_OK) < 0 && errno == ENOENT);
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
 		       sizeof(gui_protocol_wire_launch_request) + sizeof(image) - 1) == 0);

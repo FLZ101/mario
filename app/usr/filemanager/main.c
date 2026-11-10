@@ -790,7 +790,8 @@ static int filemanager_open_selected(filemanager_state *state)
 	path_bytes = strlen(filemanager_operation_target);
 	launch_type = filemanager_name_has_suffix(entry->name, ".bmp") ||
 		filemanager_name_has_suffix(entry->name, ".png") ?
-		GUI_PROTOCOL_LAUNCH_IMAGE_VIEWER : GUI_PROTOCOL_LAUNCH_OPEN_TEXT;
+		GUI_PROTOCOL_LAUNCH_IMAGE_VIEWER : status.st_mode & 0111 ?
+		GUI_PROTOCOL_LAUNCH_EXECUTABLE : GUI_PROTOCOL_LAUNCH_OPEN_TEXT;
 	/* The server echoes this identifier so delayed launch results stay attributable. */
 	if (++state->launch_request_id == 0)
 		state->launch_request_id++;
@@ -1077,6 +1078,20 @@ static int filemanager_handle_message(filemanager_state *state,
 		}
 		fflush(stdout);
 		return 1;
+	}
+	if (header->type == GUI_PROTOCOL_APP_EXIT) {
+		int refreshed;
+
+		if (payload_bytes != sizeof(gui_protocol_wire_app_exit) ||
+		    get32(payload) != state->window_id)
+			return -1;
+		/* The server sends this only for the executable terminal it launched for us. */
+		refreshed = filemanager_refresh(state);
+		if (refreshed) {
+			printf("filemanager: refreshed after executable exit: %s\n", state->path);
+			fflush(stdout);
+		}
+		return refreshed;
 	}
 	if (header->type == GUI_PROTOCOL_INPUT_EVENT) {
 		if (payload_bytes != sizeof(gui_protocol_wire_input_event) ||

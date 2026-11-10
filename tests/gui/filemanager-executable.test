@@ -1,0 +1,28 @@
+GUI-VISUAL-TEST:
+SERIAL: <<SETUP
+rm -rf /tmp/fm-executable /tmp/mario-wm.* /tmp/fm-executable.log /tmp/fm-executable.pid
+mkdir /tmp/fm-executable
+cp /bin/toybox/cat /tmp/fm-executable/cat
+/usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SETUP
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! /bin/toybox/grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do /bin/toybox/sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL: /usr/bin/filemanager /tmp/fm-executable >/tmp/fm-executable.log 2>&1 & echo $! >/tmp/fm-executable.pid
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: window ready' /tmp/fm-executable.log; do /bin/toybox/sleep 1; done
+GUI-CHECK-RECT: 128 96 1 1 17 24 39
+# A regular executable runs in a terminal rather than being opened as text.
+GUI-SEND-KEY: o
+SERIAL: while ! /bin/toybox/pgrep terminal >/dev/null; do /bin/toybox/sleep 1; done
+SERIAL: /bin/toybox/pgrep imageviewer >/dev/null; echo executable-imageviewer-status:$?
+SERIAL-CHECK: executable-imageviewer-status:1
+SERIAL: /bin/toybox/rm /tmp/fm-executable/cat; printf complete >/tmp/fm-executable/completed
+# Closing the terminal terminates cat and makes the WM report the tracked child exit.
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while /bin/toybox/pgrep terminal >/dev/null; do /bin/toybox/sleep 1; done
+SERIAL: while ! /bin/toybox/grep -q 'filemanager: refreshed after executable exit: /tmp/fm-executable' /tmp/fm-executable.log; do /bin/toybox/sleep 1; done
+SERIAL: /bin/toybox/pgrep filemanager >/dev/null; echo executable-manager-status:$?
+SERIAL-CHECK: executable-manager-status:0
+SERIAL: kill -TERM $(cat /tmp/fm-executable.pid); while /bin/toybox/pgrep filemanager >/dev/null; do /bin/toybox/sleep 1; done
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do /bin/toybox/sleep 1; done
+EXIT:

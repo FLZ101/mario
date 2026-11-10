@@ -1101,7 +1101,7 @@ imageviewer: decode BMP/PNG and add zoom/pan
   versus image viewer, send a bounded server launch request, and retain the
   manager after a launch error. Enable `LAUNCH_OPEN_TEXT` and test both paths.
   Commit: `filemanager: open text and image files`.
-- [ ] **M7.3.2 — dispatch executables and refresh.** Launch an executable in a
+- [x] **M7.3.2 — dispatch executables and refresh.** Launch an executable in a
   terminal through the server, observe client exit, and refresh the originating
   listing. Enable `LAUNCH_EXECUTABLE` and test the complete path in a `/tmp`
   fixture. Commit: `filemanager: launch executables`.
