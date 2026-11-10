@@ -56,6 +56,8 @@ include python.mk
 
 TERMINAL_EXE := terminal/terminal.exe
 TERMINAL_UI_DIR := $(ROOT)/../gui/libmario-ui
+TERMINAL_UI_INPUTS := $(wildcard $(TERMINAL_UI_DIR)/src/*.c \
+	$(TERMINAL_UI_DIR)/include/gui/*.h)
 IMAGEVIEWER_EXE := imageviewer/imageviewer.exe
 LIBPNG_INSTALL_DIR := $(ROOT)/libpng-1.6.59-install
 ZLIB_INSTALL_DIR := $(ROOT)/zlib-1.3.2-install
@@ -67,7 +69,8 @@ build-terminal: $(TERMINAL_EXE)
 clean-terminal:
 	$(RM) $(TERMINAL_EXE) terminal/*.o terminal/*.d
 
-$(TERMINAL_UI_DIR)/libmario-ui.a:
+# Rebuild the archive before linking apps whenever any UI implementation changes.
+$(TERMINAL_UI_DIR)/libmario-ui.a: $(TERMINAL_UI_INPUTS)
 	$(MAKE) -C $(TERMINAL_UI_DIR)
 
 terminal/terminal.exe: terminal/main.c terminal/vt.c $(TERMINAL_UI_DIR)/libmario-ui.a

@@ -1005,7 +1005,7 @@ terminal: run oksh in a GUI terminal over a PTY
 - [x] **M6.2.3 — render PNG and bound the cache.** Add PNG display plus exactly
   current/next decoded-frame caching and deterministic eviction. Test PNG
   golden and cache replacement. Commit: `imageviewer: display PNG images`.
-- [ ] **M6.3.1 — add view transforms.** Implement fit, 1:1, bounded zoom, and
+- [x] **M6.3.1 — add view transforms.** Implement fit, 1:1, bounded zoom, and
   viewport clipping with no navigation. Test transform math and zoom golden.
   Commit: `imageviewer: add zoom modes`.
 - [ ] **M6.3.2 — add pan input.** Implement mouse-drag and arrow-key pan with

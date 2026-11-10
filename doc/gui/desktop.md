@@ -262,6 +262,9 @@ View state and image cache:
   source pixel to one framebuffer pixel and allows panning when larger than
   the window. Zoom uses a geometric scale list (`0.25x`, `0.5x`, `1x`, `2x`,
   `4x`) initially rather than arbitrary fractional zoom.
+- Keyboard controls follow common terminal-viewer conventions: `f` returns to
+  fit, `1` selects actual size, and `+`/`=` and `-` move through the bounded
+  zoom levels.
 - Pan is clipped to the intersection of the scaled image and the viewport; the
   cursor changes or a status hint indicates when panning is possible.
 - Next/previous iterate the same directory in `readdir` order, skipping

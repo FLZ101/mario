@@ -10,6 +10,7 @@
 
 #include <gui/image.h>
 #include <gui/image_cache.h>
+#include <gui/image_view.h>
 
 static void put16(uint8_t *bytes, uint16_t value)
 {
@@ -187,6 +188,32 @@ static void test_cache(void)
 	gui_image_cache_destroy(&cache);
 }
 
+static void test_view(void)
+{
+	gui_image_view view;
+	gui_image_view_layout layout;
+
+	gui_image_view_init(&view);
+	assert(gui_image_view_prepare_layout(&view, 1600, 1200, 320, 256, &layout) == 0);
+	assert(layout.destination_x == 0 && layout.destination_y == 8);
+	assert(layout.width == 320 && layout.height == 240);
+	assert(layout.scaled_x == 0 && layout.scaled_y == 0);
+	assert(layout.scale_numerator == 320 && layout.scale_denominator == 1600);
+	assert(gui_image_view_set_zoom(&view, GUI_IMAGE_VIEW_ZOOM_ONE) == 0);
+	assert(gui_image_view_prepare_layout(&view, 1600, 1200, 320, 256, &layout) == 0);
+	assert(layout.destination_x == 0 && layout.destination_y == 0);
+	assert(layout.width == 320 && layout.height == 256);
+	assert(layout.scaled_x == 640 && layout.scaled_y == 472);
+	assert(layout.scale_numerator == 1 && layout.scale_denominator == 1);
+	assert(gui_image_view_zoom(&view, 1) == 1);
+	assert(gui_image_view_zoom(&view, 1) == 1);
+	assert(gui_image_view_zoom(&view, 1) == 0);
+	assert(gui_image_view_prepare_layout(&view, 64, 64, 320, 256, &layout) == 0);
+	assert(layout.destination_x == 32 && layout.destination_y == 0);
+	assert(layout.width == 256 && layout.height == 256);
+	assert(gui_image_view_set_zoom(&view, GUI_IMAGE_VIEW_ZOOM_COUNT) == -1 && errno == EINVAL);
+}
+
 int main(void)
 {
 	test_valid();
@@ -194,6 +221,7 @@ int main(void)
 	test_decode();
 	test_png_decode();
 	test_cache();
+	test_view();
 	puts("gui-image: BMP and PNG decode ok");
 	return 0;
 }

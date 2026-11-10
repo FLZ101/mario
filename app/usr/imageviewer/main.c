@@ -13,6 +13,8 @@
 
 #include <gui/image.h>
 #include <gui/image_cache.h>
+#include <gui/image_view.h>
+#include <gui/input.h>
 #include <gui/protocol.h>
 #include <gui/surface.h>
 
@@ -33,6 +35,7 @@ typedef struct {
 	uint32_t height;
 	int close_requested;
 	gui_image_cache image_cache;
+	gui_image_view view;
 	gui_surface *surface;
 } imageviewer_state;
 
@@ -152,35 +155,44 @@ static int imageviewer_resize_surface(imageviewer_state *state, uint32_t width,
 static void imageviewer_render(imageviewer_state *state)
 {
 	gui_surface *image = gui_image_cache_current(&state->image_cache);
-	uint32_t draw_width;
-	uint32_t draw_height;
-	uint32_t offset_x;
-	uint32_t offset_y;
+	gui_image_view_layout layout;
 
 	gui_fill_rect(state->surface, (gui_rect) { .w = (int)state->width,
 		.h = (int)state->height }, IMAGEVIEWER_BACKGROUND);
-	/* Choose the limiting axis with 64-bit products before scaling the source. */
-	if ((uint64_t)state->width * image->height <=
-	    (uint64_t)state->height * image->width) {
-		draw_width = state->width;
-		draw_height = (uint64_t)image->height * draw_width / image->width;
-	} else {
-		draw_height = state->height;
-		draw_width = (uint64_t)image->width * draw_height / image->height;
-	}
-	if (draw_width == 0 || draw_height == 0)
+	if (gui_image_view_prepare_layout(&state->view, (uint32_t)image->width,
+		(uint32_t)image->height, state->width, state->height, &layout) < 0)
 		return;
-	offset_x = (state->width - draw_width) / 2;
-	offset_y = (state->height - draw_height) / 2;
-	for (uint32_t y = 0; y < draw_height; y++) {
-		uint32_t source_y = (uint64_t)y * image->height / draw_height;
+	for (uint32_t y = 0; y < layout.height; y++) {
+		uint32_t source_y = ((uint64_t)layout.scaled_y + y) *
+			layout.scale_denominator / layout.scale_numerator;
 		gui_color *destination = state->surface->pixels +
-			(size_t)(offset_y + y) * state->surface->stride + offset_x;
+			(size_t)(layout.destination_y + y) * state->surface->stride +
+			layout.destination_x;
 		const gui_color *source = image->pixels + (size_t)source_y * image->stride;
 
-		for (uint32_t x = 0; x < draw_width; x++)
-			destination[x] = source[(uint64_t)x * image->width / draw_width];
+		for (uint32_t x = 0; x < layout.width; x++) {
+			uint32_t source_x = ((uint64_t)layout.scaled_x + x) *
+				layout.scale_denominator / layout.scale_numerator;
+
+			destination[x] = source[source_x];
+		}
 	}
+}
+
+static int imageviewer_handle_key(imageviewer_state *state, uint32_t keysym)
+{
+	if (keysym == 'f') {
+		gui_image_view_fit(&state->view);
+		return 1;
+	}
+	if (keysym == '1')
+		return gui_image_view_set_zoom(&state->view, GUI_IMAGE_VIEW_ZOOM_ONE) < 0 ?
+			-1 : 1;
+	if (keysym == '+' || keysym == '=')
+		return gui_image_view_zoom(&state->view, 1);
+	if (keysym == '-')
+		return gui_image_view_zoom(&state->view, -1);
+	return 0;
 }
 
 static int imageviewer_handle_message(imageviewer_state *state,
@@ -208,9 +220,13 @@ static int imageviewer_handle_message(imageviewer_state *state,
 			get32(payload) == state->window_id ? 0 : -1;
 	if (header->type == GUI_PROTOCOL_INPUT_RESET)
 		return payload_bytes == 0 ? 0 : -1;
-	if (header->type == GUI_PROTOCOL_INPUT_EVENT)
-		return payload_bytes == sizeof(gui_protocol_wire_input_event) &&
-			get32(payload) == state->window_id ? 0 : -1;
+	if (header->type == GUI_PROTOCOL_INPUT_EVENT) {
+		if (payload_bytes != sizeof(gui_protocol_wire_input_event) ||
+		    get32(payload) != state->window_id)
+			return -1;
+		return get32(payload + 4) == GUI_INPUT_EVENT_KEY ?
+			imageviewer_handle_key(state, get32(payload + 8)) : 0;
+	}
 	return -1;
 }
 
@@ -445,6 +461,7 @@ int main(int argc, char **argv)
 	if (argc != 2)
 		return 1;
 	gui_image_cache_init(&state.image_cache);
+	gui_image_view_init(&state.view);
 	if (imageviewer_read_file(argv[1], &file_bytes, &file_byte_count) < 0 ||
 	    imageviewer_decode(file_bytes, file_byte_count, &image) < 0 ||
 	    gui_image_cache_set_current(&state.image_cache, argv[1], image) < 0) {
