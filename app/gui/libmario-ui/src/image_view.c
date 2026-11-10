@@ -18,6 +18,8 @@ void gui_image_view_init(gui_image_view *view)
 void gui_image_view_fit(gui_image_view *view)
 {
 	view->mode = GUI_IMAGE_VIEW_FIT;
+	view->pan_x = 0;
+	view->pan_y = 0;
 }
 
 int gui_image_view_set_zoom(gui_image_view *view, uint32_t zoom)
@@ -28,6 +30,8 @@ int gui_image_view_set_zoom(gui_image_view *view, uint32_t zoom)
 	}
 	view->mode = GUI_IMAGE_VIEW_ZOOM;
 	view->zoom = zoom;
+	view->pan_x = 0;
+	view->pan_y = 0;
 	return 0;
 }
 
@@ -48,6 +52,8 @@ int gui_image_view_zoom(gui_image_view *view, int direction)
 		return 0;
 	view->mode = GUI_IMAGE_VIEW_ZOOM;
 	view->zoom = zoom;
+	view->pan_x = 0;
+	view->pan_y = 0;
 	return 1;
 }
 
@@ -58,6 +64,18 @@ static uint32_t gui_image_view_scaled(uint32_t length, uint32_t numerator,
 
 	/* A nonempty image remains visible at the smallest supported zoom level. */
 	return scaled == 0 ? 1 : scaled;
+}
+
+static uint32_t gui_image_view_clamp_origin(uint32_t center, uint32_t maximum,
+					     int32_t pan)
+{
+	int64_t origin = (int64_t)center + pan;
+
+	if (origin < 0)
+		return 0;
+	if ((uint64_t)origin > maximum)
+		return maximum;
+	return (uint32_t)origin;
 }
 
 int gui_image_view_prepare_layout(const gui_image_view *view, uint32_t image_width,
@@ -98,13 +116,46 @@ int gui_image_view_prepare_layout(const gui_image_view *view, uint32_t image_wid
 			(viewport_height - scaled_height) / 2 : 0,
 		.width = scaled_width < viewport_width ? scaled_width : viewport_width,
 		.height = scaled_height < viewport_height ? scaled_height : viewport_height,
-		/* Center clipping until the later pan controls adjust this origin. */
-		.scaled_x = scaled_width > viewport_width ?
-			(scaled_width - viewport_width) / 2 : 0,
-		.scaled_y = scaled_height > viewport_height ?
-			(scaled_height - viewport_height) / 2 : 0,
+		.scaled_width = scaled_width,
+		.scaled_height = scaled_height,
+		.scaled_x = gui_image_view_clamp_origin(
+			scaled_width > viewport_width ? (scaled_width - viewport_width) / 2 : 0,
+			scaled_width > viewport_width ? scaled_width - viewport_width : 0,
+			view->pan_x),
+		.scaled_y = gui_image_view_clamp_origin(
+			scaled_height > viewport_height ? (scaled_height - viewport_height) / 2 : 0,
+			scaled_height > viewport_height ? scaled_height - viewport_height : 0,
+			view->pan_y),
 		.scale_numerator = numerator,
 		.scale_denominator = denominator,
 	};
 	return 0;
+}
+
+int gui_image_view_pan(gui_image_view *view, uint32_t image_width,
+		       uint32_t image_height, uint32_t viewport_width,
+		       uint32_t viewport_height, int32_t delta_x, int32_t delta_y)
+{
+	gui_image_view_layout layout;
+	uint32_t center_x;
+	uint32_t center_y;
+	uint32_t maximum_x;
+	uint32_t maximum_y;
+	uint32_t origin_x;
+	uint32_t origin_y;
+
+	if (gui_image_view_prepare_layout(view, image_width, image_height, viewport_width,
+		viewport_height, &layout) < 0)
+		return -1;
+	maximum_x = layout.scaled_width > viewport_width ? layout.scaled_width - viewport_width : 0;
+	maximum_y = layout.scaled_height > viewport_height ? layout.scaled_height - viewport_height : 0;
+	center_x = maximum_x / 2;
+	center_y = maximum_y / 2;
+	origin_x = gui_image_view_clamp_origin(layout.scaled_x, maximum_x, delta_x);
+	origin_y = gui_image_view_clamp_origin(layout.scaled_y, maximum_y, delta_y);
+	if (origin_x == layout.scaled_x && origin_y == layout.scaled_y)
+		return 0;
+	view->pan_x = (int32_t)origin_x - (int32_t)center_x;
+	view->pan_y = (int32_t)origin_y - (int32_t)center_y;
+	return 1;
 }

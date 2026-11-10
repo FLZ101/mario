@@ -25,6 +25,7 @@
 #define IMAGEVIEWER_BACKGROUND 0x00111827U
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
 #define PNG_SIGNATURE_BYTES 8U
+#define IMAGEVIEWER_PAN_STEP 256
 
 typedef struct {
 	int fd;
@@ -36,6 +37,9 @@ typedef struct {
 	int close_requested;
 	gui_image_cache image_cache;
 	gui_image_view view;
+	int dragging;
+	int32_t drag_x;
+	int32_t drag_y;
 	gui_surface *surface;
 } imageviewer_state;
 
@@ -181,6 +185,10 @@ static void imageviewer_render(imageviewer_state *state)
 
 static int imageviewer_handle_key(imageviewer_state *state, uint32_t keysym)
 {
+	gui_surface *image = gui_image_cache_current(&state->image_cache);
+	int32_t pan_x = 0;
+	int32_t pan_y = 0;
+
 	if (keysym == 'f') {
 		gui_image_view_fit(&state->view);
 		return 1;
@@ -192,7 +200,44 @@ static int imageviewer_handle_key(imageviewer_state *state, uint32_t keysym)
 		return gui_image_view_zoom(&state->view, 1);
 	if (keysym == '-')
 		return gui_image_view_zoom(&state->view, -1);
-	return 0;
+	if (keysym == GUI_KEYSYM_LEFT || keysym == 'h')
+		pan_x = IMAGEVIEWER_PAN_STEP;
+	else if (keysym == GUI_KEYSYM_RIGHT || keysym == 'l')
+		pan_x = -IMAGEVIEWER_PAN_STEP;
+	else if (keysym == GUI_KEYSYM_UP || keysym == 'k')
+		pan_y = IMAGEVIEWER_PAN_STEP;
+	else if (keysym == GUI_KEYSYM_DOWN || keysym == 'j')
+		pan_y = -IMAGEVIEWER_PAN_STEP;
+	else
+		return 0;
+	return gui_image_view_pan(&state->view, (uint32_t)image->width,
+		(uint32_t)image->height, state->width, state->height, pan_x, pan_y);
+}
+
+static int imageviewer_handle_mouse(imageviewer_state *state, const uint8_t *payload)
+{
+	gui_surface *image = gui_image_cache_current(&state->image_cache);
+	int32_t x = (int32_t)get32(payload + 16);
+	int32_t y = (int32_t)get32(payload + 20);
+	int result;
+
+	if ((payload[24] & 1) == 0) {
+		state->dragging = 0;
+		return 0;
+	}
+	if (!state->dragging) {
+		state->dragging = 1;
+		state->drag_x = x;
+		state->drag_y = y;
+		return 0;
+	}
+	/* Dragging the image right/down moves the source viewport left/up. */
+	result = gui_image_view_pan(&state->view, (uint32_t)image->width,
+		(uint32_t)image->height, state->width, state->height,
+		state->drag_x - x, state->drag_y - y);
+	state->drag_x = x;
+	state->drag_y = y;
+	return result;
 }
 
 static int imageviewer_handle_message(imageviewer_state *state,
@@ -218,14 +263,20 @@ static int imageviewer_handle_message(imageviewer_state *state,
 	if (header->type == GUI_PROTOCOL_WINDOW_FOCUS)
 		return payload_bytes == sizeof(gui_protocol_wire_window_focus) &&
 			get32(payload) == state->window_id ? 0 : -1;
-	if (header->type == GUI_PROTOCOL_INPUT_RESET)
-		return payload_bytes == 0 ? 0 : -1;
+	if (header->type == GUI_PROTOCOL_INPUT_RESET) {
+		if (payload_bytes != 0)
+			return -1;
+		state->dragging = 0;
+		return 0;
+	}
 	if (header->type == GUI_PROTOCOL_INPUT_EVENT) {
 		if (payload_bytes != sizeof(gui_protocol_wire_input_event) ||
 		    get32(payload) != state->window_id)
 			return -1;
-		return get32(payload + 4) == GUI_INPUT_EVENT_KEY ?
-			imageviewer_handle_key(state, get32(payload + 8)) : 0;
+		if (get32(payload + 4) == GUI_INPUT_EVENT_KEY)
+			return imageviewer_handle_key(state, get32(payload + 8));
+		return get32(payload + 4) == GUI_INPUT_EVENT_MOUSE ?
+			imageviewer_handle_mouse(state, payload) : 0;
 	}
 	return -1;
 }

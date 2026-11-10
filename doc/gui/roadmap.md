@@ -1008,7 +1008,7 @@ terminal: run oksh in a GUI terminal over a PTY
 - [x] **M6.3.1 — add view transforms.** Implement fit, 1:1, bounded zoom, and
   viewport clipping with no navigation. Test transform math and zoom golden.
   Commit: `imageviewer: add zoom modes`.
-- [ ] **M6.3.2 — add pan input.** Implement mouse-drag and arrow-key pan with
+- [x] **M6.3.2 — add pan input.** Implement mouse-drag and arrow-key pan with
   clamped bounds. Test each input path and edge clamping. Commit: `imageviewer:
   pan scaled images`.
 - [ ] **M6.3.3 — add sibling navigation.** Traverse same-directory image files

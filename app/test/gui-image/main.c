@@ -205,6 +205,13 @@ static void test_view(void)
 	assert(layout.width == 320 && layout.height == 256);
 	assert(layout.scaled_x == 640 && layout.scaled_y == 472);
 	assert(layout.scale_numerator == 1 && layout.scale_denominator == 1);
+	assert(gui_image_view_pan(&view, 1600, 1200, 320, 256, -1000, 1000) == 1);
+	assert(gui_image_view_prepare_layout(&view, 1600, 1200, 320, 256, &layout) == 0);
+	assert(layout.scaled_x == 0 && layout.scaled_y == 944);
+	assert(gui_image_view_pan(&view, 1600, 1200, 320, 256, 2000, -2000) == 1);
+	assert(gui_image_view_prepare_layout(&view, 1600, 1200, 320, 256, &layout) == 0);
+	assert(layout.scaled_x == 1280 && layout.scaled_y == 0);
+	assert(gui_image_view_pan(&view, 1600, 1200, 320, 256, 1, -1) == 0);
 	assert(gui_image_view_zoom(&view, 1) == 1);
 	assert(gui_image_view_zoom(&view, 1) == 1);
 	assert(gui_image_view_zoom(&view, 1) == 0);

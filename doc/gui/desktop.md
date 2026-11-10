@@ -264,7 +264,8 @@ View state and image cache:
   `4x`) initially rather than arbitrary fractional zoom.
 - Keyboard controls follow common terminal-viewer conventions: `f` returns to
   fit, `1` selects actual size, and `+`/`=` and `-` move through the bounded
-  zoom levels.
+  zoom levels. Arrow keys and Vim-style `h`, `j`, `k`, and `l` pan the clipped
+  viewport; a left-button drag moves the image directly.
 - Pan is clipped to the intersection of the scaled image and the viewport; the
   cursor changes or a status hint indicates when panning is possible.
 - Next/previous iterate the same directory in `readdir` order, skipping
