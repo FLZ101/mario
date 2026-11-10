@@ -2,8 +2,21 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+
+static filemanager_entry_type filemanager_entry_type_from_mode(mode_t mode)
+{
+	if (S_ISDIR(mode))
+		return FILEMANAGER_ENTRY_DIRECTORY;
+	if (S_ISREG(mode))
+		return FILEMANAGER_ENTRY_FILE;
+	if (S_ISLNK(mode))
+		return FILEMANAGER_ENTRY_SYMLINK;
+	return FILEMANAGER_ENTRY_OTHER;
+}
 
 static int filemanager_entry_compare(const void *left, const void *right)
 {
@@ -81,6 +94,7 @@ int filemanager_directory_load(filemanager_directory *directory, const char *pat
 	filemanager_directory_init(loaded);
 	for (;;) {
 		struct dirent *entry;
+		size_t count;
 
 		errno = 0;
 		entry = readdir(stream);
@@ -88,6 +102,7 @@ int filemanager_directory_load(filemanager_directory *directory, const char *pat
 			break;
 		if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
 			continue;
+		count = loaded->count;
 		if (filemanager_directory_add(loaded, entry->d_name, entry->d_type) < 0) {
 			int saved_errno = errno;
 
@@ -95,6 +110,20 @@ int filemanager_directory_load(filemanager_directory *directory, const char *pat
 			free(loaded);
 			errno = saved_errno;
 			return -1;
+		}
+		if (loaded->count != count) {
+			filemanager_entry *loaded_entry = &loaded->entries[count];
+			struct stat status;
+
+			/* Do not lose a visible entry when it vanishes after readdir(). */
+			if (fstatat(dirfd(stream), entry->d_name, &status,
+				AT_SYMLINK_NOFOLLOW) == 0) {
+				loaded_entry->size = status.st_size < 0 ? 0 : (uint64_t)status.st_size;
+				loaded_entry->modified_time = status.st_mtime;
+				loaded_entry->metadata_available = 1;
+				if (loaded_entry->type == FILEMANAGER_ENTRY_UNKNOWN)
+					loaded_entry->type = filemanager_entry_type_from_mode(status.st_mode);
+			}
 		}
 	}
 	if (errno != 0) {

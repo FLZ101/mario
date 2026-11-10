@@ -12,6 +12,8 @@
 #include <unistd.h>
 
 #include <gui/protocol.h>
+#include <gui/font.h>
+#include <gui/input.h>
 #include <gui/surface.h>
 
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
@@ -19,6 +21,23 @@
 #define FILEMANAGER_HEIGHT 192U
 #define FILEMANAGER_TITLE "File Manager"
 #define FILEMANAGER_BACKGROUND 0x00111827U
+#define FILEMANAGER_FOREGROUND 0x00f8fafcU
+#define FILEMANAGER_HEADER 0x0094a3b8U
+#define FILEMANAGER_SELECTION 0x001d4ed8U
+#define FILEMANAGER_FONT_PATH "/usr/share/fonts/DejaVuSansMono.ttf"
+#define FILEMANAGER_FONT_HEIGHT 14
+#define FILEMANAGER_MARGIN 6
+#define FILEMANAGER_HEADER_Y 6
+#define FILEMANAGER_ROWS_Y 24
+#define FILEMANAGER_ROW_HEIGHT 16
+#define FILEMANAGER_NAME_X 6
+#define FILEMANAGER_TYPE_X 112
+#define FILEMANAGER_SIZE_X 170
+#define FILEMANAGER_TIME_X 228
+#define FILEMANAGER_NAME_CHARS 13U
+#define FILEMANAGER_TYPE_CHARS 7U
+#define FILEMANAGER_SIZE_CHARS 7U
+#define FILEMANAGER_TIME_CHARS 10U
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
 
 typedef struct {
@@ -29,6 +48,8 @@ typedef struct {
 	uint32_t width;
 	uint32_t height;
 	int close_requested;
+	size_t selected_entry;
+	gui_font *font;
 	gui_surface *surface;
 } filemanager_state;
 
@@ -151,11 +172,147 @@ static int filemanager_resize_surface(filemanager_state *state, uint32_t width,
 	return 0;
 }
 
+static const char *filemanager_type_name(filemanager_entry_type type)
+{
+	switch (type) {
+	case FILEMANAGER_ENTRY_DIRECTORY: return "dir";
+	case FILEMANAGER_ENTRY_FILE: return "file";
+	case FILEMANAGER_ENTRY_SYMLINK: return "link";
+	case FILEMANAGER_ENTRY_OTHER: return "other";
+	case FILEMANAGER_ENTRY_UNKNOWN: return "unknown";
+	}
+	return "unknown";
+}
+
+static size_t filemanager_utf8_bytes(const char *text)
+{
+	unsigned char first = (unsigned char)text[0];
+	size_t bytes = 1;
+
+	if ((first & 0xe0) == 0xc0)
+		bytes = 2;
+	else if ((first & 0xf0) == 0xe0)
+		bytes = 3;
+	else if ((first & 0xf8) == 0xf0)
+		bytes = 4;
+	for (size_t index = 1; index < bytes; index++)
+		if ((unsigned char)text[index] == 0 || ((unsigned char)text[index] & 0xc0) != 0x80)
+			return 1;
+	return bytes;
+}
+
+static size_t filemanager_utf8_count(const char *text, size_t limit)
+{
+	size_t count = 0;
+
+	while (*text != '\0' && count < limit) {
+		text += filemanager_utf8_bytes(text);
+		count++;
+	}
+	return count;
+}
+
+static void filemanager_clip_text(char *destination, size_t destination_bytes,
+				  const char *source, size_t character_limit)
+{
+	size_t source_count = filemanager_utf8_count(source, character_limit + 1);
+	size_t kept = source_count > character_limit ? character_limit - 3 : source_count;
+	size_t written = 0;
+
+	while (*source != '\0' && kept != 0) {
+		size_t bytes = filemanager_utf8_bytes(source);
+
+		if (written + bytes + 1 > destination_bytes)
+			break;
+		memcpy(destination + written, source, bytes);
+		written += bytes;
+		source += bytes;
+		kept--;
+	}
+	if (source_count > character_limit && written + 4 <= destination_bytes) {
+		memcpy(destination + written, "...", 3);
+		written += 3;
+	}
+	destination[written] = '\0';
+}
+
+static int filemanager_handle_key(filemanager_state *state, uint32_t keysym)
+{
+	if (filemanager_directory_model.count == 0)
+		return 0;
+	if ((keysym == GUI_KEYSYM_UP || keysym == 'k') && state->selected_entry != 0) {
+		state->selected_entry--;
+		return 1;
+	}
+	if ((keysym == GUI_KEYSYM_DOWN || keysym == 'j') &&
+	    state->selected_entry + 1 < filemanager_directory_model.count) {
+		state->selected_entry++;
+		return 1;
+	}
+	return 0;
+}
+
 static void filemanager_render(filemanager_state *state)
 {
-	/* M7.1.2 adds directory rows; this frame establishes the client surface now. */
+	uint32_t visible_rows;
+
 	gui_fill_rect(state->surface, (gui_rect) { .w = (int)state->width,
 		.h = (int)state->height }, FILEMANAGER_BACKGROUND);
+	if (state->font == NULL)
+		return;
+	gui_font_draw_text(state->surface, FILEMANAGER_NAME_X,
+		FILEMANAGER_HEADER_Y + FILEMANAGER_FONT_HEIGHT, state->font, "Name",
+		FILEMANAGER_HEADER);
+	gui_font_draw_text(state->surface, FILEMANAGER_TYPE_X,
+		FILEMANAGER_HEADER_Y + FILEMANAGER_FONT_HEIGHT, state->font, "Type",
+		FILEMANAGER_HEADER);
+	gui_font_draw_text(state->surface, FILEMANAGER_SIZE_X,
+		FILEMANAGER_HEADER_Y + FILEMANAGER_FONT_HEIGHT, state->font, "Size",
+		FILEMANAGER_HEADER);
+	gui_font_draw_text(state->surface, FILEMANAGER_TIME_X,
+		FILEMANAGER_HEADER_Y + FILEMANAGER_FONT_HEIGHT, state->font, "Time",
+		FILEMANAGER_HEADER);
+	visible_rows = state->height <= FILEMANAGER_ROWS_Y ? 0 :
+		(state->height - FILEMANAGER_ROWS_Y) / FILEMANAGER_ROW_HEIGHT;
+	if (visible_rows > filemanager_directory_model.count)
+		visible_rows = filemanager_directory_model.count;
+	for (uint32_t row = 0; row < visible_rows; row++) {
+		const filemanager_entry *entry = &filemanager_directory_model.entries[row];
+		char name[FILEMANAGER_NAME_CHARS * 4 + 1];
+		char type[FILEMANAGER_TYPE_CHARS * 4 + 1];
+		char size[FILEMANAGER_SIZE_CHARS * 4 + 1];
+		char time[FILEMANAGER_TIME_CHARS * 4 + 1];
+		char size_text[32];
+		char time_text[32];
+		int y = FILEMANAGER_ROWS_Y + (int)row * FILEMANAGER_ROW_HEIGHT;
+
+		if (row == state->selected_entry)
+			gui_fill_rect(state->surface, (gui_rect) { .x = FILEMANAGER_MARGIN - 2,
+				.y = y, .w = (int)state->width - 2 * (FILEMANAGER_MARGIN - 2),
+				.h = FILEMANAGER_ROW_HEIGHT }, FILEMANAGER_SELECTION);
+		filemanager_clip_text(name, sizeof(name), entry->name, FILEMANAGER_NAME_CHARS);
+		filemanager_clip_text(type, sizeof(type), filemanager_type_name(entry->type),
+			FILEMANAGER_TYPE_CHARS);
+		if (entry->metadata_available) {
+			(void)snprintf(size_text, sizeof(size_text), "%llu",
+				(unsigned long long)entry->size);
+			(void)snprintf(time_text, sizeof(time_text), "%lld",
+				(long long)entry->modified_time);
+		} else {
+			strcpy(size_text, "-");
+			strcpy(time_text, "-");
+		}
+		filemanager_clip_text(size, sizeof(size), size_text, FILEMANAGER_SIZE_CHARS);
+		filemanager_clip_text(time, sizeof(time), time_text, FILEMANAGER_TIME_CHARS);
+		gui_font_draw_text(state->surface, FILEMANAGER_NAME_X, y + FILEMANAGER_FONT_HEIGHT,
+			state->font, name, FILEMANAGER_FOREGROUND);
+		gui_font_draw_text(state->surface, FILEMANAGER_TYPE_X, y + FILEMANAGER_FONT_HEIGHT,
+			state->font, type, FILEMANAGER_FOREGROUND);
+		gui_font_draw_text(state->surface, FILEMANAGER_SIZE_X, y + FILEMANAGER_FONT_HEIGHT,
+			state->font, size, FILEMANAGER_FOREGROUND);
+		gui_font_draw_text(state->surface, FILEMANAGER_TIME_X, y + FILEMANAGER_FONT_HEIGHT,
+			state->font, time, FILEMANAGER_FOREGROUND);
+	}
 }
 
 static int filemanager_handle_message(filemanager_state *state,
@@ -183,9 +340,13 @@ static int filemanager_handle_message(filemanager_state *state,
 			get32(payload) == state->window_id ? 0 : -1;
 	if (header->type == GUI_PROTOCOL_INPUT_RESET)
 		return payload_bytes == 0 ? 0 : -1;
-	if (header->type == GUI_PROTOCOL_INPUT_EVENT)
-		return payload_bytes == sizeof(gui_protocol_wire_input_event) &&
-			get32(payload) == state->window_id ? 0 : -1;
+	if (header->type == GUI_PROTOCOL_INPUT_EVENT) {
+		if (payload_bytes != sizeof(gui_protocol_wire_input_event) ||
+		    get32(payload) != state->window_id)
+			return -1;
+		return get32(payload + 4) == GUI_INPUT_EVENT_KEY ?
+			filemanager_handle_key(state, get32(payload + 8)) : 0;
+	}
 	return -1;
 }
 
@@ -395,6 +556,12 @@ int main(int argc, char **argv)
 		fprintf(stderr, "filemanager: %s failed: %d\n", setup_step, errno);
 		goto out;
 	}
+	setup_step = "load font";
+	state.font = gui_font_load(FILEMANAGER_FONT_PATH, FILEMANAGER_FONT_HEIGHT);
+	if (state.font == NULL) {
+		fprintf(stderr, "filemanager: %s failed: %d\n", setup_step, errno);
+		goto out;
+	}
 	setup_step = "submit surface";
 	if (filemanager_send_current_surface(&state) < 0) {
 		fprintf(stderr, "filemanager: %s failed: %d\n", setup_step, errno);
@@ -425,6 +592,7 @@ int main(int argc, char **argv)
 			sizeof(window_id));
 	}
 out:
+	gui_font_destroy(state.font);
 	gui_surface_destroy(state.surface);
 	if (state.fd >= 0)
 		close(state.fd);

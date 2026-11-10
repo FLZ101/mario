@@ -1079,7 +1079,7 @@ imageviewer: decode BMP/PNG and add zoom/pan
   data. Enable the bounded `LAUNCH_FILE_MANAGER` path form. Unit test long
   names, unknown types, and empty directories. Commit: `filemanager: read
   directory entries`.
-- [ ] **M7.1.2 — render a directory listing.** Add name/type/size/time columns,
+- [x] **M7.1.2 — render a directory listing.** Add name/type/size/time columns,
   selection, and deterministic clipping. Test one listing golden in a
   `GUI-VISUAL-TEST:` fixture. Commit: `filemanager: render directory listing`.
 - [ ] **M7.1.3 — navigate paths.** Add parent, selected-directory, and absolute

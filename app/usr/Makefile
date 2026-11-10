@@ -107,4 +107,5 @@ filemanager/filemanager.exe: filemanager/main.c filemanager/model.c \
 	$(CC) -o $@ filemanager/main.c filemanager/model.c -I$(ROOT)/../include \
 		-I$(TERMINAL_UI_DIR)/include \
 		-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
-		-L$(TERMINAL_UI_DIR) -static -lmario-ui
+		-L$(TERMINAL_UI_DIR) -L$(FREETYPE_INSTALL_DIR)/lib -static \
+		-lmario-ui -lfreetype

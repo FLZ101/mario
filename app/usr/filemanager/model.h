@@ -2,6 +2,7 @@
 #define FILEMANAGER_MODEL_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #define FILEMANAGER_ENTRY_LIMIT 256U
 #define FILEMANAGER_NAME_BYTES 255U
@@ -16,6 +17,10 @@ typedef enum {
 
 typedef struct {
 	filemanager_entry_type type;
+	uint64_t size;
+	int64_t modified_time;
+	/* Metadata lookup may race with directory changes without hiding the entry. */
+	int metadata_available;
 	char name[FILEMANAGER_NAME_BYTES + 1];
 } filemanager_entry;
 

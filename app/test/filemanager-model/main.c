@@ -23,8 +23,12 @@ static void test_sorted_directory(void)
 	assert(filemanager_directory_load(&directory, path) == 0);
 	assert(directory.count == 3 && directory.omitted_count == 0);
 	assert(!strcmp(directory.entries[0].name, "alpha"));
+	assert(directory.entries[0].metadata_available);
+	assert(directory.entries[0].size == 0);
+	assert(directory.entries[0].modified_time > 0);
 	assert(!strcmp(directory.entries[1].name, "directory"));
 	assert(directory.entries[1].type == FILEMANAGER_ENTRY_DIRECTORY);
+	assert(directory.entries[1].metadata_available);
 	assert(!strcmp(directory.entries[2].name, "zeta"));
 	assert(chdir(path) == 0);
 	assert(unlink("alpha") == 0);
@@ -60,6 +64,7 @@ static void test_bounded_and_unknown_entries(void)
 	assert(filemanager_directory_add(&directory, "unknown", DT_UNKNOWN) == 0);
 	assert(directory.count == 1);
 	assert(directory.entries[0].type == FILEMANAGER_ENTRY_UNKNOWN);
+	assert(!directory.entries[0].metadata_available);
 	filemanager_directory_init(&directory);
 	for (size_t index = 0; index < FILEMANAGER_ENTRY_LIMIT; index++) {
 		assert(snprintf(name, sizeof(name), "%zu", index) > 0);
