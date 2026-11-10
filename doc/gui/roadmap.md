@@ -1097,7 +1097,7 @@ imageviewer: decode BMP/PNG and add zoom/pan
   recursive-directory confirmation without following symlinks. Test nested
   trees, cancellation, and refresh. Commit: `filemanager: delete scratch
   files`.
-- [ ] **M7.3.1 — dispatch text and images.** Quote arguments, choose terminal
+- [x] **M7.3.1 — dispatch text and images.** Quote arguments, choose terminal
   versus image viewer, send a bounded server launch request, and retain the
   manager after a launch error. Enable `LAUNCH_OPEN_TEXT` and test both paths.
   Commit: `filemanager: open text and image files`.

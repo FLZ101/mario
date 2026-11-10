@@ -47,6 +47,7 @@
 #define FILEMANAGER_TIME_CHARS 10U
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
 #define FILEMANAGER_COPY_BYTES 4096U
+#define FILEMANAGER_MESSAGE_RECONFIGURE 2
 
 typedef enum {
 	FILEMANAGER_INPUT_NONE,
@@ -74,6 +75,8 @@ typedef struct {
 	size_t selected_entry;
 	filemanager_input_mode input_mode;
 	filemanager_clipboard_mode clipboard_mode;
+	uint32_t launch_request_id;
+	int redraw_pending;
 	char *path;
 	char *input;
 	char *rename_source;
@@ -99,6 +102,15 @@ static char filemanager_operation_target[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
 static char filemanager_resolved_path[PATH_MAX];
 static char filemanager_clipboard_path[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
 static uint8_t filemanager_copy_buffer[FILEMANAGER_COPY_BYTES];
+
+static int filemanager_name_has_suffix(const char *name, const char *suffix)
+{
+	size_t name_bytes = strlen(name);
+	size_t suffix_bytes = strlen(suffix);
+
+	return name_bytes >= suffix_bytes &&
+		!strcmp(name + name_bytes - suffix_bytes, suffix);
+}
 
 static void put16(uint8_t *bytes, uint16_t value)
 {
@@ -754,6 +766,49 @@ static int filemanager_delete_tree(filemanager_state *state)
 	return filemanager_refresh(state);
 }
 
+static int filemanager_open_selected(filemanager_state *state)
+{
+	const filemanager_entry *entry;
+	struct stat status;
+	uint8_t request[sizeof(gui_protocol_wire_launch_request) + GUI_PROTOCOL_MAX_PATH_BYTES];
+	uint16_t launch_type;
+	size_t path_bytes;
+
+	if (state->selected_entry >= filemanager_directory_model.count)
+		return 0;
+	entry = &filemanager_directory_model.entries[state->selected_entry];
+	if (filemanager_child_path(filemanager_operation_target,
+		sizeof(filemanager_operation_target), state->path, entry->name) < 0 ||
+		lstat(filemanager_operation_target, &status) < 0) {
+		filemanager_set_error(state, "open", entry->name, errno);
+		return 1;
+	}
+	if (!S_ISREG(status.st_mode)) {
+		(void)snprintf(state->status, sizeof(state->status), "Open regular files only");
+		return 1;
+	}
+	path_bytes = strlen(filemanager_operation_target);
+	launch_type = filemanager_name_has_suffix(entry->name, ".bmp") ||
+		filemanager_name_has_suffix(entry->name, ".png") ?
+		GUI_PROTOCOL_LAUNCH_IMAGE_VIEWER : GUI_PROTOCOL_LAUNCH_OPEN_TEXT;
+	/* The server echoes this identifier so delayed launch results stay attributable. */
+	if (++state->launch_request_id == 0)
+		state->launch_request_id++;
+	put32(request, state->launch_request_id);
+	put16(request + 4, launch_type);
+	put16(request + 6, path_bytes);
+	memcpy(request + sizeof(gui_protocol_wire_launch_request), filemanager_operation_target,
+		path_bytes);
+	if (send_message(state->fd, GUI_PROTOCOL_LAUNCH_REQUEST, request,
+		sizeof(gui_protocol_wire_launch_request) + path_bytes) < 0) {
+		filemanager_set_error(state, "launch", filemanager_operation_target, errno);
+		return 1;
+	}
+	printf("filemanager: launch requested: %s\n", filemanager_operation_target);
+	fflush(stdout);
+	return 0;
+}
+
 static const char *filemanager_input_label(filemanager_input_mode input_mode)
 {
 	switch (input_mode) {
@@ -863,6 +918,8 @@ static int filemanager_handle_key(filemanager_state *state, uint32_t keysym)
 		return filemanager_paste(state, 0);
 	if (keysym == 'x')
 		return filemanager_delete_selected(state);
+	if (keysym == 'o')
+		return filemanager_open_selected(state);
 	if (keysym == '\n' && state->selected_entry < filemanager_directory_model.count) {
 		/* The transactional load is the final directory check and retains rows on error. */
 		if (filemanager_child_path(state->input, sizeof(filemanager_input_entry), state->path,
@@ -990,7 +1047,7 @@ static int filemanager_handle_message(filemanager_state *state,
 		    filemanager_resize_surface(state, get32(payload + 12), get32(payload + 16)) < 0)
 			return -1;
 		state->configure_serial = get64(payload + 4);
-		return 1;
+		return FILEMANAGER_MESSAGE_RECONFIGURE;
 	}
 	if (header->type == GUI_PROTOCOL_WINDOW_CLOSE_REQUEST) {
 		if (payload_bytes != sizeof(gui_protocol_wire_window_id) ||
@@ -1004,6 +1061,23 @@ static int filemanager_handle_message(filemanager_state *state,
 			get32(payload) == state->window_id ? 0 : -1;
 	if (header->type == GUI_PROTOCOL_INPUT_RESET)
 		return payload_bytes == 0 ? 0 : -1;
+	if (header->type == GUI_PROTOCOL_LAUNCH_RESULT) {
+		int32_t status;
+
+		if (payload_bytes != sizeof(gui_protocol_wire_launch_result) ||
+		    get32(payload) != state->launch_request_id)
+			return -1;
+		status = (int32_t)get32(payload + 4);
+		if (status != 0) {
+			(void)snprintf(state->status, sizeof(state->status), "Launch error: %d", -status);
+			fprintf(stderr, "filemanager: launch failed: %d\n", -status);
+		} else {
+			state->status[0] = '\0';
+			printf("filemanager: launch accepted\n");
+		}
+		fflush(stdout);
+		return 1;
+	}
 	if (header->type == GUI_PROTOCOL_INPUT_EVENT) {
 		if (payload_bytes != sizeof(gui_protocol_wire_input_event) ||
 		    get32(payload) != state->window_id)
@@ -1047,8 +1121,12 @@ static int filemanager_read_surface_reply(filemanager_state *state,
 			header.length - GUI_PROTOCOL_HEADER_SIZE);
 		if (result < 0 || state->close_requested)
 			return -1;
-		if (result > 0)
-			return 1;
+		if (result == FILEMANAGER_MESSAGE_RECONFIGURE)
+			return result;
+		if (result > 0) {
+			/* Complete this transaction before redrawing changed application state. */
+			state->redraw_pending = 1;
+		}
 	}
 }
 
@@ -1117,10 +1195,11 @@ static int filemanager_send_current_surface(filemanager_state *state)
 
 	/* A resize may arrive while the server acknowledges a surface chunk. */
 	do {
+		state->redraw_pending = 0;
 		result = filemanager_send_surface(state);
 		if (result < 0)
 			return -1;
-	} while (result > 0);
+	} while (result == FILEMANAGER_MESSAGE_RECONFIGURE || state->redraw_pending);
 	return 0;
 }
 

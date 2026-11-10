@@ -150,6 +150,7 @@ struct wm_server {
 
 static int wm_start_shell(wm_server *server);
 static int wm_start_terminal(void);
+static int wm_start_terminal_command(const uint8_t *path, size_t path_bytes);
 static int wm_start_image_viewer(const uint8_t *path, size_t path_bytes);
 static int wm_start_file_manager(const uint8_t *path, size_t path_bytes);
 
@@ -693,6 +694,26 @@ static void client_handle_launch_request(wm_client *client, const uint8_t *bytes
 			client->hello = -1;
 		return;
 	case GUI_PROTOCOL_LAUNCH_OPEN_TEXT:
+		if (path_bytes == 0 || bytes[sizeof(gui_protocol_wire_launch_request)] != '/' ||
+		    memchr(bytes + sizeof(gui_protocol_wire_launch_request), '\0', path_bytes) != NULL) {
+			client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
+			return;
+		}
+		if (wm_start_terminal_command(bytes + sizeof(gui_protocol_wire_launch_request),
+			path_bytes) < 0) {
+			put_u32(result, request_id);
+			put_u32(result + 4, (uint32_t)-errno);
+			if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
+				   sizeof(result)) < 0)
+				client->hello = -1;
+			return;
+		}
+		put_u32(result, request_id);
+		put_u32(result + 4, 0);
+		if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
+		   sizeof(result)) < 0)
+			client->hello = -1;
+		return;
 	case GUI_PROTOCOL_LAUNCH_EXECUTABLE:
 		if (path_bytes == 0 || bytes[sizeof(gui_protocol_wire_launch_request)] != '/' ||
 		    memchr(bytes + sizeof(gui_protocol_wire_launch_request), '\0', path_bytes) != NULL) {
@@ -1910,6 +1931,38 @@ static int wm_start_terminal(void)
 	if (pid == 0) {
 		/* Server-owned descriptors are close-on-exec, so clients get no seat access. */
 		execl(WM_TERMINAL_PATH, WM_TERMINAL_PATH, NULL);
+		_exit(127);
+	}
+	return 0;
+}
+
+static int wm_start_terminal_command(const uint8_t *path, size_t path_bytes)
+{
+	char command[GUI_PROTOCOL_MAX_PATH_BYTES * 5 + sizeof("/usr/bin/vim -- ''")];
+	char *cursor = command;
+	pid_t pid;
+
+	if (path_bytes == 0 || path_bytes > GUI_PROTOCOL_MAX_PATH_BYTES) {
+		errno = EINVAL;
+		return -1;
+	}
+	/* terminal passes this command to oksh, so quote the pathname byte by byte. */
+	cursor += sprintf(cursor, "/usr/bin/vim -- '");
+	for (size_t index = 0; index < path_bytes; index++) {
+		if (path[index] == '\'') {
+			memcpy(cursor, "'\\''", 4);
+			cursor += 4;
+		} else {
+			*cursor++ = path[index];
+		}
+	}
+	*cursor++ = '\'';
+	*cursor = '\0';
+	pid = fork();
+	if (pid < 0)
+		return -1;
+	if (pid == 0) {
+		execl(WM_TERMINAL_PATH, WM_TERMINAL_PATH, "--command", command, NULL);
 		_exit(127);
 	}
 	return 0;
