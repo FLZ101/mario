@@ -1086,7 +1086,7 @@ imageviewer: decode BMP/PNG and add zoom/pan
   path entry navigation; retain the previous listing after an error. Test
   MarioFS, ext2, and vfat without mutating images. Commit: `filemanager:
   navigate filesystem paths`.
-- [ ] **M7.2.1 — create and rename in `/tmp`.** Implement mkdir and same-filesystem
+- [x] **M7.2.1 — create and rename in `/tmp`.** Implement mkdir and same-filesystem
   rename with input validation and post-operation refresh. Test success and
   duplicate-name errors. Commit: `filemanager: create and rename files`.
 - [ ] **M7.2.2 — copy and move in `/tmp`.** Add bounded streaming copy and

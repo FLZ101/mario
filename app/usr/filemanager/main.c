@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -37,12 +38,19 @@
 #define FILEMANAGER_SIZE_X 170
 #define FILEMANAGER_TIME_X 228
 #define FILEMANAGER_PATH_CHARS 35U
-#define FILEMANAGER_PATH_VALUE_X 56
+#define FILEMANAGER_INPUT_VALUE_X 64
 #define FILEMANAGER_NAME_CHARS 13U
 #define FILEMANAGER_TYPE_CHARS 7U
 #define FILEMANAGER_SIZE_CHARS 7U
 #define FILEMANAGER_TIME_CHARS 10U
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
+
+typedef enum {
+	FILEMANAGER_INPUT_NONE,
+	FILEMANAGER_INPUT_PATH,
+	FILEMANAGER_INPUT_MKDIR,
+	FILEMANAGER_INPUT_RENAME,
+} filemanager_input_mode;
 
 typedef struct {
 	int fd;
@@ -53,9 +61,10 @@ typedef struct {
 	uint32_t height;
 	int close_requested;
 	size_t selected_entry;
-	int path_entry_active;
+	filemanager_input_mode input_mode;
 	char *path;
-	char *path_entry;
+	char *input;
+	char *rename_source;
 	char status[32];
 	gui_font *font;
 	gui_surface *surface;
@@ -69,7 +78,12 @@ static uint8_t filemanager_input[GUI_PROTOCOL_MAX_MESSAGE_SIZE - GUI_PROTOCOL_HE
 static filemanager_directory filemanager_directory_model;
 /* Path input is also bounded but should not inflate the initial application stack. */
 static char filemanager_path[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
-static char filemanager_path_entry[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
+static char filemanager_input_entry[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
+static char filemanager_rename_source[FILEMANAGER_NAME_BYTES + 1];
+/* Mutations need two complete paths without growing Mario's initial app stack. */
+static char filemanager_operation_source[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
+static char filemanager_operation_target[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
+static char filemanager_resolved_path[PATH_MAX];
 
 static void put16(uint8_t *bytes, uint16_t value)
 {
@@ -310,6 +324,39 @@ static int filemanager_child_path(char *destination, size_t destination_bytes,
 	return 0;
 }
 
+static int filemanager_is_scratch_path(const char *path)
+{
+	if (realpath(path, filemanager_resolved_path) == NULL)
+		return 0;
+	return !strcmp(filemanager_resolved_path, "/tmp") ||
+		!strncmp(filemanager_resolved_path, "/tmp/", sizeof("/tmp/") - 1);
+}
+
+static int filemanager_validate_entry_name(const char *name)
+{
+	size_t name_bytes;
+
+	if (name == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	name_bytes = strnlen(name, FILEMANAGER_NAME_BYTES + 1);
+	if (name_bytes == 0 || name_bytes > FILEMANAGER_NAME_BYTES || strchr(name, '/') != NULL ||
+	    !strcmp(name, ".") || !strcmp(name, "..")) {
+		errno = EINVAL;
+		return -1;
+	}
+	return 0;
+}
+
+static void filemanager_set_error(filemanager_state *state, const char *operation,
+				  const char *path, int error)
+{
+	(void)snprintf(state->status, sizeof(state->status), "%s error: %d", operation, error);
+	fprintf(stderr, "filemanager: %s failed: %s: %d\n", operation, path, error);
+	fflush(stderr);
+}
+
 static int filemanager_navigate(filemanager_state *state, const char *path)
 {
 	int saved_errno;
@@ -325,8 +372,8 @@ static int filemanager_navigate(filemanager_state *state, const char *path)
 	/* The model commits only after a complete load, so path and rows change together. */
 	strcpy(state->path, path);
 	state->selected_entry = 0;
-	state->path_entry_active = 0;
-	state->path_entry[0] = '\0';
+	state->input_mode = FILEMANAGER_INPUT_NONE;
+	state->input[0] = '\0';
 	state->status[0] = '\0';
 	printf("filemanager: navigated: %s (%zu entries%s)\n", state->path,
 		filemanager_directory_model.count,
@@ -335,31 +382,118 @@ static int filemanager_navigate(filemanager_state *state, const char *path)
 	return 1;
 }
 
-static int filemanager_handle_path_entry(filemanager_state *state, uint32_t keysym)
+static int filemanager_refresh(filemanager_state *state)
 {
-	size_t path_bytes;
+	if (filemanager_directory_load(&filemanager_directory_model, state->path) < 0) {
+		int saved_errno = errno;
+
+		filemanager_set_error(state, "refresh", state->path, saved_errno);
+		return 0;
+	}
+	state->selected_entry = 0;
+	state->input_mode = FILEMANAGER_INPUT_NONE;
+	state->input[0] = '\0';
+	state->status[0] = '\0';
+	return 1;
+}
+
+static int filemanager_mutate(filemanager_state *state)
+{
+	int saved_errno;
+
+	if (!filemanager_is_scratch_path(state->path)) {
+		(void)snprintf(state->status, sizeof(state->status), "Scratch only: /tmp");
+		fprintf(stderr, "filemanager: mutation rejected outside /tmp: %s\n", state->path);
+		fflush(stderr);
+		return 1;
+	}
+	if (filemanager_validate_entry_name(state->input) < 0) {
+		filemanager_set_error(state, "name", state->input, errno);
+		return 1;
+	}
+	if (filemanager_child_path(filemanager_operation_target,
+		sizeof(filemanager_operation_target), state->path, state->input) < 0) {
+		filemanager_set_error(state, "path", state->input, errno);
+		return 1;
+	}
+	if (state->input_mode == FILEMANAGER_INPUT_MKDIR) {
+		if (mkdir(filemanager_operation_target, 0777) < 0) {
+			saved_errno = errno;
+			filemanager_set_error(state, "mkdir", filemanager_operation_target, saved_errno);
+			return 1;
+		}
+		printf("filemanager: created directory: %s\n", filemanager_operation_target);
+	} else {
+		struct stat status;
+
+		if (filemanager_child_path(filemanager_operation_source,
+			sizeof(filemanager_operation_source), state->path, state->rename_source) < 0) {
+			filemanager_set_error(state, "rename", state->rename_source, errno);
+			return 1;
+		}
+		/* This UI does not offer overwrite confirmation for rename targets. */
+		if (lstat(filemanager_operation_target, &status) == 0) {
+			filemanager_set_error(state, "rename", filemanager_operation_target, EEXIST);
+			return 1;
+		}
+		if (errno != ENOENT) {
+			saved_errno = errno;
+			filemanager_set_error(state, "rename", filemanager_operation_target, saved_errno);
+			return 1;
+		}
+		if (rename(filemanager_operation_source, filemanager_operation_target) < 0) {
+			saved_errno = errno;
+			filemanager_set_error(state, "rename", filemanager_operation_target, saved_errno);
+			return 1;
+		}
+		printf("filemanager: renamed: %s -> %s\n", filemanager_operation_source,
+			filemanager_operation_target);
+	}
+	fflush(stdout);
+	/* Do not leave a completed mutation active if its post-operation refresh fails. */
+	state->input_mode = FILEMANAGER_INPUT_NONE;
+	state->input[0] = '\0';
+	return filemanager_refresh(state);
+}
+
+static const char *filemanager_input_label(filemanager_input_mode input_mode)
+{
+	switch (input_mode) {
+	case FILEMANAGER_INPUT_PATH: return "Open:";
+	case FILEMANAGER_INPUT_MKDIR: return "Mkdir:";
+	case FILEMANAGER_INPUT_RENAME: return "Rename:";
+	default: return "";
+	}
+}
+
+static int filemanager_handle_input(filemanager_state *state, uint32_t keysym)
+{
+	size_t input_bytes;
 
 	if (keysym == GUI_KEYSYM_ESCAPE) {
-		state->path_entry_active = 0;
-		state->path_entry[0] = '\0';
+		state->input_mode = FILEMANAGER_INPUT_NONE;
+		state->input[0] = '\0';
 		state->status[0] = '\0';
 		return 1;
 	}
-	path_bytes = strlen(state->path_entry);
+	input_bytes = strlen(state->input);
 	if (keysym == GUI_KEYSYM_BACKSPACE) {
-		if (path_bytes == 0)
+		if (input_bytes == 0)
 			return 0;
-		state->path_entry[path_bytes - 1] = '\0';
+		state->input[input_bytes - 1] = '\0';
 		state->status[0] = '\0';
 		return 1;
 	}
 	if (keysym == '\n') {
-		(void)filemanager_navigate(state, state->path_entry);
+		if (state->input_mode == FILEMANAGER_INPUT_PATH)
+			(void)filemanager_navigate(state, state->input);
+		else
+			(void)filemanager_mutate(state);
 		return 1;
 	}
-	if (keysym >= 0x20 && keysym <= 0x7e && path_bytes < GUI_PROTOCOL_MAX_PATH_BYTES) {
-		state->path_entry[path_bytes] = (char)keysym;
-		state->path_entry[path_bytes + 1] = '\0';
+	if (keysym >= 0x20 && keysym <= 0x7e && input_bytes < GUI_PROTOCOL_MAX_PATH_BYTES) {
+		state->input[input_bytes] = (char)keysym;
+		state->input[input_bytes + 1] = '\0';
 		state->status[0] = '\0';
 		return 1;
 	}
@@ -368,27 +502,47 @@ static int filemanager_handle_path_entry(filemanager_state *state, uint32_t keys
 
 static int filemanager_handle_key(filemanager_state *state, uint32_t keysym)
 {
-	if (state->path_entry_active)
-		return filemanager_handle_path_entry(state, keysym);
+	if (state->input_mode != FILEMANAGER_INPUT_NONE)
+		return filemanager_handle_input(state, keysym);
 	if (keysym == '/') {
-		state->path_entry_active = 1;
-		state->path_entry[0] = '\0';
+		state->input_mode = FILEMANAGER_INPUT_PATH;
+		state->input[0] = '\0';
 		state->status[0] = '\0';
 		return 1;
 	}
 	if (keysym == GUI_KEYSYM_BACKSPACE || keysym == GUI_KEYSYM_LEFT || keysym == 'h') {
-		if (filemanager_parent_path(state->path_entry, sizeof(filemanager_path_entry),
-			state->path) < 0 || !strcmp(state->path_entry, state->path))
+		if (filemanager_parent_path(state->input, sizeof(filemanager_input_entry),
+			state->path) < 0 || !strcmp(state->input, state->path))
 			return 0;
-		(void)filemanager_navigate(state, state->path_entry);
+		(void)filemanager_navigate(state, state->input);
+		return 1;
+	}
+	if ((keysym == 'm' || keysym == 'r') && !filemanager_is_scratch_path(state->path)) {
+		(void)snprintf(state->status, sizeof(state->status), "Scratch only: /tmp");
+		fprintf(stderr, "filemanager: mutation rejected outside /tmp: %s\n", state->path);
+		fflush(stderr);
+		return 1;
+	}
+	if (keysym == 'm') {
+		state->input_mode = FILEMANAGER_INPUT_MKDIR;
+		state->input[0] = '\0';
+		state->status[0] = '\0';
+		return 1;
+	}
+	if (keysym == 'r' && state->selected_entry < filemanager_directory_model.count) {
+		strcpy(state->rename_source,
+			filemanager_directory_model.entries[state->selected_entry].name);
+		state->input_mode = FILEMANAGER_INPUT_RENAME;
+		state->input[0] = '\0';
+		state->status[0] = '\0';
 		return 1;
 	}
 	if (keysym == '\n' && state->selected_entry < filemanager_directory_model.count) {
 		/* The transactional load is the final directory check and retains rows on error. */
-		if (filemanager_child_path(state->path_entry, sizeof(filemanager_path_entry), state->path,
+		if (filemanager_child_path(state->input, sizeof(filemanager_input_entry), state->path,
 			filemanager_directory_model.entries[state->selected_entry].name) < 0)
 			return 0;
-		(void)filemanager_navigate(state, state->path_entry);
+		(void)filemanager_navigate(state, state->input);
 		return 1;
 	}
 	if (filemanager_directory_model.count == 0)
@@ -422,16 +576,17 @@ static void filemanager_render(filemanager_state *state)
 			FILEMANAGER_FOREGROUND);
 		columns_y = FILEMANAGER_COLUMNS_Y;
 		rows_y = FILEMANAGER_PATH_ROWS_Y;
-	} else if (state->path_entry_active) {
-		filemanager_clip_text(clipped_path, sizeof(clipped_path), state->path_entry,
-			FILEMANAGER_PATH_CHARS - 6);
+	} else if (state->input_mode != FILEMANAGER_INPUT_NONE) {
+		filemanager_clip_text(clipped_path, sizeof(clipped_path), state->input,
+			FILEMANAGER_PATH_CHARS - 8);
 		gui_font_draw_text(state->surface, FILEMANAGER_NAME_X,
-			FILEMANAGER_HEADER_Y + FILEMANAGER_FONT_HEIGHT, state->font, "Open:",
+			FILEMANAGER_HEADER_Y + FILEMANAGER_FONT_HEIGHT, state->font,
+			filemanager_input_label(state->input_mode),
 			FILEMANAGER_HEADER);
-		gui_font_draw_text(state->surface, FILEMANAGER_PATH_VALUE_X,
+		gui_font_draw_text(state->surface, FILEMANAGER_INPUT_VALUE_X,
 			FILEMANAGER_HEADER_Y + FILEMANAGER_FONT_HEIGHT, state->font, clipped_path,
 			FILEMANAGER_FOREGROUND);
-		gui_font_draw_text(state->surface, FILEMANAGER_PATH_VALUE_X +
+		gui_font_draw_text(state->surface, FILEMANAGER_INPUT_VALUE_X +
 			(int)strlen(clipped_path) * 8, FILEMANAGER_HEADER_Y + FILEMANAGER_FONT_HEIGHT,
 			state->font, "_", FILEMANAGER_FOREGROUND);
 		columns_y = FILEMANAGER_COLUMNS_Y;
@@ -698,7 +853,7 @@ static int filemanager_create_window(filemanager_state *state)
 int main(int argc, char **argv)
 {
 	filemanager_state state = { .fd = -1, .path = filemanager_path,
-		.path_entry = filemanager_path_entry };
+		.input = filemanager_input_entry, .rename_source = filemanager_rename_source };
 	const char *path = argc == 2 ? argv[1] : "/";
 	const char *setup_step = "connect";
 	int status = 1;
