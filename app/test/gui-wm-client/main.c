@@ -98,6 +98,12 @@ static void write_zeroes(int fd, size_t byte_count)
 	}
 }
 
+static void let_server_observe_disconnect(void)
+{
+	/* The following connection must measure post-disconnect surface accounting. */
+	assert(poll(NULL, 0, 100) == 0);
+}
+
 static void read_frame(int fd, uint8_t *frame, gui_protocol_type type)
 {
 	gui_protocol_header header;
@@ -399,6 +405,38 @@ static void test_quotas(void)
 	close(offender);
 }
 
+static void test_partial_disconnects(void)
+{
+	int partial;
+	uint32_t window_id;
+	int healthy;
+
+	/* Closing at each transfer boundary must release an incomplete staging frame. */
+	partial = connect_client();
+	window_id = create_window(partial, 50, 64, 48);
+	close(partial);
+	let_server_observe_disconnect();
+
+	partial = connect_client();
+	window_id = create_window(partial, 51, 64, 48);
+	begin_surface(partial, window_id, 64, 48, 1);
+	close(partial);
+	let_server_observe_disconnect();
+
+	partial = connect_client();
+	window_id = create_window(partial, 52, 64, 48);
+	begin_surface(partial, window_id, 64, 48, 1);
+	send_surface_data(partial, window_id, 0, 1, 1, 0x00ff0000);
+	close(partial);
+	let_server_observe_disconnect();
+
+	/* A new owner can still stage and atomically commit after every partial close. */
+	healthy = connect_client();
+	window_id = create_window(healthy, 53, 64, 48);
+	commit_color_surface(healthy, window_id, 64, 48, 0x00ff0000);
+	close(healthy);
+}
+
 static void test_commit(void)
 {
 	int fd = connect_client();
@@ -664,6 +702,7 @@ int main(int argc, char **argv)
 
 	assert(argc == 1 || (argc == 2 && (!strcmp(argv[1], "--surface-only") ||
 		!strcmp(argv[1], "--quota-only") ||
+		!strcmp(argv[1], "--partial-only") ||
 		!strcmp(argv[1], "--commit-only") ||
 		!strcmp(argv[1], "--recovery-only") ||
 		!strcmp(argv[1], "--public-shell-only") || !strcmp(argv[1], "--stack-only") ||
@@ -676,6 +715,9 @@ int main(int argc, char **argv)
 		} else if (!strcmp(argv[1], "--quota-only")) {
 			test_quotas();
 			puts("wm-client: quotas ok");
+		} else if (!strcmp(argv[1], "--partial-only")) {
+			test_partial_disconnects();
+			puts("wm-client: partial recovery ok");
 		} else if (!strcmp(argv[1], "--commit-only")) {
 			test_commit();
 		} else if (!strcmp(argv[1], "--recovery-only")) {

@@ -1165,7 +1165,7 @@ protocol after terminal, image-viewer, and file-manager clients are stable.
   input/output/staging limits with all application clients connected. Test
   fair progress, deferred input draining, motion coalescing, and deterministic
   over-quota disconnect. Commit: `gui: harden protocol quotas`.
-- [ ] **M8.1.2 — recover partial client transactions.** Disconnect clients at
+- [x] **M8.1.2 — recover partial client transactions.** Disconnect clients at
   every protocol and surface-transfer boundary. Verify staging is discarded,
   the previous committed frame remains visible, and no server allocation leaks.
   Commit: `gui: recover partial client frames`.
