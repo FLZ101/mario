@@ -25,6 +25,7 @@
 #define WM_FRAME_PATH "/tmp/mario-wm.frame"
 #define WM_CLIENT_LIMIT 8
 #define WM_LAUNCH_LIMIT WM_CLIENT_LIMIT
+#define WM_CLIENT_INPUT_READ_QUANTUM 4096U
 #define WM_SHELL_PATH "/usr/bin/mario-desktop"
 #define WM_SHELL_FD 3
 #define WM_TERMINAL_PATH "/usr/bin/terminal"
@@ -127,6 +128,7 @@ typedef struct wm_client {
 	gui_surface *committed;
 	gui_protocol_input *input;
 	gui_protocol_output *output;
+	int drain_input;
 	wm_server *server;
 	uint16_t title_bytes;
 	uint8_t title[GUI_PROTOCOL_MAX_TITLE_BYTES];
@@ -2182,6 +2184,7 @@ int main(void)
 		goto out;
 	while (!stop_requested) {
 		int ready;
+		int poll_timeout = -1;
 		size_t poll_count = 4;
 
 		if (child_reap_requested) {
@@ -2199,6 +2202,8 @@ int main(void)
 
 			if (server.clients[index].fd < 0)
 				continue;
+			if (server.clients[index].drain_input)
+				poll_timeout = 0;
 			/* A socket stays writable while idle, so polling POLLOUT would spin. */
 			if (gui_protocol_output_pending(server.clients[index].output))
 				events |= POLLOUT;
@@ -2207,7 +2212,7 @@ int main(void)
 				.events = events,
 			};
 		}
-		ready = poll(pollfds, poll_count, -1);
+		ready = poll(pollfds, poll_count, poll_timeout);
 
 		if (ready < 0) {
 			if (errno == EINTR)
@@ -2260,22 +2265,30 @@ int main(void)
 		/* Mouse-driven moves and resizes queue configure messages without I/O. */
 		wm_flush_client_outputs(&server);
 		for (size_t index = 0, poll_index = 4; index < WM_CLIENT_LIMIT; index++) {
-			uint8_t bytes[4096];
+			uint8_t bytes[WM_CLIENT_INPUT_READ_QUANTUM];
 			ssize_t count = -1;
 
 			if (server.clients[index].fd < 0)
 				continue;
 			if (pollfds[poll_index].revents & (POLLIN | POLLHUP | POLLERR)) {
-				while ((count = recv(server.clients[index].fd, bytes, sizeof(bytes), 0)) > 0) {
-					if (gui_protocol_input_append(server.clients[index].input, bytes, count) < 0 ||
-					    gui_protocol_input_drain(server.clients[index].input, client_message,
-							     &server.clients[index]) < 0 ||
-					    client_flush(&server.clients[index]) < 0)
+				count = recv(server.clients[index].fd, bytes, sizeof(bytes), 0);
+				if (count > 0 && gui_protocol_input_append(server.clients[index].input,
+									 bytes, count) < 0)
 					server.clients[index].hello = -1;
-				}
 				if (count == 0 ||
 				    (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK))
 					server.clients[index].hello = -1;
+			}
+			if (server.clients[index].fd >= 0 && server.clients[index].hello >= 0 &&
+			    (count > 0 || server.clients[index].drain_input)) {
+				int messages = gui_protocol_input_drain(server.clients[index].input,
+					client_message, &server.clients[index]);
+
+				if (messages < 0 || client_flush(&server.clients[index]) < 0)
+					server.clients[index].hello = -1;
+				/* Retry only a full drain quantum; partial frames must wait for POLLIN. */
+				server.clients[index].drain_input = messages == 8 &&
+					gui_protocol_input_pending(server.clients[index].input);
 			}
 			if (server.clients[index].fd >= 0 &&
 			    (pollfds[poll_index].revents & POLLOUT) &&

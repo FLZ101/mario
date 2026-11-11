@@ -1161,10 +1161,10 @@ M3 already establishes the multi-process architecture. M8 deliberately adds
 no client migration or replacement compositor; it hardens the same server and
 protocol after terminal, image-viewer, and file-manager clients are stable.
 
-- [ ] **M8.1.1 — enforce protocol quotas under load.** Stress independent
+- [x] **M8.1.1 — enforce protocol quotas under load.** Stress independent
   input/output/staging limits with all application clients connected. Test
-  fair progress, motion coalescing, and deterministic over-quota disconnect.
-  Commit: `gui: harden protocol quotas`.
+  fair progress, deferred input draining, motion coalescing, and deterministic
+  over-quota disconnect. Commit: `gui: harden protocol quotas`.
 - [ ] **M8.1.2 — recover partial client transactions.** Disconnect clients at
   every protocol and surface-transfer boundary. Verify staging is discarded,
   the previous committed frame remains visible, and no server allocation leaks.

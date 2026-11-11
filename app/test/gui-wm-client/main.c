@@ -86,6 +86,18 @@ static void write_full(int fd, const void *buffer, size_t byte_count)
 	}
 }
 
+static void write_zeroes(int fd, size_t byte_count)
+{
+	uint8_t zeroes[4096] = { 0 };
+
+	while (byte_count != 0) {
+		size_t count = byte_count < sizeof(zeroes) ? byte_count : sizeof(zeroes);
+
+		write_full(fd, zeroes, count);
+		byte_count -= count;
+	}
+}
+
 static void read_frame(int fd, uint8_t *frame, gui_protocol_type type)
 {
 	gui_protocol_header header;
@@ -329,6 +341,62 @@ static void test_staging(void)
 	for (size_t index = 0; index < sizeof(large) / sizeof(large[0]); index++)
 		close(large[index]);
 	close(stager);
+}
+
+static void test_quotas(void)
+{
+	uint8_t frames[sizeof(gui_protocol_wire_header) +
+			   sizeof(gui_protocol_wire_hello) +
+			   9 * (sizeof(gui_protocol_wire_header) +
+				 sizeof(gui_protocol_wire_window_move))];
+	uint8_t overflow[4096] = { 0 };
+	uint8_t reply[64];
+	struct pollfd pollfd;
+	int deferred;
+	int offender;
+	int healthy;
+
+	/* Nine frames in one read leave two behind the protocol drain quota. */
+	deferred = connect_client();
+	assert(gui_protocol_encode_hello(frames, sizeof(frames),
+		&(gui_protocol_hello) { GUI_PROTOCOL_VERSION_MAJOR,
+			GUI_PROTOCOL_VERSION_MINOR }) == 0);
+	for (size_t index = 0; index < 9; index++) {
+		uint8_t *frame = frames + sizeof(gui_protocol_wire_header) +
+			sizeof(gui_protocol_wire_hello) + index *
+			(sizeof(gui_protocol_wire_header) +
+			 sizeof(gui_protocol_wire_window_move));
+
+		assert(gui_protocol_encode_header(frame,
+			sizeof(gui_protocol_wire_header) +
+			sizeof(gui_protocol_wire_window_move), GUI_PROTOCOL_WINDOW_MOVE,
+			sizeof(gui_protocol_wire_window_move)) == 0);
+	}
+	write_full(deferred, frames, sizeof(frames));
+	read_frame(deferred, reply, GUI_PROTOCOL_HELLO_REPLY);
+	for (size_t index = 0; index < 9; index++)
+		read_error(deferred, -EINVAL, GUI_PROTOCOL_WINDOW_MOVE);
+	close(deferred);
+
+	/* A client with a partial maximum-size frame cannot block a healthy peer. */
+	offender = connect_client();
+	hello(offender);
+	assert(gui_protocol_encode_header(overflow, sizeof(overflow),
+		GUI_PROTOCOL_WINDOW_MOVE,
+		GUI_PROTOCOL_MAX_MESSAGE_SIZE - GUI_PROTOCOL_HEADER_SIZE) == 0);
+	write_full(offender, overflow, sizeof(overflow));
+	healthy = connect_client();
+	(void)create_window(healthy, 41, 64, 48);
+	close(healthy);
+
+	/* One byte fits after 65535 bytes; the next must close the over-limit peer. */
+	write_zeroes(offender, GUI_PROTOCOL_MAX_MESSAGE_SIZE - 1 - sizeof(overflow));
+	write_zeroes(offender, 2);
+	pollfd = (struct pollfd) { .fd = offender, .events = POLLIN };
+	assert(poll(&pollfd, 1, 5000) > 0);
+	assert(pollfd.revents & (POLLIN | POLLHUP | POLLERR));
+	assert(read(offender, reply, 1) == 0);
+	close(offender);
 }
 
 static void test_commit(void)
@@ -595,6 +663,7 @@ int main(int argc, char **argv)
 	uint32_t first_id;
 
 	assert(argc == 1 || (argc == 2 && (!strcmp(argv[1], "--surface-only") ||
+		!strcmp(argv[1], "--quota-only") ||
 		!strcmp(argv[1], "--commit-only") ||
 		!strcmp(argv[1], "--recovery-only") ||
 		!strcmp(argv[1], "--public-shell-only") || !strcmp(argv[1], "--stack-only") ||
@@ -604,6 +673,9 @@ int main(int argc, char **argv)
 		if (!strcmp(argv[1], "--surface-only")) {
 			test_staging();
 			puts("wm-client: staging ok");
+		} else if (!strcmp(argv[1], "--quota-only")) {
+			test_quotas();
+			puts("wm-client: quotas ok");
 		} else if (!strcmp(argv[1], "--commit-only")) {
 			test_commit();
 		} else if (!strcmp(argv[1], "--recovery-only")) {

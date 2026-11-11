@@ -94,6 +94,7 @@ static void test_input_errors_and_drain_limit(void)
 {
 	uint8_t frame[GUI_PROTOCOL_HEADER_SIZE];
 	uint8_t oversized[GUI_PROTOCOL_HEADER_SIZE] = { 1, 0, 1 };
+	static uint8_t input_limit[GUI_PROTOCOL_MAX_MESSAGE_SIZE];
 	input_log log = { 0 };
 	gui_protocol_input *input = gui_protocol_input_create();
 
@@ -103,7 +104,9 @@ static void test_input_errors_and_drain_limit(void)
 	for (int index = 0; index < 9; index++)
 		assert(gui_protocol_input_append(input, frame, sizeof(frame)) == 0);
 	assert(gui_protocol_input_drain(input, record_message, &log) == 8);
+	assert(gui_protocol_input_pending(input));
 	assert(gui_protocol_input_drain(input, record_message, &log) == 1);
+	assert(!gui_protocol_input_pending(input));
 	assert(log.count == 9);
 	assert(gui_protocol_input_append(input, frame, sizeof(frame) - 1) == 0);
 	gui_protocol_input_finish(input);
@@ -116,6 +119,14 @@ static void test_input_errors_and_drain_limit(void)
 	assert(gui_protocol_input_append(input, oversized, sizeof(oversized)) == 0);
 	assert(gui_protocol_input_drain(input, record_message, &log) == -1);
 	assert(errno == EPROTO);
+	gui_protocol_input_destroy(input);
+
+	input = gui_protocol_input_create();
+	assert(input != NULL);
+	assert(gui_protocol_input_append(input, input_limit,
+		GUI_PROTOCOL_MAX_MESSAGE_SIZE - 1) == 0);
+	assert(gui_protocol_input_append(input, input_limit, 2) == -1);
+	assert(errno == EOVERFLOW);
 	gui_protocol_input_destroy(input);
 }
 

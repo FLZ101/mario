@@ -43,6 +43,11 @@ void gui_protocol_input_finish(gui_protocol_input *input)
 		input->finished = 1;
 }
 
+int gui_protocol_input_pending(const gui_protocol_input *input)
+{
+	return input != NULL && input->count != 0;
+}
+
 int gui_protocol_input_drain(gui_protocol_input *input,
 				     gui_protocol_message_fn callback, void *context)
 {

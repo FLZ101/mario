@@ -250,6 +250,7 @@ void gui_protocol_input_destroy(gui_protocol_input *input);
 int gui_protocol_input_append(gui_protocol_input *input, const void *bytes,
 				      size_t byte_count);
 void gui_protocol_input_finish(gui_protocol_input *input);
+int gui_protocol_input_pending(const gui_protocol_input *input);
 int gui_protocol_input_drain(gui_protocol_input *input,
 				     gui_protocol_message_fn callback, void *context);
 gui_protocol_output *gui_protocol_output_create(size_t byte_limit);
