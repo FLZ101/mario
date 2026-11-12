@@ -18,6 +18,7 @@
 #include <gui/input.h>
 #include <gui/protocol.h>
 #include <gui/surface.h>
+#include <app/gui-limits.h>
 
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
 #define IMAGEVIEWER_WIDTH 320U
@@ -40,6 +41,7 @@ typedef struct {
 	uint32_t width;
 	uint32_t height;
 	int close_requested;
+	app_gui_surface_flow surface_flow;
 	gui_image_cache image_cache;
 	gui_image_view view;
 	int dragging;
@@ -255,13 +257,20 @@ static int imageviewer_handle_message(imageviewer_state *state,
 				      const gui_protocol_header *header,
 				      const uint8_t *payload, size_t payload_bytes)
 {
+	int flow_result = app_gui_surface_flow_message(&state->surface_flow,
+		state->window_id, header->type, payload, payload_bytes);
+
+	if (flow_result != 0)
+		return flow_result < 0 ? -1 : 0;
 	if (header->type == GUI_PROTOCOL_WINDOW_CONFIGURE) {
 		if (payload_bytes != sizeof(gui_protocol_wire_window_configure) ||
-		    get32(payload) != state->window_id || get64(payload + 4) == 0 ||
+		    get32(payload) != state->window_id ||
+		    get64(payload + 4) <= state->configure_serial ||
 		    get32(payload + 12) == 0 || get32(payload + 16) == 0 ||
 		    imageviewer_resize_surface(state, get32(payload + 12), get32(payload + 16)) < 0)
 			return -1;
 		state->configure_serial = get64(payload + 4);
+		app_gui_surface_defer(&state->surface_flow);
 		return 1;
 	}
 	if (header->type == GUI_PROTOCOL_WINDOW_CLOSE_REQUEST) {
@@ -299,11 +308,13 @@ static int imageviewer_read_surface_reply(imageviewer_state *state,
 	for (;;) {
 		gui_protocol_header header;
 		int result;
+		uint64_t configure_serial = state->configure_serial;
 
 		if (read_message(state->fd, &header, imageviewer_input,
 			 sizeof(imageviewer_input)) < 0)
 			return -1;
-		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY) {
+		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY &&
+		    !state->surface_flow.discard_reply) {
 			if (header.length != GUI_PROTOCOL_HEADER_SIZE +
 			    sizeof(gui_protocol_wire_surface_data_reply) ||
 			    get32(imageviewer_input) != state->window_id ||
@@ -314,15 +325,21 @@ static int imageviewer_read_surface_reply(imageviewer_state *state,
 				return -1;
 			return 0;
 		}
-		if (header.type == GUI_PROTOCOL_ERROR &&
-		    header.length == GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_error))
-			return -1;
 		result = imageviewer_handle_message(state, &header, imageviewer_input,
 			header.length - GUI_PROTOCOL_HEADER_SIZE);
 		if (result < 0 || state->close_requested)
 			return -1;
-		if (result > 0)
+		if (header.type == GUI_PROTOCOL_WINDOW_CONFIGURE ||
+		    (header.type == GUI_PROTOCOL_ERROR &&
+		     ((uint16_t)imageviewer_input[4] |
+		      (uint16_t)imageviewer_input[5] << 8) == GUI_PROTOCOL_SURFACE_BEGIN &&
+		     state->surface_flow.retry_pending)) {
+			app_gui_surface_discard_reply(&state->surface_flow, configure_serial,
+				frame_serial, pixel_offset, pixel_count);
 			return 1;
+		}
+		if (result > 0)
+			app_gui_surface_defer(&state->surface_flow);
 	}
 }
 
@@ -389,12 +406,15 @@ static int imageviewer_send_current_surface(imageviewer_state *state)
 {
 	int result;
 
+	if (state->surface_flow.retry_pending)
+		return 0;
+
 	/* A resize can arrive while the server acknowledges one surface chunk. */
 	do {
 		result = imageviewer_send_surface(state);
 		if (result < 0)
 			return -1;
-	} while (result > 0);
+	} while (result > 0 && !state->surface_flow.retry_pending);
 	return 0;
 }
 
@@ -713,6 +733,21 @@ int main(int argc, char **argv)
 	while (!state.close_requested) {
 		gui_protocol_header header;
 		int result;
+		struct pollfd descriptor = { .fd = state.fd, .events = POLLIN };
+
+		result = poll(&descriptor, 1, state.surface_flow.retry_pending ?
+			APP_GUI_SURFACE_RETRY_MS : -1);
+		if (result < 0) {
+			if (errno == EINTR)
+				continue;
+			break;
+		}
+		if (result == 0) {
+			if (app_gui_surface_retry_ready(&state.surface_flow) &&
+			    imageviewer_send_current_surface(&state) < 0)
+				break;
+			continue;
+		}
 
 		if (read_message(state.fd, &header, imageviewer_input,
 			 sizeof(imageviewer_input)) < 0 ||
@@ -720,6 +755,9 @@ int main(int argc, char **argv)
 			header.length - GUI_PROTOCOL_HEADER_SIZE)) < 0)
 			break;
 		if (result > 0 && imageviewer_send_current_surface(&state) < 0)
+			break;
+		if (app_gui_surface_retry_ready(&state.surface_flow) &&
+		    imageviewer_send_current_surface(&state) < 0)
 			break;
 	}
 	if (state.close_requested) {

@@ -17,6 +17,7 @@
 #include <gui/input.h>
 #include <gui/protocol.h>
 #include <gui/surface.h>
+#include <app/gui-limits.h>
 
 #include "vt.h"
 
@@ -43,6 +44,7 @@ typedef struct {
 	uint32_t width;
 	uint32_t height;
 	int close_requested;
+	app_gui_surface_flow surface_flow;
 	terminal_vt vt;
 	terminal_vt_cell *primary_cells;
 	terminal_vt_cell *alternate_cells;
@@ -386,9 +388,19 @@ static int terminal_handle_message(terminal_state *state,
 				   const gui_protocol_header *header,
 				   const uint8_t *payload, size_t payload_bytes)
 {
+	int flow_result = app_gui_surface_flow_message(&state->surface_flow,
+		state->window_id, header->type, payload, payload_bytes);
+
+	if (flow_result != 0) {
+		if (flow_result > 0 && header->type == GUI_PROTOCOL_ERROR)
+			fprintf(stderr, "terminal: deferred surface error %u: %d\n",
+				get16(payload + 4), (int32_t)get32(payload));
+		return flow_result < 0 ? -1 : 0;
+	}
 	if (header->type == GUI_PROTOCOL_WINDOW_CONFIGURE) {
 		if (payload_bytes != sizeof(gui_protocol_wire_window_configure) ||
-		    get32(payload) != state->window_id || get64(payload + 4) == 0 ||
+		    get32(payload) != state->window_id ||
+		    get64(payload + 4) <= state->configure_serial ||
 		    get32(payload + 12) == 0 || get32(payload + 16) == 0)
 			return -1;
 		if (terminal_resize_grid(state, get32(payload + 12), get32(payload + 16)) < 0) {
@@ -396,6 +408,7 @@ static int terminal_handle_message(terminal_state *state,
 			return -1;
 		}
 		state->configure_serial = get64(payload + 4);
+		app_gui_surface_defer(&state->surface_flow);
 		if (state->master >= 0 && terminal_resize_pty(state->master, state) < 0)
 			return -1;
 		return 1;
@@ -430,10 +443,12 @@ static int read_surface_data_reply(terminal_state *state, uint64_t frame_serial,
 	for (;;) {
 		gui_protocol_header header;
 		int result;
+		uint64_t configure_serial = state->configure_serial;
 
 		if (read_message(state->fd, &header, terminal_input, sizeof(terminal_input)) < 0)
 			return -1;
-		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY) {
+		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY &&
+		    !state->surface_flow.discard_reply) {
 			if (header.length != GUI_PROTOCOL_HEADER_SIZE +
 			    sizeof(gui_protocol_wire_surface_data_reply) ||
 			    get32(terminal_input) != state->window_id ||
@@ -444,19 +459,17 @@ static int read_surface_data_reply(terminal_state *state, uint64_t frame_serial,
 				return -1;
 			return 0;
 		}
-		if (header.type == GUI_PROTOCOL_ERROR &&
-		    header.length == GUI_PROTOCOL_HEADER_SIZE +
-		    sizeof(gui_protocol_wire_error)) {
-			fprintf(stderr, "terminal: protocol error type %u status %d\n",
-				get16(terminal_input + 4), (int32_t)get32(terminal_input));
-			return -1;
-		}
 		result = terminal_handle_message(state, &header, terminal_input,
 			header.length - GUI_PROTOCOL_HEADER_SIZE);
 		if (result < 0 || state->close_requested)
 			return -1;
-		if (result > 0)
+		if (result > 0 || (header.type == GUI_PROTOCOL_ERROR &&
+		    get16(terminal_input + 4) == GUI_PROTOCOL_SURFACE_BEGIN &&
+		    state->surface_flow.retry_pending)) {
+			app_gui_surface_discard_reply(&state->surface_flow, configure_serial,
+				frame_serial, pixel_offset, pixel_count);
 			return 1;
+		}
 	}
 }
 
@@ -605,12 +618,15 @@ static int terminal_send_current_surface(terminal_state *state, int master)
 {
 	int result;
 
+	if (state->surface_flow.retry_pending)
+		return 0;
+
 	/* A configure may arrive while the server acknowledges a surface chunk. */
 	do {
 		result = terminal_send_surface(state);
 		if (result < 0)
 			return -1;
-	} while (result > 0);
+	} while (result > 0 && !state->surface_flow.retry_pending);
 	return 0;
 }
 
@@ -741,7 +757,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "terminal: font setup failed\n");
 		goto out;
 	}
-	if (terminal_send_surface(&state) != 0) {
+	if (terminal_send_current_surface(&state, -1) < 0) {
 		fprintf(stderr, "terminal: initial frame failed\n");
 		goto out;
 	}
@@ -760,10 +776,18 @@ int main(int argc, char **argv)
 
 		pollfds[0] = (struct pollfd) { .fd = state.fd, .events = POLLIN };
 		pollfds[1] = (struct pollfd) { .fd = master, .events = POLLIN };
-		if (poll(pollfds, 2, -1) < 0) {
+		result = poll(pollfds, 2, state.surface_flow.retry_pending ?
+			APP_GUI_SURFACE_RETRY_MS : -1);
+		if (result < 0) {
 			if (errno == EINTR)
 				continue;
 			break;
+		}
+		if (result == 0) {
+			if (app_gui_surface_retry_ready(&state.surface_flow) &&
+			    terminal_send_current_surface(&state, master) < 0)
+				break;
+			continue;
 		}
 		if (pollfds[0].revents & (POLLERR | POLLHUP | POLLNVAL))
 			break;
@@ -780,6 +804,9 @@ int main(int argc, char **argv)
 			if (state.close_requested)
 				break;
 		}
+		if (app_gui_surface_retry_ready(&state.surface_flow) &&
+		    terminal_send_current_surface(&state, master) < 0)
+			break;
 		if (pollfds[1].revents & (POLLIN | POLLHUP | POLLERR)) {
 			int updated = 0;
 

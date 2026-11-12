@@ -105,6 +105,12 @@ Focus, raising, and input routing:
 
 ### Expanded Capacity and Fullscreen (M9 Target)
 
+M9.1 implements the expanded surface pool, admission reservations, shell
+replacement headroom, and recoverable transition rollback. Connection and
+window records still have the M8 eight-slot/one-window-per-peer layout;
+dynamic records, multiple windows per connection, and fullscreen remain
+planned in the subsequent M9 steps.
+
 - Replace fixed client/window arrays with dynamically allocated records in
   the WM and shell. There is no small fixed window-count or connection-count
   ceiling, and no promise of literally unlimited windows: admission is bounded

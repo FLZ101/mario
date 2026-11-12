@@ -1389,7 +1389,7 @@ gui: harden window manager recovery and protocol limits
   `tests/gui/assets/terminal-tmux-apps.png`, and this checklist. Use real
   mouse input to resize the terminal to 384x320 (18 rows by 44 columns),
   retaining its title bar and the desktop diagnostic windows. Fullscreen
-  is excluded: the current 2.5-frame surface budget cannot accommodate a
+  is excluded: the M8 2.5-frame surface budget could not accommodate a
   full-screen desktop plus a full-screen terminal and their staged replacements.
   Start a real tmux session through the GUI keyboard, with Vim on the left and top
   above nano on the right. Check the enlarged PTY size, three live panes,
@@ -1448,14 +1448,15 @@ grow dynamically under resource budgets instead of a fixed 32-entry ceiling;
 multiple windows may share an application connection. Literally unlimited
 windows are not a deliverable. The target contracts are in
 [Desktop and applications](desktop.md#expanded-capacity-and-fullscreen-m9-target)
-and [UI toolkit](ui-toolkit.md#surface-memory-and-failure-handling). All items
-below are planned, not implemented. Run `make test SMP=16` before starting
-each item and before each commit, with `git diff --check` after the focused gate.
+and [UI toolkit](ui-toolkit.md#surface-memory-and-failure-handling). M9.1 is
+implemented; the remaining items are planned. Run `make test SMP=16` before
+starting each item and before each commit, with `git diff --check` after the
+focused gate.
 
-- [ ] **M9.1 — admit larger workloads without losing bounded surface safety.**
+- [x] **M9.1 — admit larger workloads without losing bounded surface safety.**
   Prerequisite: the integration gates above. Owns
   `app/include/app/gui-limits.h`, `app/gui/desktop/`, `app/usr/terminal/main.c`,
-  `app/usr/imageviewer/main.c`, `app/usr/filemanager/main.c`,
+  `app/usr/imageviewer/main.c`, `app/usr/filemanager/main.c`, `app/usr/Makefile`,
   `app/test/gui-wm-client/`, `app/test/gui-wm-busy/`,
   `tests/shell/gui-wm-busy.test`, `tests/gui/wm-surface-budget.test`,
   `tests/gui/wm-quota.test`, and `doc/gui/`. Implement the checked session cap

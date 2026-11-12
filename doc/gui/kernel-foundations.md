@@ -875,9 +875,10 @@ Socket and message details:
   to every window on that endpoint; `INPUT_EVENT` and focus notifications
   continue to identify their individual target window.
 - Bound untrusted client state before the first client is accepted. The initial
-  M3-M8 implementation admits eight connections and one window per ordinary
-  connection. M9 dynamically allocates connection/window records and permits
-  multiple windows per ordinary endpoint, with no small fixed count ceiling.
+  M3-M9.1 implementation admits eight connections and one window per ordinary
+  connection. The planned M9.2 dynamically allocates connection/window records
+  and permits multiple windows per ordinary endpoint, with no small fixed
+  count ceiling.
   Account for the private shell, diagnostic clients, pending launches, poll
   tables, and window records under the metadata byte budgets in the
   [toolkit contract](ui-toolkit.md#surface-memory-and-failure-handling), in
@@ -887,7 +888,7 @@ Socket and message details:
   double-counting reserved storage when allocated: initially two
   `gui_frame_bytes`, replaced at M9's multiwindow step by
   `min(8 * gui_frame_bytes, 32 MiB)`. The global pool also includes retained
-  desktop snapshots: initially 2.5 `gui_frame_bytes`, replaced in M9 by
+  desktop snapshots: initially 2.5 `gui_frame_bytes`, replaced in M9.1 by
   `min(16 * gui_frame_bytes, 64 MiB)` with shell replacement headroom as defined
   in the [toolkit contract](ui-toolkit.md#surface-memory-and-failure-handling).
   Limit incomplete input and queued output independently to 64 KiB per client;

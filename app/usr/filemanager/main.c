@@ -18,6 +18,7 @@
 #include <gui/font.h>
 #include <gui/input.h>
 #include <gui/surface.h>
+#include <app/gui-limits.h>
 
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
 #define FILEMANAGER_WIDTH 320U
@@ -72,6 +73,7 @@ typedef struct {
 	uint32_t width;
 	uint32_t height;
 	int close_requested;
+	app_gui_surface_flow surface_flow;
 	size_t selected_entry;
 	filemanager_input_mode input_mode;
 	filemanager_clipboard_mode clipboard_mode;
@@ -1041,13 +1043,20 @@ static int filemanager_handle_message(filemanager_state *state,
 				      const gui_protocol_header *header,
 				      const uint8_t *payload, size_t payload_bytes)
 {
+	int flow_result = app_gui_surface_flow_message(&state->surface_flow,
+		state->window_id, header->type, payload, payload_bytes);
+
+	if (flow_result != 0)
+		return flow_result < 0 ? -1 : 0;
 	if (header->type == GUI_PROTOCOL_WINDOW_CONFIGURE) {
 		if (payload_bytes != sizeof(gui_protocol_wire_window_configure) ||
-		    get32(payload) != state->window_id || get64(payload + 4) == 0 ||
+		    get32(payload) != state->window_id ||
+		    get64(payload + 4) <= state->configure_serial ||
 		    get32(payload + 12) == 0 || get32(payload + 16) == 0 ||
 		    filemanager_resize_surface(state, get32(payload + 12), get32(payload + 16)) < 0)
 			return -1;
 		state->configure_serial = get64(payload + 4);
+		app_gui_surface_defer(&state->surface_flow);
 		return FILEMANAGER_MESSAGE_RECONFIGURE;
 	}
 	if (header->type == GUI_PROTOCOL_WINDOW_CLOSE_REQUEST) {
@@ -1110,11 +1119,13 @@ static int filemanager_read_surface_reply(filemanager_state *state,
 	for (;;) {
 		gui_protocol_header header;
 		int result;
+		uint64_t configure_serial = state->configure_serial;
 
 		if (read_message(state->fd, &header, filemanager_input,
 				 sizeof(filemanager_input)) < 0)
 			return -1;
-		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY) {
+		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY &&
+		    !state->surface_flow.discard_reply) {
 			if (header.length != GUI_PROTOCOL_HEADER_SIZE +
 			    sizeof(gui_protocol_wire_surface_data_reply) ||
 			    get32(filemanager_input) != state->window_id ||
@@ -1125,19 +1136,18 @@ static int filemanager_read_surface_reply(filemanager_state *state,
 				return -1;
 			return 0;
 		}
-		if (header.type == GUI_PROTOCOL_ERROR && header.length == GUI_PROTOCOL_HEADER_SIZE +
-		    sizeof(gui_protocol_wire_error)) {
-			fprintf(stderr, "filemanager: protocol rejected %u: %d\n",
-				get16(filemanager_input + 4), (int32_t)get32(filemanager_input));
-			errno = EPROTO;
-			return -1;
-		}
 		result = filemanager_handle_message(state, &header, filemanager_input,
 			header.length - GUI_PROTOCOL_HEADER_SIZE);
 		if (result < 0 || state->close_requested)
 			return -1;
-		if (result == FILEMANAGER_MESSAGE_RECONFIGURE)
-			return result;
+		if (result == FILEMANAGER_MESSAGE_RECONFIGURE ||
+		    (header.type == GUI_PROTOCOL_ERROR &&
+		     get16(filemanager_input + 4) == GUI_PROTOCOL_SURFACE_BEGIN &&
+		     state->surface_flow.retry_pending)) {
+			app_gui_surface_discard_reply(&state->surface_flow, configure_serial,
+				frame_serial, pixel_offset, pixel_count);
+			return FILEMANAGER_MESSAGE_RECONFIGURE;
+		}
 		if (result > 0) {
 			/* Complete this transaction before redrawing changed application state. */
 			state->redraw_pending = 1;
@@ -1208,13 +1218,17 @@ static int filemanager_send_current_surface(filemanager_state *state)
 {
 	int result;
 
+	if (state->surface_flow.retry_pending)
+		return 0;
+
 	/* A resize may arrive while the server acknowledges a surface chunk. */
 	do {
 		state->redraw_pending = 0;
 		result = filemanager_send_surface(state);
 		if (result < 0)
 			return -1;
-	} while (result == FILEMANAGER_MESSAGE_RECONFIGURE || state->redraw_pending);
+	} while (!state->surface_flow.retry_pending &&
+		 (result == FILEMANAGER_MESSAGE_RECONFIGURE || state->redraw_pending));
 	return 0;
 }
 
@@ -1325,6 +1339,21 @@ int main(int argc, char **argv)
 	while (!state.close_requested) {
 		gui_protocol_header header;
 		int result;
+		struct pollfd descriptor = { .fd = state.fd, .events = POLLIN };
+
+		result = poll(&descriptor, 1, state.surface_flow.retry_pending ?
+			APP_GUI_SURFACE_RETRY_MS : -1);
+		if (result < 0) {
+			if (errno == EINTR)
+				continue;
+			break;
+		}
+		if (result == 0) {
+			if (app_gui_surface_retry_ready(&state.surface_flow) &&
+			    filemanager_send_current_surface(&state) < 0)
+				break;
+			continue;
+		}
 
 		if (read_message(state.fd, &header, filemanager_input,
 			 sizeof(filemanager_input)) < 0 ||
@@ -1332,6 +1361,9 @@ int main(int argc, char **argv)
 			header.length - GUI_PROTOCOL_HEADER_SIZE)) < 0)
 			break;
 		if (result > 0 && filemanager_send_current_surface(&state) < 0)
+			break;
+		if (app_gui_surface_retry_ready(&state.surface_flow) &&
+		    filemanager_send_current_surface(&state) < 0)
 			break;
 	}
 	if (state.close_requested) {

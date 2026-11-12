@@ -13,6 +13,7 @@
 #include <gui/input.h>
 #include <gui/protocol.h>
 #include <gui/surface.h>
+#include <app/gui-limits.h>
 
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
 
@@ -103,7 +104,7 @@ static void write_zeroes(int fd, size_t byte_count)
 static void let_server_observe_disconnect(void)
 {
 	/* The following connection must measure post-disconnect surface accounting. */
-	assert(poll(NULL, 0, 100) == 0);
+	assert(usleep(100000) == 0);
 }
 
 static void read_frame(int fd, uint8_t *frame, gui_protocol_type type)
@@ -172,8 +173,8 @@ static uint32_t create_window(int fd, uint32_t request_id, uint32_t width,
 	return window_id;
 }
 
-static void begin_surface(int fd, uint32_t window_id, uint32_t width, uint32_t height,
-			  uint64_t frame_serial)
+static void begin_surface_configured(int fd, uint32_t window_id, uint32_t width,
+		uint32_t height, uint64_t configure_serial, uint64_t frame_serial)
 {
 	uint8_t frame[sizeof(gui_protocol_wire_header) +
 		      sizeof(gui_protocol_wire_surface_begin)];
@@ -181,13 +182,19 @@ static void begin_surface(int fd, uint32_t window_id, uint32_t width, uint32_t h
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_SURFACE_BEGIN,
 				  sizeof(gui_protocol_wire_surface_begin)) == 0);
 	put32(frame + 8, window_id);
-	put64(frame + 12, 1);
+	put64(frame + 12, configure_serial);
 	put64(frame + 20, frame_serial);
 	put32(frame + 28, 0);
 	put32(frame + 32, 0);
 	put32(frame + 36, width);
 	put32(frame + 40, height);
 	write_full(fd, frame, sizeof(frame));
+}
+
+static void begin_surface(int fd, uint32_t window_id, uint32_t width, uint32_t height,
+			  uint64_t frame_serial)
+{
+	begin_surface_configured(fd, window_id, width, height, 1, frame_serial);
 }
 
 static void read_error(int fd, int status, gui_protocol_type failed_type)
@@ -222,9 +229,9 @@ static void read_surface_data_reply(int fd, uint32_t window_id, uint32_t pixel_o
 }
 
 
-static void send_surface_data(int fd, uint32_t window_id, uint32_t pixel_offset,
-			      uint32_t pixel_count,
-			      uint64_t frame_serial, gui_color color)
+static void send_surface_data_configured(int fd, uint32_t window_id,
+		uint32_t pixel_offset, uint32_t pixel_count, uint64_t configure_serial,
+		uint64_t frame_serial, gui_color color)
 {
 	size_t payload_bytes = sizeof(gui_protocol_wire_surface_data) +
 		pixel_count * sizeof(gui_color);
@@ -233,7 +240,7 @@ static void send_surface_data(int fd, uint32_t window_id, uint32_t pixel_offset,
 	assert(gui_protocol_encode_header(surface_frame, sizeof(surface_frame), GUI_PROTOCOL_SURFACE_DATA,
 				  payload_bytes) == 0);
 	put32(surface_frame + 8, window_id);
-	put64(surface_frame + 12, 1);
+	put64(surface_frame + 12, configure_serial);
 	put64(surface_frame + 20, frame_serial);
 	put32(surface_frame + 28, pixel_offset);
 	put32(surface_frame + 32, pixel_count);
@@ -242,7 +249,15 @@ static void send_surface_data(int fd, uint32_t window_id, uint32_t pixel_offset,
 	write_full(fd, surface_frame, GUI_PROTOCOL_HEADER_SIZE + payload_bytes);
 }
 
-static void commit_surface(int fd, uint32_t window_id, uint64_t frame_serial)
+static void send_surface_data(int fd, uint32_t window_id, uint32_t pixel_offset,
+		uint32_t pixel_count, uint64_t frame_serial, gui_color color)
+{
+	send_surface_data_configured(fd, window_id, pixel_offset, pixel_count,
+		1, frame_serial, color);
+}
+
+static void commit_surface_configured(int fd, uint32_t window_id,
+		uint64_t configure_serial, uint64_t frame_serial)
 {
 	uint8_t frame[sizeof(gui_protocol_wire_header) +
 		      sizeof(gui_protocol_wire_surface_commit)];
@@ -250,9 +265,14 @@ static void commit_surface(int fd, uint32_t window_id, uint64_t frame_serial)
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_SURFACE_COMMIT,
 				  sizeof(gui_protocol_wire_surface_commit)) == 0);
 	put32(frame + 8, window_id);
-	put64(frame + 12, 1);
+	put64(frame + 12, configure_serial);
 	put64(frame + 20, frame_serial);
 	write_full(fd, frame, sizeof(frame));
+}
+
+static void commit_surface(int fd, uint32_t window_id, uint64_t frame_serial)
+{
+	commit_surface_configured(fd, window_id, 1, frame_serial);
 }
 
 static void commit_color_surface(int fd, uint32_t window_id, uint32_t width, uint32_t height,
@@ -344,11 +364,163 @@ static void test_staging(void)
 		large_id[index] = create_window(large[index], (uint32_t)(10 + index),
 			1024, 768);
 		begin_surface(large[index], large_id[index], 1024, 768, 1);
+		send_surface_data(large[index], large_id[index], 0, 1, 1, 0x00123456);
+		read_surface_data_reply(large[index], large_id[index], 0, 1, 1);
 	}
-	read_error(large[2], -ENOMEM, GUI_PROTOCOL_SURFACE_BEGIN);
 	for (size_t index = 0; index < sizeof(large) / sizeof(large[0]); index++)
 		close(large[index]);
 	close(stager);
+}
+
+static void budget_reply(int fd, uint8_t *frame, gui_protocol_type expected)
+{
+	for (;;) {
+		gui_protocol_header header;
+
+		read_full(fd, frame, GUI_PROTOCOL_HEADER_SIZE);
+		assert(gui_protocol_decode_header(frame, GUI_PROTOCOL_HEADER_SIZE, &header) == 0);
+		assert(header.length <= 64);
+		read_full(fd, frame + GUI_PROTOCOL_HEADER_SIZE, header.length - GUI_PROTOCOL_HEADER_SIZE);
+		if (header.type == expected)
+			return;
+		assert(header.type == GUI_PROTOCOL_WINDOW_FOCUS ||
+			header.type == GUI_PROTOCOL_INPUT_RESET || header.type == GUI_PROTOCOL_INPUT_EVENT);
+	}
+}
+
+static void budget_fill(int fd, uint32_t window_id, uint32_t width, uint32_t height,
+		uint64_t configure_serial, uint64_t frame_serial, gui_color color)
+{
+	uint32_t total = width * height;
+	uint8_t reply[64];
+
+	for (uint32_t offset = 0; offset < total;) {
+		uint32_t count = total - offset > SURFACE_PIXELS_PER_MESSAGE ?
+			SURFACE_PIXELS_PER_MESSAGE : total - offset;
+
+		send_surface_data_configured(fd, window_id, offset, count,
+			configure_serial, frame_serial, color);
+		budget_reply(fd, reply, GUI_PROTOCOL_SURFACE_DATA_REPLY);
+		assert(get32(reply + 8) == window_id && get64(reply + 12) == configure_serial &&
+			get64(reply + 20) == frame_serial && get32(reply + 28) == offset &&
+			get32(reply + 32) == count);
+		offset += count;
+	}
+	commit_surface_configured(fd, window_id, configure_serial, frame_serial);
+}
+
+static void budget_marker(const char *path)
+{
+	FILE *file = fopen(path, "w");
+
+	assert(file != NULL && fputs("ready\n", file) >= 0 && fclose(file) == 0);
+}
+
+static void budget_wait(const char *path)
+{
+	struct timespec start;
+	struct timespec now;
+
+	assert(clock_gettime(CLOCK_MONOTONIC, &start) == 0);
+	while (access(path, F_OK) != 0) {
+		assert(usleep(50000) == 0);
+		assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
+		assert(now.tv_sec - start.tv_sec < 300);
+	}
+}
+
+static void test_surface_budget(void)
+{
+	int peers[4];
+	uint32_t windows[4];
+	uint8_t reply[64];
+	uint8_t resize[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_resize)];
+	uint32_t width = 1022;
+	uint32_t height = 742;
+
+	assert(app_gui_surface_budget(1024 * 768 * 4) == 16 * 1024 * 768 * 4);
+	for (size_t index = 0; index < 4; index++) {
+		peers[index] = connect_client();
+		windows[index] = create_window(peers[index], (uint32_t)index + 100, width, height);
+		begin_surface(peers[index], windows[index], width, height, 1);
+		printf("wm-client: reserved near-screen window %zu\n", index + 1);
+		fflush(stdout);
+	}
+	for (size_t index = 0; index < 4; index++) {
+		budget_fill(peers[index], windows[index], width, height, 1, 1, 0x00225688);
+		printf("wm-client: committed near-screen window %zu\n", index + 1);
+		fflush(stdout);
+	}
+	for (size_t index = 0; index < 4; index++)
+		begin_surface(peers[index], windows[index], width, height, 2);
+	for (size_t index = 0; index < 4; index++) {
+		send_surface_data(peers[index], windows[index], 0, 1, 2, 0x00dd8844);
+		budget_reply(peers[index], reply, GUI_PROTOCOL_SURFACE_DATA_REPLY);
+		assert(get32(reply + 8) == windows[index] && get32(reply + 28) == 0);
+	}
+	budget_marker("/tmp/gui-budget.staged");
+	puts("wm-client: overlapping staging ready");
+	fflush(stdout);
+	budget_wait("/tmp/gui-budget.paint");
+	for (size_t index = 0; index < 4; index++) {
+		assert(gui_protocol_encode_header(resize, sizeof(resize), GUI_PROTOCOL_WINDOW_RESIZE,
+			sizeof(gui_protocol_wire_window_resize)) == 0);
+		put32(resize + 8, windows[index]);
+		put32(resize + 12, width - 2);
+		put32(resize + 16, height - 2);
+		write_full(peers[index], resize, sizeof(resize));
+		budget_reply(peers[index], reply, GUI_PROTOCOL_WINDOW_CONFIGURE);
+		assert(get32(reply + 8) == windows[index] && get64(reply + 12) == 2);
+		assert(get32(reply + 20) == width - 2 && get32(reply + 24) == height - 2);
+		begin_surface(peers[index], windows[index], width, height, 3);
+		budget_reply(peers[index], reply, GUI_PROTOCOL_ERROR);
+		assert((int32_t)get32(reply + 8) == -EINVAL &&
+			get16(reply + 12) == GUI_PROTOCOL_SURFACE_BEGIN);
+		send_surface_data(peers[index], windows[index], 0, 1, 2, 0x00ffffff);
+		budget_reply(peers[index], reply, GUI_PROTOCOL_ERROR);
+		assert((int32_t)get32(reply + 8) == -EINVAL &&
+			get16(reply + 12) == GUI_PROTOCOL_SURFACE_DATA);
+		commit_surface(peers[index], windows[index], 2);
+		budget_reply(peers[index], reply, GUI_PROTOCOL_ERROR);
+		assert((int32_t)get32(reply + 8) == -EINVAL &&
+			get16(reply + 12) == GUI_PROTOCOL_SURFACE_COMMIT);
+		begin_surface_configured(peers[index], windows[index], width - 2, height - 2, 2, 3);
+	}
+	width -= 2;
+	height -= 2;
+	for (uint64_t round = 3; round <= 4; round++) {
+		for (size_t index = 0; index < 4; index++)
+			budget_fill(peers[index], windows[index], width, height, 2, round,
+				round == 3 ? 0x00dd8844 : 0x00448866);
+		if (round == 3) {
+			for (size_t index = 0; index < 4; index++)
+				begin_surface_configured(peers[index], windows[index], width, height, 2, 4);
+		}
+	}
+	for (size_t index = 0; index < 4; index++) {
+		begin_surface_configured(peers[index], windows[index], width, height, 2, 5);
+		send_surface_data_configured(peers[index], windows[index], 0, 1, 2, 5, 0x00448866);
+		budget_reply(peers[index], reply, GUI_PROTOCOL_SURFACE_DATA_REPLY);
+		assert(get32(reply + 8) == windows[index] && get64(reply + 12) == 2 &&
+			get64(reply + 20) == 5 && get32(reply + 28) == 0 && get32(reply + 32) == 1);
+	}
+	budget_marker("/tmp/gui-budget.painted");
+	budget_wait("/tmp/gui-budget.release");
+	for (size_t index = 0; index < 4; index++)
+		close(peers[index]);
+	let_server_observe_disconnect();
+	for (size_t index = 0; index < 4; index++) {
+		peers[index] = connect_client();
+		windows[index] = create_window(peers[index], (uint32_t)index + 200, 1022, 742);
+		begin_surface(peers[index], windows[index], 1022, 742, 1);
+		send_surface_data(peers[index], windows[index], 0, 1, 1, 0x00123456);
+		budget_reply(peers[index], reply, GUI_PROTOCOL_SURFACE_DATA_REPLY);
+		assert(get32(reply + 8) == windows[index]);
+	}
+	for (size_t index = 0; index < 4; index++)
+		close(peers[index]);
+	puts("wm-client: surface workload and reclamation pass");
+	budget_marker("/tmp/gui-budget.done");
 }
 
 static void test_quotas(void)
@@ -751,7 +923,7 @@ int main(int argc, char **argv)
 	uint32_t first_id;
 
 	assert(argc == 1 || (argc == 2 && (!strcmp(argv[1], "--surface-only") ||
-		!strcmp(argv[1], "--quota-only") ||
+		!strcmp(argv[1], "--quota-only") || !strcmp(argv[1], "--surface-budget") ||
 		!strcmp(argv[1], "--partial-only") ||
 		!strcmp(argv[1], "--commit-only") ||
 		!strcmp(argv[1], "--recovery-only") ||
@@ -763,6 +935,8 @@ int main(int argc, char **argv)
 		if (!strcmp(argv[1], "--surface-only")) {
 			test_staging();
 			puts("wm-client: staging ok");
+		} else if (!strcmp(argv[1], "--surface-budget")) {
+			test_surface_budget();
 		} else if (!strcmp(argv[1], "--quota-only")) {
 			test_quotas();
 			puts("wm-client: quotas ok");

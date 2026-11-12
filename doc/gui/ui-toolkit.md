@@ -225,19 +225,21 @@ Pixel conversion:
 - `gui_surface_create()` returns `NULL` on allocation failure. Callers must
   show an in-band error status or close the window; they must never dereference
   a failed surface.
-- The window manager limits total live window-surface bytes to 2.5 times
-  `gui_frame_bytes` initially, through M8. M9 replaces this with a checked
+- Through M8 the window manager limited live window-surface bytes to 2.5 times
+  `gui_frame_bytes`. M9.1 replaces this with the checked
   `min(16 * gui_frame_bytes, 64 MiB)` session limit. This includes all committed
   surfaces, staging surfaces, retained desktop snapshots, and outstanding
   create/resize reservations, without counting the same allocation twice.
   The compositor's single scanout-sized scratch surface and client-side
   rendering allocations are outside this pool and must be accounted for
   separately; the limit is not a bound on total GUI-process memory.
-- Under M9, ordinary clients cannot consume the one-frame headroom needed to
+- Under M9.1, ordinary clients cannot consume the one-frame headroom needed to
   stage a desktop replacement. That headroom is part of the session limit,
   not an additional allowance; an existing shell staging allocation satisfies
   the reservation. Public clients never acquire shell privileges through
   window-count or surface-budget pressure.
+  A scanout requiring more than half the capped pool is refused at startup,
+  since it cannot preserve both the desktop and its replacement.
 - From M9's multiwindow step, each ordinary connection has an aggregate
   surface/reservation allowance of `min(8 * gui_frame_bytes, 32 MiB)` across
   all its windows, still subject to the session cap. Each window retains its
@@ -262,6 +264,21 @@ Pixel conversion:
   configure, and failed transactions release all associated reservations.
   M9 retains atomic full-surface transactions and checked per-surface sizes
   no larger than one scanout; tiled/partial backing stores remain deferred.
+  M9.1 charges a reservation at create/resize admission and converts it into
+  staging storage without a second charge. Superseding a resize frees its
+  staging/reservation only after the new reservation fits; a refused request
+  does not cancel the existing transaction. Rollback restores the geometry
+  preceding the first uncommitted resize, frees the failed transaction, and
+  sends a fresh configure. If the first frame of an accepted create fails,
+  its empty window retains its identity and geometry for a later repaint,
+  without holding a reservation. A suspended scanout (`GUI_FLUSH_BUSY`) is
+  still a successful logical commit, not a rollback.
+  Terminal, image viewer, file manager, desktop, and diagnostics defer
+  recoverable surface errors to a 100 ms timer-driven retry instead of
+  disconnecting or spinning; queued input does not restart the timer.
+  They drain the one abandoned chunk reply and any preceding
+  stale-begin error before starting another frame; unrelated protocol errors
+  remain fatal. Corrective configures are strictly monotonic.
 - Surfaces are explicitly freed on window close and on ordinary-client
   disconnect. On shell disconnect the server retains only the last committed
   desktop surface as an input-inert snapshot until a replacement shell commits

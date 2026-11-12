@@ -60,6 +60,7 @@ TERMINAL_UI_INPUTS := $(wildcard $(TERMINAL_UI_DIR)/src/*.c \
 	$(TERMINAL_UI_DIR)/include/gui/*.h)
 IMAGEVIEWER_EXE := imageviewer/imageviewer.exe
 FILEMANAGER_EXE := filemanager/filemanager.exe
+$(TERMINAL_EXE) $(IMAGEVIEWER_EXE) $(FILEMANAGER_EXE): ../include/app/gui-limits.h
 LIBPNG_INSTALL_DIR := $(ROOT)/libpng-1.6.59-install
 ZLIB_INSTALL_DIR := $(ROOT)/zlib-1.3.2-install
 

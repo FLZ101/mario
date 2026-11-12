@@ -10,6 +10,7 @@
 
 #include <gui/input.h>
 #include <gui/protocol.h>
+#include <app/gui-limits.h>
 
 #define WM_FD 3
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
@@ -41,6 +42,7 @@ typedef struct {
 	int32_t x;
 	int32_t y;
 	int redraw;
+	app_gui_surface_flow surface_flow;
 } diagnostic_client;
 
 typedef struct {
@@ -78,6 +80,7 @@ typedef struct {
 	uint8_t mouse_buttons;
 	uint8_t launch_diagnostic;
 	int redraw;
+	app_gui_surface_flow surface_flow;
 	desktop_window windows[DESKTOP_WINDOW_LIMIT];
 } desktop_state;
 
@@ -351,6 +354,21 @@ static int desktop_handle_message(desktop_state *state,
 				  const gui_protocol_header *header,
 				  const uint8_t *payload, size_t payload_bytes)
 {
+	int flow_result = app_gui_surface_flow_message(&state->surface_flow,
+		state->window_id, header->type, payload, payload_bytes);
+
+	if (flow_result != 0)
+		return flow_result < 0 ? -1 : 0;
+	if (header->type == GUI_PROTOCOL_WINDOW_CONFIGURE) {
+		if (payload_bytes != sizeof(gui_protocol_wire_window_configure) ||
+		    get32(payload) != state->window_id ||
+		    get64(payload + 4) <= state->configure_serial ||
+		    get32(payload + 12) != state->width || get32(payload + 16) != state->height)
+			return -1;
+		state->configure_serial = get64(payload + 4);
+		app_gui_surface_defer(&state->surface_flow);
+		return 0;
+	}
 	if (header->type == GUI_PROTOCOL_WINDOW_LIST_SNAPSHOT ||
 	    header->type == GUI_PROTOCOL_WINDOW_LIST_ADD ||
 	    header->type == GUI_PROTOCOL_WINDOW_LIST_CHANGE ||
@@ -402,10 +420,12 @@ static int read_surface_data_reply(desktop_state *state, uint64_t frame_serial,
 
 	for (;;) {
 		gui_protocol_header header;
+		uint64_t configure_serial = state->configure_serial;
 
 		if (desktop_read_message(&header, payload, sizeof(payload)) < 0)
 			return -1;
-		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY) {
+		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY &&
+		    !state->surface_flow.discard_reply) {
 			if (header.length != GUI_PROTOCOL_HEADER_SIZE +
 			    sizeof(gui_protocol_wire_surface_data_reply) ||
 			    get32(payload) != state->window_id ||
@@ -419,6 +439,14 @@ static int read_surface_data_reply(desktop_state *state, uint64_t frame_serial,
 		if (desktop_handle_message(state, &header, payload,
 			    header.length - GUI_PROTOCOL_HEADER_SIZE) < 0)
 			return -1;
+		if (header.type == GUI_PROTOCOL_WINDOW_CONFIGURE ||
+		    (header.type == GUI_PROTOCOL_ERROR &&
+		     ((uint16_t)payload[4] | (uint16_t)payload[5] << 8) ==
+		     GUI_PROTOCOL_SURFACE_BEGIN && state->surface_flow.retry_pending)) {
+			app_gui_surface_discard_reply(&state->surface_flow, configure_serial,
+				frame_serial, pixel_offset, pixel_count);
+			return 1;
+		}
 	}
 }
 
@@ -448,6 +476,7 @@ static int send_desktop(desktop_state *state)
 			SURFACE_PIXELS_PER_MESSAGE : total - pixel_offset;
 		size_t payload = sizeof(gui_protocol_wire_surface_data) +
 			pixels * sizeof(uint32_t);
+		int result;
 
 		/* The protocol keeps each frame below Mario's one-page socket ring. */
 		if (gui_protocol_encode_header(desktop_frame, sizeof(desktop_frame),
@@ -463,9 +492,11 @@ static int send_desktop(desktop_state *state)
 				sizeof(gui_protocol_wire_surface_data) + index * sizeof(uint32_t),
 				desktop_pixel(state, pixel_offset + index));
 		if (write_full(WM_FD, desktop_frame,
-			GUI_PROTOCOL_HEADER_SIZE + payload) < 0 ||
-		    read_surface_data_reply(state, frame_serial, pixel_offset, pixels) < 0)
+			GUI_PROTOCOL_HEADER_SIZE + payload) < 0)
 			return -1;
+		result = read_surface_data_reply(state, frame_serial, pixel_offset, pixels);
+		if (result != 0)
+			return result;
 		pixel_offset += pixels;
 	}
 	if (gui_protocol_encode_header(commit, sizeof(commit), GUI_PROTOCOL_SURFACE_COMMIT,
@@ -488,12 +519,19 @@ static int diagnostic_handle_message(diagnostic_client *client,
 				     const gui_protocol_header *header,
 				     const uint8_t *payload, size_t payload_bytes)
 {
+	int flow_result = app_gui_surface_flow_message(&client->surface_flow,
+		client->window_id, header->type, payload, payload_bytes);
+
+	if (flow_result != 0)
+		return flow_result < 0 ? -1 : 0;
 	if (header->type == GUI_PROTOCOL_WINDOW_CONFIGURE) {
 		if (payload_bytes != sizeof(gui_protocol_wire_window_configure) ||
-		    get32(payload) != client->window_id || get64(payload + 4) == 0 ||
+		    get32(payload) != client->window_id ||
+		    get64(payload + 4) <= client->configure_serial ||
 		    get32(payload + 12) == 0 || get32(payload + 16) == 0)
 			return -1;
 		client->configure_serial = get64(payload + 4);
+		app_gui_surface_defer(&client->surface_flow);
 		client->width = get32(payload + 12);
 		client->height = get32(payload + 16);
 		client->redraw = 1;
@@ -537,10 +575,12 @@ static int diagnostic_read_surface_reply(diagnostic_client *client,
 
 	for (;;) {
 		gui_protocol_header header;
+		uint64_t configure_serial = client->configure_serial;
 
 		if (read_message(client->fd, &header, payload, sizeof(payload)) < 0)
 			return -1;
-		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY) {
+		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY &&
+		    !client->surface_flow.discard_reply) {
 			if (header.length != GUI_PROTOCOL_HEADER_SIZE +
 			    sizeof(gui_protocol_wire_surface_data_reply) ||
 			    get32(payload) != client->window_id ||
@@ -554,6 +594,14 @@ static int diagnostic_read_surface_reply(diagnostic_client *client,
 		if (diagnostic_handle_message(client, &header, payload,
 			    header.length - GUI_PROTOCOL_HEADER_SIZE) < 0 || client->fd < 0)
 			return -1;
+		if (header.type == GUI_PROTOCOL_WINDOW_CONFIGURE ||
+		    (header.type == GUI_PROTOCOL_ERROR &&
+		     ((uint16_t)payload[4] | (uint16_t)payload[5] << 8) ==
+		     GUI_PROTOCOL_SURFACE_BEGIN && client->surface_flow.retry_pending)) {
+			app_gui_surface_discard_reply(&client->surface_flow, configure_serial,
+				frame_serial, pixel_offset, pixel_count);
+			return 1;
+		}
 	}
 }
 
@@ -582,6 +630,7 @@ static int send_diagnostic(diagnostic_client *client)
 			SURFACE_PIXELS_PER_MESSAGE : total - pixel_offset;
 		size_t payload = sizeof(gui_protocol_wire_surface_data) +
 			pixels * sizeof(uint32_t);
+		int result;
 
 		if (gui_protocol_encode_header(desktop_frame, sizeof(desktop_frame),
 			GUI_PROTOCOL_SURFACE_DATA, payload) < 0)
@@ -594,9 +643,11 @@ static int send_diagnostic(diagnostic_client *client)
 			put32(desktop_frame + GUI_PROTOCOL_HEADER_SIZE +
 				sizeof(gui_protocol_wire_surface_data) + index * sizeof(uint32_t),
 				client->color);
-		if (write_full(client->fd, desktop_frame, GUI_PROTOCOL_HEADER_SIZE + payload) < 0 ||
-		    diagnostic_read_surface_reply(client, frame_serial, pixel_offset, pixels) < 0)
+		if (write_full(client->fd, desktop_frame, GUI_PROTOCOL_HEADER_SIZE + payload) < 0)
 			return -1;
+		result = diagnostic_read_surface_reply(client, frame_serial, pixel_offset, pixels);
+		if (result != 0)
+			return result;
 		pixel_offset += pixels;
 	}
 	if (gui_protocol_encode_header(commit, sizeof(commit), GUI_PROTOCOL_SURFACE_COMMIT,
@@ -706,7 +757,7 @@ static int private_fd_only(void)
 int main(int argc, char **argv)
 {
 	desktop_state state = { 0 };
-	diagnostic_client diagnostics[DIAGNOSTIC_COUNT];
+	diagnostic_client diagnostics[DIAGNOSTIC_COUNT] = { 0 };
 	uint8_t frame[64];
 	uint8_t payload[sizeof(gui_protocol_wire_window_list) + GUI_PROTOCOL_MAX_TITLE_BYTES];
 	gui_protocol_header header;
@@ -758,14 +809,15 @@ int main(int argc, char **argv)
 		       sizeof("mario-desktop: private connection ready\n") - 1) < 0)
 		return 1;
 	for (;;) {
-		if (state.redraw) {
+		if (state.redraw && !state.surface_flow.retry_pending) {
 			state.redraw = 0;
 			if (send_desktop(&state) < 0)
 				return 1;
 			continue;
 		}
 		for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
-			if (diagnostics[index].fd >= 0 && diagnostics[index].redraw) {
+			if (diagnostics[index].fd >= 0 && diagnostics[index].redraw &&
+			    !diagnostics[index].surface_flow.retry_pending) {
 				diagnostics[index].redraw = 0;
 				if (send_diagnostic(&diagnostics[index]) < 0)
 					return 1;
@@ -788,10 +840,28 @@ int main(int argc, char **argv)
 				.events = diagnostics[index].fd >= 0 ? POLLIN : 0,
 			};
 		}
-		if (poll(pollfds, DIAGNOSTIC_COUNT + 1, -1) < 0) {
+		int retry_pending = state.surface_flow.retry_pending;
+		int poll_result;
+
+		for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++)
+			retry_pending |= diagnostics[index].surface_flow.retry_pending;
+		poll_result = poll(pollfds, DIAGNOSTIC_COUNT + 1,
+			retry_pending ? APP_GUI_SURFACE_RETRY_MS : -1);
+		if (poll_result < 0) {
 			if (errno == EINTR)
 				continue;
 			return 1;
+		}
+		if (poll_result == 0) {
+			if (app_gui_surface_retry_ready(&state.surface_flow)) {
+				state.redraw = 1;
+			}
+			for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
+				if (app_gui_surface_retry_ready(&diagnostics[index].surface_flow)) {
+					diagnostics[index].redraw = 1;
+				}
+			}
+			continue;
 		}
 		if (pollfds[0].revents & (POLLERR | POLLHUP | POLLNVAL) ||
 		    (pollfds[0].revents & POLLIN &&
@@ -806,6 +876,12 @@ int main(int argc, char **argv)
 			    sizeof(payload)) < 0 || diagnostic_handle_message(&diagnostics[index],
 			    &header, payload, header.length - GUI_PROTOCOL_HEADER_SIZE) < 0)
 				return 1;
+		}
+		if (app_gui_surface_retry_ready(&state.surface_flow))
+			state.redraw = 1;
+		for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
+			if (app_gui_surface_retry_ready(&diagnostics[index].surface_flow))
+				diagnostics[index].redraw = 1;
 		}
 	}
 }

@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include <app/gui-session.h>
+#include <app/gui-limits.h>
 #include <mario/fb.h>
 #include <mario/input.h>
 #include <gui/input.h>
@@ -106,6 +107,12 @@ typedef struct wm_client {
 	int32_t y;
 	uint64_t stack_order;
 	uint64_t configure_serial;
+	size_t reserved_bytes;
+	int transition_pending;
+	int32_t previous_x;
+	int32_t previous_y;
+	uint32_t previous_width;
+	uint32_t previous_height;
 	uint64_t staging_frame_serial;
 	size_t staging_bytes;
 	size_t staging_pixels;
@@ -158,6 +165,8 @@ static int wm_start_terminal_executable(wm_server *server, const uint8_t *path,
 					size_t path_bytes, uint32_t origin_window_id);
 static int wm_start_image_viewer(const uint8_t *path, size_t path_bytes);
 static int wm_start_file_manager(const uint8_t *path, size_t path_bytes);
+static int client_enqueue_configure(wm_client *client);
+static void wm_cancel_capture(wm_server *server);
 
 static uint32_t wm_allocate_window_id(wm_server *server)
 {
@@ -293,11 +302,20 @@ static void client_discard_committed(wm_client *client)
 	}
 }
 
+static void client_discard_reservation(wm_client *client)
+{
+	if (client->reserved_bytes != 0) {
+		client->server->state.surface_bytes -= client->reserved_bytes;
+		client->reserved_bytes = 0;
+	}
+}
+
 static void client_destroy(wm_client *client)
 {
 	if (client->fd >= 0)
 		close(client->fd);
 	client_discard_staging(client);
+	client_discard_reservation(client);
 	client_discard_committed(client);
 	gui_protocol_input_destroy(client->input);
 	gui_protocol_output_destroy(client->output);
@@ -572,14 +590,51 @@ static int wm_init_surface_budget(wm_state *state)
 	    ioctl(state->framebuffer, FBIOGET_FSCREENINFO, &fix) < 0 ||
 	    surface_bytes(info.xres, info.yres, &state->frame_bytes) < 0 ||
 	    surface_bytes(info.xres, 1, &line_bytes) < 0 ||
-	    fix.line_length < line_bytes || state->frame_bytes > SIZE_MAX / 2 ||
-	    state->frame_bytes * 2 > SIZE_MAX - state->frame_bytes / 2)
+	    fix.line_length < line_bytes)
 		return -1;
 	state->width = info.xres;
 	state->height = info.yres;
 	state->scanout_stride = fix.line_length;
-	/* One full frame may be committed while its full replacement is staged. */
-	state->surface_limit = state->frame_bytes * 2 + state->frame_bytes / 2;
+	state->surface_limit = app_gui_surface_budget(state->frame_bytes);
+	return state->frame_bytes <= state->surface_limit / 2 ? 0 : -1;
+}
+
+static int client_surface_fits(wm_client *client, size_t bytes, size_t released)
+{
+	wm_server *server = client->server;
+	wm_state *state = &server->state;
+	size_t headroom = state->frame_bytes;
+	size_t used;
+
+	if (bytes > state->frame_bytes || released > state->surface_bytes)
+		return 0;
+	used = state->surface_bytes - released;
+	if (used > state->surface_limit || bytes > state->surface_limit - used)
+		return 0;
+	if (client->role == GUI_PROTOCOL_ENDPOINT_SHELL)
+		return 1;
+	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
+		wm_client *shell = &server->clients[index];
+		size_t replacement;
+
+		if (shell->fd < 0 || shell->role != GUI_PROTOCOL_ENDPOINT_SHELL)
+			continue;
+		replacement = shell->staging_bytes + shell->reserved_bytes;
+		headroom = replacement >= headroom ? 0 : headroom - replacement;
+	}
+	return headroom <= state->surface_limit - used - bytes;
+}
+
+static int client_reserve_surface(wm_client *client, size_t bytes)
+{
+	size_t released = client->staging_bytes + client->reserved_bytes;
+
+	if (!client_surface_fits(client, bytes, released))
+		return -ENOMEM;
+	client_discard_staging(client);
+	client_discard_reservation(client);
+	client->reserved_bytes = bytes;
+	client->server->state.surface_bytes += bytes;
 	return 0;
 }
 
@@ -849,6 +904,32 @@ static void wm_send_shell_snapshot(wm_server *server, wm_client *shell)
 	}
 }
 
+static void client_fail_surface(wm_client *client, gui_protocol_type failed_type,
+				int status)
+{
+	client_discard_staging(client);
+	client_discard_reservation(client);
+	if (client->transition_pending) {
+		client->x = client->previous_x;
+		client->y = client->previous_y;
+		client->width = client->previous_width;
+		client->height = client->previous_height;
+		client->transition_pending = 0;
+		if (client->server->capture_client == client)
+			wm_cancel_capture(client->server);
+		wm_notify_shell_window(client->server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, client);
+	}
+	client_reject(client, failed_type, status);
+	if (client->configure_serial == UINT64_MAX) {
+		client->hello = -1;
+		return;
+	}
+	client->configure_serial++;
+	if (client_enqueue_configure(client) < 0)
+		client->hello = -1;
+	(void)wm_compose(client->server);
+}
+
 static int client_stage_surface(wm_client *client, const uint8_t *bytes)
 {
 	wm_state *state = &client->server->state;
@@ -874,15 +955,18 @@ static int client_stage_surface(wm_client *client, const uint8_t *bytes)
 		client_reject(client, GUI_PROTOCOL_SURFACE_BEGIN, -EBUSY);
 		return 0;
 	}
-	if (bytes_needed > state->surface_limit - state->surface_bytes) {
+	if (client->reserved_bytes != bytes_needed &&
+	    !client_surface_fits(client, bytes_needed, client->reserved_bytes)) {
 		client_reject(client, GUI_PROTOCOL_SURFACE_BEGIN, -ENOMEM);
 		return 0;
 	}
 	surface = gui_surface_create((int)width, (int)height);
 	if (surface == NULL) {
-		client_reject(client, GUI_PROTOCOL_SURFACE_BEGIN, -ENOMEM);
+		client_fail_surface(client, GUI_PROTOCOL_SURFACE_BEGIN, -ENOMEM);
 		return 0;
 	}
+	state->surface_bytes -= client->reserved_bytes;
+	client->reserved_bytes = 0;
 	client->staging = surface;
 	client->staging_bytes = bytes_needed;
 	client->staging_frame_serial = frame_serial;
@@ -950,7 +1034,7 @@ static int client_commit_surface(wm_client *client, const uint8_t *bytes)
 			client->staging_bytes = client->committed_bytes;
 			client->committed = old;
 			client->committed_bytes = old_bytes;
-			client_reject(client, GUI_PROTOCOL_SURFACE_COMMIT, -EIO);
+			client_fail_surface(client, GUI_PROTOCOL_SURFACE_COMMIT, -EIO);
 			return 0;
 		}
 		if (old != NULL) {
@@ -960,6 +1044,7 @@ static int client_commit_surface(wm_client *client, const uint8_t *bytes)
 	}
 	client->staging_frame_serial = 0;
 	client->staging_pixels = 0;
+	client->transition_pending = 0;
 	if (client->role == GUI_PROTOCOL_ENDPOINT_SHELL) {
 		/* Keep the old desktop on screen until this complete replacement is visible. */
 		if (client->server->desktop_snapshot != NULL) {
@@ -1047,34 +1132,57 @@ static int wm_resize_window(wm_server *server, wm_client *client, int32_t x,
 		(WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER) : minimum_height;
 	uint32_t position_width_limit;
 	uint32_t position_height_limit;
+	size_t bytes_needed;
+	wm_client proposed = *client;
 
 	width = wm_clamp_dimension(width, minimum_width, maximum_width);
 	height = wm_clamp_dimension(height, minimum_height, maximum_height);
-	client->x = x;
-	client->y = y;
-	client->width = width;
-	client->height = height;
-	wm_clamp_window_position(server, client);
-	position_width_limit = server->state.width > (uint32_t)client->x +
-		WM_WINDOW_BORDER ? server->state.width - client->x - WM_WINDOW_BORDER :
+	proposed.x = x;
+	proposed.y = y;
+	proposed.width = width;
+	proposed.height = height;
+	wm_clamp_window_position(server, &proposed);
+	position_width_limit = server->state.width > (uint32_t)proposed.x +
+		WM_WINDOW_BORDER ? server->state.width - proposed.x - WM_WINDOW_BORDER :
 		minimum_width;
-	position_height_limit = server->state.height > (uint32_t)client->y +
-		WM_WINDOW_BORDER ? server->state.height - client->y - WM_WINDOW_BORDER :
+	position_height_limit = server->state.height > (uint32_t)proposed.y +
+		WM_WINDOW_BORDER ? server->state.height - proposed.y - WM_WINDOW_BORDER :
 		minimum_height;
-	client->width = wm_clamp_dimension(client->width, minimum_width,
+	proposed.width = wm_clamp_dimension(proposed.width, minimum_width,
 		position_width_limit);
-	client->height = wm_clamp_dimension(client->height, minimum_height,
+	proposed.height = wm_clamp_dimension(proposed.height, minimum_height,
 		position_height_limit);
-	if (client->x == previous_x && client->y == previous_y &&
-	    client->width == previous_width && client->height == previous_height)
+	if (proposed.x == previous_x && proposed.y == previous_y &&
+	    proposed.width == previous_width && proposed.height == previous_height)
 		return 0;
-	if (client->configure_serial == UINT64_MAX)
+	if (client->configure_serial >= UINT64_MAX - 1)
 		return -EOVERFLOW;
-	client_discard_staging(client);
+	if (surface_bytes(proposed.width, proposed.height, &bytes_needed) < 0)
+		return -EINVAL;
+	if (client_reserve_surface(client, bytes_needed) < 0)
+		return -ENOMEM;
+	if (!client->transition_pending) {
+		client->previous_x = previous_x;
+		client->previous_y = previous_y;
+		client->previous_width = previous_width;
+		client->previous_height = previous_height;
+		client->transition_pending = 1;
+	}
+	client->x = proposed.x;
+	client->y = proposed.y;
+	client->width = proposed.width;
+	client->height = proposed.height;
 	client->configure_serial++;
-	if (client_enqueue_configure(client) < 0)
+	if (client_enqueue_configure(client) < 0) {
+		client_fail_surface(client, GUI_PROTOCOL_WINDOW_RESIZE, -EIO);
+		client->hello = -1;
 		return -EIO;
+	}
 	wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, client);
+	if (wm_compose(server) == GUI_FLUSH_ERROR) {
+		client_fail_surface(client, GUI_PROTOCOL_WINDOW_RESIZE, -EIO);
+		return 0;
+	}
 	return 1;
 }
 
@@ -1509,7 +1617,10 @@ static int wm_update_capture(wm_server *server)
 	if (!resize || (x == client->x && y == client->y && width == client->width &&
 			height == client->height))
 		return 0;
-	return wm_resize_window(server, client, x, y, width, height) > 0;
+	resize = wm_resize_window(server, client, x, y, width, height);
+	if (resize < 0)
+		client_reject(client, GUI_PROTOCOL_WINDOW_RESIZE, resize);
+	return 0;
 }
 
 static void wm_emit_input(void *context, const gui_input_event *event)
@@ -1684,6 +1795,14 @@ static void client_message(void *context, const gui_protocol_header *header,
 			 get_u32(bytes + 8) > client->server->state.height) {
 			client_reject(client, GUI_PROTOCOL_WINDOW_CREATE, -EINVAL);
 		} else {
+		if (client->server->next_window_id == UINT32_MAX) {
+			client_reject(client, GUI_PROTOCOL_WINDOW_CREATE, -EOVERFLOW);
+			return;
+		}
+		if (client_reserve_surface(client, window_bytes) < 0) {
+			client_reject(client, GUI_PROTOCOL_WINDOW_CREATE, -ENOMEM);
+			return;
+		}
 		client->window_id = wm_allocate_window_id(client->server);
 		if (client->window_id == 0) {
 			client_reject(client, GUI_PROTOCOL_WINDOW_CREATE, -EOVERFLOW);
@@ -1755,6 +1874,12 @@ static void client_message(void *context, const gui_protocol_header *header,
 		else if (client->window_id != 0)
 			client_reject(client, GUI_PROTOCOL_DESKTOP_CREATE, -EBUSY);
 		else {
+			if (client->server->next_window_id == UINT32_MAX ||
+			    client_reserve_surface(client, client->server->state.frame_bytes) < 0) {
+				client_reject(client, GUI_PROTOCOL_DESKTOP_CREATE,
+					client->server->next_window_id == UINT32_MAX ? -EOVERFLOW : -ENOMEM);
+				return;
+			}
 			client->window_id = wm_allocate_window_id(client->server);
 			if (client->window_id == 0) {
 				client_reject(client, GUI_PROTOCOL_DESKTOP_CREATE, -EOVERFLOW);
@@ -1803,8 +1928,6 @@ static void client_message(void *context, const gui_protocol_header *header,
 				get_u32(bytes + 4), get_u32(bytes + 8));
 			if (result < 0)
 				client_reject(client, GUI_PROTOCOL_WINDOW_RESIZE, result);
-			else if (result > 0 && wm_compose(client->server) == GUI_FLUSH_ERROR)
-				client->hello = -1;
 		}
 		return;
 	}
@@ -1822,7 +1945,9 @@ static void client_message(void *context, const gui_protocol_header *header,
 		if (client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY)
 			wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_REMOVE, client);
 		client_discard_staging(client);
+		client_discard_reservation(client);
 		client_discard_committed(client);
+		client->transition_pending = 0;
 		client->window_id = 0;
 		client->focused = 0;
 		if (client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY)
