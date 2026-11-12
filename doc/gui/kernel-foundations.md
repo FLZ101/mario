@@ -668,6 +668,18 @@ Datagrams and abstract names remain out of scope. The first desktop is
 multi-process from its first visible frame, so no later transport migration is
 required.
 
+The direct i386 `SYS_recvfrom` entry and legacy `socketcall` `recv`/`recvfrom`
+operations share the AF_UNIX stream receive implementation. They support ordinary reads,
+`MSG_PEEK`, and per-call `MSG_DONTWAIT`; other receive flags, including
+`MSG_WAITALL`, return `EOPNOTSUPP` without consuming queued data. Peeking retains
+both stream bytes and any attached descriptor. A requested source address is
+the peer's pathname, truncated to the supplied capacity while reporting its
+full length; an unnamed peer reports zero length. Validate receive buffers,
+address outputs, and the complete operation-specific socketcall argument array
+before consuming data. `tests/shell/socket-recvfrom.test` exercises raw direct
+and legacy syscalls as well as libc wrappers, so an `ENOSYS` fallback cannot
+hide an absent direct syscall.
+
 GUI protocol message families:
 
 - `WINDOW_CREATE`/`WINDOW_DESTROY`;

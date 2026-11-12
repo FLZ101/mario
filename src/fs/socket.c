@@ -27,8 +27,9 @@
 #define SO_ERROR 4
 #define SO_ACCEPTCONN 30
 #define SO_PEERCRED 17
+#define MSG_PEEK 0x02
+#define MSG_DONTWAIT 0x40
 
-extern int sys_read(unsigned int fd, char *buf, unsigned int count);
 extern int sys_write(unsigned int fd, char *buf, unsigned int count);
 
 struct unix_socket;
@@ -206,7 +207,7 @@ static struct file *socket_take_right(struct unix_socket *socket,
 }
 
 static int socket_read_data(struct file *f, char *buf, int count,
-			    struct file **right)
+			    struct file **right, int receive_flags)
 {
 	struct unix_socket *socket = socket_endpoint(f);
 	struct unix_socket *peer;
@@ -218,10 +219,19 @@ static int socket_read_data(struct file *f, char *buf, int count,
 		*right = NULL;
 	if (!socket->pair)
 		return -ENOTCONN;
+	if (!count)
+		return 0;
 	peer = socket_peer(socket);
 	for (;;) {
 		spin_lock_irqsave(&socket->pair->lock, flags);
 		if (!ring_buffer_empty(&socket->receive)) {
+			if (receive_flags & MSG_PEEK) {
+				struct ring_buffer receive = socket->receive;
+
+				n = ring_buffer_read(&receive, buf, count, 1);
+				spin_unlock_irqrestore(&socket->pair->lock, flags);
+				return n;
+			}
 			start = socket->read_position;
 			if (right) {
 				socket_discard_rights(socket, start);
@@ -248,11 +258,11 @@ static int socket_read_data(struct file *f, char *buf, int count,
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return n;
 		}
-		if (!peer->opens || peer->write_shutdown) {
+		if (socket->read_shutdown || !peer->opens || peer->write_shutdown) {
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return 0;
 		}
-		if (f->f_flags & O_NONBLOCK) {
+		if ((f->f_flags & O_NONBLOCK) || (receive_flags & MSG_DONTWAIT)) {
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			return -EAGAIN;
 		}
@@ -266,7 +276,7 @@ static int socket_read_data(struct file *f, char *buf, int count,
 
 static int socket_read(struct inode *i, struct file *f, char *buf, int count)
 {
-	return socket_read_data(f, buf, count, NULL);
+	return socket_read_data(f, buf, count, NULL, 0);
 }
 
 static int socket_write(struct inode *i, struct file *f, char *buf, int count)
@@ -664,6 +674,7 @@ int sys_connect(int fd, const void *address, unsigned int length)
 		kfree(pair);
 		return listener ? -ECONNREFUSED : -ENOENT;
 	}
+	strcpy(server->path, listener->path);
 	if (listener->pending_tail)
 		listener->pending_tail->pending_next = server;
 	else
@@ -800,6 +811,58 @@ int sys_getsockopt(int fd, int level, int option, void *value,
 	}
 	put_fs_long(result_length, (int *)length);
 	return 0;
+}
+
+int sys_recvfrom(int fd, char *buffer, unsigned int length, int flags,
+		 void *address, unsigned int *address_length)
+{
+	struct file *file;
+	struct unix_socket *socket;
+	struct unix_sockaddr peer_address;
+	unsigned int peer_length = 0;
+	unsigned int copy_length = 0;
+	unsigned int capacity;
+	int result;
+
+	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
+		return -EBADF;
+	if (file->f_op != &socket_fops)
+		return -ENOTSOCK;
+	if (flags & ~(MSG_PEEK | MSG_DONTWAIT))
+		return -EOPNOTSUPP;
+	socket = socket_endpoint(file);
+	if (!socket->pair)
+		return -ENOTCONN;
+	if (length > 0x7fffffffU)
+		return -EINVAL;
+	if (length && verify_area(VERIFY_WRITE, buffer, length))
+		return -EFAULT;
+	if (address) {
+		if (verify_area(VERIFY_READ, address_length, sizeof(*address_length)) ||
+		    verify_area(VERIFY_WRITE, address_length, sizeof(*address_length)))
+			return -EFAULT;
+		capacity = get_fs_long((int *)address_length);
+		if (capacity > 0x7fffffffU)
+			return -EINVAL;
+		memset(&peer_address, 0, sizeof(peer_address));
+		peer_address.family = AF_UNIX;
+		strcpy(peer_address.path, socket_peer(socket)->path);
+		if (peer_address.path[0])
+			peer_length = sizeof(peer_address.family) +
+				strlen(peer_address.path) + 1;
+		copy_length = capacity < peer_length ? capacity : peer_length;
+		if (copy_length && verify_area(VERIFY_WRITE, address, copy_length))
+			return -EFAULT;
+	}
+	result = socket_read_data(file, buffer, length, NULL, flags);
+	if (result < 0)
+		return result;
+	if (address) {
+		if (copy_length)
+			memcpy_tofs(address, &peer_address, copy_length);
+		put_fs_long(peer_length, (int *)address_length);
+	}
+	return result;
 }
 
 static int socket_send_right(struct socket_msghdr *msg, struct file **file)
@@ -970,7 +1033,7 @@ int sys_recvmsg(int fd, struct socket_msghdr *user_msg, int flags)
 		memcpy_fromfs(&iov, &msg.iov[index], sizeof(iov));
 		if (!iov.len)
 			continue;
-		err = socket_read_data(file, iov.base, iov.len, &right);
+		err = socket_read_data(file, iov.base, iov.len, &right, 0);
 		if (err < 0)
 			return total ? total : err;
 		total += err;
@@ -1012,9 +1075,27 @@ void socket_init(void)
 
 int sys_socketcall(int call, unsigned long *args)
 {
-	if (call < SYS_SOCKET || call > SYS_RECVMSG)
+	static const unsigned char argument_counts[SYS_RECVMSG + 1] = {
+		[SYS_SOCKET] = 3,
+		[SYS_BIND] = 3,
+		[SYS_CONNECT] = 3,
+		[SYS_LISTEN] = 2,
+		[SYS_ACCEPT] = 3,
+		[SYS_SOCKETPAIR] = 4,
+		[SYS_SEND] = 4,
+		[SYS_RECV] = 4,
+		[SYS_SENDTO] = 6,
+		[SYS_RECVFROM] = 6,
+		[SYS_SHUTDOWN] = 2,
+		[SYS_GETSOCKOPT] = 5,
+		[SYS_SENDMSG] = 3,
+		[SYS_RECVMSG] = 3,
+	};
+
+	if (call < SYS_SOCKET || call > SYS_RECVMSG || !argument_counts[call])
 		return -ENOSYS;
-	if (verify_area(VERIFY_READ, args, 4 * sizeof(unsigned long)))
+	if (verify_area(VERIFY_READ, args,
+			argument_counts[call] * sizeof(unsigned long)))
 		return -EFAULT;
 	switch (call) {
 	case SYS_SOCKET:
@@ -1047,10 +1128,17 @@ int sys_socketcall(int call, unsigned long *args)
 				 (char *)get_fs_long((int *)&args[1]),
 				 get_fs_long((int *)&args[2]));
 	case SYS_RECV:
+		return sys_recvfrom(get_fs_long((int *)&args[0]),
+				    (char *)get_fs_long((int *)&args[1]),
+				    get_fs_long((int *)&args[2]),
+				    get_fs_long((int *)&args[3]), NULL, NULL);
 	case SYS_RECVFROM:
-		return sys_read(get_fs_long((int *)&args[0]),
-				(char *)get_fs_long((int *)&args[1]),
-				get_fs_long((int *)&args[2]));
+		return sys_recvfrom(get_fs_long((int *)&args[0]),
+				    (char *)get_fs_long((int *)&args[1]),
+				    get_fs_long((int *)&args[2]),
+				    get_fs_long((int *)&args[3]),
+				    (void *)get_fs_long((int *)&args[4]),
+				    (unsigned int *)get_fs_long((int *)&args[5]));
 	case SYS_SHUTDOWN:
 		return sys_shutdown(get_fs_long((int *)&args[0]),
 				    get_fs_long((int *)&args[1]));

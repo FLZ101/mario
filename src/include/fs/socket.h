@@ -25,6 +25,8 @@ int sys_getsockopt(int fd, int level, int option, void *value,
 struct socket_msghdr;
 int sys_sendmsg(int fd, struct socket_msghdr *msg, int flags);
 int sys_recvmsg(int fd, struct socket_msghdr *msg, int flags);
+int sys_recvfrom(int fd, char *buffer, unsigned int length, int flags,
+		 void *address, unsigned int *address_length);
 int sys_shutdown(int fd, int how);
 
 #endif

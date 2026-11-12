@@ -1,0 +1,2 @@
+RUN: /usr/bin/test/socket-recvfrom.exe
+CHECK: socket-recvfrom: direct, legacy, and libc receive paths passed

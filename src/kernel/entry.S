@@ -810,7 +810,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_getpeername */
 	.long sys_not_exist /* SYS_sendto */
 	.long sys_sendmsg
-	.long sys_not_exist /* SYS_recvfrom */
+	.long sys_recvfrom
 	.long sys_recvmsg
 	.long sys_shutdown
 	.long sys_not_exist /* SYS_userfaultfd */
