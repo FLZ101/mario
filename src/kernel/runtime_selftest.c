@@ -8,10 +8,12 @@
 __attribute__((noinline))
 static void kmalloc_selftest(void)
 {
-	void *p = kmalloc(16);
+	void *block;
 
-	kfree(p);
-	kfree(p);
+	kmalloc_churn_selftest();
+	block = kmalloc(16);
+	kfree(block);
+	kfree(block);
 }
 #endif
 

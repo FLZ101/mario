@@ -1,0 +1,12 @@
+--- a/compat/imsg.c
++++ b/compat/imsg.c
+@@ -24,0 +25 @@
++#include <poll.h>
+@@ -94,0 +96,2 @@
++	struct pollfd descriptor = { .fd = imsgbuf->fd, .events = POLLOUT };
++
+@@ -95,0 +99,4 @@
++		while (poll(&descriptor, 1, -1) == -1) {
++			if (errno != EINTR)
++				return (-1);
++		}

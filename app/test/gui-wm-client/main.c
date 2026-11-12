@@ -1,11 +1,13 @@
 #include <assert.h>
 #include <errno.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <gui/input.h>
@@ -358,6 +360,11 @@ static void test_quotas(void)
 	uint8_t overflow[4096] = { 0 };
 	uint8_t reply[64];
 	struct pollfd pollfd;
+	struct sigaction ignore_pipe = { .sa_handler = SIG_IGN };
+	struct sigaction previous_pipe;
+	struct timespec deadline;
+	size_t overflow_sent = 0;
+	int ready;
 	int deferred;
 	int offender;
 	int healthy;
@@ -397,9 +404,34 @@ static void test_quotas(void)
 
 	/* One byte fits after 65535 bytes; the next must close the over-limit peer. */
 	write_zeroes(offender, GUI_PROTOCOL_MAX_MESSAGE_SIZE - 1 - sizeof(overflow));
-	write_zeroes(offender, 2);
 	pollfd = (struct pollfd) { .fd = offender, .events = POLLIN };
-	assert(poll(&pollfd, 1, 5000) > 0);
+	assert(poll(&pollfd, 1, 0) == 0);
+	assert(sigaction(SIGPIPE, &ignore_pipe, &previous_pipe) == 0);
+	while (overflow_sent < 2) {
+		ssize_t count = write(offender, overflow + overflow_sent, 2 - overflow_sent);
+
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count < 0 && errno == EPIPE)
+			break;
+		assert(count > 0);
+		overflow_sent += count;
+	}
+	assert(sigaction(SIGPIPE, &previous_pipe, NULL) == 0);
+	assert(overflow_sent > 0);
+	assert(clock_gettime(CLOCK_MONOTONIC, &deadline) == 0);
+	deadline.tv_sec += 5;
+	do {
+		struct timespec now;
+		int64_t remaining_ms;
+
+		assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
+		remaining_ms = (deadline.tv_sec - now.tv_sec) * 1000LL +
+			(deadline.tv_nsec - now.tv_nsec) / 1000000;
+		assert(remaining_ms > 0 && remaining_ms <= 5000);
+		ready = poll(&pollfd, 1, (int)remaining_ms);
+		assert(ready >= 0 || errno == EINTR);
+	} while (ready <= 0);
 	assert(pollfd.revents & (POLLIN | POLLHUP | POLLERR));
 	assert(read(offender, reply, 1) == 0);
 	close(offender);
@@ -639,6 +671,24 @@ static void test_interact(void)
 		pause();
 }
 
+static void test_launch_cleanup(void)
+{
+	static const char path[] = "/usr/bin/test/gui-cleanup.exe";
+	uint8_t frame[64] = { 0 };
+	int fd = connect_client();
+
+	(void)create_window(fd, 1, 64, 48);
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
+		       sizeof(gui_protocol_wire_launch_request) + sizeof(path) - 1) == 0);
+	put32(frame + 8, 1);
+	put16(frame + 12, GUI_PROTOCOL_LAUNCH_EXECUTABLE);
+	put16(frame + 14, sizeof(path) - 1);
+	memcpy(frame + 16, path, sizeof(path) - 1);
+	write_full(fd, frame, 16 + sizeof(path) - 1);
+	read_launch_result(fd, 1, 0);
+	assert(close(fd) == 0);
+}
+
 static void test_launch(void)
 {
 	static const char marker[] = "/tmp/mario-wm-launch-marker";
@@ -707,7 +757,8 @@ int main(int argc, char **argv)
 		!strcmp(argv[1], "--recovery-only") ||
 		!strcmp(argv[1], "--public-shell-only") || !strcmp(argv[1], "--stack-only") ||
 		!strcmp(argv[1], "--taskbar-only") || !strcmp(argv[1], "--shortcuts-only") ||
-		!strcmp(argv[1], "--interact-only") || !strcmp(argv[1], "--launch-only"))));
+		!strcmp(argv[1], "--interact-only") || !strcmp(argv[1], "--launch-only") ||
+		!strcmp(argv[1], "--launch-cleanup-only"))));
 	if (argc == 2) {
 		if (!strcmp(argv[1], "--surface-only")) {
 			test_staging();
@@ -733,6 +784,8 @@ int main(int argc, char **argv)
 		} else if (!strcmp(argv[1], "--launch-only")) {
 			test_launch();
 			puts("wm-client: launch requests handled safely");
+		} else if (!strcmp(argv[1], "--launch-cleanup-only")) {
+			test_launch_cleanup();
 		} else {
 			test_public_shell();
 			puts("wm-client: public shell denied");

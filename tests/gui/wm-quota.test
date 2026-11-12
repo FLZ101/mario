@@ -5,7 +5,7 @@ SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
 GUI-CHECK-RECT: 32 32 1 1 31 41 51
-SERIAL: /usr/bin/test/gui-wm-client.exe --quota-only
-SERIAL-CHECK: wm-client: quotas ok
+SERIAL: quota_ok=1; for round in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do /usr/bin/test/gui-wm-client.exe --quota-only || { quota_ok=0; break; }; done; test "$quota_ok" -eq 1 && printf 'wm-client: %s quota rounds passed\n' 20
+SERIAL-CHECK: wm-client: 20 quota rounds passed
 SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
 EXIT:

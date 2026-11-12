@@ -23,6 +23,8 @@ fi
 
 pushd $TMUX_SRC_DIR
 
+patch -p1 < ../tmux.patch
+
 export CC
 export CPPFLAGS="-I${LIBEVENT_INSTALL_DIR}/include -I${NCURSES_INSTALL_DIR}/include -I${NCURSES_INSTALL_DIR}/include/ncursesw"
 export CFLAGS="-ggdb ${OPTIMIZE} -fno-omit-frame-pointer"

@@ -1,0 +1,9 @@
+TTY-SEND: printf 'set -g status-left "[direct]"\nset -g status-right ""\n' >/tmp/tmux-direct.conf
+TTY-SEND: TERM=xterm-direct tmux -L direct -f /tmp/tmux-direct.conf new-session -s direct /bin/oksh
+TTY-CHECK: [direct]
+TTY-SEND: printf 'tmux-direct: %s\n' ready
+TTY-CHECK: tmux-direct: ready
+TTY-SEND: tmux kill-server
+TTY-CHECK: MARIO_TTY_PROMPT>
+TTY-SEND: if tmux -L direct has-session -t direct; then printf 'tmux-direct: %s\n' leaked; else printf 'tmux-direct: %s\n' stopped; fi
+TTY-CHECK: tmux-direct: stopped

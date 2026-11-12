@@ -1,0 +1,2 @@
+RUN: /usr/bin/test/gui-wm-busy.exe
+CHECK: gui-wm-busy: valid commits survive suspended scanout

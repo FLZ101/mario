@@ -13,3 +13,10 @@
    xsignal(SIGTTIN, SIG_IGN);
    xsignal(SIGTTOU, SIG_IGN);
    xsignal(SIGTSTP, SIG_IGN);
+--- a/toys/pending/stty.c
++++ b/toys/pending/stty.c
+@@ -41 +41,0 @@
+-#include <linux/tty.h>
+@@ -340 +339 @@
+-      else if (!strcmp(arg, "line")) new.c_line = get_arg(&i, NR_LDISCS);
++      else if (!strcmp(arg, "line")) new.c_line = get_arg(&i, 0);

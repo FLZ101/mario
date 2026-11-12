@@ -1,0 +1,963 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & wm_pid=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+SERIAL: <<TTY6
+{
+    printf '\033[2J\033[H\033[8;20HVT6-MARKER'
+    for row in 1 2 3; do
+        printf "\033[${row};1H\033[46m                    \033[${row};60H\033[42m                    "
+    done
+    for row in 23 24 25; do
+        printf "\033[${row};1H\033[45m                    \033[${row};60H\033[43m                    "
+    done
+    printf '\033[0m\033[8;20HVT6-MARKER'
+} > /dev/tty6
+TTY6
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+# Close the two diagnostic windows through their server-owned decorations.
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,65
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 10,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 484 224 8 8 31 41 51
+GUI-MOUSE-MOVE: -127,-124
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -90,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 100 100 8 8 31 41 51
+GUI-MOUSE-MOVE: -127,-68
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -47,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+SERIAL: shell_pid=$(pgrep mario-desktop); wm_descriptors=$(ls /proc/$wm_pid/fd | wc -l); shell_descriptors=$(ls /proc/$shell_pid/fd | wc -l); pty_capacity=$(/usr/bin/test/gui-cleanup.exe --pty-pool)
+SERIAL: <<HELPERS
+cat >/tmp/gui-stress-helpers <<'FUNCTIONS'
+stress_reclaimed() {
+    attempt=0
+    while test "$(ls /proc/$wm_pid/fd | wc -l)" -ne "$wm_descriptors" ||
+          test "$(ls /proc/$shell_pid/fd | wc -l)" -ne "$shell_descriptors"; do
+        attempt=$((attempt + 1))
+        if test "$attempt" -ge 10; then
+            echo "gui-stress: descriptor baseline not restored"
+            ls /proc/$wm_pid/fd /proc/$shell_pid/fd
+            return 1
+        fi
+        sleep 1
+    done
+    test "$(pgrep mario-wm)" = "$wm_pid" &&
+        test "$(pgrep mario-desktop)" = "$shell_pid" &&
+        test -z "$(pgrep terminal)" &&
+        test "$(/usr/bin/test/gui-cleanup.exe --pty-pool)" -eq "$pty_capacity"
+}
+FUNCTIONS
+HELPERS
+SERIAL: . /tmp/gui-stress-helpers; stress_reclaimed && printf 'gui-stress: %s ready\n' baseline
+SERIAL-CHECK: gui-stress: baseline ready
+
+# Cycle 1: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,66
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 57,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 129 176 8 8 31 41 51
+GUI-CHECK-RECT: 152 192 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 512 216 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 1; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 1 resumed
+GUI-CHECK-RECT: 512 216 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 1
+SERIAL-CHECK: gui-stress: cycle 1 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-73
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -4,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 2: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,82
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 89,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 161 192 8 8 31 41 51
+GUI-CHECK-RECT: 184 208 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 544 232 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 2; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 2 resumed
+GUI-CHECK-RECT: 544 232 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 2
+SERIAL-CHECK: gui-stress: cycle 2 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-89
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -36,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 3: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,98
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 193 208 8 8 31 41 51
+GUI-CHECK-RECT: 216 224 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 576 248 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 3; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 3 resumed
+GUI-CHECK-RECT: 576 248 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 3
+SERIAL-CHECK: gui-stress: cycle 3 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-105
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -68,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 4: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,114
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 26,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 225 224 8 8 31 41 51
+GUI-CHECK-RECT: 248 240 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 608 264 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 4; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 4 resumed
+GUI-CHECK-RECT: 608 264 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 4
+SERIAL-CHECK: gui-stress: cycle 4 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-121
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -100,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 5: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,3
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 58,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 257 240 8 8 31 41 51
+GUI-CHECK-RECT: 280 256 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 640 280 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 5; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 5 resumed
+GUI-CHECK-RECT: 640 280 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 5
+SERIAL-CHECK: gui-stress: cycle 5 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-10
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -5,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 6: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,19
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 90,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 289 256 8 8 31 41 51
+GUI-CHECK-RECT: 312 272 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 672 296 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 6; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 6 resumed
+GUI-CHECK-RECT: 672 296 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 6
+SERIAL-CHECK: gui-stress: cycle 6 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-26
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -37,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 7: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,35
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 122,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 321 272 8 8 31 41 51
+GUI-CHECK-RECT: 344 288 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 704 312 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 7; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 7 resumed
+GUI-CHECK-RECT: 704 312 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 7
+SERIAL-CHECK: gui-stress: cycle 7 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-42
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -69,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 8: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,51
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 27,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 353 288 8 8 31 41 51
+GUI-CHECK-RECT: 376 304 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 736 328 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 8; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 8 resumed
+GUI-CHECK-RECT: 736 328 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 8
+SERIAL-CHECK: gui-stress: cycle 8 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-58
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -101,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 9: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,67
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 59,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 385 304 8 8 31 41 51
+GUI-CHECK-RECT: 408 320 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 768 344 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 9; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 9 resumed
+GUI-CHECK-RECT: 768 344 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 9
+SERIAL-CHECK: gui-stress: cycle 9 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-74
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -6,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 10: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,83
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 91,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 417 320 8 8 31 41 51
+GUI-CHECK-RECT: 440 336 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 800 360 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 10; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 10 resumed
+GUI-CHECK-RECT: 800 360 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 10
+SERIAL-CHECK: gui-stress: cycle 10 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-90
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -38,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 11: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,99
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 123,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 449 336 8 8 31 41 51
+GUI-CHECK-RECT: 472 352 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 832 376 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 11; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 11 resumed
+GUI-CHECK-RECT: 832 376 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 11
+SERIAL-CHECK: gui-stress: cycle 11 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-106
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -70,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 12: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,115
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 28,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 481 352 8 8 31 41 51
+GUI-CHECK-RECT: 504 368 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 864 392 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 12; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 12 resumed
+GUI-CHECK-RECT: 864 392 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 12
+SERIAL-CHECK: gui-stress: cycle 12 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-122
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -102,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 13: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,4
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 60,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 513 368 8 8 31 41 51
+GUI-CHECK-RECT: 536 384 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 896 408 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 13; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 13 resumed
+GUI-CHECK-RECT: 896 408 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 13
+SERIAL-CHECK: gui-stress: cycle 13 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-11
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -7,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 14: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,20
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 92,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 545 384 8 8 31 41 51
+GUI-CHECK-RECT: 568 400 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 928 424 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 14; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 14 resumed
+GUI-CHECK-RECT: 928 424 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 14
+SERIAL-CHECK: gui-stress: cycle 14 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-27
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -39,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 15: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,36
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 124,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 577 400 8 8 31 41 51
+GUI-CHECK-RECT: 600 416 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 960 440 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 15; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 15 resumed
+GUI-CHECK-RECT: 960 440 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 15
+SERIAL-CHECK: gui-stress: cycle 15 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-43
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -71,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Cycle 16: move, resize, suspend/resume, close, and restore the whole desktop.
+SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,52
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 29,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 16,16
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 609 416 8 8 31 41 51
+GUI-CHECK-RECT: 632 432 8 8 17 24 39
+GUI-MOUSE-MOVE: 127,118
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 121,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL-CHECK: 10 44
+GUI-CHECK-RECT: 992 456 8 8 17 24 39
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: if test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5; then printf 'gui-stress: cycle %s resumed\n' 16; else cat /tmp/gui-stress-terminal.log; fi
+SERIAL-CHECK: gui-stress: cycle 16 resumed
+GUI-CHECK-RECT: 992 456 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; stress_reclaimed && printf 'gui-stress: cycle %s reclaimed\n' 16
+SERIAL-CHECK: gui-stress: cycle 16 reclaimed
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-59
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -103,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+# Orderly shutdown restores the saved text frame without another VT key.
+SERIAL: kill -TERM "$wm_pid"; wait "$wm_pid"; while kill -0 "$shell_pid" 2>/dev/null; do sleep 1; done
+SERIAL: test ! -e /tmp/mario-wm.sock && test ! -e /tmp/mario-wm.started && test ! -e /tmp/mario-wm.ready && test ! -e /tmp/mario-wm.frame && test "$(/usr/bin/test/gui-cleanup.exe --pty-pool)" -eq "$pty_capacity" && printf 'gui-stress: %s reclaimed\n' session
+SERIAL-CHECK: gui-stress: session reclaimed
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+EXIT:

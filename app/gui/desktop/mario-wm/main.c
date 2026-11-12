@@ -13,16 +13,13 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <app/gui-session.h>
 #include <mario/fb.h>
 #include <mario/input.h>
 #include <gui/input.h>
 #include <gui/protocol.h>
 #include <gui/surface.h>
 
-#define WM_SOCKET_PATH "/tmp/mario-wm.sock"
-#define WM_STARTED_PATH "/tmp/mario-wm.started"
-#define WM_READY_PATH "/tmp/mario-wm.ready"
-#define WM_FRAME_PATH "/tmp/mario-wm.frame"
 #define WM_CLIENT_LIMIT 8
 #define WM_LAUNCH_LIMIT WM_CLIENT_LIMIT
 #define WM_CLIENT_INPUT_READ_QUANTUM 4096U
@@ -57,17 +54,6 @@ static void request_child_reap(int signal_number)
 {
 	(void)signal_number;
 	child_reap_requested = 1;
-}
-
-static void remove_status_files(void)
-{
-	/* These are server-owned diagnostics, never client-controlled state. */
-	unlink(WM_SOCKET_PATH);
-	unlink(WM_STARTED_PATH);
-	unlink(WM_READY_PATH);
-	unlink(WM_FRAME_PATH);
-	unlink(WM_READY_PATH ".new");
-	unlink(WM_FRAME_PATH ".new");
 }
 
 typedef struct {
@@ -959,13 +945,12 @@ static int client_commit_surface(wm_client *client, const uint8_t *bytes)
 		client->staging = NULL;
 		client->staging_bytes = 0;
 		result = wm_compose(client->server);
-		if (result != GUI_FLUSH_COMPLETE) {
+		if (result == GUI_FLUSH_ERROR) {
 			client->staging = client->committed;
 			client->staging_bytes = client->committed_bytes;
 			client->committed = old;
 			client->committed_bytes = old_bytes;
-			client_reject(client, GUI_PROTOCOL_SURFACE_COMMIT,
-				      result == GUI_FLUSH_BUSY ? -EBUSY : -EIO);
+			client_reject(client, GUI_PROTOCOL_SURFACE_COMMIT, -EIO);
 			return 0;
 		}
 		if (old != NULL) {
@@ -1880,6 +1865,8 @@ static void wm_cleanup(wm_state *state)
 	/* Close the listener before releasing the descriptors that own the seat. */
 	if (state->listener >= 0)
 		close(state->listener);
+	if (state->owns_status)
+		gui_session_remove_status_files();
 	if (state->gui >= 0)
 		close(state->gui);
 	if (state->mouse >= 0)
@@ -1887,8 +1874,6 @@ static void wm_cleanup(wm_state *state)
 	if (state->framebuffer >= 0)
 		close(state->framebuffer);
 	gui_surface_destroy(state->composite);
-	if (state->owns_status)
-		remove_status_files();
 }
 
 static int create_started_marker(void)
@@ -2165,22 +2150,21 @@ int main(void)
 		goto out;
 	server.state.owns_status = 1;
 	/* Only the exclusive owner may discard a predecessor's stale status. */
-	remove_status_files();
+	gui_session_remove_status_files();
 	server.state.listener = bind_listener();
 	if (server.state.listener < 0)
 		goto out;
 	printf("mario-wm: listening\n");
 	fflush(stdout);
-	/* The public listener is ready before the private shell may start. */
-	if (wm_start_shell(&server) < 0)
-		goto out;
-	if (create_started_marker() < 0)
-		goto out;
 	/* Socket write failures are handled per-client by the output queue. */
 	if (sigaction(SIGTERM, &action, NULL) < 0 ||
 	    sigaction(SIGINT, &action, NULL) < 0 ||
 	    sigaction(SIGPIPE, &ignore_pipe, NULL) < 0 ||
 	    sigaction(SIGCHLD, &child_action, NULL) < 0)
+		goto out;
+	if (wm_start_shell(&server) < 0)
+		goto out;
+	if (create_started_marker() < 0)
 		goto out;
 	while (!stop_requested) {
 		int ready;

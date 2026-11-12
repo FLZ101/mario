@@ -1,0 +1,114 @@
+INIT-WM: keep
+GUI-VISUAL-TEST:
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+SERIAL: <<FIXTURES
+export TERM=screen
+{
+    printf '\033[2J\033[H\033[8;20HVT6-MARKER'
+    for row in 1 2 3; do
+        printf "\033[${row};1H\033[46m                    \033[${row};60H\033[42m                    "
+    done
+    for row in 23 24 25; do
+        printf "\033[${row};1H\033[45m                    \033[${row};60H\033[43m                    "
+    done
+    printf '\033[0m\033[8;20HVT6-MARKER'
+} >/dev/tty6
+printf 'vim pane base\n' >/tmp/tmuxvim
+printf 'nano pane base\n' >/tmp/tmuxnano
+cat >/tmp/tmuxconfig <<'CONFIG'
+set -g default-terminal screen
+set -g status-left '[gui]'
+set -g status-right ''
+set -g status-interval 0
+set -g remain-on-exit on
+set -sg escape-time 0
+CONFIG
+cat >/tmp/tmuxvimrun <<'SCRIPT'
+vim -Nu NONE -n -c 'call writefile(["ready"],"/tmp/tmuxvimready")' /tmp/tmuxvim
+test "$?" -eq 0 && touch /tmp/tmuxvimdone
+SCRIPT
+cat >/tmp/tmuxtoprun <<'SCRIPT'
+top
+test "$?" -eq 0 && touch /tmp/tmuxtopdone
+SCRIPT
+cat >/tmp/tmuxnanorun <<'SCRIPT'
+nano -I /tmp/tmuxnano
+test "$?" -eq 0 && touch /tmp/tmuxnanodone
+SCRIPT
+cat >/tmp/runtmux <<'SCRIPT'
+stty size >/tmp/tmuxsize
+tmux -u -L guipanes -f /tmp/tmuxconfig new-session -s gui /bin/oksh /tmp/tmuxvimrun
+test "$?" -eq 0 && touch /tmp/tmuxdone
+SCRIPT
+FIXTURES
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/terminal >/tmp/terminal-tmux-apps.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/terminal-tmux-apps.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,18
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 51,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,64
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 496 336 8 8 17 24 39
+GUI-MOUSE-MOVE: 0,64
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 496 400 8 8 17 24 39
+GUI-MOUSE-BUTTON: left,up
+GUI-TYPE: . /tmp/runtmux
+SERIAL-WAIT-FILE: /tmp/tmuxvimready
+SERIAL: tmux -L guipanes split-window -h -t gui:0.0 /bin/oksh /tmp/tmuxtoprun && tmux -L guipanes split-window -v -t gui:0.1 /bin/oksh /tmp/tmuxnanorun && tmux -L guipanes select-pane -t gui:0.0
+SERIAL: test "$(cat /tmp/tmuxsize)" = '18 44' && test "$(tmux -L guipanes list-panes -t gui:0 | wc -l)" -eq 3 && printf 'terminal-tmux-apps: %s\n' 'resized three pane session'
+SERIAL-CHECK: terminal-tmux-apps: resized three pane session
+SERIAL: while ! tmux -L guipanes capture-pane -pt gui:0.0 | grep -q 'vim pane base'; do sleep 1; done; while ! tmux -L guipanes capture-pane -pt gui:0.1 | grep -q 'PID USER'; do sleep 1; done; while ! tmux -L guipanes capture-pane -pt gui:0.2 | grep -q 'nano pane base'; do sleep 1; done; pgrep -x vim && pgrep -x top && pgrep -x nano && printf 'terminal-tmux-apps: %s\n' 'all applications visible'
+SERIAL-CHECK: terminal-tmux-apps: all applications visible
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,144,112,176,272
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,320,240,176,96
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,320,352,176,32
+GUI-SEND-KEY: i
+GUI-TYPE: vim pane edit
+GUI-SEND-KEY: esc
+GUI-TYPE: :wq
+SERIAL-WAIT-FILE: /tmp/tmuxvimdone
+SERIAL: while ! grep -qx 'vim pane edit' /tmp/tmuxvim; do sleep 1; done; grep -qx 'vim pane base' /tmp/tmuxvim && printf 'terminal-tmux-apps: %s\n' 'vim saved edit'
+SERIAL-CHECK: terminal-tmux-apps: vim saved edit
+GUI-SEND-KEYS: ctrl,b
+SERIAL: while test "$(tmux -L guipanes list-clients -t gui -F '#{client_prefix}')" != 1; do sleep 1; done
+GUI-SEND-KEY: o
+SERIAL: while test "$(tmux -L guipanes display-message -pt gui:0 '#{pane_index}')" != 1; do sleep 1; done
+GUI-SEND-KEY: q
+SERIAL-WAIT-FILE: /tmp/tmuxtopdone
+GUI-SEND-KEYS: ctrl,b
+SERIAL: while test "$(tmux -L guipanes list-clients -t gui -F '#{client_prefix}')" != 1; do sleep 1; done
+GUI-SEND-KEY: o
+SERIAL: while test "$(tmux -L guipanes display-message -pt gui:0 '#{pane_index}')" != 2; do sleep 1; done
+GUI-TYPE: nano pane edit
+GUI-SEND-KEYS: ctrl,o
+GUI-SEND-KEY: ret
+SERIAL: while ! grep -qx 'nano pane edit' /tmp/tmuxnano; do sleep 1; done; grep -qx 'nano pane base' /tmp/tmuxnano && printf 'terminal-tmux-apps: %s\n' 'nano saved edit'
+SERIAL-CHECK: terminal-tmux-apps: nano saved edit
+GUI-SEND-KEYS: ctrl,x
+SERIAL-WAIT-FILE: /tmp/tmuxnanodone
+SERIAL: tmux -L guipanes list-panes -t gui:0 -F '#{pane_dead}' >/tmp/tmuxdead; test "$(grep -cx 1 /tmp/tmuxdead)" -eq 3 && tmux -L guipanes kill-session -t gui && printf 'terminal-tmux-apps: %s\n' 'all panes exited cleanly'
+SERIAL-CHECK: terminal-tmux-apps: all panes exited cleanly
+SERIAL-WAIT-FILE: /tmp/tmuxdone
+SERIAL: while pgrep tmux >/dev/null; do sleep 1; done; test -z "$(pgrep -x vim)" && test -z "$(pgrep -x top)" && test -z "$(pgrep -x nano)" && printf 'terminal-tmux-apps: %s\n' 'applications reclaimed'
+SERIAL-CHECK: terminal-tmux-apps: applications reclaimed
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid" && printf 'terminal-tmux-apps: %s\n' 'terminal closed'
+SERIAL-CHECK: terminal-tmux-apps: terminal closed
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+SERIAL: kill -TERM $(pgrep mario-wm); while test -e /tmp/mario-wm.started; do sleep 1; done
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+EXIT:

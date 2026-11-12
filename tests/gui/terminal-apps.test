@@ -1,0 +1,94 @@
+INIT-WM: keep
+GUI-VISUAL-TEST:
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+SERIAL: <<FIXTURES
+{
+    printf '\033[2J\033[H\033[8;20HVT6-MARKER'
+    for row in 1 2 3; do
+        printf "\033[${row};1H\033[46m                    \033[${row};60H\033[42m                    "
+    done
+    for row in 23 24 25; do
+        printf "\033[${row};1H\033[45m                    \033[${row};60H\033[43m                    "
+    done
+    printf '\033[0m\033[8;20HVT6-MARKER'
+} >/dev/tty6
+printf 'gui smoke base\n' >/tmp/guivim
+seq 1 80 | sed 's/^/less smoke line /' >/tmp/guiless
+cat >/tmp/runvim <<'SCRIPT'
+vim -Nu NONE -n -c 'call writefile(["ready"],"/tmp/guivimready")' /tmp/guivim
+test "$?" -eq 0 && touch /tmp/guivimdone
+SCRIPT
+cat >/tmp/runtop <<'SCRIPT'
+top
+test "$?" -eq 0 && touch /tmp/guitopdone
+SCRIPT
+cat >/tmp/runless <<'SCRIPT'
+less /tmp/guiless
+test "$?" -eq 0 && touch /tmp/guilessdone
+SCRIPT
+printf 'stty size >/tmp/guisizebefore\n' >/tmp/sizebefore
+printf 'stty size >/tmp/guisizeafter\n' >/tmp/sizeafter
+FIXTURES
+SERIAL: test "$(wc -l </tmp/guiless)" -eq 80 && printf 'terminal-apps: %s\n' 'pager fixture ready'
+SERIAL-CHECK: terminal-apps: pager fixture ready
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 32 32 8 8 31 41 51
+SERIAL: /usr/bin/terminal >/tmp/terminal-apps.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/terminal-apps.log; do sleep 1; done
+GUI-CHECK-RECT: 130 130 8 8 17 24 39
+GUI-TYPE: . /tmp/runvim
+SERIAL-WAIT-FILE: /tmp/guivimready
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN-RECT: assets/terminal-vim.png,128,96,320,192
+GUI-SEND-KEY: i
+GUI-TYPE: gui smoke edit
+GUI-SEND-KEY: esc
+GUI-TYPE: :wq
+SERIAL-WAIT-FILE: /tmp/guivimdone
+SERIAL: grep -qx 'gui smoke edit' /tmp/guivim && grep -qx 'gui smoke base' /tmp/guivim && printf 'terminal-apps: %s\n' 'vim saved edit'
+SERIAL-CHECK: terminal-apps: vim saved edit
+GUI-TYPE: . /tmp/runtop
+SERIAL: while ! pgrep -x top >/dev/null || ! grep -q '%cpu' /tmp/terminal-apps.log || ! grep -q 'PID USER' /tmp/terminal-apps.log; do sleep 1; done; printf 'terminal-apps: %s\n' 'top rendered'
+SERIAL-CHECK: terminal-apps: top rendered
+GUI-CHECK-RECT: 128 96 8 8 17 24 39
+GUI-SEND-KEY: q
+SERIAL-WAIT-FILE: /tmp/guitopdone
+GUI-TYPE: . /tmp/runless
+SERIAL: while ! pgrep -x less >/dev/null || ! grep -q 'less smoke line 1' /tmp/terminal-apps.log; do sleep 1; done
+GUI-CHECK-RECT: 128 96 8 8 17 24 39
+GUI-SEND-KEYS: shift,g
+SERIAL: while ! grep -q 'less smoke line 80' /tmp/terminal-apps.log; do sleep 1; done; printf 'terminal-apps: %s\n' 'less reached end'
+SERIAL-CHECK: terminal-apps: less reached end
+GUI-SEND-KEY: q
+SERIAL-WAIT-FILE: /tmp/guilessdone
+GUI-TYPE: . /tmp/sizebefore
+SERIAL-WAIT-FILE: /tmp/guisizebefore
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,57
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 51,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-TYPE: . /tmp/sizeafter
+SERIAL-WAIT-FILE: /tmp/guisizeafter
+SERIAL: test "$(cat /tmp/guisizebefore)" = '10 36' && test "$(cat /tmp/guisizeafter)" = '10 44' && printf 'terminal-apps: %s\n' 'stty resize observed'
+SERIAL-CHECK: terminal-apps: stty resize observed
+GUI-CHECK-RECT: 496 200 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; test -z "$(pgrep -x vim)" && test -z "$(pgrep -x top)" && test -z "$(pgrep -x less)" && printf 'terminal-apps: %s\n' 'applications reclaimed'
+SERIAL-CHECK: terminal-apps: applications reclaimed
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+SERIAL: kill -TERM $(pgrep mario-wm); while test -e /tmp/mario-wm.started; do sleep 1; done
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+EXIT:

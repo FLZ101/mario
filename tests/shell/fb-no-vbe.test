@@ -1,0 +1,14 @@
+RUN: dmesg | grep -q 'fb: no usable Multiboot framebuffer' && printf 'no-vbe: %s\n' 'handoff absent'
+CHECK: no-vbe: handoff absent
+RUN: test "$(stty size </dev/tty1)" = '25 80' && test "$(stty size </dev/tty6)" = '25 80' && printf 'no-vbe: %s\n' '80x25 text consoles'
+CHECK: no-vbe: 80x25 text consoles
+RUN: stty line 0 </dev/tty6 && if stty line 1 </dev/tty6 >/tmp/no-vbe-stty.log 2>&1; then false; else printf 'no-vbe: %s\n' 'unsupported discipline rejected'; fi
+CHECK: no-vbe: unsupported discipline rejected
+RUN: test -z "$(pgrep mario-wm)" && test -z "$(pgrep mario-desktop)" && printf 'no-vbe: %s\n' 'init kept text sessions'
+CHECK: no-vbe: init kept text sessions
+RUN: /usr/bin/mario-wm >/tmp/no-vbe-wm.log 2>&1; wm_status=$?; test "$wm_status" -eq 1 && grep -q '^mario-wm: No such device$' /tmp/no-vbe-wm.log && printf 'no-vbe: %s\n' 'graphics unavailable'
+CHECK: no-vbe: graphics unavailable
+RUN: test ! -e /tmp/mario-wm.sock && test ! -e /tmp/mario-wm.started && test ! -e /tmp/mario-wm.ready && test ! -e /tmp/mario-wm.frame && printf 'no-vbe: %s\n' 'no stale session paths'
+CHECK: no-vbe: no stale session paths
+RUN: printf '\033[2J\033[HNO-VBE-TEXT-OK\n' >/dev/tty6 && test "$(stty size </dev/tty6)" = '25 80' && printf 'no-vbe: %s\n' 'text output intact'
+CHECK: no-vbe: text output intact

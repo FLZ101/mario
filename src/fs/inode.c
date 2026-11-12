@@ -228,8 +228,15 @@ void iput(struct inode *i)
 
 	assert(i->i_count > 0);
 
-	if (!--i->i_count) {
+	if (i->i_count == 1 && inode_up2date(i) && inode_dirty(i)) {
+		RELEASE_LOCK(&inode_lock);
+		down(&i->i_sem);
 		write_inode(i);
+		ACQUIRE_LOCK(&inode_lock);
+		up(&i->i_sem);
+	}
+
+	if (!--i->i_count) {
 		into_lru_list(i);
 
 		if (inode_pipe(i)) {

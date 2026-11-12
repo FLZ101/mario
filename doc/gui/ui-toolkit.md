@@ -220,15 +220,48 @@ Pixel conversion:
 - The `FBIOGET_*` mask values are used to build the conversion table once at
   startup; no hardcoded host-endian assumptions remain in the userspace code.
 
-Surface memory and failure handling:
+### Surface Memory and Failure Handling
 
 - `gui_surface_create()` returns `NULL` on allocation failure. Callers must
   show an in-band error status or close the window; they must never dereference
   a failed surface.
 - The window manager limits total live window-surface bytes to 2.5 times
-  `gui_frame_bytes` initially. A create or resize that would exceed the limit
-  fails and leaves the existing window geometry unchanged; tiled/partial
-  backing stores are deferred.
+  `gui_frame_bytes` initially, through M8. M9 replaces this with a checked
+  `min(16 * gui_frame_bytes, 64 MiB)` session limit. This includes all committed
+  surfaces, staging surfaces, retained desktop snapshots, and outstanding
+  create/resize reservations, without counting the same allocation twice.
+  The compositor's single scanout-sized scratch surface and client-side
+  rendering allocations are outside this pool and must be accounted for
+  separately; the limit is not a bound on total GUI-process memory.
+- Under M9, ordinary clients cannot consume the one-frame headroom needed to
+  stage a desktop replacement. That headroom is part of the session limit,
+  not an additional allowance; an existing shell staging allocation satisfies
+  the reservation. Public clients never acquire shell privileges through
+  window-count or surface-budget pressure.
+- From M9's multiwindow step, each ordinary connection has an aggregate
+  surface/reservation allowance of `min(8 * gui_frame_bytes, 32 MiB)` across
+  all its windows, still subject to the session cap. Each window retains its
+  own one-frame surface limit and one in-flight staging transaction. Opening
+  another window on the same connection cannot reset the peer's accounting;
+  splitting a workload across connections cannot bypass the session limit.
+- Dynamic client, window, pending-launch, and poll records are not unbounded:
+  charge actual record/table capacity to a 1 MiB WM metadata budget and a
+  256 KiB per-connection share. The shell's dynamic window/snapshot model has
+  its own 1 MiB metadata budget. These budgets are separate from surfaces and
+  the existing independent 64 KiB input/output queues per endpoint. Check
+  allocation growth and arithmetic before accepting new records; release
+  unused storage on teardown. No fixed-size array or numeric window-count cap
+  substitutes for this accounting. Kernel fd/process limits remain additional
+  admission constraints, not reasons to terminate existing peers.
+- A create, resize, or fullscreen transition must reserve its required
+  capacity before being accepted. Quota exhaustion returns a normal protocol
+  error, preserves existing geometry and committed pixels, and leaves other
+  clients usable. Allocation or commit failure during an accepted transition
+  restores the prior geometry and mode; any corrective configure uses a new
+  serial, never a reused or decremented serial. Destroy, disconnect, canceled
+  configure, and failed transactions release all associated reservations.
+  M9 retains atomic full-surface transactions and checked per-surface sizes
+  no larger than one scanout; tiled/partial backing stores remain deferred.
 - Surfaces are explicitly freed on window close and on ordinary-client
   disconnect. On shell disconnect the server retains only the last committed
   desktop surface as an input-inert snapshot until a replacement shell commits

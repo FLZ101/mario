@@ -751,6 +751,13 @@ Socket and message details:
   disconnects the sender. Any message before `HELLO`, a second `HELLO`, or a
   serial that is zero or not newer than the last committed serial for its window
   is likewise a protocol error and closes that client.
+  M9 allows multiple `WINDOW_CREATE` requests on one ordinary connection,
+  correlated by request IDs; the existing window-addressed payloads are
+  unchanged. Track ownership, configure/frame serials, committed/staging
+  pixels, focus, and grabs per window. Destroying one window leaves its
+  siblings and endpoint live; endpoint disconnect releases them all. A stale
+  or foreign ID must never resolve to a newly allocated record after storage
+  reuse; reject ID-space exhaustion rather than wrapping onto a live ID.
 - Only the shell-capability endpoint may issue one `DESKTOP_CREATE`. Its reply
   returns a server-assigned window ID and current scanout-sized configure
   serial; it receives the same bounded `SURFACE_BEGIN`/`SURFACE_DATA`/
@@ -806,6 +813,13 @@ Socket and message details:
   supersedes the prior one without waiting for a client acknowledgement.
   A newly created window has no prior surface, so the server shows only its
   opaque theme background until the first required full-surface commit.
+  From M9, reserve the required capacity before accepting a size or fullscreen
+  transition. Reject an over-budget transition without changing mode or
+  geometry. If allocation or commit fails after acceptance, restore the prior
+  mode and geometry; a corrective configure receives a fresh serial rather
+  than rolling the serial back. Release canceled reservations just as staging
+  bitmaps are released. This uses the existing configure/error messages, not
+  a second rendering protocol.
 - `SURFACE_BEGIN` carries `window_id`, the current nonzero little-endian
   `uint64_t configure_serial`, a nonzero `uint64_t frame_serial`, and one
   `x`, `y`, `width`, `height` rectangle. It reserves a staging bitmap for
@@ -844,14 +858,32 @@ Socket and message details:
   client-side grab may therefore receive values outside its content rectangle.
   The server keeps desktop-global pointer coordinates and owns all window
   move/resize grabs. `INPUT_RESET` has no key/button payload and invalidates
-  all client input state as defined by the event-loop contract.
-- Bound untrusted client state before the first client is accepted: at most
-  eight active clients and four windows per client; no live surface exceeds one
-  `gui_frame_bytes` in ARGB pixels. Charge both live surfaces and staging
-  bitmaps against a per-client budget of two `gui_frame_bytes` and a global
-  budget of the smaller of six `gui_frame_bytes` or 48 MiB. Limit incomplete
-  input and queued output independently to 64 KiB per client. The server
-  refuses a request that exceeds an allocation
+  all client input state as defined by the event-loop contract. With multiple
+  windows per connection in M9, the existing connection-scoped reset applies
+  to every window on that endpoint; `INPUT_EVENT` and focus notifications
+  continue to identify their individual target window.
+- Bound untrusted client state before the first client is accepted. The initial
+  M3-M8 implementation admits eight connections and one window per ordinary
+  connection. M9 dynamically allocates connection/window records and permits
+  multiple windows per ordinary endpoint, with no small fixed count ceiling.
+  Account for the private shell, diagnostic clients, pending launches, poll
+  tables, and window records under the metadata byte budgets in the
+  [toolkit contract](ui-toolkit.md#surface-memory-and-failure-handling), in
+  addition to kernel fd/process limits. No live surface exceeds one
+  `gui_frame_bytes` in ARGB pixels. Charge live surfaces, staging bitmaps, and
+  outstanding reservations against the peer's aggregate budget without
+  double-counting reserved storage when allocated: initially two
+  `gui_frame_bytes`, replaced at M9's multiwindow step by
+  `min(8 * gui_frame_bytes, 32 MiB)`. The global pool also includes retained
+  desktop snapshots: initially 2.5 `gui_frame_bytes`, replaced in M9 by
+  `min(16 * gui_frame_bytes, 64 MiB)` with shell replacement headroom as defined
+  in the [toolkit contract](ui-toolkit.md#surface-memory-and-failure-handling).
+  Limit incomplete input and queued output independently to 64 KiB per client;
+  stream large shell snapshots in bounded batches while preserving the ordered
+  snapshot/delta sequence. Grow client/window/launch records only after
+  resource admission; allocation or quota failure rejects the new operation
+  or connection without destroying healthy existing windows.
+  The server refuses a request that exceeds an allocation
   limit, coalesces pending mouse-move notifications, and disconnects a client
   that exceeds either byte quota; it never lets a blocked client grow an
   unbounded queue.

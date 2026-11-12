@@ -1,5 +1,5 @@
-# Build a kernel that deliberately double-frees before scheduler and filesystem
-# initialization.  This verifies that the kmalloc guard stops at the source.
+# Interleave frees across allocator boards, then deliberately double-free
+# before scheduler and filesystem initialization to verify the source guard.
 REBUILD-KERNEL: selftest-kmalloc
 EXPECT-HALT: Assertion 'block->magic == KMALLOC_MAGIC_ALLOC' failed
 CHECK: === MARIO FATAL HANG ===

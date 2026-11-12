@@ -9,6 +9,7 @@
 #include <assert.h>
 
 #include <app/util.h>
+#include <app/gui-session.h>
 
 static volatile sig_atomic_t sigchld = 0;
 static volatile sig_atomic_t sigint = 0;
@@ -171,8 +172,10 @@ void do_getty()
                 if (window_manager.enabled && window_manager.pid == pid) {
                     window_manager.pid = 0;
                     /* Preserve a cleanly stopped GUI session until reboot. */
-                    if (!window_manager_stopped(status))
+                    if (!window_manager_stopped(status)) {
+                        gui_session_remove_status_files();
                         spawn_window_manager();
+                    }
                     continue;
                 }
                 for (int i = 0; i < N_GETTY; i++) {

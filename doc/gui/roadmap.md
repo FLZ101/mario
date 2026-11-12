@@ -70,6 +70,7 @@ while an earlier checkpoint is red.
 | M6 — Image viewer | BMP/PNG decode, fit, zoom, pan | image-viewer screenshot regression |
 | M7 — File manager | browse, mutate `/tmp`, and launch apps | file-manager end-to-end regression |
 | M8 — Window-system hardening | protocol quotas, disconnect recovery, and server restart | window-system recovery regression |
+| M9 — Window capacity and fullscreen | dynamic resource-bounded windows, multiwindow clients, taskbar overflow, and fullscreen/restore | growth, quota, fullscreen, and real tmux application regressions |
 
 ## Commit-Sized Execution Plan
 
@@ -138,14 +139,17 @@ item that cannot state this contract is planning work, not implementation work.
 | M5 | M3.6.2 and all M4 gates | `app/usr/terminal/`, `app/gui/libmario-ui/`, `tests/gui/` | parser unit tests plus terminal golden |
 | M6 | M3.6.2 and M2.2.2 | `app/usr/imageviewer/`, `app/usr/libpng/`, `tests/gui/assets/` | decoder unit test plus image golden |
 | M7 | M3.6.2, M5.1.2, and M6.1.3 | `app/usr/filemanager/`, `tests/gui/assets/files/`, `tests/gui/` | `/tmp` end-to-end fixture |
-| M8 | M3.6.2 and M5–M7 complete | `app/gui/libmario-ui/`, `app/gui/desktop/`, `app/usr/` | server-recovery and quota regressions |
+| M8 | M3.6.2 and M5–M7 complete | `src/fs/inode.c`, `src/mm/kmalloc.c`, `src/include/mm/kmalloc.h`, `src/kernel/runtime_selftest.c`, `app/gui/libmario-ui/`, `app/gui/desktop/`, `app/include/app/`, `app/system/init/`, `app/usr/`, `app/test/`, `tests/gui/`, `tests/shell/` | server-recovery and quota regressions |
+| Integration smoke | M8.3.1 | `app/usr/toybox/.config`, `app/usr/toybox.patch`, `tests/gui/terminal-apps.test`, `tests/gui/assets/terminal-vim.png`, `tests/shell/fb-no-vbe.test` | real terminal applications and no-VBE boot |
+| M9 | M8.3.1 and all Final Integration Checklist gates, including tmux panes | `app/include/app/`, `app/gui/desktop/`, `app/usr/terminal/`, `app/usr/imageviewer/`, `app/usr/filemanager/`, `app/test/gui-wm-client/`, `app/test/gui-wm-busy/`, `tests/gui/`, `tests/shell/gui-wm-busy.test`, `doc/gui/` | dynamic multiwindow lifecycles, resource quotas, taskbar paging, occlusion, fullscreen/restore, and real tmux applications |
 
 M4 is allowed to begin after M3 has a reliable graphics-seat lifecycle so PTY
 failures can be diagnosed from a stable desktop. M5, M6, and M7 may proceed in
 parallel only after their listed prerequisites are green; their writes must be
 disjoint. M8 begins only after the protocol-client applications are stable,
 because it hardens their established rendering transport rather than replacing
-their behavior.
+their behavior. M9 begins only after M8 and the Final Integration Checklist
+are green; its dynamic capacity must preserve the M8 quota and recovery guarantees.
 
 Before M0:
 
@@ -1169,16 +1173,66 @@ protocol after terminal, image-viewer, and file-manager clients are stable.
   every protocol and surface-transfer boundary. Verify staging is discarded,
   the previous committed frame remains visible, and no server allocation leaks.
   Commit: `gui: recover partial client frames`.
-- [ ] **M8.2.1 — restart the server safely.** Test server crash/restart with
+- [x] **M8.2.1 — restart the server safely.** Test server crash/restart with
   shell and application clients present; remove stale socket/status files and
-  return to a usable text VT before a new session starts. Commit: `gui: recover
-  window manager restart`.
-- [ ] **M8.2.2 — harden seat and PTY cleanup.** Test F1/F8 during client exit,
+  return to a usable text VT before a new session starts. Prerequisites:
+  M8.1.2 and the M3.6.2 init-supervised session. Safe final inode writeback is
+  a blocking prerequisite: killing a server must not sleep under the global
+  inode-cache spinlock while dropping its executable mapping. Owns
+  `src/fs/inode.c`, `app/include/app/gui-session.h`, `app/system/init/main.c`,
+  `app/gui/desktop/mario-wm/main.c`, and `tests/gui/gui-mp.test`; the internal
+  session-path header is not a new wire protocol or kernel ABI. Init removes
+  a reaped server's stale endpoint and markers before attempting a respawn,
+  including when exec fails; orderly server cleanup removes its paths before
+  releasing exclusive seat ownership. Failed restarts preserve the saved
+  text VT, and a fresh server remains dormant until F8. Test concurrent
+  terminal/image-viewer/file-manager disconnects, a temporarily unavailable
+  server executable, and fresh shell/client rendering after recovery with
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test gui-mp.test tests/gui`,
+  then `make test SMP=16`. Commit: `gui: recover window manager restart`.
+- [x] **M8.2.2 — harden seat and PTY cleanup.** Test F1/F8 during client exit,
   terminal child exit, and repeated shell relaunch; prove no raw device or PTY
-  descriptor survives in a client. Commit: `test: cover window system cleanup`.
-- [ ] **M8.3.1 — add long-run visual recovery coverage.** Repeatedly create,
+  descriptor survives in a client. Prerequisite: M8.2.1. Owns
+  `src/mm/kmalloc.c`, `src/kernel/runtime_selftest.c`,
+  `src/include/mm/kmalloc.h`, `tests/shell/selftest-kmalloc.test`,
+  `app/usr/terminal/main.c`, `app/test/gui-cleanup/main.c`,
+  `app/test/gui-wm-client/main.c`, `tests/gui/gui-cleanup.test`,
+  `tests/gui/wm-quota.test`, and the terminal lifecycle contract in
+  `doc/gui/desktop.md`. The terminal child retains only its slave-backed
+  standard streams, never the parent's window socket or PTY master, and
+  restores default `SIGHUP` handling so master close terminates it. A
+  test-only descriptor audit and full PTY-pool census check child exit,
+  cooperative window close, shell replacement, and session shutdown. Repeat
+  replacement across fresh sessions while retaining the one-retry limit in
+  each session. Repeated session churn also requires unlinking an allocator
+  board from its actual free-list position before returning its pages; test
+  interleaved multi-board allocation/free before the existing double-free
+  self-test. The quota fixture must tolerate a short final overflow write
+  followed by `EPIPE` rather than dying from `SIGPIPE`, while proving the
+  below-limit connection remains live and the overflow ends in EOF.
+  Bound EOF polling by a monotonic deadline, retry early socket wakeups, and
+  repeat the quota probe twenty times in one server session.
+  Run the focused fixtures with `--smp 16`, then
+  `make test SMP=16`. Commit: `test: cover window system cleanup`.
+- [x] **M8.3.1 — add long-run visual recovery coverage.** Repeatedly create,
   move, resize, close, relaunch, and switch VTs while comparing stable final
-  goldens. Commit: `test: stress window manager recovery`.
+  goldens. Prerequisite: M8.2.2. Owns `tests/gui/gui-stress.test` and
+  `tests/gui/assets/desktop-idle.png`, plus
+  `app/gui/desktop/mario-wm/main.c`, `app/test/gui-wm-busy/`,
+  `tests/shell/gui-wm-busy.test`, and the scanout contract in
+  `doc/gui/desktop.md`. A VT transition that interrupts scanout must retain
+  a valid logical surface commit without returning a client protocol error;
+  only completed physical frames advance the readiness/frame markers. A
+  test-only link substitutes busy/error scanout results deterministically,
+  without adding a production runtime hook. Run sixteen production-terminal
+  lifecycles in one server session with real PTY resize acknowledgements,
+  F1/F6/F8 transitions, and full-frame text/desktop comparisons. Capture the
+  deterministic empty-desktop golden from QMP with the pointer at `(16,16)`;
+  do not synthesize a replacement image or introduce runner repeat syntax.
+  After every close, require the same server/shell PIDs, their baseline
+  descriptor counts, and fully recovered PTY capacity. Run the focused
+  fixture with `--smp 16`, then `make test SMP=16`. Commit:
+  `test: stress window manager recovery`.
 
 ### Detailed Specification
 
@@ -1191,6 +1245,19 @@ Goal:
 
 Change:
 
+- `src/mm/kmalloc.c`, `src/include/mm/kmalloc.h`, `src/kernel/runtime_selftest.c`, and
+  `tests/shell/selftest-kmalloc.test`: preserve other partially free boards
+  when reclaiming a non-head board, with an interleaved allocation regression
+  before the existing deliberate double-free check. This blocks repeated
+  session startup when stale free-list links reach returned pages.
+- `src/fs/inode.c`: retain the final inode reference and serialize writeback
+  with the inode semaphore, but release the global cache spinlock before
+  potentially blocking disk I/O. This is a prerequisite for server teardown,
+  not a new filesystem ABI.
+- `app/include/app/gui-session.h`: share the server-owned endpoint/status
+  paths and cleanup helper between init and the window manager.
+- `doc/gui/desktop.md`: keep the init/server lifecycle and status-cleanup
+  contract aligned with the implementation.
 - `app/gui/libmario-ui/protocol.c`: bounded length-prefixed message encode/decode,
   including fragmented-read reassembly, one serialized nonblocking send queue
   per endpoint, `POLLOUT` continuation, and `EPROTO` handling.
@@ -1208,11 +1275,24 @@ Change:
 - `app/usr/terminal/`, `app/usr/imageviewer/`, `app/usr/filemanager/`: retain
   their existing protocol-client paths while adding disconnect and relaunch
   fixtures.
+- `app/test/gui-cleanup/main.c`, `app/test/gui-wm-client/main.c`, and
+  `tests/gui/gui-cleanup.test`: launch a descriptor-auditing child through the
+  real WM terminal path and compare available PTY capacity before, during,
+  and after client/session teardown without runtime hooks.
+- `tests/gui/wm-quota.test`: repeat the quota probe in one server session,
+  tolerating short overflow writes and early socket wakeups while requiring
+  the below-limit peer to remain live and the over-limit peer to reach EOF.
 - `rd/copy_files.py` and `app/system/init/main.c`: retain `mario-wm` as the
   selected session binary and harden stale socket/status cleanup.
 - `tests/gui/gui-mp.test`: a `GUI-VISUAL-TEST:` fixture that exercises
   concurrent clients, partial transfers, server restart, and cleanup rather
   than a first migration.
+- `tests/gui/gui-stress.test` and `tests/gui/assets/desktop-idle.png`: repeated
+  terminal move/resize/relaunch and VT recovery, ending each cycle at the same
+  whole-frame desktop golden with stable process/descriptor/PTY baselines.
+- `app/test/gui-wm-busy/` and `tests/shell/gui-wm-busy.test`: link the production
+  commit handler against a test-only scanout stub to distinguish busy VT
+  transitions from actual flush errors without making clients track mode.
 
 Build and run:
 
@@ -1220,7 +1300,12 @@ Build and run:
 make app
 make disk-image
 make quick-run-gtk
-.venv/bin/python tests/lit_gui_test.py --test gui-mp.test tests/gui
+.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-wm-busy.test tests/shell
+.venv/bin/python tests/lit_gui_test.py --smp 16 --test gui-mp.test tests/gui
+.venv/bin/python tests/lit_gui_test.py --smp 16 --test gui-cleanup.test tests/gui
+.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-quota.test tests/gui
+.venv/bin/python tests/lit_gui_test.py --smp 16 --test gui-stress.test tests/gui
+make test SMP=16
 ```
 
 Checkpoint:
@@ -1238,6 +1323,9 @@ Checkpoint:
   surface after its matching `SURFACE_COMMIT`.
 - No single-process desktop fallback exists; a server failure recovers to text
   and a restarted server starts fresh clients.
+- The cleanup and long-run fixtures restore the saved text frame, reclaim all
+  PTYs, and preserve the desktop golden and server/shell descriptor baselines
+  across sixteen terminal lifecycles.
 
 Debug:
 
@@ -1257,6 +1345,87 @@ gui: harden window manager recovery and protocol limits
 
 ## Final Integration Checklist
 
+- [x] **Integration smoke — exercise supported terminal applications and the
+  no-VBE fallback.** Prerequisite: M8.3.1 and its green full-suite gate. Owns
+  `app/usr/toybox/.config`, `app/usr/toybox.patch`, `tests/gui/terminal-apps.test`,
+  `tests/gui/assets/terminal-vim.png`, `tests/shell/fb-no-vbe.test`,
+  `doc/gui/desktop.md`, and this checklist. Enable the existing Toybox `stty`
+  applet through the standard third-party build so the documented resize
+  smoke command is installed.
+  Its portability patch uses the existing libc terminal headers and accepts
+  only the default line discipline rather than advertising Linux disciplines
+  that Mario does not implement.
+  Run real `vim`, `top`, and `less` through the GUI terminal using QMP keyboard
+  input; verify a saved Vim
+  edit, pager navigation, clean application exits, and `stty size` after a
+  mouse resize. Compare the Vim client surface against a reviewed screenshot
+  and restore the saved text-VT golden after closing the terminal. The shell
+  fixture boots without a VBE handoff, checks the 80x25 console size, and
+  requires the unavailable graphics service to leave text sessions and status
+  paths alone. Application failure, stale status, missing output, or changed
+  pixels fails the fixture rather than weakening a visual assertion. Focused
+  gates are the two fixture commands below, followed by `make test SMP=16`.
+  Commit: `test: cover GUI integration smoke paths`.
+
+- [x] **Tmux prerequisite — wait for startup socket backpressure.**
+  Prerequisite: the integration smoke gate above. Owns
+  `app/usr/build-tmux.sh`, `app/usr/tmux.patch`,
+  `tests/tty/tmux-direct.test`, and this checklist. The longer xterm-direct
+  capability handshake fills Mario's bounded Unix socket before the tmux
+  server has initialized. Its compatibility library's synchronous flush
+  retries nonblocking writes without waiting and can starve the peer on the
+  same AP. Poll for write readiness, retry interrupted waits, and preserve
+  write failures rather than spinning. Apply the portability patch through
+  the standard third-party build. The TTY fixture starts a real session with
+  `TERM=xterm-direct`, checks executed pane output, and requires clean server
+  exit. Focused gate:
+  `.venv/bin/python tests/lit_tty_test.py --smp 16 --test tests/tty/tmux-direct.test`,
+  followed by `make test SMP=16` once the tmux fixture below is complete.
+  Commit: `tmux: wait for writable sockets during startup flush`.
+
+- [x] **Tmux application panes — run Vim, top, and nano together.**
+  Prerequisite: the tmux backpressure regression above. Owns
+  `tests/gui/terminal-tmux-apps.test`,
+  `tests/gui/assets/terminal-tmux-apps.png`, and this checklist. Use real
+  mouse input to resize the terminal to 384x320 (18 rows by 44 columns),
+  retaining its title bar and the desktop diagnostic windows. Fullscreen
+  is excluded: the current 2.5-frame surface budget cannot accommodate a
+  full-screen desktop plus a full-screen terminal and their staged replacements.
+  Start a real tmux session through the GUI keyboard, with Vim on the left and top
+  above nano on the right. Check the enlarged PTY size, three live panes,
+  application output, and reviewed screenshot crops of the editors and pane
+  borders; exclude top's changing process statistics from pixel comparisons.
+  Use tmux prefix navigation and GUI keyboard input to save edits in both
+  editors and quit all three applications. Require tmux and its pane processes
+  to exit, close the terminal, and restore the saved text VT. Missing panes,
+  failed edits, leaked processes, or changed deterministic pixels fail the
+  fixture. Focused gate:
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test terminal-tmux-apps.test tests/gui`,
+  followed by `make test SMP=16`.
+  Commit: `test: exercise GUI tmux application panes`.
+
+For an existing build, discard the cached Toybox installation once so the
+standard third-party build picks up the newly enabled applet:
+
+```sh
+make -C app/usr clean-toybox
+make app
+make disk-image-vbe_1024x768
+.venv/bin/python tests/lit_gui_test.py --smp 16 --test terminal-apps.test tests/gui
+.venv/bin/python tests/lit_shell_test.py --smp 16 --test fb-no-vbe.test tests/shell
+```
+
+After adding the tmux portability patch, discard its cached installation once
+and rebuild through the same third-party build path:
+
+```sh
+make -C app/usr clean-tmux
+make app
+make disk-image-vbe_1024x768
+.venv/bin/python tests/lit_tty_test.py --smp 16 --test tests/tty/tmux-direct.test
+.venv/bin/python tests/lit_gui_test.py --smp 16 --test terminal-tmux-apps.test tests/gui
+```
+
 Run the complete test suite against the common image:
 
 ```sh
@@ -1266,9 +1435,241 @@ make gui-test
 ```
 
 Run the manual smoke test from the Validation section and confirm all ten
-items pass. After that, the GUI plan is complete enough to enter hardening:
-measure ramdisk growth, cap font/image caches, and improve the VT emulator
-only for the supported apps.
+items pass. This closes the M0-M8 integration gate; continue with M9 only after
+its focused and full-suite prerequisites are green.
+
+## M9: Window Capacity and Fullscreen
+
+Prerequisite: M8.3.1 and every Final Integration Checklist gate, including
+`tmux-direct.test` and `terminal-tmux-apps.test`. This milestone replaces the
+initial eight-connection/2.5-frame policy; it does not remove quotas or change
+the kernel graphics-seat, AF_UNIX, or PTY ABIs. Window and connection records
+grow dynamically under resource budgets instead of a fixed 32-entry ceiling;
+multiple windows may share an application connection. Literally unlimited
+windows are not a deliverable. The target contracts are in
+[Desktop and applications](desktop.md#expanded-capacity-and-fullscreen-m9-target)
+and [UI toolkit](ui-toolkit.md#surface-memory-and-failure-handling). All items
+below are planned, not implemented. Run `make test SMP=16` before starting
+each item and before each commit, with `git diff --check` after the focused gate.
+
+- [ ] **M9.1 — admit larger workloads without losing bounded surface safety.**
+  Prerequisite: the integration gates above. Owns
+  `app/include/app/gui-limits.h`, `app/gui/desktop/`, `app/usr/terminal/main.c`,
+  `app/usr/imageviewer/main.c`, `app/usr/filemanager/main.c`,
+  `app/test/gui-wm-client/`, `app/test/gui-wm-busy/`,
+  `tests/shell/gui-wm-busy.test`, `tests/gui/wm-surface-budget.test`,
+  `tests/gui/wm-quota.test`, and `doc/gui/`. Implement the checked session cap
+  `min(16 * gui_frame_bytes, 64 MiB)` including committed, staging, snapshot,
+  and reserved bytes; retain one frame of shell replacement headroom within
+  that cap. Preflight/reserve create and resize transactions, and release
+  reservations on cancellation, superseded configure, disconnect, and failure.
+  Quota rejection preserves prior geometry/pixels; allocation or flush failure
+  after acceptance restores prior state with fresh configure serials. Prove
+  four near-screen-sized normal windows can repeatedly repaint alongside the
+  desktop and diagnostics, including overlapping staging transactions. Keep
+  healthy clients alive on recoverable admission/transition errors; test a
+  real terminal under pressure as well as deterministic protocol clients.
+  Exercise exact-fit and over-limit admission, shell replacement under pressure,
+  stale serials, and full reclamation with a reviewed QMP assertion. Keep the
+  independent input/output quotas and existing `wm-quota.test` strict. Use the
+  existing test-only WM link for deterministic allocation/flush failures, never
+  a production debug switch. Focused gate:
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-surface-budget.test tests/gui`,
+  plus
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-quota.test tests/gui`
+  and
+  `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-wm-busy.test tests/shell`,
+  then `make test SMP=16`.
+  Commit: `gui: expand bounded window surface capacity`.
+- [ ] **M9.2 — allocate clients and per-connection windows dynamically.**
+  Prerequisite: M9.1. Owns `app/include/app/gui-limits.h`,
+  `app/gui/desktop/mario-wm/main.c`,
+  `app/gui/desktop/mario-desktop/main.c`, `app/test/gui-wm-client/`,
+  `tests/gui/wm-window-lifecycle.test`,
+  `tests/gui/assets/wm-window-lifecycle.png`, and `doc/gui/`. Replace fixed
+  connection, window, launch, poll, and shell-model arrays with checked,
+  dynamically allocated records off the small initial userspace stack. Share
+  byte-budget policy, not a numeric maximum-window constant: 1 MiB of WM record
+  capacity with a 256 KiB per-connection share, and a separate 1 MiB shell
+  model budget. Retain the independent 64 KiB input/output limits. At this
+  step, raise the ordinary peer's aggregate surface/reservation allowance to
+  `min(8 * gui_frame_bytes, 32 MiB)` across its windows, always subject to
+  M9.1's session limit and shell headroom. Multiple `WINDOW_CREATE` requests
+  on one connection use the existing request/window IDs and wire payloads.
+  Move ownership, geometry, surfaces, serials, focus/grab state, and cleanup
+  into per-window records; keep connection-scoped resets compatible with
+  existing clients. Test at least 40 small windows on one peer and a separate
+  40-connection workload, proving neither eight nor 32 is a count ceiling.
+  Walk the dynamic shell model with bounded snapshot continuations rather
+  than enqueueing its entire contents, keeping newly admitted workloads
+  compatible with the existing output quota before taskbar paging arrives.
+  Interleave per-window transactions, close one sibling without disturbing
+  others, reject cross-client/stale IDs, disconnect a multiwindow peer, and
+  reuse freed record storage without reusing live identities. Resource and
+  allocation failures reject only the new operation/connection, preserving
+  healthy peers and allowing later admission after reclamation. Recover
+  record-budget charges and descriptors; retain bounded, fair per-turn work.
+  Include a reviewed QMP assertion and single-window compatibility checks.
+  Focused gate:
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-window-lifecycle.test tests/gui`,
+  then `make test SMP=16`. Commit: `gui: allocate clients and windows dynamically`.
+- [ ] **M9.3 — page dynamic taskbars and validate window-list recovery.**
+  Prerequisite: M9.2. Owns `app/include/app/gui-limits.h`,
+  `app/gui/desktop/mario-wm/main.c`,
+  `app/gui/desktop/mario-desktop/main.c`, `app/test/gui-wm-client/`,
+  `tests/gui/wm-many-windows.test`, `tests/gui/assets/wm-many-windows.png`,
+  `rd/copy_files.py` only if a new test binary is needed, and
+  `doc/gui/desktop.md`. Add deterministic previous/next taskbar pages over the
+  dynamic model without drawing over the launcher or clock. Stream snapshots
+  larger than 64 KiB in bounded batches under `POLLOUT`, preserving snapshot/
+  delta order rather than overflowing the shell queue or truncating the list.
+  Test at least 16 live 320x192 application windows in addition to the desktop
+  and diagnostics, including real terminals and multiwindow protocol clients.
+  Sixteen is a minimum tested workload, not an admission maximum; also page
+  through the 40-window workload. Drive activation, Alt-Tab, close, record
+  reuse, and shell recovery through QMP, with stable-ID button checks and
+  reviewed screenshot crops. Verify every admitted window remains reachable
+  after each change, keep a busy peer from starving the shell, and reclaim
+  model records, descriptors, and PTYs after teardown. Focused gate:
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-many-windows.test tests/gui`,
+  then `make test SMP=16`. Commit: `gui: page dynamic taskbars and validate recovery`.
+- [ ] **M9.4 — skip composition and scanout for fully obscured updates.**
+  Prerequisite: M9.3. Owns `app/gui/desktop/mario-wm/main.c`,
+  `app/test/gui-wm-busy/`, `tests/shell/gui-wm-busy.test`,
+  `app/test/gui-wm-client/`, `tests/gui/wm-occlusion.test`,
+  `tests/gui/assets/wm-occlusion.png`, and `doc/gui/desktop.md`. Cull fully
+  obscured window updates from composition and framebuffer damage while
+  retaining their newest complete committed pixels and normal memory charges.
+  Partial overlap still clips correctly; moving/closing the covering window
+  or returning through F8 reveals the latest content, not a stale screenshot.
+  A hidden commit must not publish a completed physical frame when no scanout
+  occurred. Check skipped work through the existing test-only WM link and
+  reviewed QMP overlap/reveal assertions, without production debug switches.
+  Failure or partial upload preserves the prior committed pixels and every
+  retained/staging allocation stays charged. Focused gates:
+  `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-wm-busy.test tests/shell`
+  and
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-occlusion.test tests/gui`,
+  then `make test SMP=16`. Commit: `gui: cull fully obscured window updates`.
+- [ ] **M9.5 — add WM-owned fullscreen and exact geometry restoration.**
+  Prerequisite: M9.4. Owns `app/gui/desktop/mario-wm/main.c`,
+  `app/gui/desktop/mario-desktop/main.c`, `app/test/gui-wm-client/`,
+  `tests/gui/wm-fullscreen.test`, `tests/gui/assets/wm-fullscreen.png`, and
+  `doc/gui/desktop.md`. Implement Super-F entry/exit using normal configure
+  and surface transactions, hiding chrome/panel while keeping the cursor and
+  using content-local input coordinates. Save the normal rectangle once;
+  restore it on toggle or before activating a different window. Preserve
+  Super-W, ordered input resets, and the single fullscreen owner. Test normal
+  to fullscreen to normal geometry, pointer input at screen edges, Alt-Tab,
+  cooperative close without losing sibling windows, F1/F6/F8, and shell
+  replacement. Capacity or allocation
+  failure must leave or restore the previous mode, rectangle, and committed
+  content, not a half-fullscreen placeholder. A stale configure cannot commit
+  after a later transition. Compare real QMP fullscreen and restored frames
+  against reviewed goldens; no runtime test bypasses. Focused gate:
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-fullscreen.test tests/gui`,
+  then `make test SMP=16`. Commit: `gui: add fullscreen window toggle and restore`.
+- [ ] **M9.6 — validate fullscreen tmux and repeated capacity recovery.**
+  Prerequisite: M9.5. Owns `app/usr/terminal/` only for demonstrated configure
+  or PTY-resize defects, `tests/gui/terminal-tmux-fullscreen.test`,
+  `tests/gui/wm-capacity-stress.test`, their reviewed assets under
+  `tests/gui/assets/`, `app/test/gui-wm-client/`, and this roadmap. Preserve
+  the existing resized `terminal-tmux-apps.test`. In a new fixture, launch a
+  real terminal, enter fullscreen through Super-F, start tmux with Vim, top,
+  and nano, then restore and re-enter fullscreen while all three are alive.
+  Verify `stty size`, tmux client dimensions, and pane geometry after each
+  configure; wait for pane/application readiness rather than fixed sleeps.
+  At 1024x768, the terminal's existing margins and cells imply a fullscreen
+  grid of 46 rows by 124 columns. Save edits in both editors, quit all three,
+  and require clean tmux/terminal exit. Assert deterministic editor/border
+  pixels while excluding top statistics and transient editor status text.
+  Separately repeat sixteen capacity/focus/fullscreen/close cycles with
+  multiple windows per connection and independent peers, requiring the same
+  WM/shell PIDs, recovered metadata charges, descriptor counts and PTY capacity,
+  and saved desktop/text goldens after reclamation. Missing windows, failed edits,
+  changed pixels, stale state, or resource leaks fail the gate. Focused gates:
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test terminal-tmux-fullscreen.test tests/gui`
+  and
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-capacity-stress.test tests/gui`,
+  then `make test SMP=16`. Commit: `test: cover fullscreen tmux and window capacity recovery`.
+
+### Detailed Specification
+
+Goal:
+
+- On the normal 256 MiB, 1024x768 common test image, keep at least 16 small
+  application windows usable alongside the desktop and diagnostics; validate
+  a separate repaint workload with four normal windows at maximum decorated
+  content size.
+- Allocate client/window/launch records dynamically under memory and kernel
+  resource limits, not fixed count ceilings. Prove growth beyond 32 with
+  separate 40-window-on-one-peer and 40-connection tests; these counts and the
+  16-window application workload are minimum regression targets, not maxima.
+- Support one fullscreen application with reliable restore, input routing,
+  PTY/tmux resize, and existing VT/session recovery behavior.
+- Keep checked record, message, surface, and cache byte limits and honor kernel
+  fd/process constraints. Increasing a numeric limit alone is not completion;
+  resource admission, taskbar
+  reachability, occlusion, repaint headroom, failure rollback, and reclamation
+  must work together. Finite connection/launch capacity comes from accounted
+  storage and kernel resources, not small fixed arrays.
+
+Change:
+
+- `app/include/app/gui-limits.h`: shared surface/metadata byte-budget policy,
+  not fixed client/window-count constants.
+- `app/gui/desktop/`: bounded admission/accounting, fullscreen state and
+  composition, dynamic connections and per-connection windows, stable window
+  identities, streamed shell snapshots, taskbar overflow pages, and occlusion.
+- `app/usr/terminal/`, `app/usr/imageviewer/`, and `app/usr/filemanager/`:
+  recoverable admission/transition error handling without weakening protocol
+  validation; the terminal also honors fullscreen/restored configure dimensions
+  and existing PTY resize signaling. Retain the full-surface wire protocol.
+- `app/test/gui-wm-busy/` and `tests/shell/gui-wm-busy.test`: test-only allocation
+  and flush-failure coverage for transition rollback and skipped-work checks.
+- `app/test/gui-wm-client/`, `tests/gui/`, and `tests/gui/assets/`: deterministic
+  capacity/pressure clients, reviewed actual QMP screenshots, fullscreen
+  interaction, real tmux application edits, and repeated cleanup checks.
+- `rd/copy_files.py`: install any new test helper with its owning item; prefer
+  extending the existing helper rather than adding a production debug switch.
+- `doc/gui/README.md`, `doc/gui/kernel-foundations.md`, `doc/gui/desktop.md`,
+  `doc/gui/ui-toolkit.md`, and this roadmap: keep target contracts, delivery
+  order, and completion gates aligned.
+
+Checkpoint:
+
+- Both capacity workloads repaint successfully without raising or bypassing
+  the documented limits, and every admitted window is reachable through
+  taskbar paging or Alt-Tab.
+- Dynamic records grow beyond the old/proposed fixed-count ceilings; multiple
+  windows share one endpoint without sharing ownership or serial state.
+  Per-peer/session surface and metadata quotas, fd/process exhaustion, and
+  allocation failure preserve healthy existing peers. Teardown recovers
+  accounting and allows new admission without restarting the server.
+- Fully obscured updates retain current pixels without needless composition/
+  scanout or evading surface charges. Streamed large snapshots remain ordered
+  and within the shell queue quota during growth and recovery.
+- Fullscreen content uses the entire scanout and restore returns to the saved
+  normal rectangle. Panel/chrome pixels, pointer coordinates, and terminal
+  rows/columns agree with the active mode.
+- Over-limit and failed transitions preserve known-good geometry and pixels;
+  shell recovery retains reserved headroom; close/disconnect releases every
+  reservation and allocation. Input/output quota regressions remain green.
+- The new fullscreen tmux test, original resized tmux test, M8 recovery tests,
+  and `make test SMP=16` all pass against the same common image before the
+  milestone is checked complete or its final integration commit is made.
+
+Non-goals: literally unlimited windows or unaccounted growth, a new compositor
+or IPC transport, shared-memory or tiled/partial backing stores, maximization,
+multiple monitors, and changing
+the display mode. If kernel resource limits block the target workloads, add an
+explicit prerequisite and regression before expanding this milestone's scope.
+
+Suggested final commit:
+
+```text
+test: cover fullscreen tmux and window capacity recovery
+```
 
 ## Validation
 

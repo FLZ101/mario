@@ -202,9 +202,53 @@ void kfree(void *ptr)
 		bucket->firstfree = board;
 	}
 	if (board->nfree == bucket->nblocks) {
-		bucket->firstfree = board->next;
+		if (bucket->firstfree == board) {
+			bucket->firstfree = board->next;
+		} else {
+			struct board_header *previous = bucket->firstfree;
+
+			while (previous && previous->next != board)
+				previous = previous->next;
+			assert(previous);
+			previous->next = board->next;
+		}
 		free_board(board);
 	}
 
 	spin_unlock_irqrestore(&kmalloc_lock, flags);
 }
+
+#if defined(CONFIG_KMALLOC_DEBUG) && defined(CONFIG_KMALLOC_SELF_TEST)
+void kmalloc_churn_selftest(void)
+{
+	void *blocks[128];
+	struct bucket_desc *bucket = buckets;
+	struct board_header *initial;
+	unsigned long initial_free;
+
+	while (bucket->block_size - KMALLOC_USER_OFFSET < 64 + KMALLOC_REDZONE_SIZE)
+		bucket++;
+	initial = bucket->firstfree;
+	initial_free = initial ? initial->nfree : 0;
+	for (unsigned int round = 0; round < 3; round++) {
+		for (unsigned int index = 0; index < 128; index++) {
+			blocks[index] = kmalloc(64);
+			assert(blocks[index]);
+			for (unsigned int previous = 0; previous < index; previous++)
+				assert(blocks[index] != blocks[previous]);
+			memset(blocks[index], index, 64);
+		}
+		for (unsigned int parity = 0; parity < 2; parity++) {
+			for (unsigned int index = parity; index < 128; index += 2) {
+				unsigned char *bytes = blocks[index];
+
+				for (unsigned int offset = 0; offset < 64; offset++)
+					assert(bytes[offset] == index);
+				kfree(blocks[index]);
+			}
+		}
+		assert(bucket->firstfree == initial);
+		assert(!initial || initial->nfree == initial_free);
+	}
+}
+#endif

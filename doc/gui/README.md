@@ -35,9 +35,12 @@ progress. GUI test file names use lowercase hyphenated stems such as
 `gui-console.test`; the roadmap reserves names before the corresponding test
 exists.
 
-Roadmap milestones (`M0` through `M8`) are delivery order. The desktop is
+Roadmap milestones (`M0` through `M9`) are delivery order. The desktop is
 client/server from M3 onward: `mario-wm` owns the seat and every visible
 component uses the same protocol; M8 hardens that established architecture.
+M9 adds dynamically allocated, resource-bounded window capacity, multiple
+windows per application connection, and fullscreen after the M8 application
+integration gates, without introducing another rendering or session path.
 
 ## Shared Vocabulary
 

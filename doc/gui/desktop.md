@@ -103,6 +103,60 @@ Focus, raising, and input routing:
   pointer. Modal dialogs are deferred beyond the first desktop; initial
   clients have no modal windows.
 
+### Expanded Capacity and Fullscreen (M9 Target)
+
+- Replace fixed client/window arrays with dynamically allocated records in
+  the WM and shell. There is no small fixed window-count or connection-count
+  ceiling, and no promise of literally unlimited windows: admission is bounded
+  by checked memory budgets, available file descriptors/processes, and stable
+  ID space. Pending launch records grow under the same resource policy and
+  failed launches are reaped. Share the byte-budget policy with regression
+  clients; never turn a minimum tested count into an implementation maximum.
+  Surface admission follows the
+  [toolkit surface-budget contract](ui-toolkit.md#surface-memory-and-failure-handling).
+- Allow multiple ordinary windows on one application connection using the
+  existing request/window IDs. Store geometry, committed/staging surfaces,
+  configure serials, focus, grabs, and fullscreen state per window rather than
+  per connection. Closing one window must not close its siblings; disconnect
+  reclaims every window owned by that endpoint. Validate ownership on every
+  window-addressed message. Single-window clients remain compatible, and a
+  connection-scoped `INPUT_RESET` clears input state for all its windows.
+- At 1024x768 on the normal 256 MiB test guest, support at least 16 additional
+  320x192 application windows while retaining the desktop and diagnostics.
+  This is a minimum regression workload, not a maximum. Separate growth tests
+  keep at least 40 small windows on one connection and at least 40 simultaneous
+  connections, crossing the old eight-entry and proposed 32-entry limits.
+  Also support four near-screen-sized normal windows at the maximum decorated
+  content dimensions, with replacement frames, retaining the desktop and
+  diagnostics. The application and large-window workloads run separately;
+  both must allow repeated desktop and application updates, not just creation.
+- Keep finite per-client and session surface/record budgets, independent
+  input/output queue limits, and bounded per-turn work. Exhausting a budget or
+  kernel resource rejects only the new operation/connection, without killing
+  healthy existing windows. Fully obscured windows need no composition or
+  scanout work, but their retained backing stores still count against memory
+  budgets; M9 does not add swapping or discard hidden content.
+- Super-F toggles the focused ordinary window between normal and fullscreen.
+  The WM owns the shortcut; no new client protocol message is required.
+  Fullscreen content occupies `(0,0)` through the full scanout dimensions,
+  without title bar, borders, or panel; the cursor remains visible. Save the
+  exact normal rectangle once on entry and restore it on exit, clamping only
+  if screen bounds require it. Fullscreen is distinct from maximization;
+  maximization, display-mode changes, and multiple monitors remain deferred.
+- Only one window is fullscreen at a time. Alt-Tab or a shell activation of
+  another window restores the old fullscreen window before activating the
+  target; Super-F on the desktop is a no-op. Super-W remains a cooperative
+  close request. Pointer coordinates become fullscreen-content-local, and
+  fullscreen edges do not start a decoration move/resize. Preserve ordered
+  input resets on every focus/grab/seat transition.
+- Use normal configure serials and surface transactions for entry and exit.
+  Reject insufficient capacity before changing mode; a later allocation or
+  commit error restores the prior state without publishing partial pixels.
+  A successful terminal configure propagates through `TIOCSWINSZ` and
+  `SIGWINCH` to tmux and its panes. F1-F6/F8 preserve fullscreen state and
+  restore the last text VT normally. Fullscreen-client exit restores the
+  desktop; shell replacement preserves the surviving application's mode.
+
 ## Desktop Shell
 
 The desktop client provides:
@@ -113,6 +167,14 @@ The desktop client provides:
 - taskbar buttons for open windows;
 - taskbar-driven activate/raise requests and Super-Return launch requests;
   `mario-wm`, not the shell, owns Alt-Tab and Super-W;
+- in M9, a dynamically allocated window list with deterministic
+  previous/next taskbar pages when buttons do not fit. Preserve launcher and
+  clock space, keep every window reachable, and reveal the focused window's
+  page automatically. Bind clicks to stable window IDs rather than recycled
+  array positions; removal and shell-recovery snapshots cannot leave stale
+  buttons. Stream large snapshots and ordered deltas within the existing
+  bounded output queue rather than enqueueing the whole list at once. The
+  panel is hidden only while an ordinary window is fullscreen;
 - desktop icons and wallpaper configuration are deferred beyond the first
   desktop milestone.
 
@@ -158,6 +220,15 @@ abandoned composition. Vsync is not required. M3 does not begin until the
 kernel's positional-I/O gate is green: `pwrite64()` must preserve `f_pos`,
 handle short writes, and pass the framebuffer-specific regression tests.
 
+A valid client surface commit is independent of physical presentation. If a
+VT transition interrupts its composite with `GUI_FLUSH_BUSY`, the server
+retains the newly committed surface, releases the prior one, and recomposes
+the latest state on the next foreground notification. It does not roll the
+transaction back or send `SURFACE_COMMIT` `-EBUSY` to a client. The completed
+frame counter and readiness marker still advance only after a successful
+scanout; a real flush error retains the prior committed surface and reports
+the transaction error.
+
 ## Terminal Window and PTY Integration
 
 Add:
@@ -168,15 +239,20 @@ Add:
 
 The terminal client:
 
-1. Connects to `mario-wm`, creates its window, and submits surface transactions.
+1. Discards inherited nonstandard descriptors, then connects to `mario-wm`,
+   creates its window, and submits surface transactions.
 2. Opens `/dev/ptmx`.
 3. Calls `grantpt`/`unlockpt` equivalents via `TIOCSPTLCK` and `TIOCGPTN`.
 4. Opens `/dev/pts/N`.
 5. Forks a shell child. The child calls `setsid`, opens the slave as its
    controlling tty, duplicates it to stdin/stdout/stderr, and execs
-   `/bin/oksh`. Before `exec`, it closes every inherited framebuffer, raw-input,
-   mouse, and unrelated PTY descriptor; a shell must never keep the graphics
-   seat alive after the desktop or terminal exits.
+   `/bin/oksh`. Before `exec`, it closes the terminal's window-manager socket
+   and every inherited framebuffer, raw-input, mouse, and unrelated PTY
+   descriptor; only the slave-backed standard streams remain. It restores
+   the default `SIGHUP` disposition rather than inheriting init's ignored
+   hangup signal, so closing the master terminates the child. A shell must
+   never keep the graphics seat, client connection, or PTY slave alive after
+   the desktop or terminal exits.
 6. The terminal client keeps the master and `mario-wm` socket fds in its
    `poll()` set.
 7. Master bytes are parsed by the VT emulator and written to the terminal
@@ -353,12 +429,21 @@ Session lifecycle and configuration:
 - M3 extends `app/system/init/main.c`: after `/usr` is mounted, init checks for
   `/usr/bin/mario-wm`, forks it, and records its pid alongside the gettys. The
   child calls `setsid()` before `exec`; init waits three seconds before
-  restarting a reaped server. The common image always contains the server; if
-  `/dev/fb0` is unavailable, it exits with status 77 and init leaves the text
-  session running without respawning it.
+  restarting a reaped server. The common image always contains the server;
+  init checks whether `/dev/fb0` is available before starting it and leaves
+  text sessions running without a graphics service on a no-VBE boot. A manual
+  server launch without a framebuffer fails with status 1 and creates no
+  socket or session markers.
+- After an unexpected exit of its supervised server, init removes its socket,
+  started/ready/frame markers, and temporary marker files before attempting
+  any restart. This cleanup does not depend on a successful replacement exec.
+  The dead server's last raw-device close restores the saved text VT; a
+  replacement reserves a new dormant seat and never synthesizes F8. An orderly
+  server removes its paths while it still owns the exclusive seat, so its
+  cleanup cannot unlink a successor's listener or completed-frame markers.
 - `mario-wm` opens `/dev/fb0` for exclusive write access, claims the exclusive
   read-only `/dev/gui` seat, then opens `/dev/psaux` and binds
-  `/tmp/.mario-wm/socket`. On any later failure it closes already-opened fds,
+  `/tmp/mario-wm.sock`. On any later failure it closes already-opened fds,
   removes the socket/status files, and exits before enabling F8. It remains
   dormant while text is foreground; F8 makes the server composite committed
   client surfaces after the `POLLPRI` notification.

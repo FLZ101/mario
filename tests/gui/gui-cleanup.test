@@ -1,0 +1,145 @@
+GUI-VISUAL-TEST:
+# The probe runs through a real WM-launched terminal, not a test-link hook.
+SERIAL: export pty_capacity=$(/usr/bin/test/gui-cleanup.exe --pty-pool); test "$pty_capacity" -gt 1 && printf 'gui-cleanup: %s\n' 'baseline ready'
+SERIAL-CHECK: gui-cleanup: baseline ready
+SERIAL: <<HELPERS
+cat >/tmp/gui-cleanup-helpers <<'FUNCTIONS'
+cleanup_wait_gone() {
+    attempt=0
+    while kill -0 "$1" 2>/dev/null; do
+        attempt=$((attempt + 1))
+        if test "$attempt" -ge 10; then
+            echo "gui-cleanup: stuck pid $1"
+            cat /proc/$1/stat
+            return 1
+        fi
+        sleep 1
+    done
+}
+cleanup_start() {
+    rm -f /tmp/mario-wm.* /tmp/gui-cleanup.child /tmp/gui-cleanup.exit
+    /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & wm_pid=$!
+    attempt=0
+    while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do
+        attempt=$((attempt + 1))
+        if test "$attempt" -ge 10; then
+            sed 's/MARIO_GUI_PROMPT/APP_PROMPT/g' /tmp/mario-wm.log
+            return 1
+        fi
+        sleep 1
+    done
+}
+cleanup_child_ready() {
+    attempt=0
+    while test ! -f /tmp/gui-cleanup.child; do
+        attempt=$((attempt + 1))
+        test "$attempt" -lt 10 || break
+        sleep 1
+    done
+    test -f /tmp/gui-cleanup.child || { sed 's/MARIO_GUI_PROMPT/APP_PROMPT/g' /tmp/mario-wm.log; return 1; }
+    child_pid=$(cat /tmp/gui-cleanup.child)
+    terminal_pid=$(pgrep terminal)
+    test "$(ls /proc/$terminal_pid/fd | wc -l)" -eq 5 &&
+        test "$(/usr/bin/test/gui-cleanup.exe --pty-pool)" -eq "$((pty_capacity - 1))"
+}
+cleanup_recovered() {
+    cleanup_wait_gone "$terminal_pid" || return 1
+    cleanup_wait_gone "$child_pid" || return 1
+    test "$(/usr/bin/test/gui-cleanup.exe --pty-pool)" -eq "$pty_capacity"
+}
+cleanup_replace_shell() {
+    old_shell=$(pgrep mario-desktop)
+    kill -KILL "$old_shell"
+    cleanup_wait_gone "$old_shell" || return 1
+    while :; do
+        new_shell=$(pgrep mario-desktop)
+        test -n "$new_shell" && test "$new_shell" != "$old_shell" && break
+        sleep 1
+    done
+}
+FUNCTIONS
+HELPERS
+SERIAL: . /tmp/gui-cleanup-helpers
+SERIAL: <<TTY6
+{
+    printf '\033[2J\033[H\033[8;20HVT6-MARKER'
+    for row in 1 2 3; do
+        printf "\033[${row};1H\033[46m                    \033[${row};60H\033[42m                    "
+    done
+    for row in 23 24 25; do
+        printf "\033[${row};1H\033[45m                    \033[${row};60H\033[43m                    "
+    done
+    printf '\033[0m\033[8;20HVT6-MARKER'
+} > /dev/tty6
+TTY6
+SERIAL: cleanup_start
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/gui-wm-client.exe --launch-cleanup-only
+SERIAL: cleanup_child_ready && printf 'gui-cleanup: %s\n' 'inherited descriptors clean'
+SERIAL-CHECK: gui-cleanup: inherited descriptors clean
+# Natural child exit while text owns foreground must close both PTY ends.
+GUI-SEND-KEY: f1
+SERIAL: touch /tmp/gui-cleanup.exit; cleanup_recovered && grep 'terminal: child exit 0' /tmp/mario-wm.log && printf 'gui-cleanup: %s\n' 'child exit reclaimed'
+SERIAL-CHECK: gui-cleanup: child exit reclaimed
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 32 500 900 200 31 41 51
+GUI-CHECK-RECT: 130 130 8 8 29 78 216
+GUI-CHECK-RECT: 484 224 1 1 15 118 110
+# Close a second live terminal while switching back to the text console.
+SERIAL: rm -f /tmp/gui-cleanup.child /tmp/gui-cleanup.exit
+SERIAL: /usr/bin/test/gui-wm-client.exe --launch-cleanup-only
+SERIAL: cleanup_child_ready && printf 'gui-cleanup: %s\n' 'close target ready'
+SERIAL-CHECK: gui-cleanup: close target ready
+GUI-SEND-KEYS: meta_l,w
+GUI-SEND-KEY: f1
+SERIAL: cleanup_recovered && printf 'gui-cleanup: %s\n' 'window close reclaimed'
+SERIAL-CHECK: gui-cleanup: window close reclaimed
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 32 500 900 200 31 41 51
+GUI-CHECK-RECT: 130 130 8 8 29 78 216
+GUI-CHECK-RECT: 484 224 1 1 15 118 110
+# A replacement shell must inherit no raw devices or another client's PTY.
+SERIAL: rm -f /tmp/gui-cleanup.child /tmp/gui-cleanup.exit
+SERIAL: /usr/bin/test/gui-wm-client.exe --launch-cleanup-only
+SERIAL: cleanup_child_ready && cleanup_replace_shell && cleanup_child_ready && printf 'gui-cleanup: %s\n' 'live client survived replacement'
+SERIAL-CHECK: gui-cleanup: live client survived replacement
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+# Check the retained client's top margin between the replacement diagnostics.
+GUI-CHECK-RECT: 460 180 8 8 17 24 39
+# Losing the replacement ends the session rather than consuming another retry.
+SERIAL: kill -KILL "$new_shell"; wait "$wm_pid"; cleanup_wait_gone "$new_shell" && cleanup_recovered && printf 'gui-cleanup: %s\n' 'session reclaimed'
+SERIAL-CHECK: gui-cleanup: session reclaimed
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+# Repeat the one-replacement lifecycle in two new dormant sessions.
+SERIAL: cleanup_start
+SERIAL: /usr/bin/test/gui-wm-client.exe --launch-cleanup-only
+SERIAL: cleanup_child_ready && cleanup_replace_shell && cleanup_child_ready && printf 'gui-cleanup: %s\n' 'repeat 1 replaced'
+SERIAL-CHECK: gui-cleanup: repeat 1 replaced
+SERIAL: kill -KILL "$new_shell"; wait "$wm_pid"; cleanup_wait_gone "$new_shell" && cleanup_recovered && test ! -e /tmp/mario-wm.started && test ! -e /tmp/mario-wm.sock && printf 'gui-cleanup: %s\n' 'repeat 1 reclaimed'
+SERIAL-CHECK: gui-cleanup: repeat 1 reclaimed
+SERIAL: cleanup_start
+SERIAL: /usr/bin/test/gui-wm-client.exe --launch-cleanup-only
+SERIAL: cleanup_child_ready && cleanup_replace_shell && cleanup_child_ready && printf 'gui-cleanup: %s\n' 'repeat 2 replaced'
+SERIAL-CHECK: gui-cleanup: repeat 2 replaced
+SERIAL: kill -KILL "$new_shell"; wait "$wm_pid"; cleanup_wait_gone "$new_shell" && cleanup_recovered && test ! -e /tmp/mario-wm.started && test ! -e /tmp/mario-wm.sock && printf 'gui-cleanup: %s\n' 'repeat 2 reclaimed'
+SERIAL-CHECK: gui-cleanup: repeat 2 reclaimed
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+EXIT:

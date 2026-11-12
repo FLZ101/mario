@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <pty.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -646,6 +647,9 @@ static int terminal_spawn_pty(const char *command, const terminal_state *state,
 	if (pid < 0)
 		return -1;
 	if (pid == 0) {
+		if ((state->fd > STDERR_FILENO && close(state->fd) < 0) ||
+		    signal(SIGHUP, SIG_DFL) == SIG_ERR)
+			_exit(127);
 		setenv("TERM", "xterm-direct", 1);
 		setenv("COLORTERM", "truecolor", 1);
 		if (command != NULL)
@@ -704,12 +708,17 @@ static int terminal_drain_pty(int master, terminal_vt *vt, int *updated)
 
 int main(int argc, char **argv)
 {
+	long descriptor_limit = sysconf(_SC_OPEN_MAX);
 	terminal_state state = { .fd = -1, .master = -1 };
 	const char *command = NULL;
 	pid_t child = -1;
 	int master = -1;
 	int status = 1;
 
+	if (descriptor_limit < 0)
+		return 1;
+	for (long descriptor = STDERR_FILENO + 1; descriptor < descriptor_limit; descriptor++)
+		close(descriptor);
 	if (argc == 3 && !strcmp(argv[1], "--command"))
 		command = argv[2];
 	else if (argc != 1)
