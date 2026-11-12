@@ -1,10 +1,23 @@
 #include <assert.h>
+#include <errno.h>
+#include <stdlib.h>
 #include <time.h>
 #include <gui/surface.h>
 
 static gui_flush_result scanout_result;
 static unsigned int scanout_calls;
 static int fail_surface_allocation;
+static int fail_record_allocation;
+
+static void *test_record_create(size_t count, size_t bytes)
+{
+	if (fail_record_allocation) {
+		fail_record_allocation = 0;
+		errno = ENOMEM;
+		return NULL;
+	}
+	return calloc(count, bytes);
+}
 
 static gui_surface *test_surface_create(int width, int height)
 {
@@ -26,36 +39,41 @@ gui_flush_result gui_surface_flush_rect_fd(const gui_surface *surface,
 
 #define main wm_program_main
 #define gui_surface_create test_surface_create
+#define calloc test_record_create
 #include "../../gui/desktop/mario-wm/main.c"
 #undef gui_surface_create
+#undef calloc
 #undef main
+
+static void init_server(wm_server *server, uint32_t width, uint32_t height);
+static wm_window *init_client(wm_server *server, size_t index, gui_protocol_endpoint_role role);
+static void cleanup_server(wm_server *server);
 
 static void test_commit(gui_flush_result result, int graphics)
 {
 	static wm_server server;
-	wm_client *client = &server.clients[0];
+	wm_window *client;
 	gui_surface *previous = gui_surface_create(8, 8);
 	gui_surface *next = gui_surface_create(8, 8);
 	uint8_t commit[sizeof(gui_protocol_wire_surface_commit)] = { 0 };
 
 	assert(previous != NULL && next != NULL);
-	memset(&server, 0, sizeof(server));
-	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++)
-		server.clients[index].fd = -1;
+	init_server(&server, 8, 8);
+	client = init_client(&server, 0, GUI_PROTOCOL_ENDPOINT_ORDINARY);
 	server.state = (wm_state) { .framebuffer = 123, .graphics = graphics,
-		.width = 8, .height = 8, .scanout_stride = 32,
-		.surface_bytes = 512, .frame_number = 7,
-		.frame_bytes = 256, .surface_limit = 4096,
+		.width = 8, .height = 8, .scanout_stride = 32, .surface_bytes = 512,
+		.frame_number = 7, .frame_bytes = 256, .surface_limit = 4096,
 		.composite = gui_surface_create(8, 8) };
 	assert(server.state.composite != NULL);
-	*client = (wm_client) { .fd = 124, .hello = 1,
-		.role = GUI_PROTOCOL_ENDPOINT_ORDINARY, .window_id = 1,
-		.configure_serial = 1, .width = 8, .height = 8,
-		.committed = previous, .committed_bytes = 256,
-		.staging = next, .staging_bytes = 256, .staging_pixels = 64,
-		.staging_frame_serial = 2, .server = &server,
-		.output = gui_protocol_output_create(GUI_PROTOCOL_OUTPUT_LIMIT) };
-	assert(client->output != NULL);
+	client->width = 8;
+	client->height = 8;
+	client->committed = previous;
+	client->committed_bytes = 256;
+	client->staging = next;
+	client->staging_bytes = 256;
+	client->staging_pixels = 64;
+	client->staging_frame_serial = 2;
+	client->client->surface_bytes = 512;
 	put_u32(commit, 1);
 	put_u64(commit + 4, 1);
 	put_u64(commit + 12, 2);
@@ -66,20 +84,16 @@ static void test_commit(gui_flush_result result, int graphics)
 	assert(server.state.frame_number == 7);
 	if (result == GUI_FLUSH_ERROR && graphics) {
 		assert(client->committed == previous && client->staging == NULL);
-		assert(client->configure_serial == 2);
-		assert(server.state.surface_bytes == 256);
-		assert(gui_protocol_output_pending(client->output));
+		assert(client->configure_serial == 2 && server.state.surface_bytes == 256);
+		assert(gui_protocol_output_pending(client->client->output));
 	} else {
 		assert(client->committed == next && client->staging == NULL);
 		assert(client->staging_frame_serial == 0 && client->staging_pixels == 0);
 		assert(server.state.surface_bytes == 256);
-		assert(!gui_protocol_output_pending(client->output));
+		assert(!gui_protocol_output_pending(client->client->output));
 	}
-	client_discard_staging(client);
-	client_discard_committed(client);
-	assert(server.state.surface_bytes == 0);
-	gui_protocol_output_destroy(client->output);
-	gui_surface_destroy(server.state.composite);
+	assert(client->client->surface_bytes == 256);
+	cleanup_server(&server);
 }
 
 static uint8_t captured_output[4096];
@@ -94,46 +108,48 @@ static ssize_t capture_output(void *context, const void *bytes, size_t count)
 	return (ssize_t)count;
 }
 
-static void drain_output(wm_client *client)
+static void drain_output(wm_window *client)
 {
 	captured_bytes = 0;
-	assert(gui_protocol_output_flush(client->output, capture_output, NULL) ==
+	assert(gui_protocol_output_flush(client->client->output, capture_output, NULL) ==
 		GUI_PROTOCOL_OUTPUT_EMPTY);
 }
 
 static void init_server(wm_server *server, uint32_t width, uint32_t height)
 {
 	memset(server, 0, sizeof(*server));
-	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++)
-		server->clients[index].fd = -1;
 	server->state.width = width;
 	server->state.height = height;
 	assert(surface_bytes(width, height, &server->state.frame_bytes) == 0);
 	server->state.surface_limit = app_gui_surface_budget(server->state.frame_bytes);
 }
 
-static wm_client *init_client(wm_server *server, size_t index,
+static wm_window *init_client(wm_server *server, size_t index,
 				gui_protocol_endpoint_role role)
 {
-	wm_client *client = &server->clients[index];
+	wm_client *peer = wm_add_client(server, dup(STDOUT_FILENO), role);
+	wm_window *window;
 
-	*client = (wm_client) { .fd = dup(STDOUT_FILENO), .hello = 1, .role = role,
-		.server = server, .configure_serial = 1, .window_id = (uint32_t)index + 1,
-		.width = 64, .height = 48, .x = 64, .y = 64,
-		.output = gui_protocol_output_create(GUI_PROTOCOL_OUTPUT_LIMIT) };
-	assert(client->fd >= 0 && client->output != NULL);
-	if (server->next_window_id < client->window_id)
-		server->next_window_id = client->window_id;
-	return client;
+	assert(peer != NULL);
+	peer->hello = 1;
+	window = wm_record_create(server, peer, sizeof(*window));
+	assert(window != NULL);
+	*window = (wm_window) { .client = peer, .server = server, .configure_serial = 1,
+		.window_id = (uint32_t)index + 1, .width = 64, .height = 48, .x = 64, .y = 64,
+		.next = server->windows };
+	server->windows = window;
+	peer->windows = window;
+	if (server->next_window_id < window->window_id)
+		server->next_window_id = window->window_id;
+	return window;
 }
 
 static void cleanup_server(wm_server *server)
 {
-	for (size_t index = 0; index < WM_CLIENT_LIMIT; index++) {
-		wm_client *client = &server->clients[index];
-
-		client_destroy(client);
-	}
+	while (server->clients != NULL)
+		client_destroy(server->clients);
+	assert(wm_poll_resize(server, 0) == 0);
+	assert(server->record_bytes == 0 && server->windows == NULL && server->client_count == 0);
 	if (server->desktop_snapshot != NULL) {
 		server->state.surface_bytes -= server->desktop_snapshot_bytes;
 		gui_surface_destroy(server->desktop_snapshot);
@@ -142,7 +158,7 @@ static void cleanup_server(wm_server *server)
 	gui_surface_destroy(server->state.composite);
 }
 
-static void stage(wm_client *client, uint64_t serial, uint64_t frame)
+static void stage(wm_window *client, uint64_t serial, uint64_t frame)
 {
 	uint8_t begin[sizeof(gui_protocol_wire_surface_begin)] = { 0 };
 
@@ -154,7 +170,7 @@ static void stage(wm_client *client, uint64_t serial, uint64_t frame)
 	assert(client_stage_surface(client, begin) == 0);
 }
 
-static void commit_staged(wm_client *client)
+static void commit_staged(wm_window *client)
 {
 	uint8_t commit[sizeof(gui_protocol_wire_surface_commit)] = { 0 };
 
@@ -169,8 +185,8 @@ static void commit_staged(wm_client *client)
 static void test_admission(void)
 {
 	static wm_server server;
-	wm_client *ordinary;
-	wm_client *shell;
+	wm_window *ordinary;
+	wm_window *shell;
 	size_t frame;
 	uint8_t create[sizeof(gui_protocol_wire_window_create)] = { 0 };
 	gui_protocol_header header = { .type = GUI_PROTOCOL_WINDOW_CREATE };
@@ -209,36 +225,42 @@ static void test_admission(void)
 	assert(server.desktop_snapshot == NULL && server.shell_ready);
 	assert(server.state.surface_bytes == 2 * frame);
 	assert(!client_surface_fits(ordinary, 1, 0));
-	ordinary->window_id = 0;
+	wm_client *peer = ordinary->client;
 	client_discard_reservation(ordinary);
+	window_destroy(ordinary);
 	put_u32(create, 99);
 	put_u32(create + 4, 64);
 	put_u32(create + 8, 48);
 	server.state.surface_limit = 2 * frame + 64 * 48 * 4 - 1;
-	client_message(ordinary, &header, create, sizeof(create));
-	assert(ordinary->window_id == 0 && ordinary->reserved_bytes == 0);
-	assert(ordinary->hello == 1 && server.state.surface_bytes == frame);
-	drain_output(ordinary);
+	client_message(peer, &header, create, sizeof(create));
+	assert(peer->windows == NULL && peer->surface_bytes == 0);
+	assert(peer->hello == 1 && server.state.surface_bytes == frame);
+	captured_bytes = 0;
+	assert(gui_protocol_output_flush(peer->output, capture_output, NULL) == GUI_PROTOCOL_OUTPUT_EMPTY);
 	assert(get_u16(captured_output + 12) == GUI_PROTOCOL_WINDOW_CREATE);
 	assert((int32_t)get_u32(captured_output + 8) == -ENOMEM);
 	server.state.surface_limit++;
-	client_message(ordinary, &header, create, sizeof(create));
+	client_message(peer, &header, create, sizeof(create));
+	ordinary = peer->windows;
+	assert(ordinary != NULL);
 	assert(ordinary->window_id != 0 && ordinary->reserved_bytes == 64 * 48 * 4);
 	assert(server.state.surface_bytes == frame + ordinary->reserved_bytes);
 	header.type = GUI_PROTOCOL_WINDOW_DESTROY;
 	put_u32(create, ordinary->window_id);
-	client_message(ordinary, &header, create, 4);
-	assert(ordinary->reserved_bytes == 0 && ordinary->window_id == 0);
+	client_message(peer, &header, create, 4);
+	assert(peer->windows == NULL && peer->surface_bytes == 0);
 	header.type = GUI_PROTOCOL_WINDOW_CREATE;
 	put_u32(create, 100);
-	client_message(ordinary, &header, create, sizeof(create));
+	client_message(peer, &header, create, sizeof(create));
+	ordinary = peer->windows;
+	assert(ordinary != NULL);
 	assert(ordinary->reserved_bytes == 64 * 48 * 4);
 	fail_surface_allocation = 1;
 	stage(ordinary, 1, 1);
 	assert(ordinary->window_id != 0 && ordinary->configure_serial == 2);
 	assert(ordinary->committed == NULL && ordinary->staging == NULL);
 	assert(ordinary->reserved_bytes == 0 && server.state.surface_bytes == frame);
-	assert(ordinary->width == 64 && ordinary->height == 48 && ordinary->hello == 1);
+	assert(ordinary->width == 64 && ordinary->height == 48 && ordinary->client->hello == 1);
 	stage(ordinary, 1, 2);
 	assert(ordinary->staging == NULL && server.state.surface_bytes == frame);
 	stage(ordinary, 2, 2);
@@ -251,7 +273,7 @@ static void test_admission(void)
 static void test_transitions(void)
 {
 	static wm_server server;
-	wm_client *client;
+	wm_window *client;
 	gui_surface *old;
 	size_t old_bytes = 64 * 48 * 4;
 	size_t next_bytes = 96 * 64 * 4;
@@ -264,11 +286,12 @@ static void test_transitions(void)
 	client->committed = old;
 	client->committed_bytes = old_bytes;
 	server.state.surface_bytes = old_bytes;
+	client->client->surface_bytes = old_bytes;
 	server.state.surface_limit = server.state.frame_bytes + old_bytes + next_bytes - 1;
 	assert(wm_resize_window(&server, client, 32, 48, 96, 64) == -ENOMEM);
 	assert(client->configure_serial == 1 && client->x == 64 && client->y == 64);
 	assert(client->width == 64 && client->height == 48 && client->committed == old);
-	assert(!gui_protocol_output_pending(client->output));
+	assert(!gui_protocol_output_pending(client->client->output));
 	server.state.surface_limit++;
 	assert(wm_resize_window(&server, client, 32, 48, 96, 64) == 1);
 	assert(client->configure_serial == 2 && client->reserved_bytes == next_bytes);
@@ -286,7 +309,7 @@ static void test_transitions(void)
 	assert(client->x == 64 && client->y == 64 && client->committed == old);
 	assert(client->staging == NULL && client->reserved_bytes == 0);
 	assert(!client->transition_pending && server.state.surface_bytes == old_bytes);
-	assert(old->pixels[0] == 0x00123456 && client->hello == 1);
+	assert(old->pixels[0] == 0x00123456 && client->client->hello == 1);
 	drain_output(client);
 	assert(wm_resize_window(&server, client, 32, 48, 96, 64) == 1);
 	stage(client, 5, 4);
@@ -299,7 +322,7 @@ static void test_transitions(void)
 	commit_staged(client);
 	assert(client->configure_serial == 6 && client->committed == old);
 	assert(client->width == 64 && client->height == 48 && client->x == 64 && client->y == 64);
-	assert(client->reserved_bytes == 0 && client->staging == NULL && client->hello == 1);
+	assert(client->reserved_bytes == 0 && client->staging == NULL && client->client->hello == 1);
 	assert(server.state.surface_bytes == old_bytes && old->pixels[0] == 0x00123456);
 	assert(wm_resize_window(&server, client, 32, 48, 96, 64) == 0);
 	assert(client->configure_serial == 8 && client->width == 64 && client->reserved_bytes == 0);
@@ -354,6 +377,234 @@ static void test_surface_flow(void)
 	assert(app_gui_surface_retry_ready(&flow));
 }
 
+static void drain_peer(wm_client *peer)
+{
+	captured_bytes = 0;
+	assert(gui_protocol_output_flush(peer->output, capture_output, NULL) == GUI_PROTOCOL_OUTPUT_EMPTY);
+}
+
+static void create_record(wm_client *peer, uint32_t request_id, uint32_t width, uint32_t height)
+{
+	gui_protocol_header header = { .type = GUI_PROTOCOL_WINDOW_CREATE };
+	uint8_t create[sizeof(gui_protocol_wire_window_create)] = { 0 };
+
+	put_u32(create, request_id);
+	put_u32(create + 4, width);
+	put_u32(create + 8, height);
+	client_message(peer, &header, create, sizeof(create));
+}
+
+static void destroy_record(wm_client *peer, uint32_t window_id)
+{
+	gui_protocol_header header = { .type = GUI_PROTOCOL_WINDOW_DESTROY };
+	uint8_t destroy[sizeof(gui_protocol_wire_window_id)];
+
+	put_u32(destroy, window_id);
+	client_message(peer, &header, destroy, sizeof(destroy));
+}
+
+static void test_peer_surface_capacity(void)
+{
+	static wm_server server;
+	wm_client *peer;
+	wm_client *healthy;
+	wm_window *first;
+	uint32_t first_identity;
+	uint32_t saved_identity;
+	size_t frame;
+
+	init_server(&server, 256, 192);
+	frame = server.state.frame_bytes;
+	peer = wm_add_client(&server, dup(STDOUT_FILENO), GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	assert(peer != NULL);
+	peer->hello = 1;
+	for (unsigned int index = 0; index < 8; index++) {
+		create_record(peer, index + 1, 256, 192);
+		assert(peer->windows != NULL && peer->hello == 1);
+		drain_peer(peer);
+	}
+	assert(peer->surface_bytes == app_gui_peer_surface_budget(frame));
+	first = peer->windows;
+	first_identity = first->window_id;
+	stage(first, 1, 1);
+	commit_staged(first);
+	assert(first->committed != NULL && peer->surface_bytes == 8 * frame);
+	stage(first, 1, 2);
+	drain_peer(peer);
+	assert(first->staging == NULL && first->committed != NULL && peer->hello == 1);
+	assert((int32_t)get_u32(captured_output + 8) == -ENOMEM);
+	saved_identity = server.next_window_id;
+	create_record(peer, 9, 1, 1);
+	drain_peer(peer);
+	assert((int32_t)get_u32(captured_output + 8) == -ENOMEM);
+	assert(server.next_window_id == saved_identity && peer->surface_bytes == 8 * frame);
+	healthy = wm_add_client(&server, dup(STDOUT_FILENO), GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	assert(healthy != NULL);
+	healthy->hello = 1;
+	create_record(healthy, 10, 256, 192);
+	assert(healthy->windows != NULL && healthy->surface_bytes == frame);
+	drain_peer(healthy);
+	destroy_record(peer, first_identity);
+	drain_peer(peer);
+	assert(peer->surface_bytes == 7 * frame && healthy->surface_bytes == frame);
+	create_record(peer, 11, 256, 192);
+	assert(peer->windows->window_id > saved_identity && peer->surface_bytes == 8 * frame);
+	assert(server.state.surface_bytes == 9 * frame);
+	drain_peer(peer);
+	cleanup_server(&server);
+}
+
+static void test_record_capacity(void)
+{
+	static wm_server server;
+	wm_client *peer;
+	wm_client *connections[40];
+	wm_window *first;
+	wm_window *last;
+	wm_window *shell;
+	uint32_t identities[40];
+	uint32_t saved_id;
+	size_t saved_peer;
+	size_t saved_server;
+	int descriptor;
+
+	assert(app_gui_peer_surface_budget(0) == 0);
+	assert(app_gui_peer_surface_budget(1) == 8);
+	assert(app_gui_peer_surface_budget(SIZE_MAX) == APP_GUI_PEER_SURFACE_BYTES);
+	init_server(&server, 1024, 768);
+	peer = wm_add_client(&server, dup(STDOUT_FILENO), GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	assert(peer != NULL);
+	peer->hello = 1;
+	for (unsigned int index = 0; index < 40; index++) {
+		create_record(peer, index + 1, 1, 1);
+		assert(peer->windows != NULL && peer->hello == 1);
+		identities[index] = peer->windows->window_id;
+		assert(index == 0 || identities[index] > identities[index - 1]);
+		drain_peer(peer);
+	}
+	first = wm_find_window(&server, identities[0]);
+	last = wm_find_window(&server, identities[39]);
+	assert(first != NULL && last != NULL && server.client_count == 1);
+	stage(first, 1, 1);
+	stage(last, 1, 1);
+	commit_staged(last);
+	assert(first->staging != NULL && last->committed != NULL && peer->surface_bytes == 40 * 4);
+	destroy_record(peer, identities[10]);
+	assert(wm_find_window(&server, identities[10]) == NULL && first->staging != NULL);
+	assert(last->committed != NULL && peer->surface_bytes == 39 * 4);
+	drain_peer(peer);
+	destroy_record(peer, identities[10]);
+	drain_peer(peer);
+	assert(get_u16(captured_output + 12) == GUI_PROTOCOL_WINDOW_DESTROY);
+	assert((int32_t)get_u32(captured_output + 8) == -EINVAL && peer->hello == 1);
+	saved_peer = peer->record_bytes;
+	saved_server = server.record_bytes;
+	saved_id = server.next_window_id;
+	peer->record_bytes = APP_GUI_PEER_RECORD_BYTES - sizeof(wm_window) + 1;
+	create_record(peer, 100, 1, 1);
+	drain_peer(peer);
+	assert((int32_t)get_u32(captured_output + 8) == -ENOMEM && server.next_window_id == saved_id);
+	peer->record_bytes--;
+	create_record(peer, 101, 1, 1);
+	assert(peer->record_bytes == APP_GUI_PEER_RECORD_BYTES && server.next_window_id > saved_id);
+	drain_peer(peer);
+	create_record(peer, 102, 1, 1);
+	drain_peer(peer);
+	assert((int32_t)get_u32(captured_output + 8) == -ENOMEM && peer->hello == 1);
+	peer->record_bytes = saved_peer + sizeof(wm_window);
+	destroy_record(peer, server.next_window_id);
+	drain_peer(peer);
+	assert(peer->record_bytes == saved_peer && server.record_bytes == saved_server);
+	saved_id = server.next_window_id;
+	server.record_bytes = APP_GUI_WM_RECORD_BYTES - sizeof(wm_window) + 1;
+	create_record(peer, 103, 1, 1);
+	drain_peer(peer);
+	assert((int32_t)get_u32(captured_output + 8) == -ENOMEM && server.next_window_id == saved_id);
+	server.record_bytes--;
+	create_record(peer, 104, 1, 1);
+	assert(server.record_bytes == APP_GUI_WM_RECORD_BYTES);
+	drain_peer(peer);
+	create_record(peer, 105, 1, 1);
+	drain_peer(peer);
+	assert((int32_t)get_u32(captured_output + 8) == -ENOMEM && peer->hello == 1);
+	server.record_bytes = saved_server + sizeof(wm_window);
+	destroy_record(peer, server.next_window_id);
+	drain_peer(peer);
+	assert(peer->record_bytes == saved_peer && server.record_bytes == saved_server);
+	saved_id = server.next_window_id;
+	fail_record_allocation = 1;
+	create_record(peer, 106, 1, 1);
+	drain_peer(peer);
+	assert((int32_t)get_u32(captured_output + 8) == -ENOMEM);
+	assert(server.next_window_id == saved_id && first->staging != NULL && last->committed != NULL);
+	assert(peer->record_bytes == saved_peer && server.record_bytes == saved_server);
+	descriptor = dup(STDOUT_FILENO);
+	assert(descriptor >= 0);
+	server.record_bytes = APP_GUI_WM_RECORD_BYTES;
+	assert(wm_add_client(&server, descriptor, GUI_PROTOCOL_ENDPOINT_ORDINARY) == NULL);
+	assert(fcntl(descriptor, F_GETFD) < 0 && errno == EBADF);
+	server.record_bytes = saved_server;
+	descriptor = dup(STDOUT_FILENO);
+	assert(descriptor >= 0);
+	server.record_bytes = APP_GUI_WM_RECORD_BYTES - sizeof(wm_client);
+	assert(wm_add_client(&server, descriptor, GUI_PROTOCOL_ENDPOINT_ORDINARY) == NULL);
+	assert(fcntl(descriptor, F_GETFD) < 0 && errno == EBADF);
+	assert(server.record_bytes == APP_GUI_WM_RECORD_BYTES - sizeof(wm_client));
+	assert(server.client_count == 1 && peer->record_bytes == saved_peer);
+	server.record_bytes = saved_server;
+	descriptor = dup(STDOUT_FILENO);
+	assert(descriptor >= 0);
+	fail_record_allocation = 1;
+	assert(wm_add_client(&server, descriptor, GUI_PROTOCOL_ENDPOINT_ORDINARY) == NULL);
+	assert(fcntl(descriptor, F_GETFD) < 0 && errno == EBADF);
+	assert(server.record_bytes == saved_server && peer->hello == 1);
+	for (unsigned int index = 0; index < 40; index++) {
+		connections[index] = wm_add_client(&server, dup(STDOUT_FILENO), GUI_PROTOCOL_ENDPOINT_ORDINARY);
+		assert(connections[index] != NULL);
+		connections[index]->hello = 1;
+		create_record(connections[index], 200 + index, 1, 1);
+		assert(connections[index]->windows != NULL && connections[index]->hello == 1);
+		stage(connections[index]->windows, 1, 1);
+		commit_staged(connections[index]->windows);
+		drain_peer(connections[index]);
+	}
+	assert(server.client_count == 41 && peer->surface_bytes == 39 * 4);
+	shell = init_client(&server, server.next_window_id, GUI_PROTOCOL_ENDPOINT_SHELL);
+	wm_send_shell_snapshot(&server, shell->client);
+	unsigned int snapshots = 0;
+	uint32_t previous = 0;
+
+	while (shell->client->snapshot_pending || gui_protocol_output_pending(shell->client->output)) {
+		uint32_t cursor = shell->client->snapshot_cursor;
+		unsigned int batch = 0;
+
+		wm_pump_shell_snapshot(&server, shell->client);
+		assert(cursor == shell->client->snapshot_cursor);
+		drain_peer(shell->client);
+		for (size_t offset = 0; offset < captured_bytes;) {
+			assert(get_u16(captured_output + offset + 4) == GUI_PROTOCOL_WINDOW_LIST_SNAPSHOT);
+			uint32_t identity = get_u32(captured_output + offset + GUI_PROTOCOL_HEADER_SIZE);
+
+			assert(identity > previous);
+			previous = identity;
+			batch++;
+			offset += get_u32(captured_output + offset);
+		}
+		assert(batch <= WM_SHELL_SNAPSHOT_QUANTUM);
+		snapshots += batch;
+		wm_pump_shell_snapshot(&server, shell->client);
+	}
+	assert(snapshots == 79 && shell->client->hello == 1);
+	for (unsigned int index = 0; index < 40; index++) {
+		descriptor = connections[index]->fd;
+		wm_disconnect_client(&server, connections[index]);
+		assert(fcntl(descriptor, F_GETFD) < 0 && errno == EBADF);
+	}
+	assert(server.client_count == 2 && first->staging != NULL && last->committed != NULL);
+	assert(wm_poll_resize(&server, server.client_count) == 0);
+	cleanup_server(&server);
+}
+
 static unsigned int rejected_begins;
 static unsigned int completed_frames;
 static unsigned int rollback_checks;
@@ -362,29 +613,31 @@ static int fail_commit;
 static void terminal_message(void *context, const gui_protocol_header *header,
 				const void *payload, size_t payload_bytes)
 {
-	wm_client *client = context;
-	gui_surface *previous = client->committed;
+	wm_client *peer = context;
+	wm_window *client = peer->windows;
+	gui_surface *previous = client == NULL ? NULL : client->committed;
 	int allocation_failure = fail_surface_allocation;
 	int flush_failure = fail_commit && header->type == GUI_PROTOCOL_SURFACE_COMMIT &&
-		client->staging != NULL;
+		client != NULL && client->staging != NULL;
 
 	if (flush_failure) {
-		client->server->state.graphics = 1;
+		peer->server->state.graphics = 1;
 		scanout_result = GUI_FLUSH_ERROR;
 		fail_commit = 0;
 	}
 	client_message(context, header, payload, payload_bytes);
+	client = peer->windows;
 	if (flush_failure)
-		client->server->state.graphics = 0;
-	if (header->type == GUI_PROTOCOL_SURFACE_BEGIN && client->staging == NULL)
+		peer->server->state.graphics = 0;
+	if (header->type == GUI_PROTOCOL_SURFACE_BEGIN && client != NULL && client->staging == NULL)
 		rejected_begins++;
-	if (header->type == GUI_PROTOCOL_SURFACE_COMMIT && client->committed != previous &&
-	    client->committed != NULL)
+	if (header->type == GUI_PROTOCOL_SURFACE_COMMIT && client != NULL &&
+	    client->committed != previous && client->committed != NULL)
 		completed_frames++;
 	if ((allocation_failure && header->type == GUI_PROTOCOL_SURFACE_BEGIN) || flush_failure) {
-		assert(client->committed == previous && client->staging == NULL);
+		assert(client != NULL && client->committed == previous && client->staging == NULL);
 		assert(client->reserved_bytes == 0 && client->width == 320 && client->height == 192);
-		assert(client->hello == 1 && !client->transition_pending);
+		assert(peer->hello == 1 && !client->transition_pending);
 		rollback_checks++;
 	}
 }
@@ -408,7 +661,7 @@ static void pump_terminal(wm_client *client)
 	messages = gui_protocol_input_drain(client->input, terminal_message, client);
 	assert(messages >= 0 && client->hello >= 0);
 	client->drain_input = messages == 8 && gui_protocol_input_pending(client->input);
-	assert(client_flush(client) == 0 || client->window_id == 0);
+	assert(client_flush(client) == 0 || client->windows == NULL);
 }
 
 static void wait_counter(wm_client *client, const unsigned int *counter, unsigned int target)
@@ -434,8 +687,9 @@ static void touch_marker(const char *path)
 static void test_terminal_recovery(void)
 {
 	static wm_server server;
-	wm_client *client;
-	wm_client *pressure;
+	wm_window *client;
+	wm_window *pressure;
+	wm_client *peer;
 	int listener;
 	int descriptor;
 	int status;
@@ -469,9 +723,11 @@ static void test_terminal_recovery(void)
 	descriptor = accept(listener, NULL, NULL);
 	assert(descriptor >= 0);
 	assert(fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0);
-	client = wm_add_client(&server, descriptor, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	peer = wm_add_client(&server, descriptor, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	assert(peer != NULL);
+	wait_counter(peer, &completed_frames, 1);
+	client = peer->windows;
 	assert(client != NULL);
-	wait_counter(client, &completed_frames, 1);
 	pressure = init_client(&server, 1, GUI_PROTOCOL_ENDPOINT_ORDINARY);
 	pressure->committed = gui_surface_create(1024, 768);
 	assert(pressure->committed != NULL);
@@ -479,27 +735,28 @@ static void test_terminal_recovery(void)
 	pressure->width = 1024;
 	pressure->height = 768;
 	server.state.surface_bytes += pressure->committed_bytes;
+	pressure->client->surface_bytes += pressure->committed_bytes;
 	assert(wm_resize_window(&server, pressure, 64, 64, 320, 192) == 1);
 	touch_marker("/tmp/gui-wm-terminal.paint");
-	wait_counter(client, &rejected_begins, 1);
+	wait_counter(peer, &rejected_begins, 1);
 	assert(kill(child, 0) == 0 && client->committed != NULL);
 	assert(wm_resize_window(&server, client, 64, 64, 400, 256) == -ENOMEM);
-	client_reject(client, GUI_PROTOCOL_WINDOW_RESIZE, -ENOMEM);
-	assert(client_flush(client) == 0);
+	window_reject(client, GUI_PROTOCOL_WINDOW_RESIZE, -ENOMEM);
+	assert(client_flush(client->client) == 0);
 	client_discard_reservation(pressure);
-	wait_counter(client, &completed_frames, completed_frames + 1);
+	wait_counter(peer, &completed_frames, completed_frames + 1);
 	assert(client->width == 320 && client->height == 192 && kill(child, 0) == 0);
 	assert(wm_resize_window(&server, client, 64, 64, 256, 192) == 1);
 	fail_surface_allocation = 1;
-	assert(client_flush(client) == 0);
-	wait_counter(client, &rollback_checks, 1);
-	wait_counter(client, &completed_frames, completed_frames + 1);
+	assert(client_flush(client->client) == 0);
+	wait_counter(peer, &rollback_checks, 1);
+	wait_counter(peer, &completed_frames, completed_frames + 1);
 	assert(client->configure_serial == 3 && kill(child, 0) == 0);
 	assert(wm_resize_window(&server, client, 64, 64, 256, 192) == 1);
 	fail_commit = 1;
-	assert(client_flush(client) == 0);
-	wait_counter(client, &rollback_checks, 2);
-	wait_counter(client, &completed_frames, completed_frames + 1);
+	assert(client_flush(client->client) == 0);
+	wait_counter(peer, &rollback_checks, 2);
+	wait_counter(peer, &completed_frames, completed_frames + 1);
 	assert(client->configure_serial == 5 && kill(child, 0) == 0);
 	assert(server.state.surface_bytes == server.state.frame_bytes + terminal_bytes);
 	touch_marker("/tmp/gui-wm-terminal.finish");
@@ -509,7 +766,7 @@ static void test_terminal_recovery(void)
 		assert(result >= 0 && attempt < 2000);
 		if (result == child)
 			break;
-		pump_terminal(client);
+		pump_terminal(peer);
 		if (usleep(10000) < 0)
 			assert(errno == EINTR);
 	}
@@ -534,9 +791,12 @@ int main(void)
 	test_admission();
 	test_transitions();
 	test_surface_flow();
+	test_peer_surface_capacity();
+	test_record_capacity();
 	test_terminal_recovery();
 	puts("gui-wm-busy: valid commits survive suspended scanout");
 	puts("gui-wm-busy: reservations, shell headroom and transition rollback pass");
 	puts("gui-wm-busy: real terminal survives pressure and allocation/flush rollback");
+	puts("gui-wm-busy: dynamic records, peer budgets and bounded snapshots pass");
 	return 0;
 }

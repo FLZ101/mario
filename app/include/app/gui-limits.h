@@ -9,6 +9,11 @@
 
 #define APP_GUI_SESSION_SURFACE_FRAMES 16U
 #define APP_GUI_SESSION_SURFACE_BYTES (64U * 1024U * 1024U)
+#define APP_GUI_PEER_SURFACE_FRAMES 8U
+#define APP_GUI_PEER_SURFACE_BYTES (32U * 1024U * 1024U)
+#define APP_GUI_WM_RECORD_BYTES (1024U * 1024U)
+#define APP_GUI_PEER_RECORD_BYTES (256U * 1024U)
+#define APP_GUI_DESKTOP_RECORD_BYTES (1024U * 1024U)
 #define APP_GUI_SURFACE_RETRY_MS 100
 
 typedef struct {
@@ -26,6 +31,13 @@ static inline size_t app_gui_surface_budget(size_t frame_bytes)
 	return frame_bytes > APP_GUI_SESSION_SURFACE_BYTES /
 		APP_GUI_SESSION_SURFACE_FRAMES ? APP_GUI_SESSION_SURFACE_BYTES :
 		frame_bytes * APP_GUI_SESSION_SURFACE_FRAMES;
+}
+
+static inline size_t app_gui_peer_surface_budget(size_t frame_bytes)
+{
+	return frame_bytes > APP_GUI_PEER_SURFACE_BYTES /
+		APP_GUI_PEER_SURFACE_FRAMES ? APP_GUI_PEER_SURFACE_BYTES :
+		frame_bytes * APP_GUI_PEER_SURFACE_FRAMES;
 }
 
 static inline uint32_t app_gui_reply_u32(const uint8_t *bytes)

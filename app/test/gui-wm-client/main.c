@@ -523,6 +523,223 @@ static void test_surface_budget(void)
 	budget_marker("/tmp/gui-budget.done");
 }
 
+static uint32_t lifecycle_create(int fd, uint32_t request_id, uint32_t width, uint32_t height)
+{
+	uint8_t frame[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_create)] = { 0 };
+	uint8_t reply[64];
+
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_CREATE,
+		sizeof(gui_protocol_wire_window_create)) == 0);
+	put32(frame + 8, request_id);
+	put32(frame + 12, width);
+	put32(frame + 16, height);
+	write_full(fd, frame, sizeof(frame));
+	budget_reply(fd, reply, GUI_PROTOCOL_WINDOW_CREATE_REPLY);
+	assert(get32(reply + 8) == request_id && get32(reply + 12) != 0);
+	assert(get64(reply + 16) == 1 && get32(reply + 24) == width && get32(reply + 28) == height);
+	return get32(reply + 12);
+}
+
+static void lifecycle_move(int fd, uint32_t window_id, uint32_t x, uint32_t y)
+{
+	uint8_t frame[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_move)];
+
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_MOVE,
+		sizeof(gui_protocol_wire_window_move)) == 0);
+	put32(frame + 8, window_id);
+	put32(frame + 12, x);
+	put32(frame + 16, y);
+	write_full(fd, frame, sizeof(frame));
+}
+
+static gui_color lifecycle_color(unsigned int index)
+{
+	static const gui_color colors[] = { 0x00225688, 0x00448866, 0x00dd8844, 0x008855aa };
+
+	return colors[index % (sizeof(colors) / sizeof(colors[0]))];
+}
+
+static void lifecycle_reply(int fd, uint32_t window_id, uint64_t configure_serial,
+			    uint64_t frame_serial, uint32_t offset, uint32_t count)
+{
+	uint8_t reply[64];
+
+	budget_reply(fd, reply, GUI_PROTOCOL_SURFACE_DATA_REPLY);
+	assert(get32(reply + 8) == window_id && get64(reply + 12) == configure_serial);
+	assert(get64(reply + 20) == frame_serial && get32(reply + 28) == offset && get32(reply + 32) == count);
+}
+
+static void lifecycle_finish(int fd, uint32_t window_id, uint64_t frame_serial, gui_color color)
+{
+	uint32_t total = 96 * 64;
+
+	for (uint32_t offset = 1; offset < total;) {
+		uint32_t count = total - offset > SURFACE_PIXELS_PER_MESSAGE ?
+			SURFACE_PIXELS_PER_MESSAGE : total - offset;
+
+		send_surface_data(fd, window_id, offset, count, frame_serial, color);
+		lifecycle_reply(fd, window_id, 1, frame_serial, offset, count);
+		offset += count;
+	}
+	commit_surface(fd, window_id, frame_serial);
+}
+
+static void lifecycle_paint(int *peers, uint32_t *windows)
+{
+	for (unsigned int index = 0; index < 40; index++)
+		begin_surface(peers[index], windows[index], 96, 64, 1);
+	for (unsigned int index = 0; index < 40; index++) {
+		send_surface_data(peers[index], windows[index], 0, 1, 1, lifecycle_color(index));
+		lifecycle_reply(peers[index], windows[index], 1, 1, 0, 1);
+	}
+	for (unsigned int index = 0; index < 40; index++)
+		lifecycle_finish(peers[index], windows[index], 1, lifecycle_color(index));
+	for (unsigned int index = 0; index < 40; index++) {
+		begin_surface(peers[index], windows[index], 96, 64, 2);
+		send_surface_data(peers[index], windows[index], 0, 1, 2, 0x00448866);
+		lifecycle_reply(peers[index], windows[index], 1, 2, 0, 1);
+	}
+}
+
+static void lifecycle_error(int fd, gui_protocol_type type)
+{
+	uint8_t reply[64];
+
+	budget_reply(fd, reply, GUI_PROTOCOL_ERROR);
+	assert((int32_t)get32(reply + 8) == -EINVAL && get16(reply + 12) == type);
+}
+
+static void lifecycle_invalid_window(int fd, uint32_t window_id, gui_protocol_type type)
+{
+	uint8_t frame[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_begin)] = { 0 };
+	size_t payload_bytes;
+
+	switch (type) {
+	case GUI_PROTOCOL_WINDOW_MOVE:
+		payload_bytes = sizeof(gui_protocol_wire_window_move);
+		break;
+	case GUI_PROTOCOL_WINDOW_RESIZE:
+		payload_bytes = sizeof(gui_protocol_wire_window_resize);
+		break;
+	case GUI_PROTOCOL_WINDOW_DESTROY:
+		payload_bytes = sizeof(gui_protocol_wire_window_id);
+		break;
+	case GUI_PROTOCOL_SURFACE_BEGIN:
+		payload_bytes = sizeof(gui_protocol_wire_surface_begin);
+		break;
+	default:
+		assert(0);
+		return;
+	}
+	assert(gui_protocol_encode_header(frame, sizeof(frame), type, payload_bytes) == 0);
+	put32(frame + 8, window_id);
+	write_full(fd, frame, GUI_PROTOCOL_HEADER_SIZE + payload_bytes);
+	lifecycle_error(fd, type);
+}
+
+static void test_window_lifecycle(void)
+{
+	int peers[40];
+	uint32_t windows[40];
+	uint8_t reply[64];
+	uint8_t resize[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_resize)];
+	int shared = connect_client();
+	int outsider;
+	uint32_t outsider_window;
+	uint32_t last_identity;
+
+	assert(40 * 2 * 96 * 64 * sizeof(gui_color) <= app_gui_peer_surface_budget(1024 * 768 * 4));
+	hello(shared);
+	for (unsigned int index = 0; index < 40; index++) {
+		peers[index] = shared;
+		windows[index] = lifecycle_create(shared, 1000 + index, 96, 64);
+		assert(index == 0 || windows[index] > windows[index - 1]);
+		lifecycle_move(shared, windows[index], 16 + index % 8 * 112, 48 + index / 8 * 96);
+	}
+	lifecycle_paint(peers, windows);
+	puts("wm-client: 40 sibling windows and interleaved stages ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-lifecycle.multi");
+	budget_wait("/tmp/gui-lifecycle.mutate");
+	assert(gui_protocol_encode_header(resize, sizeof(resize), GUI_PROTOCOL_WINDOW_RESIZE,
+		sizeof(gui_protocol_wire_window_resize)) == 0);
+	put32(resize + 8, windows[0]);
+	put32(resize + 12, 112);
+	put32(resize + 16, 80);
+	write_full(shared, resize, sizeof(resize));
+	budget_reply(shared, reply, GUI_PROTOCOL_WINDOW_CONFIGURE);
+	assert(get32(reply + 8) == windows[0] && get64(reply + 12) == 2);
+	assert(get32(reply + 20) == 112 && get32(reply + 24) == 80);
+	begin_surface(shared, windows[0], 96, 64, 3);
+	lifecycle_error(shared, GUI_PROTOCOL_SURFACE_BEGIN);
+	send_surface_data(shared, windows[0], 1, 1, 2, 0x00ff0000);
+	lifecycle_error(shared, GUI_PROTOCOL_SURFACE_DATA);
+	commit_surface(shared, windows[0], 2);
+	lifecycle_error(shared, GUI_PROTOCOL_SURFACE_COMMIT);
+	begin_surface_configured(shared, windows[0], 112, 80, 2, 4);
+	budget_fill(shared, windows[0], 112, 80, 2, 4, 0x00cc4433);
+	begin_surface_configured(shared, windows[0], 112, 80, 2, 5);
+	send_surface_data_configured(shared, windows[0], 0, 1, 2, 5, 0x00cc4433);
+	lifecycle_reply(shared, windows[0], 2, 5, 0, 1);
+	lifecycle_finish(shared, windows[39], 2, 0x00448866);
+	begin_surface(shared, windows[39], 96, 64, 3);
+	send_surface_data(shared, windows[39], 0, 1, 3, 0x00448866);
+	lifecycle_reply(shared, windows[39], 1, 3, 0, 1);
+	destroy_window(shared, windows[10]);
+	lifecycle_invalid_window(shared, windows[10], GUI_PROTOCOL_WINDOW_MOVE);
+	lifecycle_invalid_window(shared, windows[10], GUI_PROTOCOL_WINDOW_DESTROY);
+	outsider = connect_client();
+	hello(outsider);
+	outsider_window = lifecycle_create(outsider, 2000, 64, 48);
+	assert(outsider_window > windows[39]);
+	lifecycle_move(outsider, outsider_window, 900, 620);
+	lifecycle_invalid_window(outsider, windows[0], GUI_PROTOCOL_WINDOW_MOVE);
+	lifecycle_invalid_window(outsider, windows[0], GUI_PROTOCOL_WINDOW_RESIZE);
+	lifecycle_invalid_window(outsider, windows[0], GUI_PROTOCOL_SURFACE_BEGIN);
+	lifecycle_invalid_window(outsider, windows[0], GUI_PROTOCOL_WINDOW_DESTROY);
+	begin_surface(outsider, outsider_window, 64, 48, 1);
+	budget_fill(outsider, outsider_window, 64, 48, 1, 1, 0x00224466);
+	begin_surface(outsider, outsider_window, 64, 48, 2);
+	send_surface_data(outsider, outsider_window, 0, 1, 2, 0x00224466);
+	lifecycle_reply(outsider, outsider_window, 1, 2, 0, 1);
+	last_identity = outsider_window;
+	close(outsider);
+	puts("wm-client: sibling close, stale serials and cross-peer rejection pass");
+	fflush(stdout);
+	budget_marker("/tmp/gui-lifecycle.mutated");
+	budget_wait("/tmp/gui-lifecycle.connections");
+	close(shared);
+	let_server_observe_disconnect();
+	for (unsigned int index = 0; index < 40; index++) {
+		peers[index] = connect_client();
+		hello(peers[index]);
+		windows[index] = lifecycle_create(peers[index], 3000 + index, 96, 64);
+		assert(windows[index] > last_identity);
+		last_identity = windows[index];
+		lifecycle_move(peers[index], windows[index], 16 + index % 8 * 112, 48 + index / 8 * 96);
+	}
+	lifecycle_paint(peers, windows);
+	puts("wm-client: 40 independent connections and interleaved stages ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-lifecycle.many");
+	budget_wait("/tmp/gui-lifecycle.finish");
+	for (unsigned int index = 0; index < 40; index++)
+		close(peers[index]);
+	let_server_observe_disconnect();
+	outsider = connect_client();
+	hello(outsider);
+	outsider_window = lifecycle_create(outsider, 4000, 64, 48);
+	assert(outsider_window > last_identity);
+	begin_surface(outsider, outsider_window, 64, 48, 1);
+	budget_fill(outsider, outsider_window, 64, 48, 1, 1, 0x00224466);
+	destroy_window(outsider, outsider_window);
+	lifecycle_invalid_window(outsider, outsider_window, GUI_PROTOCOL_WINDOW_DESTROY);
+	close(outsider);
+	puts("wm-client: dynamic lifecycle and single-window reclamation pass");
+	fflush(stdout);
+	budget_marker("/tmp/gui-lifecycle.done");
+}
+
 static void test_quotas(void)
 {
 	uint8_t frames[sizeof(gui_protocol_wire_header) +
@@ -924,6 +1141,7 @@ int main(int argc, char **argv)
 
 	assert(argc == 1 || (argc == 2 && (!strcmp(argv[1], "--surface-only") ||
 		!strcmp(argv[1], "--quota-only") || !strcmp(argv[1], "--surface-budget") ||
+		!strcmp(argv[1], "--window-lifecycle") ||
 		!strcmp(argv[1], "--partial-only") ||
 		!strcmp(argv[1], "--commit-only") ||
 		!strcmp(argv[1], "--recovery-only") ||
@@ -937,6 +1155,8 @@ int main(int argc, char **argv)
 			puts("wm-client: staging ok");
 		} else if (!strcmp(argv[1], "--surface-budget")) {
 			test_surface_budget();
+		} else if (!strcmp(argv[1], "--window-lifecycle")) {
+			test_window_lifecycle();
 		} else if (!strcmp(argv[1], "--quota-only")) {
 			test_quotas();
 			puts("wm-client: quotas ok");

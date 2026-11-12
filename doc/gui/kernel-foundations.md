@@ -723,9 +723,11 @@ Socket and message details:
   serial commit for its `DESKTOP_CREATE` surface. This is valid while text is
   foreground and is distinct from `/tmp/mario-wm.ready`, which the server
   creates only after an F8 foreground framebuffer flush.
-- Admit at most eight ordinary public clients in addition to the one private
-  shell endpoint. Reject additional public connects with `ECONNREFUSED` until
-  a client disconnects.
+- M3-M9.1 admits at most eight ordinary public clients in addition to the
+  one private shell endpoint. M9.2 removes that count ceiling: dynamically
+  allocate connections and their owned windows under the metadata and
+  surface budgets. Failed admission closes only the new endpoint; existing
+  peers remain connected and reclamation allows later admission.
 - The socket namespace is ordinary filesystem pathnames only; no Linux
   abstract-socket namespace because Mario's pathname lookup does not support it.
 - Every message starts with this packed little-endian header; `length` includes
@@ -876,7 +878,7 @@ Socket and message details:
   continue to identify their individual target window.
 - Bound untrusted client state before the first client is accepted. The initial
   M3-M9.1 implementation admits eight connections and one window per ordinary
-  connection. The planned M9.2 dynamically allocates connection/window records
+  connection. M9.2 dynamically allocates connection/window records
   and permits multiple windows per ordinary endpoint, with no small fixed
   count ceiling.
   Account for the private shell, diagnostic clients, pending launches, poll
@@ -886,7 +888,7 @@ Socket and message details:
   `gui_frame_bytes` in ARGB pixels. Charge live surfaces, staging bitmaps, and
   outstanding reservations against the peer's aggregate budget without
   double-counting reserved storage when allocated: initially two
-  `gui_frame_bytes`, replaced at M9's multiwindow step by
+  `gui_frame_bytes`, replaced in M9.2 by
   `min(8 * gui_frame_bytes, 32 MiB)`. The global pool also includes retained
   desktop snapshots: initially 2.5 `gui_frame_bytes`, replaced in M9.1 by
   `min(16 * gui_frame_bytes, 64 MiB)` with shell replacement headroom as defined
@@ -896,6 +898,11 @@ Socket and message details:
   snapshot/delta sequence. Grow client/window/launch records only after
   resource admission; allocation or quota failure rejects the new operation
   or connection without destroying healthy existing windows.
+  Validate each window-addressed payload's wire shape before looking up its
+  ID: malformed fixed-size frames disconnect the sender, whereas a valid
+  frame naming a stale or foreign window receives `EINVAL` without affecting
+  its siblings. Window destruction frees only that record and its surfaces;
+  endpoint destruction frees every owned window and its protocol queues.
   The server refuses a request that exceeds an allocation
   limit, coalesces pending mouse-move notifications, and disconnects a client
   that exceeds either byte quota; it never lets a blocked client grow an

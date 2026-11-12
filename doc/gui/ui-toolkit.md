@@ -240,7 +240,7 @@ Pixel conversion:
   window-count or surface-budget pressure.
   A scanout requiring more than half the capped pool is refused at startup,
   since it cannot preserve both the desktop and its replacement.
-- From M9's multiwindow step, each ordinary connection has an aggregate
+- From M9.2, each ordinary connection has an aggregate
   surface/reservation allowance of `min(8 * gui_frame_bytes, 32 MiB)` across
   all its windows, still subject to the session cap. Each window retains its
   own one-frame surface limit and one in-flight staging transaction. Opening
@@ -255,6 +255,11 @@ Pixel conversion:
   unused storage on teardown. No fixed-size array or numeric window-count cap
   substitutes for this accounting. Kernel fd/process limits remain additional
   admission constraints, not reasons to terminate existing peers.
+  M9.2 allocates these records dynamically, retains connection-scoped
+  protocol queues, and charges a logical poll slot to each peer while
+  charging actual poll capacity once globally. Reaping frees launch records;
+  disconnect detaches their peer charge without losing the global charge
+  for a child still being tracked. Freed windows do not reuse identities.
 - A create, resize, or fullscreen transition must reserve its required
   capacity before being accepted. Quota exhaustion returns a normal protocol
   error, preserves existing geometry and committed pixels, and leaves other

@@ -1,0 +1,37 @@
+GUI-VISUAL-TEST:
+TIMEOUT: 180
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-lifecycle.*; /usr/bin/mario-wm >>/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while test -e /tmp/mario-wm.started && ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done; cat /tmp/mario-wm.log
+SERIAL-CHECK: mario-desktop: private connection ready
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/gui-wm-client.exe --window-lifecycle >/tmp/gui-lifecycle.log 2>&1 & echo $! >/tmp/gui-lifecycle.pid
+SERIAL: while test ! -e /tmp/gui-lifecycle.multi && kill -0 $(cat /tmp/gui-lifecycle.pid) 2>/dev/null; do sleep 1; done; cat /tmp/gui-lifecycle.log
+SERIAL-CHECK: wm-client: 40 sibling windows and interleaved stages ready
+GUI-CHECK-RECT: 20 52 16 16 34 86 136
+GUI-CHECK-RECT: 132 52 16 16 68 136 102
+GUI-CHECK-RECT: 804 436 16 16 136 85 170
+GUI-CHECK-SCREEN-RECT: assets/wm-window-lifecycle.png,0,40,912,472
+TIMEOUT: 60
+SERIAL: old_shell=$(pgrep mario-desktop); kill "$old_shell"; while test -e /tmp/mario-wm.started && test $(grep -c 'private connection ready' /tmp/mario-wm.log) -lt 2; do sleep 1; done; cat /tmp/mario-wm.log; replacement=$(pgrep mario-desktop); test -n "$replacement" && test "$replacement" != "$old_shell" && test $(grep -c 'private connection ready' /tmp/mario-wm.log) -ge 2 && printf 'window-lifecycle: shell snapshot restored\n'
+SERIAL-CHECK: window-lifecycle: shell snapshot restored
+TIMEOUT: 180
+GUI-CHECK-RECT: 804 436 16 16 136 85 170
+SERIAL: touch /tmp/gui-lifecycle.mutate
+SERIAL: while test ! -e /tmp/gui-lifecycle.mutated && kill -0 $(cat /tmp/gui-lifecycle.pid) 2>/dev/null; do sleep 1; done; cat /tmp/gui-lifecycle.log
+SERIAL-CHECK: wm-client: sibling close, stale serials and cross-peer rejection pass
+GUI-CHECK-RECT: 20 52 16 16 204 68 51
+GUI-CHECK-RECT: 804 436 16 16 68 136 102
+SERIAL: touch /tmp/gui-lifecycle.connections
+SERIAL: while test ! -e /tmp/gui-lifecycle.many && kill -0 $(cat /tmp/gui-lifecycle.pid) 2>/dev/null; do sleep 1; done; cat /tmp/gui-lifecycle.log
+SERIAL-CHECK: wm-client: 40 independent connections and interleaved stages ready
+GUI-CHECK-RECT: 20 52 16 16 34 86 136
+GUI-CHECK-RECT: 804 436 16 16 136 85 170
+GUI-CHECK-SCREEN-RECT: assets/wm-window-lifecycle.png,0,40,912,472
+SERIAL: touch /tmp/gui-lifecycle.finish
+SERIAL: while test ! -e /tmp/gui-lifecycle.done && kill -0 $(cat /tmp/gui-lifecycle.pid) 2>/dev/null; do sleep 1; done; wait $(cat /tmp/gui-lifecycle.pid); cat /tmp/gui-lifecycle.log
+SERIAL-CHECK: wm-client: dynamic lifecycle and single-window reclamation pass
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started && kill -0 $(cat /tmp/mario-wm.pid) 2>/dev/null; do sleep 1; done; test ! -e /tmp/mario-wm.started && printf 'window-lifecycle: clean teardown\n'
+SERIAL-CHECK: window-lifecycle: clean teardown
+EXIT:

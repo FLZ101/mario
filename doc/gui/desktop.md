@@ -106,10 +106,11 @@ Focus, raising, and input routing:
 ### Expanded Capacity and Fullscreen (M9 Target)
 
 M9.1 implements the expanded surface pool, admission reservations, shell
-replacement headroom, and recoverable transition rollback. Connection and
-window records still have the M8 eight-slot/one-window-per-peer layout;
-dynamic records, multiple windows per connection, and fullscreen remain
-planned in the subsequent M9 steps.
+replacement headroom, and recoverable transition rollback. M9.2 implements
+resource-bounded dynamic connection/window/launch/poll records, multiple
+windows per ordinary connection, and a dynamic shell window list. Taskbar
+paging, large snapshot/delta recovery, occlusion optimization, and fullscreen
+remain planned in subsequent M9 steps.
 
 - Replace fixed client/window arrays with dynamically allocated records in
   the WM and shell. There is no small fixed window-count or connection-count
@@ -120,6 +121,11 @@ planned in the subsequent M9 steps.
   clients; never turn a minimum tested count into an implementation maximum.
   Surface admission follows the
   [toolkit surface-budget contract](ui-toolkit.md#surface-memory-and-failure-handling).
+  M9.2 charges actual WM record and poll capacity to 1 MiB, including a
+  256 KiB share per connection, and shell model records to a separate 1 MiB.
+  Kernel descriptor/process limits and the independent protocol queues still
+  apply. Admission/allocation failure closes only a rejected new connection
+  or rejects a new window without discarding healthy windows.
 - Allow multiple ordinary windows on one application connection using the
   existing request/window IDs. Store geometry, committed/staging surfaces,
   configure serials, focus, grabs, and fullscreen state per window rather than
@@ -127,6 +133,12 @@ planned in the subsequent M9 steps.
   reclaims every window owned by that endpoint. Validate ownership on every
   window-addressed message. Single-window clients remain compatible, and a
   connection-scoped `INPUT_RESET` clears input state for all its windows.
+  `wm-window-lifecycle.test` exercises 40 siblings and 40 independent peers,
+  interleaved stages, per-window resize/close, stale and foreign IDs, shell
+  replacement, and admission after teardown. Initial shell snapshots advance
+  in batches of at most eight records only when the output queue is empty;
+  mutations to unvisited IDs appear in their eventual snapshot, while deltas
+  to visited IDs follow their queued snapshot.
 - At 1024x768 on the normal 256 MiB test guest, support at least 16 additional
   320x192 application windows while retaining the desktop and diagnostics.
   This is a minimum regression workload, not a maximum. Separate growth tests

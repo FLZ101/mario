@@ -3,6 +3,7 @@
 #include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -22,7 +23,6 @@
 #define DESKTOP_TASK_INACTIVE 0x00475569U
 #define DESKTOP_TEXT 0x00f8fafcU
 #define DESKTOP_PANEL_HEIGHT 28U
-#define DESKTOP_WINDOW_LIMIT 8U
 #define DESKTOP_TASKBAR_FIRST_X 64U
 #define DESKTOP_TASKBAR_BUTTON_WIDTH 96U
 #define DESKTOP_TASKBAR_BUTTON_STRIDE 100U
@@ -65,7 +65,8 @@ static const diagnostic_definition diagnostic_definitions[DIAGNOSTIC_COUNT] = {
 	},
 };
 
-typedef struct {
+typedef struct desktop_window {
+	struct desktop_window *next;
 	uint32_t window_id;
 	uint32_t focused;
 	uint32_t order;
@@ -81,7 +82,8 @@ typedef struct {
 	uint8_t launch_diagnostic;
 	int redraw;
 	app_gui_surface_flow surface_flow;
-	desktop_window windows[DESKTOP_WINDOW_LIMIT];
+	desktop_window *windows;
+	size_t record_bytes;
 } desktop_state;
 
 /* Keep the largest wire frame out of the small initial userspace stack. */
@@ -192,35 +194,22 @@ static int text_pixel(const char *text, uint32_t x, uint32_t y,
 static desktop_window *desktop_window_by_id(desktop_state *state,
 					     uint32_t window_id)
 {
-	for (size_t index = 0; index < DESKTOP_WINDOW_LIMIT; index++) {
-		if (state->windows[index].window_id == window_id)
-			return &state->windows[index];
-	}
+	for (desktop_window *window = state->windows; window != NULL; window = window->next)
+		if (window->window_id == window_id)
+			return window;
 	return NULL;
 }
 
 static const desktop_window *desktop_window_at(const desktop_state *state,
 						uint32_t slot)
 {
-	uint32_t previous = 0;
+	const desktop_window *window = state->windows;
 
-	for (;;) {
-		const desktop_window *next = NULL;
-
-		for (size_t index = 0; index < DESKTOP_WINDOW_LIMIT; index++) {
-			const desktop_window *window = &state->windows[index];
-
-			if (window->window_id != 0 && window->window_id > previous &&
-			    (next == NULL || window->window_id < next->window_id))
-				next = window;
-		}
-		if (next == NULL)
-			return NULL;
-		if (slot == 0)
-			return next;
-		previous = next->window_id;
+	while (window != NULL && slot != 0) {
+		window = window->next;
 		slot--;
 	}
+	return window;
 }
 
 static const desktop_window *desktop_taskbar_window(const desktop_state *state,
@@ -314,16 +303,27 @@ static int desktop_handle_window_list(desktop_state *state,
 				      size_t payload_bytes)
 {
 	desktop_window *window;
+	desktop_window **link;
 	uint32_t window_id;
+	uint16_t title_bytes;
 
 	if (payload_bytes < sizeof(gui_protocol_wire_window_list))
 		return -1;
 	window_id = get32(payload);
+	title_bytes = (uint16_t)payload[28] | (uint16_t)payload[29] << 8;
+	if (window_id == 0 || title_bytes > GUI_PROTOCOL_MAX_TITLE_BYTES ||
+	    payload_bytes != sizeof(gui_protocol_wire_window_list) + title_bytes)
+		return -1;
+	link = &state->windows;
+	while (*link != NULL && (*link)->window_id < window_id)
+		link = &(*link)->next;
 	if (type == GUI_PROTOCOL_WINDOW_LIST_REMOVE) {
 		window = desktop_window_by_id(state, window_id);
 		if (window == NULL)
 			return -1;
-		*window = (desktop_window) { 0 };
+		*link = window->next;
+		state->record_bytes -= sizeof(*window);
+		free(window);
 		state->redraw = 1;
 		return 0;
 	}
@@ -331,12 +331,14 @@ static int desktop_handle_window_list(desktop_state *state,
 	if (type == GUI_PROTOCOL_WINDOW_LIST_SNAPSHOT ||
 	    type == GUI_PROTOCOL_WINDOW_LIST_ADD) {
 		if (window == NULL) {
-			for (size_t index = 0; index < DESKTOP_WINDOW_LIMIT; index++) {
-				if (state->windows[index].window_id == 0) {
-					window = &state->windows[index];
-					break;
-				}
-			}
+			if (state->record_bytes > APP_GUI_DESKTOP_RECORD_BYTES - sizeof(*window))
+				return -1;
+			window = calloc(1, sizeof(*window));
+			if (window == NULL)
+				return -1;
+			window->next = *link;
+			*link = window;
+			state->record_bytes += sizeof(*window);
 		}
 		if (window == NULL)
 			return -1;

@@ -1448,8 +1448,8 @@ grow dynamically under resource budgets instead of a fixed 32-entry ceiling;
 multiple windows may share an application connection. Literally unlimited
 windows are not a deliverable. The target contracts are in
 [Desktop and applications](desktop.md#expanded-capacity-and-fullscreen-m9-target)
-and [UI toolkit](ui-toolkit.md#surface-memory-and-failure-handling). M9.1 is
-implemented; the remaining items are planned. Run `make test SMP=16` before
+and [UI toolkit](ui-toolkit.md#surface-memory-and-failure-handling). M9.1 and
+M9.2 are implemented; the remaining items are planned. Run `make test SMP=16` before
 starting each item and before each commit, with `git diff --check` after the
 focused gate.
 
@@ -1482,10 +1482,11 @@ focused gate.
   `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-wm-busy.test tests/shell`,
   then `make test SMP=16`.
   Commit: `gui: expand bounded window surface capacity`.
-- [ ] **M9.2 — allocate clients and per-connection windows dynamically.**
+- [x] **M9.2 — allocate clients and per-connection windows dynamically.**
   Prerequisite: M9.1. Owns `app/include/app/gui-limits.h`,
   `app/gui/desktop/mario-wm/main.c`,
   `app/gui/desktop/mario-desktop/main.c`, `app/test/gui-wm-client/`,
+  `app/test/gui-wm-busy/`, `tests/shell/gui-wm-busy.test`,
   `tests/gui/wm-window-lifecycle.test`,
   `tests/gui/assets/wm-window-lifecycle.png`, and `doc/gui/`. Replace fixed
   connection, window, launch, poll, and shell-model arrays with checked,
@@ -1513,6 +1514,7 @@ focused gate.
   Include a reviewed QMP assertion and single-window compatibility checks.
   Focused gate:
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-window-lifecycle.test tests/gui`,
+  plus `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-wm-busy.test tests/shell`,
   then `make test SMP=16`. Commit: `gui: allocate clients and windows dynamically`.
 - [ ] **M9.3 — page dynamic taskbars and validate window-list recovery.**
   Prerequisite: M9.2. Owns `app/include/app/gui-limits.h`,
