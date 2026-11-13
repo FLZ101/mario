@@ -340,8 +340,13 @@ the rectangle; unchanged state does not draw. New geometry forces a full
 render. Replacement grids, snapshots, and pixels are allocated before
 discarding the working renderer. Allocation failure preserves it and defers
 the pending configure through the existing bounded surface retry timer.
-Uploads still use full configured-size v1.0 surface transactions at this step.
-The negotiated patch and pipelined upload contracts below remain M10 targets.
+M10.6 adds v1.1 atomic patches; M10.7 pipelines four acknowledged chunks within
+a 16 KiB encoded-data window, while continuing PTY, key, and configure service.
+The terminal freezes rendered pixels during each upload and coalesces newer VT
+changes for the next dirty rectangle. Initial display, configure changes, base
+loss, and non-negotiating servers use full replacements. The single-cell and
+adjacent-cursor fixture sends a 16x16 patch (1140 protocol bytes) and scans out
+1024 bytes; distant dirty cells conservatively produce larger rectangles.
 
 - Keep a persistent composite and reuse each window's newest complete cached
   surface. Accumulate bounded screen-space damage for content, chrome, focus,

@@ -1,0 +1,51 @@
+GUI-VISUAL-TEST:
+SERIAL: /usr/bin/test/gui-wm-busy.exe >/tmp/upload-window.work 2>&1; cat /tmp/upload-window.work
+SERIAL-CHECK: gui-wm-busy: upload window caps encoded bytes and survives short, delayed and stale replies
+SERIAL-CHECK: gui-wm-busy: live uploads service PTY, keys and resize with bounded single-cell traffic
+SERIAL-CHECK: gui-wm-busy: rejected negotiation reconnects to legacy full-frame uploads
+SERIAL: rm -f /tmp/mario-wm.* /tmp/upload-window.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & upload_wm=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: <<SCRIPT
+cat >/tmp/upload-window.run <<'CHILD'
+trap 'stty size >/tmp/upload-window.size' WINCH
+printf '\033[?25l\033[7m \033[0m'
+while test ! -e /tmp/upload-window.paint; do sleep 1; done
+printf '\033[7m \033[0m'
+read answer
+printf '%s\n' "$answer" >/tmp/upload-window.key
+printf '\033[2;1H\033[48;2;19;83;137m \033[0m'
+while test ! -e /tmp/upload-window.finish; do sleep 1; done
+CHILD
+SCRIPT
+SERIAL: /usr/bin/terminal --command '. /tmp/upload-window.run' >/tmp/upload-window.log 2>&1 & upload_term=$!
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/upload-window.log; do sleep 1; done
+GUI-CHECK-RECT: 144 116 8 8 248 250 252
+GUI-CHECK-RECT: 152 116 8 8 17 24 39
+SERIAL: touch /tmp/upload-window.paint
+GUI-CHECK-RECT: 152 116 8 8 248 250 252
+GUI-CHECK-RECT: 144 116 8 8 248 250 252
+GUI-TYPE: a
+SERIAL-WAIT-FILE: /tmp/upload-window.key
+SERIAL: grep -qx a /tmp/upload-window.key && printf 'upload-window: input preserved\n'
+SERIAL-CHECK: upload-window: input preserved
+GUI-CHECK-RECT: 144 128 8 8 19 83 137
+GUI-MOUSE-MOVE: 432,184
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/upload-window.size
+SERIAL: grep -qx '10 44' /tmp/upload-window.size && printf 'upload-window: resize preserved\n'
+SERIAL-CHECK: upload-window: resize preserved
+GUI-CHECK-RECT: 144 128 8 8 19 83 137
+GUI-CHECK-RECT: 496 200 8 8 17 24 39
+SERIAL: touch /tmp/upload-window.finish; wait "$upload_term" && printf 'upload-window: clean exit\n'
+SERIAL-CHECK: upload-window: clean exit
+GUI-CHECK-RECT: 144 116 8 8 29 78 216
+GUI-SEND-KEY: f6
+SERIAL: kill -TERM "$upload_wm"; while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

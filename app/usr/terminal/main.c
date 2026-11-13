@@ -21,6 +21,7 @@
 #include <app/gui-limits.h>
 
 #include "vt.h"
+#include "upload.h"
 
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
 #define TERMINAL_WIDTH 320U
@@ -30,7 +31,9 @@
 #define TERMINAL_CELL_HEIGHT 16U
 #define TERMINAL_FONT_HEIGHT 14
 #define TERMINAL_TITLE "Terminal"
-#define SURFACE_PIXELS_PER_MESSAGE 1000U
+#define TERMINAL_REPLY_BYTES 4096U
+#define TERMINAL_PTY_INPUT_BYTES 4096U
+#define TERMINAL_PTY_READ_QUANTUM 16U
 #define TERMINAL_BACKGROUND 0x00111827U
 #define TERMINAL_CURSOR 0x00f8fafcU
 #define TERMINAL_SCROLLBACK_LINES 128U
@@ -60,6 +63,13 @@ typedef struct {
 	uint64_t pending_configure_serial;
 	uint32_t pending_width;
 	uint32_t pending_height;
+	terminal_upload upload;
+	uint32_t capabilities;
+	uint64_t base_frame;
+	int render_pending;
+	int destroy_queued;
+	uint8_t pty_input[TERMINAL_PTY_INPUT_BYTES];
+	size_t pty_input_bytes;
 	gui_surface surface;
 	gui_color *pixels;
 	gui_font *font;
@@ -67,12 +77,7 @@ typedef struct {
 
 static int terminal_resize_pty(int master, const terminal_state *state);
 
-/* Keep the largest outbound wire frame out of Mario's small initial stack. */
-static uint8_t terminal_frame[GUI_PROTOCOL_HEADER_SIZE +
-	sizeof(gui_protocol_wire_surface_data) +
-	SURFACE_PIXELS_PER_MESSAGE * sizeof(uint32_t)];
-/* Surface replies can be interleaved with any server-to-client event. */
-static uint8_t terminal_input[GUI_PROTOCOL_MAX_MESSAGE_SIZE - GUI_PROTOCOL_HEADER_SIZE];
+static uint8_t terminal_input[TERMINAL_REPLY_BYTES];
 
 static const gui_color terminal_palette[16] = {
 	0x00111827, 0x00ef4444, 0x0022c55e, 0x00eab308,
@@ -151,16 +156,6 @@ static int read_full(int fd, void *buffer, size_t byte_count)
 		byte_count -= count;
 	}
 	return 0;
-}
-
-static int send_message(int fd, gui_protocol_type type, const void *payload,
-			size_t payload_bytes)
-{
-	uint8_t header[GUI_PROTOCOL_HEADER_SIZE];
-
-	return gui_protocol_encode_header(header, sizeof(header), type, payload_bytes) < 0 ||
-		write_full(fd, header, sizeof(header)) < 0 ||
-		(payload_bytes != 0 && write_full(fd, payload, payload_bytes) < 0) ? -1 : 0;
 }
 
 static int read_message(int fd, gui_protocol_header *header, uint8_t *payload,
@@ -471,12 +466,29 @@ static int terminal_render(terminal_state *state)
 	return 0;
 }
 
-static uint32_t terminal_pixel(const terminal_state *state, uint32_t offset)
+static int terminal_enqueue_input(terminal_state *state, const void *bytes, size_t count)
 {
-	uint32_t x = offset % state->surface.width;
-	uint32_t y = offset / state->surface.width;
+	if (count > sizeof(state->pty_input) - state->pty_input_bytes)
+		return -1;
+	memcpy(state->pty_input + state->pty_input_bytes, bytes, count);
+	state->pty_input_bytes += count;
+	return 0;
+}
 
-	return state->surface.pixels[y * state->surface.stride + x];
+static int terminal_flush_input(terminal_state *state)
+{
+	ssize_t count;
+
+	if (state->pty_input_bytes == 0)
+		return 0;
+	count = write(state->master, state->pty_input, state->pty_input_bytes);
+	if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
+		return 0;
+	if (count <= 0 || (size_t)count > state->pty_input_bytes)
+		return -1;
+	state->pty_input_bytes -= count;
+	memmove(state->pty_input, state->pty_input + count, state->pty_input_bytes);
+	return 0;
 }
 
 static int terminal_write_input(terminal_state *state, uint32_t keysym,
@@ -496,10 +508,9 @@ static int terminal_write_input(terminal_state *state, uint32_t keysym,
 	default: break;
 	}
 	if (sequence != NULL) {
-		if (state->vt.application_cursor)
-			return write_full(state->master, "\x1bO", 2) < 0 ||
-				write_full(state->master, sequence + 2, 1) < 0 ? -1 : 0;
-		return write_full(state->master, sequence, 3) < 0 ? -1 : 0;
+		char encoded[3] = { '\x1b', state->vt.application_cursor ? 'O' : '[', sequence[2] };
+
+		return terminal_enqueue_input(state, encoded, sizeof(encoded));
 	}
 	if (keysym == GUI_KEYSYM_ESCAPE)
 		byte = '\x1b';
@@ -513,7 +524,7 @@ static int terminal_write_input(terminal_state *state, uint32_t keysym,
 			byte &= 0x1f;
 	} else
 		return 0;
-	return write_full(state->master, &byte, sizeof(byte)) < 0 ? -1 : 0;
+	return terminal_enqueue_input(state, &byte, sizeof(byte));
 }
 
 static int terminal_handle_message(terminal_state *state,
@@ -575,98 +586,24 @@ static int terminal_handle_message(terminal_state *state,
 	return -1;
 }
 
-static int read_surface_data_reply(terminal_state *state, uint64_t frame_serial,
-				   uint32_t pixel_offset, uint32_t pixel_count)
-{
-	for (;;) {
-		gui_protocol_header header;
-		int result;
-		uint64_t configure_serial = state->configure_serial;
-
-		if (read_message(state->fd, &header, terminal_input, sizeof(terminal_input)) < 0)
-			return -1;
-		if (header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY &&
-		    !state->surface_flow.discard_reply) {
-			if (header.length != GUI_PROTOCOL_HEADER_SIZE +
-			    sizeof(gui_protocol_wire_surface_data_reply) ||
-			    get32(terminal_input) != state->window_id ||
-			    get64(terminal_input + 4) != state->configure_serial ||
-			    get64(terminal_input + 12) != frame_serial ||
-			    get32(terminal_input + 20) != pixel_offset ||
-			    get32(terminal_input + 24) != pixel_count)
-				return -1;
-			return 0;
-		}
-		result = terminal_handle_message(state, &header, terminal_input,
-			header.length - GUI_PROTOCOL_HEADER_SIZE);
-		if (result < 0 || state->close_requested)
-			return -1;
-		if (result > 0 || (header.type == GUI_PROTOCOL_ERROR &&
-		    get16(terminal_input + 4) == GUI_PROTOCOL_SURFACE_BEGIN &&
-		    state->surface_flow.retry_pending)) {
-			app_gui_surface_discard_reply(&state->surface_flow, configure_serial,
-				frame_serial, pixel_offset, pixel_count);
-			return 1;
-		}
-	}
-}
-
 static int terminal_send_surface(terminal_state *state)
 {
-	uint8_t begin[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_begin)] = { 0 };
-	uint8_t commit[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_commit)];
-	uint64_t frame_serial = ++state->frame_serial;
-	uint32_t total;
+	gui_rect rectangle;
+	int patch;
 
-	if (frame_serial == 0 || state->height > UINT32_MAX / state->width ||
-	    terminal_render(state) < 0)
+	if (!terminal_upload_ready(&state->upload) || !state->render_pending)
+		return 0;
+	if (terminal_render(state) < 0)
 		return -1;
-	total = state->width * state->height;
-	if (gui_protocol_encode_header(begin, sizeof(begin), GUI_PROTOCOL_SURFACE_BEGIN,
-				       sizeof(gui_protocol_wire_surface_begin)) < 0)
+	state->render_pending = 0;
+	if (state->base_frame != 0 && state->render_damage.w == 0)
+		return 0;
+	if (state->frame_serial == UINT64_MAX)
 		return -1;
-	put32(begin + GUI_PROTOCOL_HEADER_SIZE, state->window_id);
-	put64(begin + GUI_PROTOCOL_HEADER_SIZE + 4, state->configure_serial);
-	put64(begin + GUI_PROTOCOL_HEADER_SIZE + 12, frame_serial);
-	put32(begin + GUI_PROTOCOL_HEADER_SIZE + 28, state->width);
-	put32(begin + GUI_PROTOCOL_HEADER_SIZE + 32, state->height);
-	if (write_full(state->fd, begin, sizeof(begin)) < 0)
-		return -1;
-	for (uint32_t pixel_offset = 0; pixel_offset < total;) {
-		uint32_t pixel_count = total - pixel_offset > SURFACE_PIXELS_PER_MESSAGE ?
-			SURFACE_PIXELS_PER_MESSAGE : total - pixel_offset;
-		size_t payload_bytes = sizeof(gui_protocol_wire_surface_data) +
-			pixel_count * sizeof(uint32_t);
-		int result;
-
-		if (gui_protocol_encode_header(terminal_frame, sizeof(terminal_frame),
-				GUI_PROTOCOL_SURFACE_DATA, payload_bytes) < 0)
-			return -1;
-		put32(terminal_frame + GUI_PROTOCOL_HEADER_SIZE, state->window_id);
-		put64(terminal_frame + GUI_PROTOCOL_HEADER_SIZE + 4,
-			state->configure_serial);
-		put64(terminal_frame + GUI_PROTOCOL_HEADER_SIZE + 12, frame_serial);
-		put32(terminal_frame + GUI_PROTOCOL_HEADER_SIZE + 20, pixel_offset);
-		put32(terminal_frame + GUI_PROTOCOL_HEADER_SIZE + 24, pixel_count);
-		for (uint32_t index = 0; index < pixel_count; index++)
-			put32(terminal_frame + GUI_PROTOCOL_HEADER_SIZE +
-				sizeof(gui_protocol_wire_surface_data) + index * sizeof(uint32_t),
-				terminal_pixel(state, pixel_offset + index));
-		if (write_full(state->fd, terminal_frame,
-			GUI_PROTOCOL_HEADER_SIZE + payload_bytes) < 0)
-			return -1;
-		result = read_surface_data_reply(state, frame_serial, pixel_offset, pixel_count);
-		if (result != 0)
-			return result;
-		pixel_offset += pixel_count;
-	}
-	if (gui_protocol_encode_header(commit, sizeof(commit), GUI_PROTOCOL_SURFACE_COMMIT,
-				       sizeof(gui_protocol_wire_surface_commit)) < 0)
-		return -1;
-	put32(commit + GUI_PROTOCOL_HEADER_SIZE, state->window_id);
-	put64(commit + GUI_PROTOCOL_HEADER_SIZE + 4, state->configure_serial);
-	put64(commit + GUI_PROTOCOL_HEADER_SIZE + 12, frame_serial);
-	return write_full(state->fd, commit, sizeof(commit));
+	patch = (state->capabilities & GUI_PROTOCOL_CAP_SURFACE_PATCH) && state->base_frame != 0;
+	rectangle = patch ? state->render_damage : (gui_rect) { 0, 0, state->width, state->height };
+	return terminal_upload_start(&state->upload, state->window_id, state->configure_serial,
+		state->base_frame, ++state->frame_serial, &state->surface, rectangle, patch);
 }
 
 static int terminal_connect(void)
@@ -687,6 +624,34 @@ static int terminal_connect(void)
 	return fd;
 }
 
+static int terminal_negotiate(terminal_state *state, uint16_t minor)
+{
+	uint8_t frame[32];
+	uint8_t payload[sizeof(gui_protocol_wire_hello)];
+	gui_protocol_header header;
+
+	if (gui_protocol_encode_hello(frame, sizeof(frame),
+		&(gui_protocol_hello) { GUI_PROTOCOL_VERSION_MAJOR, minor }) < 0 ||
+	    write_full(state->fd, frame, GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_hello)) < 0 ||
+	    read_message(state->fd, &header, payload, sizeof(payload)) < 0 ||
+	    header.type != GUI_PROTOCOL_HELLO_REPLY ||
+	    header.length != GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_hello) ||
+	    get16(payload) != GUI_PROTOCOL_VERSION_MAJOR || get16(payload + 2) > minor)
+		return -1;
+	if (get16(payload + 2) == 0)
+		return 0;
+	if (gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_CAPABILITIES, sizeof(payload)) < 0)
+		return -1;
+	put32(frame + GUI_PROTOCOL_HEADER_SIZE, GUI_PROTOCOL_CAP_SURFACE_PATCH);
+	if (write_full(state->fd, frame, GUI_PROTOCOL_HEADER_SIZE + sizeof(payload)) < 0 ||
+	    read_message(state->fd, &header, payload, sizeof(payload)) < 0 ||
+	    header.type != GUI_PROTOCOL_CAPABILITIES_REPLY || header.length != GUI_PROTOCOL_HEADER_SIZE + sizeof(payload) ||
+	    (get32(payload) & ~GUI_PROTOCOL_CAP_SURFACE_PATCH) != 0)
+		return -1;
+	state->capabilities = get32(payload);
+	return 0;
+}
+
 static int terminal_create_window(terminal_state *state)
 {
 	uint8_t frame[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_create) +
@@ -695,15 +660,6 @@ static int terminal_create_window(terminal_state *state)
 	gui_protocol_header header;
 	size_t title_bytes = sizeof(TERMINAL_TITLE) - 1;
 
-	if (gui_protocol_encode_hello(frame, sizeof(frame),
-		&(gui_protocol_hello) { GUI_PROTOCOL_VERSION_MAJOR,
-			GUI_PROTOCOL_VERSION_MINOR }) < 0 ||
-	    write_full(state->fd, frame, GUI_PROTOCOL_HEADER_SIZE +
-		sizeof(gui_protocol_wire_hello)) < 0 ||
-	    read_message(state->fd, &header, payload, sizeof(payload)) < 0 ||
-	    header.type != GUI_PROTOCOL_HELLO_REPLY ||
-	    header.length != GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_hello))
-		return -1;
 	if (gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_CREATE,
 			sizeof(gui_protocol_wire_window_create) + title_bytes) < 0)
 		return -1;
@@ -771,20 +727,11 @@ static int terminal_apply_pending_configure(terminal_state *state, int master)
 
 static int terminal_send_current_surface(terminal_state *state, int master)
 {
-	int result;
-
 	if (terminal_apply_pending_configure(state, master) < 0)
 		return -1;
 	if (state->surface_flow.retry_pending)
 		return 0;
-
-	/* A configure may arrive while the server acknowledges a surface chunk. */
-	do {
-		result = terminal_send_surface(state);
-		if (result < 0)
-			return -1;
-	} while (result > 0 && !state->surface_flow.retry_pending);
-	return 0;
+	return terminal_send_surface(state);
 }
 
 static int terminal_send_title(terminal_state *state)
@@ -803,8 +750,7 @@ static int terminal_send_title(terminal_state *state)
 	put16(message + 4, title_bytes);
 	memcpy(message + sizeof(gui_protocol_wire_window_set_title), title, title_bytes);
 	message_bytes = sizeof(gui_protocol_wire_window_set_title) + title_bytes;
-	/* OSC updates are metadata, independent of the next surface commit. */
-	return send_message(state->fd, GUI_PROTOCOL_WINDOW_SET_TITLE, message, message_bytes);
+	return terminal_upload_control(&state->upload, GUI_PROTOCOL_WINDOW_SET_TITLE, message, message_bytes);
 }
 
 static int terminal_spawn_pty(const char *command, const terminal_state *state,
@@ -821,7 +767,7 @@ static int terminal_spawn_pty(const char *command, const terminal_state *state,
 		return -1;
 	if (pid == 0) {
 		if ((state->fd > STDERR_FILENO && close(state->fd) < 0) ||
-		    signal(SIGHUP, SIG_DFL) == SIG_ERR)
+		    signal(SIGHUP, SIG_DFL) == SIG_ERR || signal(SIGPIPE, SIG_DFL) == SIG_ERR)
 			_exit(127);
 		setenv("TERM", "xterm-direct", 1);
 		setenv("COLORTERM", "truecolor", 1);
@@ -859,7 +805,7 @@ static int terminal_drain_pty(int master, terminal_vt *vt, int *updated)
 {
 	uint8_t buffer[512];
 
-	for (;;) {
+	for (unsigned int batch = 0; batch < TERMINAL_PTY_READ_QUANTUM; batch++) {
 		ssize_t count = read(master, buffer, sizeof(buffer));
 
 		if (count > 0) {
@@ -877,19 +823,99 @@ static int terminal_drain_pty(int master, terminal_vt *vt, int *updated)
 			continue;
 		return -1;
 	}
+	return 0;
+}
+
+static ssize_t terminal_socket_write(void *context, const void *bytes, size_t count)
+{
+	return write(*(const int *)context, bytes, count);
+}
+
+static int terminal_process_message(terminal_state *state, const gui_protocol_header *header,
+				    const uint8_t *payload, size_t bytes)
+{
+	if (header->type == GUI_PROTOCOL_SURFACE_DATA_REPLY)
+		return terminal_upload_reply(&state->upload, payload, bytes);
+	if (header->type == GUI_PROTOCOL_ERROR && bytes == sizeof(gui_protocol_wire_error)) {
+		gui_protocol_type failed = get16(payload + 4);
+		int32_t status = (int32_t)get32(payload);
+
+		if (failed == GUI_PROTOCOL_SURFACE_CANCEL)
+			return 0;
+		if (failed == GUI_PROTOCOL_SURFACE_BEGIN || failed == GUI_PROTOCOL_SURFACE_PATCH_BEGIN ||
+		    failed == GUI_PROTOCOL_SURFACE_DATA || failed == GUI_PROTOCOL_SURFACE_COMMIT) {
+			int canceled = state->upload.canceled;
+
+			if (failed == GUI_PROTOCOL_SURFACE_DATA && terminal_upload_data_error(&state->upload) < 0)
+				return -1;
+			if (status != -ENOMEM && status != -EBUSY && status != -EINVAL && status != -ESTALE && status != -EIO)
+				return -1;
+			if (!canceled || failed == GUI_PROTOCOL_SURFACE_COMMIT) {
+				terminal_upload_cancel(&state->upload, state->capabilities & GUI_PROTOCOL_CAP_SURFACE_PATCH);
+				state->base_frame = 0;
+				state->render_pending = 1;
+				app_gui_surface_defer(&state->surface_flow);
+				fprintf(stderr, "terminal: deferred surface error %u: %d\n", failed, status);
+			}
+			return 0;
+		}
+	}
+	if (header->type == GUI_PROTOCOL_WINDOW_CONFIGURE) {
+		if (bytes != sizeof(gui_protocol_wire_window_configure) || get32(payload) != state->window_id)
+			return -1;
+		terminal_upload_cancel(&state->upload, 0);
+		state->base_frame = 0;
+		state->render_pending = 1;
+	}
+	return terminal_handle_message(state, header, payload, bytes);
+}
+
+static int terminal_drain_replies(terminal_state *state, size_t *input_bytes)
+{
+	size_t consumed = 0;
+
+	for (unsigned int messages = 0; messages < 64; messages++) {
+		gui_protocol_header header;
+
+		if (*input_bytes - consumed < GUI_PROTOCOL_HEADER_SIZE)
+			break;
+		if (gui_protocol_decode_header(terminal_input + consumed, *input_bytes - consumed, &header) < 0 ||
+		    header.length > 64)
+			return -1;
+		if (header.length > *input_bytes - consumed)
+			break;
+		if (terminal_process_message(state, &header, terminal_input + consumed + GUI_PROTOCOL_HEADER_SIZE,
+			header.length - GUI_PROTOCOL_HEADER_SIZE) < 0)
+			return -1;
+		consumed += header.length;
+	}
+	*input_bytes -= consumed;
+	memmove(terminal_input, terminal_input + consumed, *input_bytes);
+	if (*input_bytes >= GUI_PROTOCOL_HEADER_SIZE) {
+		gui_protocol_header header;
+
+		if (gui_protocol_decode_header(terminal_input, *input_bytes, &header) < 0 || header.length > 64)
+			return -1;
+		return header.length <= *input_bytes;
+	}
+	return 0;
 }
 
 int main(int argc, char **argv)
 {
 	long descriptor_limit = sysconf(_SC_OPEN_MAX);
-	terminal_state state = { .fd = -1, .master = -1 };
+	static terminal_state state = { .fd = -1, .master = -1 };
 	const char *command = NULL;
 	pid_t child = -1;
 	int master = -1;
 	int status = 1;
+	int pty_eof = 0;
+	int closing = 0;
+	size_t input_bytes = 0;
 
-	if (descriptor_limit < 0)
+	if (descriptor_limit < 0 || signal(SIGPIPE, SIG_IGN) == SIG_ERR)
 		return 1;
+	memset(terminal_input, 0, sizeof(terminal_input));
 	for (long descriptor = STDERR_FILENO + 1; descriptor < descriptor_limit; descriptor++)
 		close(descriptor);
 	if (argc == 3 && !strcmp(argv[1], "--command"))
@@ -900,6 +926,12 @@ int main(int argc, char **argv)
 	if (state.fd < 0) {
 		fprintf(stderr, "terminal: connect failed: %d\n", errno);
 		goto out;
+	}
+	if (terminal_negotiate(&state, GUI_PROTOCOL_VERSION_MINOR) < 0) {
+		close(state.fd);
+		state.fd = terminal_connect();
+		if (state.fd < 0 || terminal_negotiate(&state, 0) < 0)
+			goto out;
 	}
 	if (terminal_create_window(&state) < 0) {
 		fprintf(stderr, "terminal: create failed\n");
@@ -914,55 +946,85 @@ int main(int argc, char **argv)
 		fprintf(stderr, "terminal: font setup failed\n");
 		goto out;
 	}
-	if (terminal_send_current_surface(&state, -1) < 0) {
-		fprintf(stderr, "terminal: initial frame failed\n");
-		goto out;
-	}
 	if (terminal_spawn_pty(command, &state, &master, &child) < 0) {
 		fprintf(stderr, "terminal: PTY setup failed: %d\n", errno);
 		goto out;
 	}
 	state.master = master;
+	if (fcntl(state.fd, F_SETFL, O_NONBLOCK) < 0)
+		goto out;
+	state.render_pending = 1;
 	puts("terminal: window ready");
 	fflush(stdout);
 	status = 0;
 	for (;;) {
-		gui_protocol_header header;
 		struct pollfd pollfds[2];
 		int result;
+		int buffered = terminal_drain_replies(&state, &input_bytes);
+		int timeout;
 
-		pollfds[0] = (struct pollfd) { .fd = state.fd, .events = POLLIN };
-		pollfds[1] = (struct pollfd) { .fd = master, .events = POLLIN };
-		result = poll(pollfds, 2, state.surface_flow.retry_pending ?
-			APP_GUI_SURFACE_RETRY_MS : -1);
+		if (buffered < 0)
+			break;
+		if (state.upload.completed) {
+			if (state.upload.completed_configure == state.configure_serial && !state.surface_flow.retry_pending)
+				state.base_frame = state.upload.completed_serial;
+			state.upload.completed = 0;
+		}
+		if (state.close_requested) {
+			if (!closing) {
+				terminal_upload_cancel(&state.upload, state.capabilities & GUI_PROTOCOL_CAP_SURFACE_PATCH);
+				closing = 1;
+			}
+			if (!state.upload.active && state.upload.frame_bytes == 0) {
+				uint8_t window_id[sizeof(gui_protocol_wire_window_id)];
+
+				if (state.destroy_queued)
+					break;
+				put32(window_id, state.window_id);
+				if (terminal_upload_control(&state.upload, GUI_PROTOCOL_WINDOW_DESTROY, window_id, sizeof(window_id)) < 0)
+					break;
+				state.destroy_queued = 1;
+			}
+		} else {
+			if (app_gui_surface_retry_ready(&state.surface_flow))
+				state.render_pending = 1;
+			if (terminal_send_current_surface(&state, master) < 0)
+				break;
+			if (state.upload.frame_bytes == 0 && terminal_send_title(&state) < 0)
+				break;
+			if (pty_eof && terminal_upload_ready(&state.upload) && !state.render_pending && !state.surface_flow.retry_pending) {
+				status = terminal_finish_child(master, child) == 0 ? 0 : 1;
+				master = state.master = -1;
+				state.close_requested = 1;
+				continue;
+			}
+		}
+		pollfds[0] = (struct pollfd) { .fd = state.fd, .events = POLLIN |
+			(terminal_upload_writable(&state.upload) ? POLLOUT : 0) };
+		pollfds[1] = (struct pollfd) { .fd = pty_eof || state.close_requested ? -1 : master,
+			.events = POLLIN | (state.pty_input_bytes ? POLLOUT : 0) };
+		timeout = buffered ? 0 : state.surface_flow.retry_pending ? APP_GUI_SURFACE_RETRY_MS : -1;
+		result = poll(pollfds, 2, timeout);
 		if (result < 0) {
 			if (errno == EINTR)
 				continue;
 			break;
 		}
-		if (result == 0) {
-			if (app_gui_surface_retry_ready(&state.surface_flow) &&
-			    terminal_send_current_surface(&state, master) < 0)
-				break;
+		if (result == 0)
 			continue;
-		}
 		if (pollfds[0].revents & (POLLERR | POLLHUP | POLLNVAL))
 			break;
 		if (pollfds[0].revents & POLLIN) {
-			if (read_message(state.fd, &header, terminal_input,
-					 sizeof(terminal_input)) < 0 ||
-			    (result = terminal_handle_message(&state, &header, terminal_input,
-		     header.length - GUI_PROTOCOL_HEADER_SIZE)) < 0)
-				break;
-			if (result > 0 && terminal_send_current_surface(&state, master) < 0) {
-				fprintf(stderr, "terminal: resized frame failed\n");
-				break;
-			}
-			if (state.close_requested)
+			ssize_t count = recv(state.fd, terminal_input + input_bytes, sizeof(terminal_input) - input_bytes, 0);
+
+			if (count > 0)
+				input_bytes += count;
+			else if (count == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
 				break;
 		}
-		if (app_gui_surface_retry_ready(&state.surface_flow) &&
-		    terminal_send_current_surface(&state, master) < 0)
+		if ((pollfds[0].revents & POLLOUT) && terminal_upload_write(&state.upload, terminal_socket_write, &state.fd) < 0)
+			break;
+		if ((pollfds[1].revents & POLLOUT) && terminal_flush_input(&state) < 0)
 			break;
 		if (pollfds[1].revents & (POLLIN | POLLHUP | POLLERR)) {
 			int updated = 0;
@@ -970,25 +1032,11 @@ int main(int argc, char **argv)
 			result = terminal_drain_pty(master, &state.vt, &updated);
 			if (result < 0)
 				break;
-			if (updated && terminal_send_current_surface(&state, master) < 0)
-				break;
-			if (terminal_send_title(&state) < 0)
-				break;
-			if (result > 0) {
-				status = terminal_finish_child(master, child) == 0 ? 0 : 1;
-				master = -1;
-				state.master = -1;
-				state.close_requested = 1;
-				break;
-			}
+			if (updated)
+				state.render_pending = 1;
+			if (result > 0)
+				pty_eof = 1;
 		}
-	}
-	if (state.close_requested) {
-		uint8_t window_id[sizeof(gui_protocol_wire_window_id)];
-
-		put32(window_id, state.window_id);
-		(void)send_message(state.fd, GUI_PROTOCOL_WINDOW_DESTROY, window_id,
-			sizeof(window_id));
 	}
 out:
 	if (master >= 0)

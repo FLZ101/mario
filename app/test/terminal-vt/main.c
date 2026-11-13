@@ -522,7 +522,7 @@ static void assert_renderer_oracle(terminal_state *state)
 
 static void test_incremental_renderer(void)
 {
-	terminal_state state = { .fd = -1, .master = -1, .window_id = 1, .configure_serial = 1 };
+	static terminal_state state = { .fd = -1, .master = -1, .window_id = 1, .configure_serial = 1 };
 	static const char *sequences[] = {
 		"\033[?25l", "\033[4;8H\033[4;7;38;2;239;68;68mUnicode: \xc3\xa9\xe4\xb8\xad\xf0\x9f\x98\x80",
 		"\033[0m\033[2J\033[H", "0123456789\r\nsecond\r\nthird\r\nfourth\r\nfifth\r\nsixth\r\nseventh\r\neighth\r\nninth\r\ntenth\r\n",
@@ -533,7 +533,7 @@ static void test_incremental_renderer(void)
 	static const uint32_t glyphs[] = { 'j', 'W', 0x0301, 0x00c5, 0x4e2d, 0x1f600, 0x10ffff, 0 };
 	gui_protocol_header configure = { .type = GUI_PROTOCOL_WINDOW_CONFIGURE };
 	uint8_t payload[sizeof(gui_protocol_wire_window_configure)] = { 0 };
-	terminal_state previous;
+	static terminal_state previous;
 	gui_color *saved_pixels;
 
 	assert(terminal_resize_grid(&state, 320, 192) == 0);

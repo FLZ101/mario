@@ -1764,8 +1764,8 @@ M10.1 has a test-only implementation and a recorded baseline in
 [GUI drawing baseline](drawing-baseline.md); M10.2 implements bounded composition
 and scanout, M10.3 adds bounded motion pacing, and M10.4 batches layout-safe
 scanout spans. M10.5 reuses terminal pixels for unchanged cells;
-M10.6 adds negotiated atomic surface patches. M10.7–M10.8 remain planned
-and unchecked.
+M10.6 adds negotiated atomic surface patches and M10.7 implements bounded
+terminal pipelining. M10.8 remains planned and unchecked.
 On November 14, 2026 its focused gates, 48-sample timing capture, and
 `make test SMP=16` runnable-suite gate pass: 145 guest cases pass, with the
 three recorded GUI deferrals and two SMP-4-only shell cases explicitly skipped.
@@ -1953,7 +1953,7 @@ item, its focused gates during development, and `make test SMP=16` plus
   protocol client verifies incomplete pixels remain hidden and cancellation
   preserves the completed patch. Focused protocol/WM/GUI gates and the full
   runnable suite pass (150 guest cases, 49 host tests; unchanged deferrals).
-- [ ] **M10.7 — send incremental terminal updates with bounded pipelining.**
+- [x] **M10.7 — send incremental terminal updates with bounded pipelining.**
   Prerequisite: M10.6. Owns `app/usr/terminal/`, `app/test/gui-wm-busy/`,
   `app/test/gui-wm-client/`, `tests/shell/gui-wm-busy.test`,
   `tests/gui/terminal-upload-window.test`, its reviewed assets under
@@ -1974,6 +1974,27 @@ item, its focused gates during development, and `make test SMP=16` plus
   and
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test terminal-upload-window.test tests/gui`,
   then `make test SMP=16`. Commit: `terminal: pipeline bounded dirty-region uploads`.
+  Implementation uses one immutable rendered surface, a 4036-byte encoded frame,
+  four FIFO chunk identities (16144 encoded unacknowledged bytes), independent
+  4096-byte reply/input queues, and a bounded PTY read quantum. Delayed replies
+  still permit more than 16 KiB of output, ordered keys, resize, cancellation,
+  and full recovery. The adjacent-cursor single-cell fixture sends a 16x16 patch
+  in 1140 wire bytes and flushes 1024 bytes; legacy negotiation rejection
+  reconnects to full-frame v1.0. Native renderer/uploader, real pixels, resize,
+  title/RGB, and EOF/child-exit focused tests pass without dropping assertions.
+  Development diagnostics are retained under `/tmp/mario-m10-7-*`: GDB traced
+  the repeated initial GUI stall to a first-write file fault in the kernel's
+  locked socket copy; initializing the bounded reply destination before I/O
+  resolves this terminal startup regression without a kernel change. Full
+  gates also encountered isolated PTY-exit and file-manager-startup timeouts,
+  then the pre-existing quota fixture's intermittent executable-path failure.
+  Focused reruns, including eight concurrent PTY-case repetitions, pass; these
+  failures remain recorded and are not asserted to have an identified/fixed
+  common cause. One retry overlapped artifact restoration and failed to stage
+  the image; it is not counted as a test pass.
+  The subsequent default-four-worker `make test SMP=16` gate passes on
+  November 14, 2026: 151 guest cases and 49 host tests, with the unchanged
+  three GUI deferrals and two SMP-4-only skips. `git diff --check` passes.
 - [ ] **M10.8 — validate drawing performance and recovery end to end.**
   Prerequisite: M10.7. Owns `tests/gui/gui-drawing-performance.test`, reviewed
   assets under `tests/gui/assets/`, `tests/bench_gui_drawing.py`,

@@ -12,3 +12,6 @@ CHECK: gui-wm-busy: drawing work is counted independently of logical flushes
 CHECK: gui-wm-busy: incremental damage matches full composition with bounded work
 CHECK: gui-wm-busy: motion deadlines preserve ordered input and bounded dispatch
 CHECK: gui-wm-busy: negotiated patches preserve atomic pixels, identities and charges
+CHECK: gui-wm-busy: upload window caps encoded bytes and survives short, delayed and stale replies
+CHECK: gui-wm-busy: live uploads service PTY, keys and resize with bounded single-cell traffic
+CHECK: gui-wm-busy: rejected negotiation reconnects to legacy full-frame uploads

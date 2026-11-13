@@ -4,8 +4,10 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <mario/input.h>
 #include <gui/surface.h>
+#include "../../usr/terminal/upload.c"
 
 static gui_flush_result scanout_result;
 static unsigned int scanout_calls;
@@ -1273,6 +1275,7 @@ static void terminal_message(void *context, const gui_protocol_header *header,
 	wm_window *client = peer->windows;
 	gui_surface *previous = client == NULL ? NULL : client->committed;
 	int allocation_failure = fail_surface_allocation;
+	int surface_begin = header->type == GUI_PROTOCOL_SURFACE_BEGIN || header->type == GUI_PROTOCOL_SURFACE_PATCH_BEGIN;
 	int flush_failure = fail_commit && header->type == GUI_PROTOCOL_SURFACE_COMMIT &&
 		client != NULL && client->staging != NULL;
 
@@ -1285,12 +1288,12 @@ static void terminal_message(void *context, const gui_protocol_header *header,
 	client = peer->windows;
 	if (flush_failure)
 		peer->server->state.graphics = 0;
-	if (header->type == GUI_PROTOCOL_SURFACE_BEGIN && client != NULL && client->staging == NULL)
+	if (surface_begin && client != NULL && client->staging == NULL)
 		rejected_begins++;
 	if (header->type == GUI_PROTOCOL_SURFACE_COMMIT && client != NULL &&
 	    client->committed != previous && client->committed != NULL)
 		completed_frames++;
-	if ((allocation_failure && header->type == GUI_PROTOCOL_SURFACE_BEGIN) || flush_failure) {
+	if ((allocation_failure && surface_begin) || flush_failure) {
 		assert(client != NULL && client->committed == previous && client->staging == NULL);
 		assert(client->reserved_bytes == 0 && client->width == 320 && client->height == 192);
 		assert(peer->hello == 1 && !client->transition_pending);
@@ -2014,6 +2017,458 @@ static void test_atomic_patches(void)
 	puts("gui-wm-busy: negotiated patches preserve atomic pixels, identities and charges");
 }
 
+typedef struct {
+	uint8_t bytes[32768];
+	size_t count;
+	size_t stop_at;
+	size_t short_write;
+	unsigned int calls;
+	int interrupt;
+} upload_sink;
+
+static ssize_t upload_test_write(void *context, const void *bytes, size_t count)
+{
+	upload_sink *sink = context;
+
+	sink->calls++;
+	if (sink->interrupt) {
+		sink->interrupt = 0;
+		errno = EINTR;
+		return -1;
+	}
+	if (sink->stop_at && sink->count >= sink->stop_at) {
+		errno = EAGAIN;
+		return -1;
+	}
+	if (sink->stop_at && count > sink->stop_at - sink->count)
+		count = sink->stop_at - sink->count;
+	if (sink->short_write && count > sink->short_write)
+		count = sink->short_write;
+	assert(count <= sizeof(sink->bytes) - sink->count);
+	memcpy(sink->bytes + sink->count, bytes, count);
+	sink->count += count;
+	return count;
+}
+
+static int upload_test_ack(terminal_upload *upload, uint64_t configure, uint64_t serial,
+			    uint32_t offset, uint32_t count)
+{
+	uint8_t payload[sizeof(gui_protocol_wire_surface_data_reply)];
+
+	put_u32(payload, upload->window);
+	put_u64(payload + 4, configure);
+	put_u64(payload + 12, serial);
+	put_u32(payload + 20, offset);
+	put_u32(payload + 24, count);
+	return terminal_upload_reply(upload, payload, sizeof(payload));
+}
+
+static void upload_test_pump(terminal_upload *upload, upload_sink *sink)
+{
+	unsigned int previous_calls = sink->calls;
+
+	assert(terminal_upload_write(upload, upload_test_write, sink) == 0);
+	assert(sink->calls - previous_calls <= 4);
+	assert(upload->outstanding_bytes <= TERMINAL_UPLOAD_WINDOW_BYTES);
+	assert(upload->chunk_count <= TERMINAL_UPLOAD_CHUNKS);
+}
+
+static void assert_upload_pixels(const upload_sink *sink, const gui_surface *source, gui_rect rectangle,
+				 uint64_t serial, unsigned int expected_chunks)
+{
+	unsigned int chunks = 0;
+	uint32_t pixels = 0;
+
+	for (size_t offset = 0; offset < sink->count;) {
+		gui_protocol_header header;
+		const uint8_t *payload = sink->bytes + offset + GUI_PROTOCOL_HEADER_SIZE;
+
+		assert(gui_protocol_decode_header(sink->bytes + offset, sink->count - offset, &header) == 0);
+		assert(header.length <= sink->count - offset);
+		if (header.type == GUI_PROTOCOL_SURFACE_DATA) {
+			uint32_t count = get_u32(payload + 24);
+
+			assert(get_u64(payload + 12) == serial && get_u32(payload + 20) == pixels);
+			assert(header.length == GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_data) + count * 4);
+			for (uint32_t index = 0; index < count; index++) {
+				size_t row = rectangle.y + (pixels + index) / rectangle.w;
+				size_t column = rectangle.x + (pixels + index) % rectangle.w;
+
+				assert(get_u32(payload + sizeof(gui_protocol_wire_surface_data) + index * 4) ==
+					source->pixels[row * source->stride + column]);
+			}
+			pixels += count;
+			chunks++;
+		}
+		offset += header.length;
+	}
+	assert(chunks == expected_chunks && pixels == (uint32_t)rectangle.w * rectangle.h);
+}
+
+static void test_upload_window(void)
+{
+	static terminal_upload upload;
+	static upload_sink sink;
+	gui_surface *source = gui_surface_create(64, 64);
+	gui_rect full = { 0, 0, 64, 64 };
+	gui_rect cell = { 16, 16, 16, 16 };
+	size_t previous_bytes;
+
+	assert(source != NULL);
+	for (unsigned int index = 0; index < 4096; index++)
+		source->pixels[index] = index ^ 0x00556677;
+	assert(terminal_upload_start(&upload, 1, 1, 0, 1, source, full, 0) == 0);
+	assert(upload_test_ack(&upload, 1, 1, 0, 1000) < 0);
+	while (upload.chunk_count < 4)
+		upload_test_pump(&upload, &sink);
+	assert(upload.next_pixel == 4000 && upload.outstanding_bytes == 16144);
+	assert(upload.peak_outstanding_bytes == 16144 && !terminal_upload_writable(&upload));
+	previous_bytes = upload.outstanding_bytes;
+	assert(upload_test_ack(&upload, 2, 1, 0, 1000) < 0 && upload.outstanding_bytes == previous_bytes);
+	assert(upload_test_ack(&upload, 1, 1, 0, 999) < 0 && upload.outstanding_bytes == previous_bytes);
+	assert(upload_test_ack(&upload, 1, 1, 0, 1000) == 0);
+	previous_bytes = upload.outstanding_bytes;
+	assert(upload_test_ack(&upload, 1, 1, 0, 1000) == 0 && upload.outstanding_bytes == previous_bytes);
+	upload_test_pump(&upload, &sink);
+	assert(upload.next_pixel == 4096 && upload.chunk_count == 4);
+	for (uint32_t offset = 1000; offset < 4000; offset += 1000)
+		assert(upload_test_ack(&upload, 1, 1, offset, 1000) == 0);
+	assert(upload_test_ack(&upload, 1, 1, 4000, 96) == 0);
+	upload_test_pump(&upload, &sink);
+	assert(terminal_upload_ready(&upload) && upload.completed && upload.completed_serial == 1);
+	assert(sink.count == 16636);
+	assert_upload_pixels(&sink, source, full, 1, 5);
+	memset(&sink, 0, sizeof(sink));
+	sink.short_write = 3;
+	sink.interrupt = 1;
+	assert(terminal_upload_start(&upload, 1, 1, 1, 2, source, cell, 1) == 0);
+	upload_test_pump(&upload, &sink);
+	assert(sink.count == 0 && upload.frame_written == 0);
+	upload_test_pump(&upload, &sink);
+	assert(upload.frame_written == 12);
+	terminal_upload_cancel(&upload, 1);
+	while (terminal_upload_writable(&upload))
+		upload_test_pump(&upload, &sink);
+	assert(terminal_upload_ready(&upload) && !upload.completed && sink.count == 80);
+	memset(&sink, 0, sizeof(sink));
+	sink.stop_at = 54;
+	assert(terminal_upload_start(&upload, 1, 1, 1, 3, source, cell, 1) == 0);
+	upload_test_pump(&upload, &sink);
+	assert(upload.frame_type == GUI_PROTOCOL_SURFACE_DATA && upload.frame_written == 2);
+	assert(upload_test_ack(&upload, 1, 3, 0, 256) < 0);
+	terminal_upload_cancel(&upload, 1);
+	sink.stop_at = 0;
+	while (terminal_upload_writable(&upload))
+		upload_test_pump(&upload, &sink);
+	assert(!terminal_upload_ready(&upload) && upload.chunk_count == 1);
+	assert(terminal_upload_start(&upload, 1, 1, 1, 4, source, cell, 1) < 0);
+	assert(terminal_upload_data_error(&upload) == 0 && terminal_upload_ready(&upload));
+	assert_upload_pixels(&sink, source, cell, 3, 1);
+	memset(&sink, 0, sizeof(sink));
+	assert(terminal_upload_start(&upload, 1, 1, 1, 4, source, cell, 1) == 0);
+	assert(upload_test_ack(&upload, 1, 3, 0, 256) == 0 && upload.chunk_count == 0);
+	upload_test_pump(&upload, &sink);
+	assert(upload.chunk_count == 1 && upload.outstanding_bytes == 1060);
+	assert(upload_test_ack(&upload, 1, 4, 0, 256) == 0);
+	upload_test_pump(&upload, &sink);
+	assert(sink.count == 1140 && terminal_upload_ready(&upload));
+	assert_upload_pixels(&sink, source, cell, 4, 1);
+	gui_surface_destroy(source);
+	puts("gui-wm-busy: upload window caps encoded bytes and survives short, delayed and stale replies");
+}
+
+static uint8_t held_upload_replies[TERMINAL_UPLOAD_CHUNKS *
+	(GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_data_reply))];
+static size_t held_upload_bytes;
+static int hold_upload_replies;
+static unsigned int upload_commits;
+static unsigned int upload_full_begins;
+static unsigned int upload_patch_begins;
+static size_t upload_wire_bytes;
+static int upload_legacy;
+static unsigned int upload_legacy_rejections;
+
+static ssize_t upload_peer_write(void *context, const void *bytes, size_t count)
+{
+	wm_client *peer = context;
+	gui_protocol_header header;
+
+	if (hold_upload_replies && gui_protocol_decode_header(bytes, count, &header) == 0 &&
+	    header.type == GUI_PROTOCOL_SURFACE_DATA_REPLY) {
+		assert(header.length == count);
+		assert(count <= sizeof(held_upload_replies) - held_upload_bytes);
+		memcpy(held_upload_replies + held_upload_bytes, bytes, count);
+		held_upload_bytes += count;
+		return count;
+	}
+	return write(peer->fd, bytes, count);
+}
+
+static void upload_peer_message(void *context, const gui_protocol_header *header,
+				const void *payload, size_t bytes)
+{
+	wm_client *peer = context;
+
+	if (upload_legacy) {
+		assert(header->type != GUI_PROTOCOL_CAPABILITIES && header->type != GUI_PROTOCOL_SURFACE_PATCH_BEGIN);
+		if (header->type == GUI_PROTOCOL_HELLO && get_u32(payload) >> 16 != 0) {
+			upload_legacy_rejections++;
+			client_reject(peer, GUI_PROTOCOL_HELLO, -EPROTONOSUPPORT);
+			return;
+		}
+	}
+	if (header->type == GUI_PROTOCOL_SURFACE_BEGIN)
+		upload_full_begins++;
+	if (header->type == GUI_PROTOCOL_SURFACE_PATCH_BEGIN)
+		upload_patch_begins++;
+	if (header->type == GUI_PROTOCOL_SURFACE_BEGIN || header->type == GUI_PROTOCOL_SURFACE_PATCH_BEGIN ||
+	    header->type == GUI_PROTOCOL_SURFACE_DATA || header->type == GUI_PROTOCOL_SURFACE_COMMIT)
+		upload_wire_bytes += GUI_PROTOCOL_HEADER_SIZE + bytes;
+	client_message(context, header, payload, bytes);
+	if (header->type == GUI_PROTOCOL_SURFACE_COMMIT && peer->windows != NULL &&
+	    peer->windows->committed_frame_serial == get_u64((const uint8_t *)payload + 12))
+		upload_commits++;
+}
+
+static int upload_peer_pump(wm_client *peer)
+{
+	uint8_t bytes[4096];
+	ssize_t count = recv(peer->fd, bytes, sizeof(bytes), 0);
+	int messages;
+
+	assert(count >= 0 || errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR);
+	if (count > 0)
+		assert(gui_protocol_input_append(peer->input, bytes, count) == 0);
+	messages = gui_protocol_input_drain(peer->input, upload_peer_message, peer);
+	assert(messages >= 0 && peer->hello >= 0);
+	if (count == 0 && (messages < 8 || !gui_protocol_input_pending(peer->input))) {
+		wm_disconnect_client(peer->server, peer);
+		return 1;
+	}
+	if (gui_protocol_output_flush(peer->output, upload_peer_write, peer) == GUI_PROTOCOL_OUTPUT_ERROR) {
+		wm_disconnect_client(peer->server, peer);
+		return 1;
+	}
+	return 0;
+}
+
+static int upload_log_contains(const char *path, const char *marker)
+{
+	static char bytes[32769];
+	FILE *file = fopen(path, "r");
+	size_t count;
+
+	if (file == NULL)
+		return 0;
+	count = fread(bytes, 1, sizeof(bytes) - 1, file);
+	bytes[count] = 0;
+	assert(fclose(file) == 0);
+	return strstr(bytes, marker) != NULL;
+}
+
+static wm_client *start_upload_terminal(wm_server *server, const char *command, const char *log,
+				      int *listener, pid_t *child)
+{
+	struct pollfd ready;
+	int descriptor;
+
+	init_server(server, 1024, 768);
+	server->state.graphics = 1;
+	server->state.framebuffer = 123;
+	server->state.scanout_stride = 4096;
+	server->state.composite = gui_surface_create(1024, 768);
+	assert(server->state.composite != NULL);
+	scanout_result = GUI_FLUSH_COMPLETE;
+	measure_drawing = 0;
+	unlink(WM_SOCKET_PATH);
+	*listener = bind_listener();
+	assert(*listener >= 0);
+	held_upload_bytes = upload_commits = upload_full_begins = upload_patch_begins = upload_wire_bytes = 0;
+	*child = fork();
+	assert(*child >= 0);
+	if (*child == 0) {
+		int output = open(log, O_CREAT | O_TRUNC | O_WRONLY, 0600);
+
+		assert(output >= 0 && dup2(output, STDOUT_FILENO) == STDOUT_FILENO && dup2(output, STDERR_FILENO) == STDERR_FILENO);
+		close(output);
+		execl(WM_TERMINAL_PATH, WM_TERMINAL_PATH, "--command", command, NULL);
+		_exit(127);
+	}
+	ready = (struct pollfd) { .fd = *listener, .events = POLLIN };
+	assert(poll(&ready, 1, 10000) == 1);
+	descriptor = accept(*listener, NULL, NULL);
+	assert(descriptor >= 0 && fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0);
+	return wm_add_client(server, descriptor, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+}
+
+static void finish_upload_terminal(wm_server *server, wm_client *peer, int listener, pid_t child,
+				   const char *finish)
+{
+	int exited = 0;
+	int disconnected = 0;
+	int status = 0;
+
+	touch_marker(finish);
+	for (unsigned int attempt = 0; !exited || !disconnected; attempt++) {
+		assert(attempt < 20000);
+		if (!disconnected)
+			disconnected = upload_peer_pump(peer);
+		if (!exited) {
+			pid_t result = waitpid(child, &status, WNOHANG);
+
+			assert(result >= 0);
+			exited = result == child;
+		}
+		assert(usleep(1000) == 0);
+	}
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0 && server->state.surface_bytes == 0);
+	close(listener);
+	unlink(WM_SOCKET_PATH);
+	cleanup_server(server);
+}
+
+static void test_live_upload_progress(void)
+{
+	static wm_server server;
+	wm_client *peer;
+	wm_window *window;
+	pid_t child;
+	int listener;
+	gui_input_event key = { .type = GUI_INPUT_EVENT_KEY, .key = { .scancode = 0x1e, .pressed = 1 } };
+	gui_surface *previous;
+	uint64_t previous_frame;
+
+	unlink("/tmp/gui-upload.finish");
+	unlink("/tmp/gui-upload.single-paint");
+	unlink("/tmp/gui-upload.single-finish");
+	hold_upload_replies = 1;
+	peer = start_upload_terminal(&server,
+		"trap 'printf \"RESIZE-PROGRESS\\n\"' WINCH; "
+		"printf '%16384s' '' | tr ' ' X; printf 'PTY-PROGRESS\\n'; "
+		"read answer; printf 'KEY-PROGRESS:%s\\n' \"$answer\"; "
+		"while test ! -e /tmp/gui-upload.finish; do sleep 1; done",
+		"/tmp/gui-upload.term", &listener, &child);
+	assert(peer != NULL);
+	for (unsigned int attempt = 0; held_upload_bytes != sizeof(held_upload_replies) ||
+	     !upload_log_contains("/tmp/gui-upload.term", "PTY-PROGRESS"); attempt++) {
+		assert(attempt < 20000 && !upload_peer_pump(peer));
+		assert(usleep(1000) == 0);
+	}
+	window = peer->windows;
+	assert(window != NULL && window->committed == NULL && upload_commits == 0);
+	{
+		struct stat log;
+
+		assert(stat("/tmp/gui-upload.term", &log) == 0 && log.st_size > 16384);
+	}
+	wm_emit_input(&server, &key);
+	key.key.scancode = 0x1c;
+	wm_emit_input(&server, &key);
+	for (unsigned int attempt = 0; !upload_log_contains("/tmp/gui-upload.term", "KEY-PROGRESS:a"); attempt++) {
+		assert(attempt < 20000 && !upload_peer_pump(peer));
+		assert(usleep(1000) == 0);
+	}
+	assert(held_upload_bytes == sizeof(held_upload_replies));
+	hold_upload_replies = 0;
+	assert(write(peer->fd, held_upload_replies, held_upload_bytes) == (ssize_t)held_upload_bytes);
+	for (unsigned int attempt = 0; upload_commits == 0; attempt++) {
+		assert(attempt < 20000 && !upload_peer_pump(peer));
+		assert(usleep(1000) == 0);
+	}
+	hold_upload_replies = 1;
+	held_upload_bytes = 0;
+	for (unsigned int attempt = 0; held_upload_bytes != sizeof(held_upload_replies); attempt++) {
+		assert(attempt < 20000 && !upload_peer_pump(peer));
+		assert(usleep(1000) == 0);
+	}
+	assert(upload_commits == 1 && upload_patch_begins == 1 && window->committed != NULL);
+	assert(window->committed->pixels[16 * 320 + 16] == 0x00111827);
+	assert(wm_resize_window(&server, window, window->x, window->y, 400, 256) == 1);
+	for (unsigned int attempt = 0; !upload_log_contains("/tmp/gui-upload.term", "RESIZE-PROGRESS"); attempt++) {
+		assert(attempt < 20000 && !upload_peer_pump(peer));
+		assert(usleep(1000) == 0);
+	}
+	hold_upload_replies = 0;
+	assert(write(peer->fd, held_upload_replies, held_upload_bytes) == (ssize_t)held_upload_bytes);
+	for (unsigned int attempt = 0; upload_commits < 2; attempt++) {
+		assert(attempt < 20000 && !upload_peer_pump(peer));
+		assert(usleep(1000) == 0);
+	}
+	assert(upload_commits == 2 && upload_full_begins == 2 && upload_patch_begins == 1);
+	assert(window->committed != NULL && window->committed->width == 400 && window->committed->height == 256);
+	finish_upload_terminal(&server, peer, listener, child, "/tmp/gui-upload.finish");
+	peer = start_upload_terminal(&server,
+		"while test ! -e /tmp/gui-upload.single-paint; do sleep 1; done; printf A; "
+		"while test ! -e /tmp/gui-upload.single-finish; do sleep 1; done",
+		"/tmp/gui-upload.single-log", &listener, &child);
+	assert(peer != NULL);
+	for (unsigned int attempt = 0; upload_commits == 0; attempt++) {
+		assert(attempt < 20000 && !upload_peer_pump(peer));
+		assert(usleep(1000) == 0);
+	}
+	window = peer->windows;
+	previous = gui_surface_create(320, 192);
+	assert(previous != NULL && window != NULL && window->committed != NULL);
+	memcpy(previous->pixels, window->committed->pixels, 320 * 192 * 4);
+	upload_wire_bytes = 0;
+	previous_frame = begin_drawing_measurement(&server);
+	touch_marker("/tmp/gui-upload.single-paint");
+	for (unsigned int attempt = 0; upload_commits < 2; attempt++) {
+		assert(attempt < 20000 && !upload_peer_pump(peer));
+		assert(usleep(1000) == 0);
+	}
+	measure_drawing = 0;
+	assert(upload_patch_begins == 1 && upload_full_begins == 1 && upload_wire_bytes == 1140);
+	assert(server.state.frame_number == previous_frame + 1 && measured_work.written_bytes == 1024);
+	assert(measured_work.flush_requests == 1 && measured_work.writer_calls == 16);
+	assert(measured_work.filled_pixels <= 3 * 256 && measured_work.blitted_pixels <= 256);
+	for (unsigned int row = 0; row < 192; row++)
+		for (unsigned int column = 0; column < 320; column++)
+			if (row < 16 || row >= 32 || column < 16 || column >= 32)
+				assert(window->committed->pixels[row * 320 + column] == previous->pixels[row * 320 + column]);
+	gui_surface_destroy(previous);
+	assert_full_scene(&server);
+	finish_upload_terminal(&server, peer, listener, child, "/tmp/gui-upload.single-finish");
+	unlink("/tmp/gui-upload.legacy-paint");
+	unlink("/tmp/gui-upload.legacy-finish");
+	upload_legacy = 1;
+	peer = start_upload_terminal(&server,
+		"while test ! -e /tmp/gui-upload.legacy-paint; do sleep 1; done; printf A; "
+		"while test ! -e /tmp/gui-upload.legacy-finish; do sleep 1; done",
+		"/tmp/gui-upload.legacy-log", &listener, &child);
+	assert(peer != NULL);
+	for (unsigned int attempt = 0; !upload_peer_pump(peer); attempt++) {
+		assert(attempt < 20000);
+		assert(usleep(1000) == 0);
+	}
+	{
+		struct pollfd ready = { .fd = listener, .events = POLLIN };
+		int descriptor;
+
+		assert(poll(&ready, 1, 10000) == 1);
+		descriptor = accept(listener, NULL, NULL);
+		assert(descriptor >= 0 && fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0);
+		peer = wm_add_client(&server, descriptor, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+		assert(peer != NULL);
+	}
+	for (unsigned int attempt = 0; upload_commits == 0; attempt++) {
+		assert(attempt < 20000 && !upload_peer_pump(peer));
+		assert(usleep(1000) == 0);
+	}
+	touch_marker("/tmp/gui-upload.legacy-paint");
+	for (unsigned int attempt = 0; upload_commits < 2; attempt++) {
+		assert(attempt < 20000 && !upload_peer_pump(peer));
+		assert(usleep(1000) == 0);
+	}
+	assert(upload_legacy_rejections == 1 && upload_full_begins == 2 && upload_patch_begins == 0);
+	assert(peer->protocol_minor == 0 && peer->capabilities == 0);
+	assert_full_scene(&server);
+	finish_upload_terminal(&server, peer, listener, child, "/tmp/gui-upload.legacy-finish");
+	upload_legacy = 0;
+	puts("gui-wm-busy: live uploads service PTY, keys and resize with bounded single-cell traffic");
+	puts("gui-wm-busy: rejected negotiation reconnects to legacy full-frame uploads");
+}
+
 int main(void)
 {
 	struct sigaction ignore_pipe = { .sa_handler = SIG_IGN };
@@ -2039,6 +2494,8 @@ int main(void)
 	test_drawing_work();
 	test_motion_batch();
 	test_atomic_patches();
+	test_upload_window();
+	test_live_upload_progress();
 	puts("gui-wm-busy: valid commits survive suspended scanout");
 	puts("gui-wm-busy: reservations, shell headroom and transition rollback pass");
 	puts("gui-wm-busy: real terminal survives pressure and allocation/flush rollback");

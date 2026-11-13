@@ -428,8 +428,8 @@ Window properties:
 ### Incremental Presentation and Uploads (M10 Target)
 
 Through M9 the wire protocol accepts only complete configured-size surface
-replacements. M10.2–M10.6 implement bounded drawing, cell reuse, and negotiated
-rectangular transactions; terminal pipelining remains an M10.7 target.
+replacements. M10.2–M10.7 implement bounded drawing, cell reuse, negotiated
+rectangular transactions, and bounded terminal pipelining.
 Existing committed window surfaces and
 the bounded damage/flush helpers are reused rather than replaced by a new
 rendering stack or an assumed GPU API.
@@ -482,6 +482,58 @@ call; its 320x192 content update remains 192 narrow scanline calls.
   replies during cancellation without applying them to a newer transaction,
   and retain recoverable-error backoff. No busy waits, additional commit
   acknowledgements, or larger protocol queue quotas are required.
+
+### Terminal Upload Controller
+
+The native terminal requests v1.1 and `SURFACE_PATCH`, before creating a window.
+A rejected negotiation reconnects once with v1.0; a v1.0 reply also selects the
+full-frame path. Initial display, geometry/configure changes, and lost bases
+send a full replacement. Otherwise one clipped dirty bounding rectangle is
+packed row-by-row into an atomic patch. Unchanged cells send nothing. The VT
+continues consuming output while the rendered surface is frozen for upload;
+one pending-render flag coalesces subsequent changes against the last rendered
+cell snapshot. No extra full-frame pixel snapshot is allocated by the client.
+
+`terminal/upload.c` holds four FIFO chunk identities and one 4036-byte encoded
+frame. Each chunk has at most 1000 pixels and counts its 8-byte header and
+28-byte prefix in the unacknowledged-data budget: four maximum chunks occupy
+16144 bytes, below 16 KiB. Offset, count, window, configure, frame, and completed
+write must match before an acknowledgement retires a chunk. Duplicate/older
+replies never advance a newer transaction. There is one transaction per
+window; COMMIT follows all DATA replies, without introducing a commit reply.
+A late commit error invalidates the assumed base and schedules full recovery.
+
+The socket and PTY master are nonblocking. Each upload invocation attempts at
+most four writes; the encoded frame and its exact unsent suffix survive short
+writes, `EINTR`, and `EAGAIN`. Poll requests `POLLOUT` only for sendable work.
+The reply buffer is 4096 bytes, drained in at most 64 small messages per loop;
+PTY input has a separate 4096-byte queue. Output uses a 512-byte scratch buffer
+with at most sixteen reads per loop. Keys, configures, titles, close requests,
+EOF, and retry timers share the same loop rather than waiting for each chunk.
+Recoverable surface failures retain the existing 100 ms retry backoff.
+
+Cancellation detaches the pixel source before geometry can replace it, drops
+wholly unsent surface frames, and completes any partially written frame before
+sending negotiated CANCEL. Outstanding old chunks drain as replies/errors
+before a new transaction can start. A superseding configure already cancels
+server staging; v1.0 uses the next full BEGIN to replace abandoned staging.
+Titles and destroy messages share the bounded encoder so they cannot interrupt
+wire framing. EOF waits for the final upload, then reaps the child and destroys
+the window; disconnect releases client storage and server charges.
+
+The reply buffer is initialized before socket I/O. During development, GDB
+showed a file-backed first-write page fault inside the kernel's locked socket
+copy, leaving the WM spinning on that socket while disk completion needed the
+same CPU. Initializing the bounded destination before receiving avoids that
+startup hazard without changing kernel or framebuffer semantics.
+
+`gui-wm-busy` drives the production terminal against delayed replies, ordered
+keys, more than 16 KiB of PTY output, resize/canceled patches, quota/allocation
+rollback, and a rejected v1.1 reconnect to v1.0. Its single `A` with adjacent
+cursor produces a 16x16 patch: 52-byte BEGIN, 1060-byte DATA, and 28-byte COMMIT
+(1140 wire bytes). Scanout is 1024 bytes in sixteen narrow writes; all pixels
+outside that rectangle remain exact. `terminal-upload-window.test` additionally
+checks real framebuffer pixels, input, resize, and clean exit.
 
 ## Surface Patch Wire Contract (v1.1)
 
