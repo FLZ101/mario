@@ -1,6 +1,7 @@
 r"""Run framebuffer tests through QMP against the GRUB4DOS VBE boot path.
 
 Directives:
+  SKIP: <reason>
   REBUILD-KERNEL: selftest-kmalloc
   INIT-WM: keep
   EXPECT-HALT: Assertion 'block->magic == KMALLOC_MAGIC_ALLOC' failed
@@ -24,7 +25,8 @@ Directives:
   TIMEOUT: seconds
   EXIT:
 
-REBUILD-KERNEL must be the first directive.  It exclusively rebuilds the
+REBUILD-KERNEL must be the first execution directive; SKIP metadata may precede
+it. It exclusively rebuilds the
 kernel and the VBE boot image, then restores both before a following test can
 boot.  A rebuilt fixture may either expect a fatal halt or use normal guest/QMP
 checks; those assertions determine whether the selected kernel is correct.
@@ -32,6 +34,9 @@ checks; those assertions determine whether the selected kernel is correct.
 Init starts a dormant window manager on framebuffer boots.  Fixtures normally
 terminate that service before their actions so they retain exclusive control of
 the graphics seat.  INIT-WM: keep opts into the production boot baseline.
+
+SKIP requires a nonempty reason and reports the fixture as skipped without
+booting QEMU or rebuilding artifacts. Use --run-skipped to run it explicitly.
 """
 
 from __future__ import annotations
@@ -52,6 +57,7 @@ import pexpect
 from PIL import Image, ImageChops
 
 from lit_kernel import kernel_artifacts, validate_rebuild_kernel
+from lit_skip import parse_skip_reason
 from pexpect_utils import make_pexpect_raw, send_line, send_text
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -117,6 +123,7 @@ def parse_visual_geometry(
 @dataclass
 class GuiTest:
     path: Path
+    skip_reason: str | None = None
     rebuild_kernel: str | None = None
     expect_halt: str | None = None
     keep_init_wm: bool = False
@@ -138,7 +145,14 @@ class GuiTest:
                 ("SERIAL-CHECK:", "SERIAL:", "GUI-", "TIMEOUT:", "EXPECT-HALT:")
             ):
                 saw_instruction = True
-            if line.startswith("REBUILD-KERNEL:"):
+            if line.startswith("SKIP:"):
+                try:
+                    self.skip_reason = parse_skip_reason(
+                        self.path, line.split(":", 1)[1], self.skip_reason
+                    )
+                except ValueError as exc:
+                    raise GuiTestError(str(exc)) from exc
+            elif line.startswith("REBUILD-KERNEL:"):
                 if self.rebuild_kernel is not None:
                     raise GuiTestError(f"{self.path}: duplicate REBUILD-KERNEL")
                 if saw_instruction:
@@ -931,12 +945,12 @@ def main() -> None:
     parser.add_argument("--smp", type=int, default=1)
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--qemu", default=QEMU)
+    parser.add_argument(
+        "--run-skipped", action="store_true", help="run fixtures with an explicit SKIP"
+    )
     args = parser.parse_args()
     if args.smp < 1 or args.jobs < 1:
         parser.error("--smp and --jobs must be positive")
-    missing = [path for path in HD_IMAGES if not path.exists()]
-    if missing:
-        parser.error("missing disk images: " + ", ".join(str(path) for path in missing))
     tests = discover(args.paths)
     if args.test:
         tests = [test for test in tests if test.name == Path(args.test).name]
@@ -944,6 +958,16 @@ def main() -> None:
         parser.error("no GUI tests found")
 
     parsed = [GuiTest(path).parse() for path in tests]
+    runnable = []
+    for test in parsed:
+        if test.skip_reason is not None and not args.run_skipped:
+            name = os.path.relpath(test.path, ROOT)
+            print(f"SKIP: {name} [{test.skip_reason}]", flush=True)
+        else:
+            runnable.append(test)
+    missing = [path for path in HD_IMAGES if not path.exists()]
+    if runnable and missing:
+        parser.error("missing disk images: " + ", ".join(str(path) for path in missing))
     failed = False
 
     def execute(item: tuple[int, GuiTest]):
@@ -959,7 +983,7 @@ def main() -> None:
         for test, elapsed, failures, error in (
             future.result()
             for future in as_completed(
-                [pool.submit(execute, item) for item in enumerate(parsed)]
+                [pool.submit(execute, item) for item in enumerate(runnable)]
             )
         ):
             name = test.path.relative_to(ROOT)

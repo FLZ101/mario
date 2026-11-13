@@ -1,3 +1,4 @@
+SKIP: GUI-CAPACITY-FRAME deferred 2026-11-13: GUI-WAIT-FRAME serial frame probe times out in the full SMP=16 suite; root cause unconfirmed.
 GUI-VISUAL-TEST:
 TIMEOUT: 30
 SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-many.*; /usr/bin/mario-wm >>/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid

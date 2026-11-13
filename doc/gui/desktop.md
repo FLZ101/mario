@@ -255,8 +255,12 @@ diagnostic window or create a replacement through the same protocol framing.
 
 ## Compositing Strategy
 
-The first `mario-wm` compositor is simple. It paints the shell desktop surface
-first, then normal windows/chrome, then the cursor:
+Through M9, `mario-wm` can eagerly compose and flush the full screen for each
+visible update or pointer movement. Window contents are already cached in
+committed surfaces; moving a window does not require regenerating its text or
+widgets. The incremental sequence below is the M10 target, not a claim that
+damage-based presentation or frame pacing is already implemented. Paint the
+shell desktop surface first, then normal windows/chrome, then the cursor:
 
 1. Collect dirty rectangles.
 2. Clip each dirty rectangle to each visible window from back to front.
@@ -264,9 +268,11 @@ first, then normal windows/chrome, then the cursor:
 4. Blit the cursor sprite last.
 5. Flush through `pwrite()` to `/dev/fb0`.
 
-`mario-wm` composes at most once per 16 ms timer tick and only when it has
-damage. It may use a full-screen composite in M3, but the flush routine must
-write each damaged scanline with a retrying `pwrite()` loop that handles short
+Under M10, motion-only updates share a presentation on a 16 ms cadence and
+produce no scanout when they leave the visible state unchanged. Client commits
+retain their existing transactional error handling; motion pacing must not
+silently defer a commit's rollback decision. The flush routine writes damaged
+scanlines or contiguous spans with a retrying `pwrite()` loop that handles short
 writes and `EINTR`. If a flush returns `-EBUSY` because graphics mode was
 switched away, it abandons that frame, keeps the accumulated damage, and waits
 for `/dev/fb0` `POLLPRI`; it never advances the completed-frame marker for an
@@ -282,6 +288,49 @@ transaction back or send `SURFACE_COMMIT` `-EBUSY` to a client. The completed
 frame counter and readiness marker still advance only after a successful
 scanout; a real flush error retains the prior committed surface and reports
 the transaction error.
+
+### Incremental Drawing (M10 Target)
+
+- Keep a persistent composite and reuse each window's newest complete cached
+  surface. Accumulate bounded screen-space damage for content, chrome, focus,
+  stacking, geometry, lifecycle, desktop, and cursor changes. Clip all drawing
+  operations to that damage, not merely the final framebuffer writes.
+- A move invalidates the old and new decorated bounds. Copy cached window
+  pixels at the new location and reconstruct exposed pixels from the desktop
+  and lower windows in stacking order. Unaffected areas remain untouched;
+  partially covered windows cannot be copied over higher windows. Restoring
+  only the exposed strips is insufficient: destination window pixels still
+  need copying to the framebuffer. Screen-to-screen hardware blitting is not
+  assumed.
+- Pointer-only movement damages the old and new cursor bounds, including
+  clipping at screen edges. Restore those pixels from the scene and blend the
+  cursor last. Cursor trails, stale save-under pixels, and cursor contamination
+  of window caches are failures. A fixed, accounted sprite-sized save-under
+  buffer is permitted if scene updates invalidate it correctly; a second
+  unaccounted full-screen snapshot is not.
+- Process input state in order, including each relative motion's edge
+  clamping, button transitions, input resets, capture changes, and keys. Batch
+  only physical drawing. Track the last presented geometry/cursor footprint
+  and latest pending destination; do not accumulate damage for intermediate
+  positions that were never displayed. Use bounded input/client dispatch and
+  an explicit next-frame deadline so a continuously readable mouse or busy
+  peer cannot starve presentation, other clients, timers, or cooperative close.
+- A completed-frame marker advances once per successful nonempty presentation,
+  not per input record or hidden logical commit. Preserve damage on partial
+  failure; a foreground transition invalidates the entire physical scanout.
+  F8 return, initial display, and lost scanout state therefore require a full
+  repaint. Real flush errors keep the existing surface/geometry rollback and
+  session-failure contracts; `GUI_FLUSH_BUSY` remains a logical commit success.
+- Terminal rendering tracks changed cells and the old/new terminal cursor,
+  preserving cached glyphs and unchanged pixels. After the separately
+  negotiated rectangular-upload extension exists, send only a coalesced dirty
+  rectangle, with a full frame for initial display, geometry changes, or base
+  resynchronization. Non-negotiating applications retain full-frame uploads.
+- Incremental uploads remain atomic, bounded, and tied to window, configure,
+  base-frame, and new-frame identities. The terminal uploader services input,
+  PTY output, configures, and replies while a bounded number of data chunks
+  are outstanding; it does not add a private shell commit-ack protocol or
+  bypass existing peer/session budgets.
 
 ## Terminal Window and PTY Integration
 

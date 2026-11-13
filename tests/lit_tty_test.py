@@ -16,16 +16,22 @@ Test files use a small lit-style directive set:
     SLEEP: 1
     TIMEOUT: 30
     REQUIRES-SMP: >=4
+    SKIP: <reason>
     EXIT:
 
 QEMU exposes serial0 through a Unix socket.  A dedicated tmux server runs the
 local tty_serial_bridge.py client in an 80x25 pane.  This makes tmux's rendered
 pane grid the visual/text oracle instead of a VGA screendump.
 
-REBUILD-KERNEL must be the first directive.  It exclusively rebuilds and
+REBUILD-KERNEL must be the first execution directive; SKIP metadata may precede
+it. It exclusively rebuilds and
 boots a supported self-test kernel, then restores the normal kernel before a
 following test can boot.  It isolates artifacts; ordinary TTY-CHECK directives
 still determine whether the following test is correct.
+
+SKIP requires a nonempty reason and reports the fixture as skipped without
+booting QEMU or rebuilding artifacts. Use --run-skipped to run it explicitly;
+REQUIRES-SMP restrictions still apply.
 """
 
 from __future__ import annotations
@@ -43,6 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from lit_kernel import kernel_artifacts, validate_rebuild_kernel
+from lit_skip import parse_skip_reason
 
 ROOT = Path(__file__).resolve().parent.parent
 QEMU = os.environ.get("QEMU", "qemu-system-i386")
@@ -113,6 +120,7 @@ def resolve_test_path(test: Path, value: str) -> Path:
 @dataclass
 class TtyLitTest:
     path: Path
+    skip_reason: str | None = None
     requires_smp: tuple | None = None
     rebuild_kernel: str | None = None
     expect_halt: str | None = None
@@ -132,7 +140,11 @@ class TtyLitTest:
                     ("TTY-", "SLEEP:", "TIMEOUT:", "REQUIRES-SMP:", "EXPECT-HALT:")
                 ):
                     saw_instruction = True
-                if body.startswith("REBUILD-KERNEL:"):
+                if body.startswith("SKIP:"):
+                    self.skip_reason = parse_skip_reason(
+                        self.path, body.split(":", 1)[1], self.skip_reason
+                    )
+                elif body.startswith("REBUILD-KERNEL:"):
                     if self.rebuild_kernel is not None:
                         raise ValueError(f"{self.path}: duplicate REBUILD-KERNEL")
                     if saw_instruction:
@@ -501,6 +513,9 @@ def main() -> int:
     parser.add_argument("--qemu", default=QEMU)
     parser.add_argument("--smp", type=int, default=1)
     parser.add_argument("--jobs", "-j", type=int, default=1)
+    parser.add_argument(
+        "--run-skipped", action="store_true", help="run fixtures with an explicit SKIP"
+    )
     args = parser.parse_args()
 
     if args.smp < 1:
@@ -519,7 +534,9 @@ def main() -> int:
     runnable = []
     skipped = []
     for test in tests:
-        if test.requires_smp is not None and not smp_requirement_matches(
+        if test.skip_reason is not None and not args.run_skipped:
+            skipped.append((test, test.skip_reason))
+        elif test.requires_smp is not None and not smp_requirement_matches(
             test.requires_smp, args.smp
         ):
             skipped.append((test, f"requires SMP {test.requires_smp[2]}"))
@@ -527,7 +544,7 @@ def main() -> int:
             runnable.append(test)
 
     for test, reason in skipped:
-        print(f"SKIP: {test.path.relative_to(ROOT)} ({reason})")
+        print(f"SKIP: {os.path.relpath(test.path, ROOT)} [{reason}]", flush=True)
 
     failed = 0
     with ThreadPoolExecutor(max_workers=args.jobs) as executor:

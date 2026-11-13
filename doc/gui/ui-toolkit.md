@@ -425,6 +425,52 @@ Window properties:
 - dirty rectangle list;
 - optional icon/pixmap.
 
+### Incremental Presentation and Uploads (M10 Target)
+
+These are planned contracts; through M9 the wire protocol accepts only complete
+configured-size surface replacements. Existing committed window surfaces and
+the bounded damage/flush helpers are reused rather than replaced by a new
+rendering stack or an assumed GPU API.
+
+- The WM owns screen-space damage. Application cell/region tracking and WM
+  damage are separate: changing geometry exposes cached pixels without asking
+  the application to rerender them. Clip fill/blit operations as well as
+  scanout, preserve region ordering on retries, and retain the bounded
+  full-region fallback. Damage tracking must not allocate per input event.
+- A contiguous flush fast path is valid only when source row layout and
+  framebuffer stride make all bytes in the span both contiguous and intended
+  for writing. Otherwise retain scanline writes. Check offsets, lengths, and
+  signed I/O limits; short writes, `EINTR`, `EBUSY`, format/layout constraints,
+  and foreground-generation checks keep their existing meanings. No
+  framebuffer mmap, new ioctl, or generation-check bypass is implied.
+- M10's rectangular-update extension requires explicit version/capability
+  negotiation before use; v1.0 full-frame clients remain supported. Do not
+  silently reinterpret their `SURFACE_BEGIN` payload. Before implementation,
+  specify the negotiated payloads and error results in the protocol header
+  and protocol tests. One patch transaction targets one in-bounds rectangle
+  and identifies its window, current configure serial, exact committed base
+  frame, and new frame serial. Reject stale bases, invalid bounds, overflow,
+  duplicate/out-of-order/incomplete data, and incompatible geometry without
+  exposing partial pixels or discarding the prior committed surface.
+- Keep committed surfaces immutable while staging a patch. An initial safe
+  implementation reserves and charges a full-size staging copy of the base,
+  writes the patch into that copy, and atomically swaps on complete commit.
+  Charge every retained, staging, and reserved byte under the M9 peer/session
+  budgets. Patch admission must not consume shell headroom or evade a
+  configured-size limit. Quota/allocation failure, cancellation, disconnect,
+  and superseded configure reclaim staging and preserve known-good content.
+  Creation, resize, fullscreen transition, and lost-base recovery use a full
+  replacement before further patches; partial/tiled backing stores remain
+  out of scope.
+- The terminal's first pipelined uploader uses a documented 16 KiB encoded
+  unacknowledged-data window, counting message headers, and independently
+  caps reply and PTY buffers. Keep one surface transaction per window and
+  match each existing `SURFACE_DATA_REPLY` to its frame/configure/chunk.
+  Handle short writes and `EAGAIN` with poll-driven progress, process stale
+  replies during cancellation without applying them to a newer transaction,
+  and retain recoverable-error backoff. No busy waits, additional commit
+  acknowledgements, or larger protocol queue quotas are required.
+
 ## Widgets
 
 Implement only the widgets needed by the first applications:

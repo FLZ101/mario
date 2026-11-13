@@ -78,3 +78,4 @@ gui-test: gui-parser-test
 
 gui-parser-test:
 	$(PYTHON) $(ROOT)/tests/test_lit_gui_parser.py
+	$(PYTHON) $(ROOT)/tests/test_lit_skip.py

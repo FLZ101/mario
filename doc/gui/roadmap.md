@@ -71,6 +71,7 @@ while an earlier checkpoint is red.
 | M7 — File manager | browse, mutate `/tmp`, and launch apps | file-manager end-to-end regression |
 | M8 — Window-system hardening | protocol quotas, disconnect recovery, and server restart | window-system recovery regression |
 | M9 — Window capacity and fullscreen | dynamic resource-bounded windows, multiwindow clients, taskbar overflow, and fullscreen/restore | growth, quota, fullscreen, and real tmux application regressions |
+| M10 — Incremental GUI drawing | cached-window reuse, dirty-region composition, responsive motion, batched scanout, and incremental terminal uploads | exact drawing-work bounds, visual/transaction regressions, and reproducible latency/throughput measurements |
 
 ## Commit-Sized Execution Plan
 
@@ -128,6 +129,53 @@ item that cannot state this contract is planning work, not implementation work.
   transition, and architectural phases—is defined in [the overview](README.md).
   Work items must preserve those meanings rather than create local variants.
 
+### User-Approved Validation Deferrals (2026-11-13)
+
+The user explicitly authorized skipping failed regressions and
+prioritizing GUI drawing performance on November 13, 2026. This is a narrow
+exception to the normal milestone order and unqualified green-gate rule:
+
+- `GUI-TMUX-STARTUP`: `tests/gui/terminal-tmux-apps.test` retains all actions,
+  deadlines, and visual assertions, but has `SKIP: <reason>` metadata for the
+  intermittent Vim SIGTRAP / tmux `strlen(0xcccccccc)` startup failure. The
+  root cause is unconfirmed; this is not established as graphics slowness.
+- `GUI-STRESS-CLEANUP`: the November 13, 2026 full-suite run additionally
+  failed `tests/gui/gui-stress.test` at cycle 6, reporting
+  `/usr/bin/test/gui-cleanup.exe: not found` during reclamation. Keep its
+  sixteen-cycle workload/assertions and record a separate explicit skip under
+  the user's failed-test deferral request. The cause of this execution failure
+  is unconfirmed; smaller lifecycle, quota, recovery, and fullscreen coverage
+  remain enabled.
+- `GUI-CAPACITY-FRAME`: a subsequent full-suite run failed
+  `tests/gui/wm-many-windows.test` with a `GUI-WAIT-FRAME` serial frame-probe
+  timeout. Preserve its full multiwindow workload and teardown assertions,
+  record the observed failure as a separate explicit deferral, and restore it
+  after the cause is demonstrated. This is not proof of a WM rendering bug.
+- Shell, TTY, and GUI runners validate the entire fixture, report `SKIP` with
+  its reason, and do not launch QEMU or rebuild artifacts for explicit skips.
+  Empty/duplicate reasons are invalid. `--run-skipped` enables diagnostic runs
+  without removing metadata and does not bypass environment/SMP requirements.
+  A directive inside a shell heredoc or after `EXIT:` is not skip metadata.
+- Run `make test SMP=16` before each commit as before. A successful command
+  with these explicit skips is a runnable-suite gate with known deferrals,
+  not proof that skipped regressions passed. Any additional deferral must
+  identify an observed failure and preserve its evidence and assertions;
+  never silently skip unknown failures or weaken checks to obtain a green result.
+- M9.5 may be committed after its focused coverage and the runnable-suite
+  gate pass. M9.6 and the full M9 integration checkpoint remain incomplete;
+  M10 implementation may proceed first under this recorded exception.
+- Restore the deferred regression after a demonstrated root-cause fix and
+  focused repeated validation, then remove its `SKIP` line and run the full
+  suite without that exclusion. Finish M9.6 before claiming the complete
+  fullscreen/tmux integration gate. The separately requested GTK cursor fix
+  remains outstanding and is not silently considered complete.
+
+Run the deferred fixture explicitly with:
+
+```sh
+.venv/bin/python tests/lit_gui_test.py --smp 16 --run-skipped --test terminal-tmux-apps.test tests/gui
+```
+
 ### Ownership and Dependency Map
 
 | Work range | Must be complete first | Primary implementation roots | Focused gate type |
@@ -142,6 +190,7 @@ item that cannot state this contract is planning work, not implementation work.
 | M8 | M3.6.2 and M5–M7 complete | `src/fs/inode.c`, `src/mm/kmalloc.c`, `src/include/mm/kmalloc.h`, `src/kernel/runtime_selftest.c`, `app/gui/libmario-ui/`, `app/gui/desktop/`, `app/include/app/`, `app/system/init/`, `app/usr/`, `app/test/`, `tests/gui/`, `tests/shell/` | server-recovery and quota regressions |
 | Integration smoke | M8.3.1 | `app/usr/toybox/.config`, `app/usr/toybox.patch`, `tests/gui/terminal-apps.test`, `tests/gui/assets/terminal-vim.png`, `tests/shell/fb-no-vbe.test` | real terminal applications and no-VBE boot |
 | M9 | M8.3.1 and all Final Integration Checklist gates, including tmux panes | `app/include/app/`, `app/gui/desktop/`, `app/usr/terminal/`, `app/usr/imageviewer/`, `app/usr/filemanager/`, `app/test/gui-wm-client/`, `app/test/gui-wm-busy/`, `tests/gui/`, `tests/shell/gui-wm-busy.test`, `doc/gui/` | dynamic multiwindow lifecycles, resource quotas, taskbar paging, occlusion, fullscreen/restore, and real tmux applications |
+| M10 | Normally M9.6 and the complete M9 checkpoint; user-approved deferral allows M9.5 plus the runnable-suite gate first | `app/gui/libmario-ui/`, `app/gui/desktop/`, `app/usr/terminal/`, `app/test/`, `app/usr/Makefile`, `rd/copy_files.py`, `tests/gui/`, `tests/shell/`, `tests/bench_gui_drawing.py`, `doc/gui/` | bounded composition/scanout work, ordered input, atomic incremental uploads, and before/after drawing benchmarks |
 
 M4 is allowed to begin after M3 has a reliable graphics-seat lifecycle so PTY
 failures can be diagnosed from a stable desktop. M5, M6, and M7 may proceed in
@@ -150,6 +199,10 @@ disjoint. M8 begins only after the protocol-client applications are stable,
 because it hardens their established rendering transport rather than replacing
 their behavior. M9 begins only after M8 and the Final Integration Checklist
 are green; its dynamic capacity must preserve the M8 quota and recovery guarantees.
+Normally M10 begins only after the complete M9 checkpoint is green. The
+user-approved deferral above explicitly permits performance work first; it
+does not declare the unfinished fullscreen/tmux gates complete or establish
+an existing crash as a rendering-performance problem.
 
 Before M0:
 
@@ -1571,8 +1624,12 @@ focused gate.
 - [ ] **M9.5 — add WM-owned fullscreen and exact geometry restoration.**
   Prerequisite: M9.4. Owns `app/gui/desktop/mario-wm/main.c`,
   `app/gui/desktop/mario-desktop/main.c`, `app/test/gui-wm-client/`,
+  `app/test/gui-wm-busy/`, `tests/shell/gui-wm-busy.test`,
   `tests/gui/wm-fullscreen.test`, `tests/gui/assets/wm-fullscreen.png`, and
-  `doc/gui/desktop.md`. Implement Super-F entry/exit using normal configure
+  `tests/gui/assets/wm-fullscreen-restored.png`, `tests/pexpect_utils.py`,
+  `tests/test_pexpect_utils.py`, `Makefile.run.mk`,
+  `tests/gui/wm-many-windows.test`, and `doc/gui/desktop.md`.
+  Implement Super-F entry/exit using normal configure
   and surface transactions, hiding chrome/panel while keeping the cursor and
   using content-local input coordinates. Save the normal rectangle once;
   restore it on toggle or before activating a different window. Preserve
@@ -1583,7 +1640,14 @@ focused gate.
   failure must leave or restore the previous mode, rectangle, and committed
   content, not a half-fullscreen placeholder. A stale configure cannot commit
   after a later transition. Compare real QMP fullscreen and restored frames
-  against reviewed goldens; no runtime test bypasses. Focused gate:
+  against reviewed goldens; no runtime test bypasses. Keep serial transport
+  writes below the UART receive burst threshold with a bounded drain interval;
+  cover exact command/heredoc reconstruction in host tests. This prevents
+  queued command tails from stalling the common SMP gate without changing
+  guest assertions, deadlines, or kernel interrupt handling. Strengthen capacity
+  teardown navigation with final clamped previous-page actions and exact
+  stable-ID label pixels before sending terminal input, preserving all existing
+  checks across asynchronously delivered fallback-focus updates. Focused gate:
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-fullscreen.test tests/gui`,
   then `make test SMP=16`. Commit: `gui: add fullscreen window toggle and restore`.
 - [ ] **M9.6 — validate fullscreen tmux and repeated capacity recovery.**
@@ -1687,6 +1751,231 @@ Suggested final commit:
 ```text
 test: cover fullscreen tmux and window capacity recovery
 ```
+
+## M10: Incremental GUI Drawing
+
+Normal prerequisite: M9.6 and the complete M9 checkpoint, including the original
+and fullscreen tmux application tests. The recorded November 13, 2026 exception
+allows implementation after M9.5 and the runnable-suite gate with
+`GUI-TMUX-STARTUP`, `GUI-STRESS-CLEANUP`, and `GUI-CAPACITY-FRAME` explicitly
+skipped, leaving M9.6/integration deferred.
+All items below are planned and unchecked.
+The target contracts are
+[Desktop and applications](desktop.md#incremental-drawing-m10-target) and
+[UI toolkit](ui-toolkit.md#incremental-presentation-and-uploads-m10-target).
+The separately requested GTK dual-cursor/alignment fix is not replaced by this
+milestone; host/guest pointer misalignment must not be reported as drawing
+latency. Run `make test SMP=16` on the preceding commit before starting each
+item, its focused gates during development, and `make test SMP=16` plus
+`git diff --check` before each commit. Use one commit per numbered item.
+
+- [ ] **M10.1 — establish deterministic drawing-work and timing baselines.**
+  Prerequisite: the M9 checkpoint above. Owns `app/test/gui-wm-busy/`,
+  `tests/shell/gui-wm-busy.test`, `tests/gui/gui-drawing-performance.test`,
+  `tests/bench_gui_drawing.py`, `doc/gui/drawing-baseline.md`, and this roadmap.
+  Use the existing test-only WM link to count composed pixels, flushed bytes,
+  flush requests, actual writer calls, and completed presentations separately;
+  do not add a production debug switch or infer syscalls from logical flush
+  requests. Record the current full-screen path, cursor movement, a 320x192
+  window drag, visible/hidden updates, and full-screen terminal output. Add a
+  reproducible host/QMP benchmark with warm-up and repeated samples, recording
+  revision, resolution, compiler optimization, QEMU version/accelerator,
+  SMP count, host configuration, instrumentation, and injected workload.
+  Measure injection-to-visible-update latency and terminal update throughput;
+  exclude boot, fixture setup, and image-lock waits. Record median/p95/max and
+  failures rather than dropping timeouts. Timing results are a baseline, not
+  yet a hardware-independent FPS assertion. Preserve all current assertions.
+  Focused gate:
+  `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-wm-busy.test tests/shell`;
+  benchmark:
+  `.venv/bin/python tests/bench_gui_drawing.py --smp 16 --output /tmp/mario-gui-baseline.json`,
+  then `make test SMP=16`. Commit: `test: establish GUI drawing performance baselines`.
+- [ ] **M10.2 — compose and flush only damaged screen regions.**
+  Prerequisite: M10.1. Owns `app/gui/desktop/mario-wm/main.c`,
+  `app/gui/libmario-ui/`, `app/test/gui-surface/`, `app/test/gui-wm-busy/`,
+  `app/test/gui-wm-client/`, `tests/shell/gui-wm-busy.test`,
+  `tests/gui/wm-damage.test`, reviewed assets under `tests/gui/assets/`, and
+  `doc/gui/`. Keep the persistent composite; reuse committed window images
+  and the bounded region helpers. Damage old/new decorated window bounds,
+  content rectangles, changed chrome/focus/stacking, desktop replacement,
+  close/reveal, and old/new cursor bounds. Reconstruct only intersections in
+  stacking order and flush those regions, preserving fully obscured culling.
+  Do not render the whole scene and merely shrink the final writes. Cursor-only
+  movement must touch only its old/new bounded areas; a small drag must not
+  clear or flush the full screen. Account any fixed cursor scratch storage.
+  Compare incremental output pixel-for-pixel with a test-only full-composition
+  oracle across overlap, clipping, large jumps, fullscreen/restore, and reveal.
+  Exercise region overflow, partial writes, `EINTR`, real flush error rollback,
+  and `GUI_FLUSH_BUSY`; F8 return and scanout invalidation force full damage,
+  and no abandoned/empty presentation advances readiness or the frame marker.
+  Focused gates:
+  `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-wm-busy.test tests/shell`
+  and
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-damage.test tests/gui`,
+  then `make test SMP=16`. Commit: `gui: compose and scan out bounded damage`.
+- [ ] **M10.3 — batch motion drawing without delaying input dispatch.**
+  Prerequisite: M10.2. Owns `app/gui/desktop/mario-wm/main.c`,
+  `app/test/gui-wm-busy/`, `app/test/gui-wm-client/`,
+  `tests/shell/gui-wm-busy.test`, `tests/gui/wm-motion-batch.test`, its reviewed
+  assets under `tests/gui/assets/`, and `doc/gui/`. Apply every input record
+  in order but present motion-only damage once at the next 16 ms deadline,
+  using the newest state rather than rendering intermediate pointer positions.
+  Track last-presented bounds and the latest destination rather than retaining
+  every unpainted position in the damage region. Update presented-state
+  bookkeeping only after successful scanout, preserving it on interruption.
+  Bound each input/client drain and recalculate poll timeouts from deadlines;
+  continuously readable descriptors must not postpone drawing or starve peers.
+  Do not sum relative deltas across edge clamps, button changes, or capture
+  transitions. Preserve key/button ordering, final drag position, release,
+  input resets, close, and VT changes. Client commits retain their existing
+  immediate real-error/rollback path; any later global commit-pacing design
+  requires a separate contract for charged known-good surfaces and error
+  feedback. Test burst motion, an indefinitely busy mouse/peer, mixed key and
+  button input, unchanged cursor positions, and text-mode suspension using a
+  controllable test clock. Require one presentation for a motion-only burst
+  within one scheduled frame, bounded dispatch progress, and exact final
+  geometry/pixels. Focused gates:
+  `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-wm-busy.test tests/shell`
+  and
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-motion-batch.test tests/gui`,
+  then `make test SMP=16`. Commit: `gui: batch pointer presentation with fair dispatch`.
+- [ ] **M10.4 — batch contiguous framebuffer writes safely.**
+  Prerequisite: M10.3. Owns `app/gui/libmario-ui/src/flush.c`,
+  `app/test/gui-surface/`, `tests/shell/gui-surface.test`,
+  `tests/gui/fb-flush-batch.test`, and `doc/gui/`. Use contiguous spans when
+  both source and destination strides/layouts permit writing exactly the
+  intended pixels. Keep narrow/padded rectangles on the scanline path; no
+  unbounded packing buffer or kernel ABI change is required. Preserve all
+  arithmetic checks, signed request limits, partial-write offset advancement,
+  `EINTR`, `EBUSY`, ordered region retry, and framebuffer generation protection.
+  Count actual writer calls: an uninterrupted contiguous full-frame flush
+  should issue one request rather than one per row, while injected short
+  writes legitimately require more calls. Compare narrow, clipped, padded,
+  contiguous, empty, and overflow cases and interrupted VT-transition results
+  against the existing path. Focused gates:
+  `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-surface.test tests/shell`
+  and
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test fb-flush-batch.test tests/gui`,
+  then `make test SMP=16`. Commit: `gui: batch layout-safe framebuffer writes`.
+- [ ] **M10.5 — render only changed terminal cells.**
+  Prerequisite: M10.4. Owns `app/usr/terminal/`, `app/test/terminal-vt/`,
+  `tests/shell/terminal-vt.test`, `tests/gui/terminal-damage.test`, its reviewed
+  assets under `tests/gui/assets/`, and `doc/gui/`. Track bounded dirty
+  rows/cells or compare against an explicitly accounted prior-cell snapshot;
+  reuse the pixel surface and existing glyph cache. Include old/new terminal
+  cursor cells, erase, attributes, colors, scrolling, alternate-screen
+  transitions, and resize. Reuse cached scroll rows only with overlap-safe
+  copying and correct invalidation; fall back to full rendering when required.
+  Unchanged output/state must not rerender cells. At this step continue using
+  the existing full-frame wire protocol rather than depending on M10.6.
+  Use a full-render test oracle for exact pixel equivalence, single-cell work
+  counts, UTF-8/fallback glyphs, tmux, Vim, top, and nano. Allocation failure
+  preserves the prior working renderer/surface and recoverable retry behavior.
+  Focused gates:
+  `.venv/bin/python tests/lit_shell_test.py --smp 16 --test terminal-vt.test tests/shell`
+  and
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test terminal-damage.test tests/gui`,
+  then `make test SMP=16`. Commit: `terminal: reuse pixels for unchanged cells`.
+- [ ] **M10.6 — add negotiated atomic rectangular surface uploads.**
+  Prerequisite: M10.5. Owns `app/gui/libmario-ui/include/gui/protocol.h`,
+  `app/gui/libmario-ui/src/protocol.c`, `app/gui/desktop/mario-wm/main.c`,
+  `app/test/gui-protocol/`, `app/test/gui-wm-busy/`, `app/test/gui-wm-client/`,
+  `tests/shell/gui-protocol.test`, `tests/shell/gui-wm-busy.test`,
+  `tests/gui/wm-surface-patch.test`, its reviewed assets under
+  `tests/gui/assets/`, and `doc/gui/`. Specify and implement explicit
+  version/capability negotiation and one-rectangle transactions tagged with
+  window/configure/base/new-frame identities. Keep v1.0 full-frame clients
+  working and unnegotiated partial requests rejected. Stage into a charged
+  immutable-base copy, then atomically commit complete ordered data and damage
+  only the patched visible area. Validate all bounds, lengths, serials, and
+  arithmetic before admission. Full replacement establishes a base after
+  create/resize/fullscreen/recovery. Reject malformed, stale, incomplete,
+  duplicate, canceled, or over-budget uploads without partial presentation or
+  loss of prior pixels. Exercise allocation/flush rollback, shell headroom,
+  hidden patch/reveal, disconnect, and full reclamation. The first end-to-end
+  user is the deterministic protocol client, not a simultaneous application
+  rewrite. Focused gates:
+  `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-protocol.test tests/shell`
+  and
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-surface-patch.test tests/gui`,
+  plus the WM-link regression, then `make test SMP=16`.
+  Commit: `gui: negotiate atomic rectangular surface updates`.
+- [ ] **M10.7 — send incremental terminal updates with bounded pipelining.**
+  Prerequisite: M10.6. Owns `app/usr/terminal/`, `app/test/gui-wm-busy/`,
+  `app/test/gui-wm-client/`, `tests/shell/gui-wm-busy.test`,
+  `tests/gui/terminal-upload-window.test`, its reviewed assets under
+  `tests/gui/assets/`, and `doc/gui/`. Negotiate patches, coalesce terminal
+  damage into one atomic upload rectangle, and use full frames for initial
+  display, configure changes, lost bases, and old servers. Replace one-chunk
+  blocking waits with a poll-driven uploader capped at 16 KiB encoded
+  unacknowledged data and bounded PTY/reply buffers. Track the existing data
+  acknowledgements exactly; retain one transaction per window and existing
+  queue quotas. Service keys, configures, disconnects, and PTY progress while
+  uploads are in flight. Cancel/resynchronize stale work safely, accumulate
+  bounded new damage while sending, and preserve serial monotonicity,
+  full-frame atomicity, error backoff, and resource reclamation. Do not add a
+  shell-only commit acknowledgement. Test slow/short writes, delayed/stale
+  replies, quota failure, resize during output, and single-cell byte counts;
+  require unchanged areas and no corrupt/mixed frame. Focused gates:
+  `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-wm-busy.test tests/shell`
+  and
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test terminal-upload-window.test tests/gui`,
+  then `make test SMP=16`. Commit: `terminal: pipeline bounded dirty-region uploads`.
+- [ ] **M10.8 — validate drawing performance and recovery end to end.**
+  Prerequisite: M10.7. Owns `tests/gui/gui-drawing-performance.test`, reviewed
+  assets under `tests/gui/assets/`, `tests/bench_gui_drawing.py`,
+  `doc/gui/drawing-baseline.md`, and this roadmap. Repeat the M10.1 workloads
+  on the same host, accelerator, compiler flags, SMP count, resolution, and
+  sampling policy. Report before/after latency and throughput without claiming
+  an unmeasured universal FPS target or hiding failures. Make deterministic
+  work bounds hard assertions: no scanout for idle/fully hidden updates;
+  cursor-only scanout bounded by its old/new footprints with documented bounded
+  region-coalescing overhead; composed work bounded by damaged intersections
+  and scene layers, not unrelated screen areas; a small window drag
+  bounded by its clipped old/new decorated region rather than screen size;
+  one scheduled presentation for a motion-only burst; contiguous scanout
+  requests batched; a one-cell terminal fixture with an adjacent cursor has
+  rendering and patch bytes bounded by its small dirty bounding rectangle
+  plus protocol overhead; all buffers within their caps. Distant dirty cells
+  may require a larger coalesced rectangle and must not be misreported as
+  single-cell traffic.
+  Exercise one and sixteen windows, overlap/reveal, continuous output,
+  fullscreen tmux/Vim/top/nano, restore, F1/F6/F8, shell replacement, and
+  sixteen close/reopen cycles. Preserve existing tmux fixtures and require
+  exact reviewed pixels, final input/geometry, saved edits, clean exits,
+  recovered surface/metadata/FD/PTY capacity, and unchanged healthy peers.
+  Focused gate:
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test gui-drawing-performance.test tests/gui`;
+  benchmark:
+  `.venv/bin/python tests/bench_gui_drawing.py --smp 16 --output /tmp/mario-gui-after.json`,
+  then `make test SMP=16`. Commit: `test: validate incremental GUI drawing and recovery`.
+
+### Checkpoint and Non-Goals
+
+- Dragging reuses cached window pixels, repairs exposed regions, and never
+  redraws unrelated screen areas for the bounded small-window workload.
+  Cursor movement does not cause a full-screen repaint. Large moves or damage
+  overflow may legitimately fall back to full-region damage.
+- Motion rendering cannot build an unbounded queue of intermediate frames;
+  input ordering, frame readiness, client errors, VT/session recovery, and
+  M9 memory/quota guarantees remain intact.
+- Terminal cell rendering and negotiated uploads are incremental; full-frame
+  fallback and all existing application clients remain functional. Reduced
+  protocol round trips do not come from dropping acknowledgements or enlarging
+  bounded kernel/socket queues.
+- Deterministic work assertions, original/fullscreen tmux coverage, M8/M9
+  recovery coverage, recorded same-configuration benchmarks, and the full
+  `make test SMP=16` gate are the unqualified completion target. Until the
+  user-approved deferrals are restored, report the runnable gate and deferred
+  integration coverage separately rather than claiming all of these passed.
+
+No GPU dependency, framebuffer mmap, new kernel blit ioctl, physical-device
+VMA work, display-mode changes, unbounded window/cache/buffer growth, new glyph
+cache, or replacement compositor is scheduled. A default `-O0` build and
+unaccelerated QEMU remain the comparison configuration if that is the measured
+baseline. Optimized builds, verified optional KVM, hardware cursors, shared
+memory, and screen-to-screen blits are separate measured follow-ups, not ways
+to conceal inefficient drawing or cursor-alignment defects.
 
 ## Validation
 

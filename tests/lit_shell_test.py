@@ -10,6 +10,7 @@ Test files use a tiny subset of lit syntax:
     CHECK-NOT: goodbye
     CHECK-REGEX: hello\s+world
     REQUIRES-SMP: >=4
+    SKIP: <reason>
     RUN: wc -l <<'EOF'
     one
     two
@@ -20,10 +21,15 @@ Run:
 
     python3 tests/lit_shell_test.py tests/shell
 
-REBUILD-KERNEL must be the first directive.  It exclusively rebuilds and
+REBUILD-KERNEL must be the first execution directive; SKIP metadata may precede
+it. It exclusively rebuilds and
 boots a supported self-test kernel, then restores the normal kernel before a
 following test can boot.  It isolates artifacts; ordinary CHECK directives
 still determine whether the following test is correct.
+
+SKIP requires a nonempty reason and reports the fixture as skipped without
+booting QEMU or rebuilding artifacts. Use --run-skipped to run it explicitly;
+environment and REQUIRES-SMP restrictions still apply.
 """
 
 import argparse
@@ -41,6 +47,7 @@ except ImportError:
 
 from pexpect_utils import make_pexpect_raw, send_line, send_text
 from lit_kernel import kernel_artifacts, validate_rebuild_kernel
+from lit_skip import parse_skip_reason
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -130,6 +137,7 @@ def _pexpect_expect(child, pattern, timeout, description):
 class LitTest:
     def __init__(self, path):
         self.path = path
+        self.skip_reason = None
         self.requires_smp = None
         self.rebuild_kernel = None
         self.expect_halt = None
@@ -163,7 +171,11 @@ class LitTest:
                     continue
 
                 body = line[1:] if line.startswith("#") else line
-                if body.startswith("REBUILD-KERNEL:"):
+                if body.startswith("SKIP:"):
+                    self.skip_reason = parse_skip_reason(
+                        self.path, body.split(":", 1)[1], self.skip_reason
+                    )
+                elif body.startswith("REBUILD-KERNEL:"):
                     if self.rebuild_kernel is not None:
                         raise ValueError(f"{self.path}: duplicate REBUILD-KERNEL")
                     if saw_instruction:
@@ -434,7 +446,9 @@ def _run_lit_test_locked(test, qemu, realtime, smp):
     return failures, captured_text(), report_start
 
 
-def skipped_reason(test, missing_hd_images, smp):
+def skipped_reason(test, missing_hd_images, smp, run_skipped=False):
+    if test.skip_reason is not None and not run_skipped:
+        return test.skip_reason
     if missing_hd_images:
         return f"missing {', '.join(missing_hd_images)}"
     if test.requires_smp is not None and not smp_requirement_matches(
@@ -500,6 +514,9 @@ def main():
     parser.add_argument("--test", help="run only this test file")
     parser.add_argument("--list", action="store_true", help="list discovered tests")
     parser.add_argument(
+        "--run-skipped", action="store_true", help="run fixtures with an explicit SKIP"
+    )
+    parser.add_argument(
         "--smp",
         type=int,
         default=1,
@@ -553,10 +570,6 @@ def main():
         print(f"No .test files found in: {' '.join(args.paths)}", file=sys.stderr)
         sys.exit(2)
 
-    # A rebuild-only selection creates kernel.exe before QEMU starts.  Mixed
-    # selections still need an existing normal kernel for ordinary tests.
-    require_files(any(test.rebuild_kernel is None for test in tests))
-
     missing_hd_images = [
         path for path in (HD1_IMAGE, HD2_IMAGE, HD3_IMAGE) if not os.path.exists(path)
     ]
@@ -565,11 +578,14 @@ def main():
     runnable = []
     for test in tests:
         name = os.path.relpath(test.path, ROOT)
-        reason = skipped_reason(test, missing_hd_images, args.smp)
+        reason = skipped_reason(test, missing_hd_images, args.smp, args.run_skipped)
         if reason is not None:
             print(f"SKIP: {name} [{reason}]", flush=True)
             continue
         runnable.append(test)
+
+    if runnable:
+        require_files(any(test.rebuild_kernel is None for test in runnable))
 
     # Parallel QEMU output would interleave, so only stream in serial mode.
     realtime = args.verbose and args.jobs == 1
