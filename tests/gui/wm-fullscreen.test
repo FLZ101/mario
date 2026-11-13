@@ -1,0 +1,153 @@
+GUI-VISUAL-TEST:
+TIMEOUT: 90
+SERIAL: <<TEXTVT
+{
+    printf '\033[2J\033[H\033[8;20HVT6-MARKER'
+    for row in 1 2 3; do
+        printf "\033[${row};1H\033[46m                    \033[${row};60H\033[42m                    "
+    done
+    for row in 23 24 25; do
+        printf "\033[${row};1H\033[45m                    \033[${row};60H\033[43m                    "
+    done
+    printf '\033[0m\033[8;20HVT6-MARKER'
+} >/dev/tty6
+TEXTVT
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-fullscreen.*; /usr/bin/mario-wm >>/tmp/mario-wm.log 2>&1 & wm_pid=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done; shell_pid=$(pgrep mario-desktop)
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: ( /usr/bin/test/gui-wm-client.exe --fullscreen; fixture_status=$?; printf '%s\n' "$fixture_status" >/tmp/gui-fullscreen.status-new; mv /tmp/gui-fullscreen.status-new /tmp/gui-fullscreen.status; while test ! -e /tmp/gui-fullscreen.release; do sleep 1; done; exit "$fixture_status" ) >/tmp/gui-fullscreen.log 2>&1 & client_pid=$!
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.ready
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 57,17
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.focus-target
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.pending-2
+GUI-SEND-KEY: a
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: touch /tmp/gui-fullscreen.commit-2
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.frame-2
+GUI-CHECK-RECT: 0 0 1024 128 68 136 102
+GUI-CHECK-SCREEN: assets/wm-fullscreen.png
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.edge-top-left
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 7,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.edge-bottom
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 0 0 1000 768 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.pending-3
+GUI-CHECK-RECT: 0 0 1000 768 68 136 102
+SERIAL: touch /tmp/gui-fullscreen.commit-3
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.frame-3
+GUI-CHECK-RECT: 144 112 320 192 34 86 136
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+GUI-CHECK-SCREEN-RECT: assets/wm-fullscreen-restored.png,0,0,900,740
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.pending-4
+GUI-CHECK-RECT: 144 112 320 192 34 86 136
+SERIAL: touch /tmp/gui-fullscreen.commit-4
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.frame-4
+GUI-CHECK-RECT: 0 0 1000 768 68 136 102
+SERIAL: rm -f /tmp/gui-fullscreen.focus-sibling
+GUI-SEND-KEYS: alt,tab
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.pending-5
+SERIAL: test ! -e /tmp/gui-fullscreen.focus-sibling && printf 'fullscreen: activation waits for restore pixels\n'
+SERIAL-CHECK: fullscreen: activation waits for restore pixels
+GUI-CHECK-RECT: 0 0 1000 768 68 136 102
+SERIAL: touch /tmp/gui-fullscreen.commit-5
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.frame-5
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.focus-sibling
+GUI-CHECK-RECT: 144 112 320 192 34 86 136
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,-127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -61,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 0,28
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.pending-6
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done; touch /tmp/gui-fullscreen.commit-6
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.frame-6
+SERIAL: test ! -e /tmp/mario-wm.ready && test $(pgrep mario-wm) = "$wm_pid" && test $(pgrep mario-desktop) = "$shell_pid" && printf 'fullscreen: suspended mode and session survive\n'
+SERIAL-CHECK: fullscreen: suspended mode and session survive
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 0 0 1024 128 68 136 102
+GUI-CHECK-SCREEN: assets/wm-fullscreen.png
+SERIAL: kill "$shell_pid"; while test $(grep -c 'private connection ready' /tmp/mario-wm.log) -lt 2; do sleep 1; done; replacement=$(pgrep mario-desktop); test "$replacement" != "$shell_pid" && test $(pgrep mario-wm) = "$wm_pid" && printf 'fullscreen: replacement shell retains owner\n'
+SERIAL-CHECK: fullscreen: replacement shell retains owner
+GUI-CHECK-RECT: 0 0 1024 128 68 136 102
+GUI-CHECK-SCREEN: assets/wm-fullscreen.png
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.sibling-live
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 12,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.done
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.status
+SERIAL: fixture_status=$(cat /tmp/gui-fullscreen.status); touch /tmp/gui-fullscreen.release; wait "$client_pid"; wrapper_status=$?; cat /tmp/gui-fullscreen.log; test "$fixture_status" -eq 0 && test "$wrapper_status" -eq 0 && printf 'fullscreen: fixture exited cleanly\n'
+SERIAL-CHECK: wm-client: fullscreen, exact restore, edges and cooperative sibling close pass
+SERIAL-CHECK: fullscreen: fixture exited cleanly
+SERIAL: kill -TERM "$wm_pid"; wait "$wm_pid"; test ! -e /tmp/mario-wm.started && printf 'fullscreen: clean teardown\n'
+SERIAL-CHECK: fullscreen: clean teardown
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+EXIT:

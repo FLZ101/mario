@@ -1502,7 +1502,8 @@ multiple windows may share an application connection. Literally unlimited
 windows are not a deliverable. The target contracts are in
 [Desktop and applications](desktop.md#expanded-capacity-and-fullscreen-m9-target)
 and [UI toolkit](ui-toolkit.md#surface-memory-and-failure-handling). M9.1 through
-M9.4 are implemented; the remaining items are planned. Run `make test SMP=16` before
+M9.5 are implemented; M9.6 and the complete integration checkpoint remain
+deferred under the user-approved exceptions above. Run `make test SMP=16` before
 starting each item and before each commit, with `git diff --check` after the
 focused gate.
 
@@ -1621,7 +1622,7 @@ focused gate.
   and
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-occlusion.test tests/gui`,
   then `make test SMP=16`. Commit: `gui: cull fully obscured window updates`.
-- [ ] **M9.5 — add WM-owned fullscreen and exact geometry restoration.**
+- [x] **M9.5 — add WM-owned fullscreen and exact geometry restoration.**
   Prerequisite: M9.4. Owns `app/gui/desktop/mario-wm/main.c`,
   `app/gui/desktop/mario-desktop/main.c`, `app/test/gui-wm-client/`,
   `app/test/gui-wm-busy/`, `tests/shell/gui-wm-busy.test`,

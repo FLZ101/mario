@@ -995,6 +995,195 @@ static void test_occlusion(void)
 	budget_marker("/tmp/gui-occlusion.done");
 }
 
+typedef struct {
+	uint32_t target;
+	uint32_t sibling;
+	uint32_t focused;
+	uint32_t width;
+	uint32_t height;
+	int pending;
+	unsigned int resets;
+} fullscreen_fixture;
+
+static void fullscreen_reply(int fd, fullscreen_fixture *fixture, uint8_t *frame,
+			     gui_protocol_type expected)
+{
+	for (;;) {
+		gui_protocol_header header;
+
+		read_full(fd, frame, GUI_PROTOCOL_HEADER_SIZE);
+		assert(gui_protocol_decode_header(frame, GUI_PROTOCOL_HEADER_SIZE, &header) == 0);
+		assert(header.length <= 64);
+		read_full(fd, frame + GUI_PROTOCOL_HEADER_SIZE, header.length - GUI_PROTOCOL_HEADER_SIZE);
+		if (header.type == expected)
+			return;
+		if (header.type == GUI_PROTOCOL_WINDOW_FOCUS) {
+			uint32_t window = get32(frame + 8);
+
+			assert(window == fixture->target || window == fixture->sibling);
+			if (get32(frame + 12)) {
+				fixture->focused = window;
+				budget_marker(window == fixture->target ? "/tmp/gui-fullscreen.focus-target" :
+					"/tmp/gui-fullscreen.focus-sibling");
+			} else if (fixture->focused == window) {
+				fixture->focused = 0;
+			}
+			continue;
+		}
+		if (header.type == GUI_PROTOCOL_INPUT_RESET) {
+			fixture->resets++;
+			continue;
+		}
+		assert(header.type == GUI_PROTOCOL_INPUT_EVENT && !fixture->pending);
+		assert(get32(frame + 8) == fixture->target || get32(frame + 8) == fixture->sibling);
+		if (get32(frame + 8) == fixture->target && fixture->width == 1024 &&
+		    get32(frame + 12) == GUI_INPUT_EVENT_MOUSE) {
+			uint32_t pointer_x = get32(frame + 24);
+			uint32_t pointer_y = get32(frame + 28);
+
+			assert(pointer_x < 1024 && pointer_y < 768);
+			if (frame[32] & 1) {
+				printf("wm-client: fullscreen click %u,%u\n", pointer_x, pointer_y);
+				fflush(stdout);
+				if (pointer_x == 0 && pointer_y == 0)
+					budget_marker("/tmp/gui-fullscreen.edge-top-left");
+				if (pointer_x == 1023 && pointer_y == 767)
+					budget_marker("/tmp/gui-fullscreen.edge-bottom");
+			}
+		}
+	}
+}
+
+static uint32_t fullscreen_create(int fd, fullscreen_fixture *fixture,
+				 uint32_t request, uint32_t width, uint32_t height)
+{
+	uint8_t frame[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_create)] = { 0 };
+	uint8_t reply[64];
+
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_CREATE,
+		sizeof(gui_protocol_wire_window_create)) == 0);
+	put32(frame + 8, request);
+	put32(frame + 12, width);
+	put32(frame + 16, height);
+	write_full(fd, frame, sizeof(frame));
+	fullscreen_reply(fd, fixture, reply, GUI_PROTOCOL_WINDOW_CREATE_REPLY);
+	assert(get32(reply + 8) == request && get32(reply + 12) != 0 && get64(reply + 16) == 1);
+	assert(get32(reply + 24) == width && get32(reply + 28) == height);
+	return get32(reply + 12);
+}
+
+static void fullscreen_error(int fd, fullscreen_fixture *fixture, gui_protocol_type type,
+			     int status)
+{
+	uint8_t reply[64];
+
+	fullscreen_reply(fd, fixture, reply, GUI_PROTOCOL_ERROR);
+	assert(get16(reply + 12) == type && (int32_t)get32(reply + 8) == status);
+}
+
+static void fullscreen_fill(int fd, fullscreen_fixture *fixture, uint32_t window,
+			    uint32_t width, uint32_t height, uint64_t serial,
+			    uint64_t frame_serial, uint32_t offset, gui_color color)
+{
+	uint8_t reply[64];
+
+	while (offset < width * height) {
+		uint32_t count = width * height - offset;
+
+		if (count > SURFACE_PIXELS_PER_MESSAGE)
+			count = SURFACE_PIXELS_PER_MESSAGE;
+		send_surface_data_configured(fd, window, offset, count, serial, frame_serial, color);
+		fullscreen_reply(fd, fixture, reply, GUI_PROTOCOL_SURFACE_DATA_REPLY);
+		assert(get32(reply + 8) == window && get64(reply + 12) == serial &&
+			get64(reply + 20) == frame_serial && get32(reply + 28) == offset &&
+			get32(reply + 32) == count);
+		offset += count;
+	}
+	commit_surface_configured(fd, window, serial, frame_serial);
+	fixture->pending = 0;
+	commit_surface_configured(fd, window, serial, frame_serial);
+	fullscreen_error(fd, fixture, GUI_PROTOCOL_SURFACE_COMMIT, -EINVAL);
+}
+
+static void test_fullscreen(void)
+{
+	fullscreen_fixture fixture = { .width = 320, .height = 192 };
+	int fd = connect_client();
+	uint8_t reply[64];
+	uint8_t resize[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_resize)] = { 0 };
+	char marker[64];
+
+	hello(fd);
+	fixture.target = fullscreen_create(fd, &fixture, 9000, 320, 192);
+	lifecycle_move(fd, fixture.target, 144, 112);
+	begin_surface(fd, fixture.target, 320, 192, 1);
+	fullscreen_fill(fd, &fixture, fixture.target, 320, 192, 1, 1, 0, 0x00225688);
+	fixture.sibling = fullscreen_create(fd, &fixture, 9001, 128, 96);
+	lifecycle_move(fd, fixture.sibling, 680, 80);
+	begin_surface(fd, fixture.sibling, 128, 96, 1);
+	fullscreen_fill(fd, &fixture, fixture.sibling, 128, 96, 1, 1, 0, 0x00dd8844);
+	assert(fixture.focused == fixture.sibling && fixture.resets >= 3);
+	budget_marker("/tmp/gui-fullscreen.ready");
+	for (uint64_t serial = 2; serial <= 6; serial++) {
+		uint32_t width = serial % 2 == 0 ? 1024 : 320;
+		uint32_t height = serial % 2 == 0 ? 768 : 192;
+		gui_color color = serial % 2 == 0 ? 0x00448866 : 0x00225688;
+
+		fullscreen_reply(fd, &fixture, reply, GUI_PROTOCOL_WINDOW_CONFIGURE);
+		assert(get32(reply + 8) == fixture.target && get64(reply + 12) == serial);
+		assert(get32(reply + 20) == width && get32(reply + 24) == height);
+		assert(fixture.focused == fixture.target);
+		fixture.pending = 1;
+		fixture.width = width;
+		fixture.height = height;
+		if (serial == 2) {
+			lifecycle_move(fd, fixture.target, 40, 60);
+			fullscreen_error(fd, &fixture, GUI_PROTOCOL_WINDOW_MOVE, -EBUSY);
+			assert(gui_protocol_encode_header(resize, sizeof(resize), GUI_PROTOCOL_WINDOW_RESIZE,
+				sizeof(gui_protocol_wire_window_resize)) == 0);
+			put32(resize + 8, fixture.target);
+			put32(resize + 12, 64);
+			put32(resize + 16, 48);
+			write_full(fd, resize, sizeof(resize));
+			fullscreen_error(fd, &fixture, GUI_PROTOCOL_WINDOW_RESIZE, -EBUSY);
+		}
+		begin_surface_configured(fd, fixture.target, width, height, serial - 1, serial);
+		fullscreen_error(fd, &fixture, GUI_PROTOCOL_SURFACE_BEGIN, -EINVAL);
+		begin_surface_configured(fd, fixture.target, width, height, serial, serial);
+		send_surface_data_configured(fd, fixture.target, 0, 1, serial, serial, color);
+		fullscreen_reply(fd, &fixture, reply, GUI_PROTOCOL_SURFACE_DATA_REPLY);
+		assert(get32(reply + 8) == fixture.target && get64(reply + 12) == serial &&
+			get64(reply + 20) == serial && get32(reply + 28) == 0 && get32(reply + 32) == 1);
+		commit_surface_configured(fd, fixture.target, serial, serial);
+		fullscreen_error(fd, &fixture, GUI_PROTOCOL_SURFACE_COMMIT, -EINVAL);
+		assert(fixture.focused == fixture.target);
+		assert(snprintf(marker, sizeof(marker), "/tmp/gui-fullscreen.pending-%llu",
+			(unsigned long long)serial) > 0);
+		budget_marker(marker);
+		assert(snprintf(marker, sizeof(marker), "/tmp/gui-fullscreen.commit-%llu",
+			(unsigned long long)serial) > 0);
+		budget_wait(marker);
+		fullscreen_fill(fd, &fixture, fixture.target, width, height, serial, serial, 1, color);
+		assert(fixture.focused == (serial == 5 ? fixture.sibling : fixture.target));
+		assert(snprintf(marker, sizeof(marker), "/tmp/gui-fullscreen.frame-%llu",
+			(unsigned long long)serial) > 0);
+		budget_marker(marker);
+	}
+	fullscreen_reply(fd, &fixture, reply, GUI_PROTOCOL_WINDOW_CLOSE_REQUEST);
+	assert(get32(reply + 8) == fixture.target && fixture.resets >= 10);
+	destroy_window(fd, fixture.target);
+	begin_surface(fd, fixture.sibling, 128, 96, 2);
+	fullscreen_fill(fd, &fixture, fixture.sibling, 128, 96, 1, 2, 0, 0x00dd8844);
+	budget_marker("/tmp/gui-fullscreen.sibling-live");
+	fullscreen_reply(fd, &fixture, reply, GUI_PROTOCOL_WINDOW_CLOSE_REQUEST);
+	assert(get32(reply + 8) == fixture.sibling);
+	destroy_window(fd, fixture.sibling);
+	close(fd);
+	puts("wm-client: fullscreen, exact restore, edges and cooperative sibling close pass");
+	fflush(stdout);
+	budget_marker("/tmp/gui-fullscreen.done");
+}
+
 static void test_quotas(void)
 {
 	uint8_t frames[sizeof(gui_protocol_wire_header) +
@@ -1399,6 +1588,7 @@ int main(int argc, char **argv)
 		!strcmp(argv[1], "--window-lifecycle") ||
 		!strcmp(argv[1], "--many-windows") ||
 		!strcmp(argv[1], "--occlusion") ||
+		!strcmp(argv[1], "--fullscreen") ||
 		!strcmp(argv[1], "--partial-only") ||
 		!strcmp(argv[1], "--commit-only") ||
 		!strcmp(argv[1], "--recovery-only") ||
@@ -1418,6 +1608,8 @@ int main(int argc, char **argv)
 			test_many_windows();
 		} else if (!strcmp(argv[1], "--occlusion")) {
 			test_occlusion();
+		} else if (!strcmp(argv[1], "--fullscreen")) {
+			test_fullscreen();
 		} else if (!strcmp(argv[1], "--quota-only")) {
 			test_quotas();
 			puts("wm-client: quotas ok");

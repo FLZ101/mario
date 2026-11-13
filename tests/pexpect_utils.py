@@ -1,4 +1,9 @@
-"""Small helpers for sending long text through pexpect-backed serial ports."""
+"""Send serial text in sub-FIFO bursts, allowing the guest to drain each write.
+
+Large stdio writes can leave command tails queued until another UART input
+event under SMP emulation. Keep the same exact bytes and bound each burst
+instead of retrying commands or relaxing their assertions and deadlines.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,7 @@ import termios
 import time
 
 
-DEFAULT_CHUNK_SIZE = 256
+DEFAULT_CHUNK_SIZE = 8
 DEFAULT_CHUNK_DELAY = 0.01
 
 

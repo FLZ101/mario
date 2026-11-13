@@ -114,6 +114,13 @@ struct wm_window {
 	uint64_t configure_serial;
 	size_t reserved_bytes;
 	int transition_pending;
+	int fullscreen;
+	int mode_pending;
+	int previous_fullscreen;
+	int32_t normal_x;
+	int32_t normal_y;
+	uint32_t normal_width;
+	uint32_t normal_height;
 	int32_t previous_x;
 	int32_t previous_y;
 	uint32_t previous_width;
@@ -173,6 +180,8 @@ struct wm_server {
 	uint64_t next_stack_order;
 	/* All focus and future grab transitions enter through this owner. */
 	wm_window *input_owner;
+	wm_window *fullscreen_window;
+	uint32_t deferred_focus_id;
 	/* Pointer capture keeps title and border drags out of client input streams. */
 	wm_window *capture_client;
 	wm_capture_operation capture_operation;
@@ -200,6 +209,8 @@ static int window_enqueue(wm_window *window, gui_protocol_type type,
 			  const void *payload, size_t payload_bytes);
 static void window_reject(wm_window *window, gui_protocol_type type, int status);
 static void wm_cancel_capture(wm_server *server);
+static void wm_reset_input_owner(wm_server *server);
+static void wm_complete_mode(wm_window *window);
 
 static void *wm_record_create(wm_server *server, wm_client *client, size_t bytes)
 {
@@ -438,6 +449,13 @@ static void window_destroy(wm_window *window)
 	wm_client *client = window->client;
 	wm_window **link = &server->windows;
 
+	if (server->fullscreen_window == window) {
+		server->fullscreen_window = NULL;
+		server->deferred_focus_id = 0;
+	} else if (server->deferred_focus_id == window->window_id) {
+		server->deferred_focus_id = 0;
+	}
+
 	while (*link != NULL && *link != window)
 		link = &(*link)->next;
 	if (*link == window)
@@ -568,26 +586,52 @@ static void wm_draw_cursor(wm_state *state)
 	}
 }
 
+static const wm_window *wm_presented_window(const wm_window *window, wm_window *storage)
+{
+	if (!window->mode_pending)
+		return window;
+	*storage = *window;
+	storage->x = window->previous_x;
+	storage->y = window->previous_y;
+	storage->width = window->previous_width;
+	storage->height = window->previous_height;
+	storage->fullscreen = window->previous_fullscreen;
+	return storage;
+}
+
+static wm_window *wm_presented_fullscreen(const wm_server *server)
+{
+	wm_window *window = server->fullscreen_window;
+
+	return window != NULL && (window->mode_pending ? window->previous_fullscreen :
+		window->fullscreen) ? window : NULL;
+}
+
 static void wm_draw_window(wm_state *state, const wm_window *client)
 {
+	wm_window presented;
 	uint32_t committed_width = 0;
 	uint32_t committed_height = 0;
+
+	client = wm_presented_window(client, &presented);
 	int outer_x = client->x - (int)WM_WINDOW_BORDER;
 	int outer_y = client->y - (int)WM_TITLE_HEIGHT - (int)WM_WINDOW_BORDER;
 
 	/* Content coordinates remain client-visible; only the server owns chrome. */
-	gui_fill_rect(state->composite, (gui_rect) { .x = outer_x, .y = outer_y,
-		.w = (int)client->width + 2 * WM_WINDOW_BORDER,
-		.h = (int)client->height + WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER },
-		WM_WINDOW_BORDER_COLOR);
-	gui_fill_rect(state->composite, (gui_rect) { .x = client->x,
-		.y = client->y - WM_TITLE_HEIGHT, .w = (int)client->width,
-		.h = WM_TITLE_HEIGHT }, client->focused ? WM_WINDOW_TITLE_ACTIVE_COLOR :
-		WM_WINDOW_TITLE_INACTIVE_COLOR);
-	gui_fill_rect(state->composite, (gui_rect) { .x = client->x +
-		(int)client->width - (int)WM_CLOSE_BUTTON_SIZE,
-		.y = client->y - (int)WM_TITLE_HEIGHT,
-		.w = WM_CLOSE_BUTTON_SIZE, .h = WM_CLOSE_BUTTON_SIZE }, WM_WINDOW_BORDER_COLOR);
+	if (!client->fullscreen) {
+		gui_fill_rect(state->composite, (gui_rect) { .x = outer_x, .y = outer_y,
+			.w = (int)client->width + 2 * WM_WINDOW_BORDER,
+			.h = (int)client->height + WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER },
+			WM_WINDOW_BORDER_COLOR);
+		gui_fill_rect(state->composite, (gui_rect) { .x = client->x,
+			.y = client->y - WM_TITLE_HEIGHT, .w = (int)client->width,
+			.h = WM_TITLE_HEIGHT }, client->focused ? WM_WINDOW_TITLE_ACTIVE_COLOR :
+			WM_WINDOW_TITLE_INACTIVE_COLOR);
+		gui_fill_rect(state->composite, (gui_rect) { .x = client->x +
+			(int)client->width - (int)WM_CLOSE_BUTTON_SIZE,
+			.y = client->y - (int)WM_TITLE_HEIGHT,
+			.w = WM_CLOSE_BUTTON_SIZE, .h = WM_CLOSE_BUTTON_SIZE }, WM_WINDOW_BORDER_COLOR);
+	}
 	gui_fill_rect(state->composite, (gui_rect) { .x = client->x, .y = client->y,
 		.w = (int)client->width, .h = (int)client->height }, WM_WINDOW_CONTENT_COLOR);
 	if (client->committed == NULL)
@@ -603,12 +647,16 @@ static void wm_draw_window(wm_state *state, const wm_window *client)
 
 static gui_rect wm_window_bounds(const wm_server *server, const wm_window *window)
 {
+	wm_window presented;
 	int64_t left = 0;
 	int64_t top = 0;
 	int64_t right = server->state.width;
 	int64_t bottom = server->state.height;
 
-	if (window != NULL && window->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY) {
+	if (window != NULL)
+		window = wm_presented_window(window, &presented);
+	if (window != NULL && window->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
+	    !window->fullscreen) {
 		left = (int64_t)window->x - WM_WINDOW_BORDER;
 		top = (int64_t)window->y - WM_TITLE_HEIGHT - WM_WINDOW_BORDER;
 		right = (int64_t)window->x + window->width + WM_WINDOW_BORDER;
@@ -629,10 +677,13 @@ static gui_rect wm_window_bounds(const wm_server *server, const wm_window *windo
 
 static int wm_window_above(const wm_window *cover, const wm_window *window)
 {
+	wm_window *fullscreen = wm_presented_fullscreen(cover->server);
+
 	return cover != window && cover->client->fd >= 0 && cover->window_id != 0 &&
 		cover->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
-		(window == NULL || window->client->role == GUI_PROTOCOL_ENDPOINT_SHELL ||
-		 cover->stack_order > window->stack_order);
+		(fullscreen != NULL ? cover == fullscreen :
+		 (window == NULL || window->client->role == GUI_PROTOCOL_ENDPOINT_SHELL ||
+		  cover->stack_order > window->stack_order));
 }
 
 static int wm_window_obscured(const wm_server *server, const wm_window *window)
@@ -684,6 +735,7 @@ static int wm_window_obscured(const wm_server *server, const wm_window *window)
 static gui_flush_result wm_compose(wm_server *server)
 {
 	wm_state *state = &server->state;
+	wm_window *fullscreen = wm_presented_fullscreen(server);
 	gui_surface *desktop = server->desktop_snapshot;
 
 	for (wm_window *client = server->windows; client != NULL; client = client->next) {
@@ -709,6 +761,7 @@ static gui_flush_result wm_compose(wm_server *server)
 
 			if (client->client->fd >= 0 && client->window_id != 0 &&
 			    client->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
+			    (fullscreen == NULL || client == fullscreen) &&
 			    client->stack_order > painted &&
 			    (next == NULL || client->stack_order < next->stack_order))
 				next = client;
@@ -1246,6 +1299,8 @@ static void wm_send_shell_snapshot(wm_server *server, wm_client *shell)
 static void client_fail_surface(wm_window *client, gui_protocol_type failed_type,
 				int status)
 {
+	int mode_pending = client->mode_pending;
+
 	client_discard_staging(client);
 	client_discard_reservation(client);
 	if (client->transition_pending) {
@@ -1254,6 +1309,13 @@ static void client_fail_surface(wm_window *client, gui_protocol_type failed_type
 		client->width = client->previous_width;
 		client->height = client->previous_height;
 		client->transition_pending = 0;
+		if (mode_pending) {
+			client->fullscreen = client->previous_fullscreen;
+			client->mode_pending = 0;
+			client->server->fullscreen_window = client->fullscreen ? client : NULL;
+			client->server->deferred_focus_id = 0;
+			wm_reset_input_owner(client->server);
+		}
 		if (client->server->capture_client == client)
 			wm_cancel_capture(client->server);
 		wm_notify_shell_window(client->server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, client);
@@ -1266,7 +1328,7 @@ static void client_fail_surface(wm_window *client, gui_protocol_type failed_type
 	client->configure_serial++;
 	if (client_enqueue_configure(client) < 0)
 		client->client->hello = -1;
-	if (!wm_window_obscured(client->server, client))
+	if (mode_pending || !wm_window_obscured(client->server, client))
 		(void)wm_compose(client->server);
 }
 
@@ -1354,6 +1416,7 @@ static int client_commit_surface(wm_window *client, const uint8_t *bytes)
 	uint64_t configure_serial = get_u64(bytes + 4);
 	uint64_t frame_serial = get_u64(bytes + 12);
 	gui_flush_result result;
+	int mode_pending = client->mode_pending;
 
 	if (client->staging == NULL || window_id != client->window_id ||
 	    configure_serial != client->configure_serial ||
@@ -1370,9 +1433,11 @@ static int client_commit_surface(wm_window *client, const uint8_t *bytes)
 		client->committed_bytes = client->staging_bytes;
 		client->staging = NULL;
 		client->staging_bytes = 0;
-		result = wm_window_obscured(client->server, client) ? GUI_FLUSH_COMPLETE :
+		client->mode_pending = 0;
+		result = !mode_pending && wm_window_obscured(client->server, client) ? GUI_FLUSH_COMPLETE :
 			wm_compose(client->server);
 		if (result == GUI_FLUSH_ERROR) {
+			client->mode_pending = mode_pending;
 			client->staging = client->committed;
 			client->staging_bytes = client->committed_bytes;
 			client->committed = old;
@@ -1389,6 +1454,8 @@ static int client_commit_surface(wm_window *client, const uint8_t *bytes)
 	client->staging_frame_serial = 0;
 	client->staging_pixels = 0;
 	client->transition_pending = 0;
+	if (mode_pending)
+		wm_complete_mode(client);
 	if (client->client->role == GUI_PROTOCOL_ENDPOINT_SHELL) {
 		/* Keep the old desktop on screen until this complete replacement is visible. */
 		if (client->server->desktop_snapshot != NULL) {
@@ -1478,6 +1545,8 @@ static int wm_resize_window(wm_server *server, wm_window *client, int32_t x,
 	size_t bytes_needed;
 	wm_window proposed = *client;
 
+	if (client->fullscreen || client->mode_pending)
+		return -EBUSY;
 	width = wm_clamp_dimension(width, minimum_width, maximum_width);
 	height = wm_clamp_dimension(height, minimum_height, maximum_height);
 	proposed.x = x;
@@ -1529,11 +1598,62 @@ static int wm_resize_window(wm_server *server, wm_window *client, int32_t x,
 	return 1;
 }
 
+static int wm_toggle_fullscreen(wm_server *server, wm_window *window)
+{
+	size_t bytes_needed;
+	int entering;
+
+	if (window == NULL || window->client->role != GUI_PROTOCOL_ENDPOINT_ORDINARY)
+		return 0;
+	if (window->mode_pending || window->transition_pending ||
+	    (server->fullscreen_window != NULL && server->fullscreen_window != window))
+		return -EBUSY;
+	if (window->configure_serial >= UINT64_MAX - 1)
+		return -EOVERFLOW;
+	entering = !window->fullscreen;
+	if (surface_bytes(entering ? server->state.width : window->normal_width,
+	    entering ? server->state.height : window->normal_height, &bytes_needed) < 0)
+		return -EINVAL;
+	if (client_reserve_surface(window, bytes_needed) < 0)
+		return -ENOMEM;
+	window->previous_x = window->x;
+	window->previous_y = window->y;
+	window->previous_width = window->width;
+	window->previous_height = window->height;
+	window->previous_fullscreen = window->fullscreen;
+	if (entering) {
+		window->normal_x = window->x;
+		window->normal_y = window->y;
+		window->normal_width = window->width;
+		window->normal_height = window->height;
+	}
+	window->x = entering ? 0 : window->normal_x;
+	window->y = entering ? 0 : window->normal_y;
+	window->width = entering ? server->state.width : window->normal_width;
+	window->height = entering ? server->state.height : window->normal_height;
+	window->fullscreen = entering;
+	window->mode_pending = 1;
+	window->transition_pending = 1;
+	server->fullscreen_window = window;
+	wm_cancel_capture(server);
+	wm_reset_input_owner(server);
+	window->configure_serial++;
+	if (client_enqueue_configure(window) < 0) {
+		client_fail_surface(window, GUI_PROTOCOL_WINDOW_RESIZE, -EIO);
+		window->client->hello = -1;
+		return -EIO;
+	}
+	wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, window);
+	return 1;
+}
+
 static int wm_move_window(wm_server *server, wm_window *client, int32_t x, int32_t y)
 {
 	int32_t previous_x = client->x;
 	int32_t previous_y = client->y;
 
+	if (client->fullscreen || client->mode_pending)
+		return -EBUSY;
 	client->x = x;
 	client->y = y;
 	wm_clamp_window_position(server, client);
@@ -1560,6 +1680,9 @@ typedef enum {
 static wm_hit_region wm_hit_region_for_client(const wm_window *client, uint32_t x,
 					       uint32_t y)
 {
+	wm_window presented;
+
+	client = wm_presented_window(client, &presented);
 	int64_t left = (int64_t)client->x - WM_WINDOW_BORDER;
 	int64_t top = (int64_t)client->y - WM_TITLE_HEIGHT - WM_WINDOW_BORDER;
 	int64_t right = (int64_t)client->x + client->width;
@@ -1587,9 +1710,15 @@ static wm_hit_region wm_hit_region_for_client(const wm_window *client, uint32_t 
 static wm_window *wm_hit_test(wm_server *server, uint32_t x, uint32_t y,
 				      wm_hit_region *region)
 {
+	wm_window *fullscreen = wm_presented_fullscreen(server);
 	wm_window *hit = NULL;
 	wm_hit_region hit_region = WM_HIT_NONE;
 
+	if (fullscreen != NULL) {
+		if (region != NULL)
+			*region = WM_HIT_CONTENT;
+		return fullscreen;
+	}
 	for (wm_window *client = server->windows; client != NULL; client = client->next) {
 		wm_hit_region candidate_region;
 
@@ -1653,9 +1782,15 @@ static void wm_reset_input_owner(wm_server *server)
 static void wm_set_input_owner(wm_server *server, wm_window *client)
 {
 	wm_window *previous = server->input_owner;
+	wm_window *fullscreen = server->fullscreen_window;
 
 	if (previous == client)
 		return;
+	if (fullscreen != NULL && client != NULL && client != fullscreen) {
+		if (fullscreen->mode_pending || wm_toggle_fullscreen(server, fullscreen) > 0)
+			server->deferred_focus_id = client->window_id;
+		return;
+	}
 	/*
 	 * Reset both sides of a transfer.  The old client drops stuck state before
 	 * losing ownership, while the new client cannot inherit a key or button
@@ -1699,6 +1834,29 @@ static wm_window *wm_next_focus(wm_server *server)
 			next = client;
 	}
 	return next;
+}
+
+static void wm_complete_mode(wm_window *window)
+{
+	wm_server *server = window->server;
+	uint32_t deferred = server->deferred_focus_id;
+
+	wm_reset_input_owner(server);
+	if (window->fullscreen) {
+		if (deferred != 0 && wm_toggle_fullscreen(server, window) < 0)
+			server->deferred_focus_id = 0;
+		return;
+	}
+	server->fullscreen_window = NULL;
+	server->deferred_focus_id = 0;
+	if (deferred != 0) {
+		wm_window *target = wm_find_window(server, deferred);
+
+		if (target != NULL && target->client->hello > 0)
+			wm_set_input_owner(server, target);
+		if (wm_compose(server) == GUI_FLUSH_ERROR)
+			stop_requested = 1;
+	}
 }
 
 static void wm_disconnect_client(wm_server *server, wm_client *client)
@@ -2009,6 +2167,13 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 			client_enqueue_close_request(server->input_owner);
 			return;
 		}
+		if (keysym == 'f' && (state->modifiers & GUI_MOD_SUPER)) {
+			int result = wm_toggle_fullscreen(server, server->input_owner);
+
+			if (result < 0)
+				window_reject(server->input_owner, GUI_PROTOCOL_WINDOW_RESIZE, result);
+			return;
+		}
 		if (keysym == 0)
 			return;
 	}
@@ -2052,7 +2217,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 				compose = 1;
 			}
 			if (hit != NULL && hit->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
-			    operation != WM_CAPTURE_NONE) {
+			    !hit->mode_pending && operation != WM_CAPTURE_NONE) {
 				wm_begin_capture(server, hit, operation);
 				if (compose && wm_compose(server) == GUI_FLUSH_ERROR)
 					stop_requested = 1;
@@ -2070,7 +2235,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 				stop_requested = 1;
 	}
 	client = server->input_owner;
-	if (client == NULL)
+	if (client == NULL || client->mode_pending)
 		return;
 	put_u32(message, client->window_id);
 	put_u32(message + 4, event->type);
@@ -2140,9 +2305,12 @@ static void window_message(wm_window *client, const gui_protocol_header *header,
 		else if (get_u32(bytes) != client->window_id || client->window_id == 0)
 			window_reject(client, GUI_PROTOCOL_WINDOW_MOVE, -EINVAL);
 		else {
-			(void)wm_move_window(client->server, client, (int32_t)get_u32(bytes + 4),
+			int result = wm_move_window(client->server, client, (int32_t)get_u32(bytes + 4),
 				(int32_t)get_u32(bytes + 8));
-			if (wm_compose(client->server) == GUI_FLUSH_ERROR)
+
+			if (result < 0)
+				window_reject(client, GUI_PROTOCOL_WINDOW_MOVE, result);
+			else if (wm_compose(client->server) == GUI_FLUSH_ERROR)
 				client->client->hello = -1;
 		}
 		return;
@@ -2253,7 +2421,13 @@ static void client_create_window(wm_client *client, const uint8_t *bytes,
 		wm_send_shell_snapshot(server, client);
 	} else {
 		wm_notify_shell_window(server, GUI_PROTOCOL_WINDOW_LIST_ADD, window);
-		wm_set_input_owner(server, window);
+		if (server->fullscreen_window == NULL)
+			wm_set_input_owner(server, window);
+		else {
+			if (client_enqueue_focus(window, 0) < 0 || client_enqueue_input_reset(window) < 0)
+				client->hello = -1;
+			server->fullscreen_window->stack_order = ++server->next_stack_order;
+		}
 	}
 }
 

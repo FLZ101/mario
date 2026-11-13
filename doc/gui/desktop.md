@@ -77,7 +77,7 @@ foreground state as a rendering permission.
 - Render window chrome and the mouse cursor.
 - Send cooperative close requests and resize events to applications.
 - Redraw the whole desktop on GUI-console activation.
-- Intercept Alt-Tab and Super-W before client input, and publish ordered
+- Intercept Alt-Tab, Super-W, and Super-F before client input, and publish ordered
   window-list add/change/remove notifications only to the shell capability.
 
 Focus, raising, and input routing:
@@ -185,6 +185,22 @@ in subsequent M9 steps.
 - Use normal configure serials and surface transactions for entry and exit.
   Reject insufficient capacity before changing mode; a later allocation or
   commit error restores the prior state without publishing partial pixels.
+  Present the previous mode and exact rectangle until a complete matching
+  upload commits, suppressing client input while the mode is pending. Reject
+  ordinary move/resize and overlapping mode requests during that transaction.
+  Restoring always composes, even if the restored window is fully obscured, so
+  old fullscreen pixels cannot linger. Keep the fullscreen owner through a
+  pending exit and defer another window's activation by stable ID until the
+  normal-size pixels commit. Failed entry/exit releases new reservations and
+  staging pixels, preserves old committed charges, resets input, and publishes
+  a fresh configure for the restored mode.
+  Automatically created windows, including replacement-shell diagnostics, do
+  not exit fullscreen or steal focus; creation still reports an unfocused
+  `WINDOW_FOCUS` followed by `INPUT_RESET` to preserve client handshakes.
+  `wm-fullscreen.test` compares actual fullscreen/restored QMP frames and checks
+  partial uploads, stale serials, screen-edge clicks, cooperative sibling close,
+  seat switches, and shell replacement. The WM link also forces admission,
+  allocation and scanout failures and verifies geometry, focus and exact charges.
   A successful terminal configure propagates through `TIOCSWINSZ` and
   `SIGWINCH` to tmux and its panes. F1-F6/F8 preserve fullscreen state and
   restore the last text VT normally. Fullscreen-client exit restores the
