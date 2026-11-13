@@ -5,3 +5,5 @@ CHECK: gui-wm-busy: real terminal survives pressure and allocation/flush rollbac
 CHECK: gui-wm-busy: dynamic records, peer budgets and bounded snapshots pass
 CHECK: gui-wm-busy: large snapshots, ordered deltas and stable taskbar pages pass
 CHECK: gui-wm-busy: valid shell key input preserves the desktop
+CHECK: gui-wm-busy: union occlusion retains pixels and charges without scanout
+CHECK: gui-wm-busy: marker readers preserve atomic publication and bounded failure

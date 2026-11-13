@@ -1449,7 +1449,7 @@ multiple windows may share an application connection. Literally unlimited
 windows are not a deliverable. The target contracts are in
 [Desktop and applications](desktop.md#expanded-capacity-and-fullscreen-m9-target)
 and [UI toolkit](ui-toolkit.md#surface-memory-and-failure-handling). M9.1 through
-M9.3 are implemented; the remaining items are planned. Run `make test SMP=16` before
+M9.4 are implemented; the remaining items are planned. Run `make test SMP=16` before
 starting each item and before each commit, with `git diff --check` after the
 focused gate.
 
@@ -1547,7 +1547,7 @@ focused gate.
   Focused gate:
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-many-windows.test tests/gui`,
   then `make test SMP=16`. Commit: `gui: page dynamic taskbars and validate recovery`.
-- [ ] **M9.4 — skip composition and scanout for fully obscured updates.**
+- [x] **M9.4 — skip composition and scanout for fully obscured updates.**
   Prerequisite: M9.3. Owns `app/gui/desktop/mario-wm/main.c`,
   `app/test/gui-wm-busy/`, `tests/shell/gui-wm-busy.test`,
   `app/test/gui-wm-client/`, `tests/gui/wm-occlusion.test`,
@@ -1560,7 +1560,10 @@ focused gate.
   occurred. Check skipped work through the existing test-only WM link and
   reviewed QMP overlap/reveal assertions, without production debug switches.
   Failure or partial upload preserves the prior committed pixels and every
-  retained/staging allocation stays charged. Focused gates:
+  retained/staging allocation stays charged. Retry transient MarioFS marker
+  reader conflicts within a bounded publication budget, preserving the old
+  counter and cleaning temporary files on exhaustion; cover a releasing reader
+  and a persistently pinned counter through the WM link. Focused gates:
   `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-wm-busy.test tests/shell`
   and
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-occlusion.test tests/gui`,

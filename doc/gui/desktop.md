@@ -109,8 +109,9 @@ M9.1 implements the expanded surface pool, admission reservations, shell
 replacement headroom, and recoverable transition rollback. M9.2 implements
 resource-bounded dynamic connection/window/launch/poll records, multiple
 windows per ordinary connection, and a dynamic shell window list. M9.3 implements
-taskbar paging and large snapshot/delta recovery. Occlusion optimization and
-fullscreen remain planned in subsequent M9 steps.
+taskbar paging and large snapshot/delta recovery. M9.4 implements allocation-free
+union occlusion and bounded atomic marker publication. Fullscreen remains planned
+in subsequent M9 steps.
 
 - Replace fixed client/window arrays with dynamically allocated records in
   the WM and shell. There is no small fixed window-count or connection-count
@@ -154,6 +155,20 @@ fullscreen remain planned in subsequent M9 steps.
   healthy existing windows. Fully obscured windows need no composition or
   scanout work, but their retained backing stores still count against memory
   budgets; M9 does not add swapping or discard hidden content.
+- Occlusion uses the union of higher opaque decorated rectangles clipped to
+  scanout, with allocation-free vertical bands and horizontal coverage scans.
+  Fully covered layers are omitted from composition. A complete hidden upload
+  replaces retained pixels without composing, flushing, or advancing the
+  physical frame counter. Incomplete uploads and rejected commits keep prior
+  pixels and all staging charges. Moving or closing covers and returning from
+  a text VT reveal the latest complete upload. `wm-occlusion.test` checks
+  adjoining covers, partial staging, and F8 reveal; the WM link gate also checks
+  skipped scanout, allocation failure, and exact retained-byte accounting.
+- Atomic status publication retries MarioFS `EBUSY` reader conflicts at most
+  sixteen times with 10 ms between attempts. A releasing reader sees its intact
+  old counter while publication proceeds after it closes; a persistently held
+  reader exhausts the bounded retry, preserving the old counter and removing
+  the incomplete publication's temporary file. The WM link tests both paths.
 - Super-F toggles the focused ordinary window between normal and fullscreen.
   The WM owns the shortcut; no new client protocol message is required.
   Fullscreen content occupies `(0,0)` through the full scanout dimensions,

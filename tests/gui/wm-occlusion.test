@@ -1,0 +1,38 @@
+GUI-VISUAL-TEST:
+TIMEOUT: 30
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-occlusion.*; /usr/bin/mario-wm >>/tmp/mario-wm.log 2>&1 & wm_pid=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/gui-wm-client.exe --occlusion >/tmp/gui-occlusion.log 2>&1 & client_pid=$!
+SERIAL: while test ! -e /tmp/gui-occlusion.ready && kill -0 "$client_pid" 2>/dev/null; do sleep 1; done; cat /tmp/gui-occlusion.log; test -e /tmp/gui-occlusion.ready && printf 'occlusion: covers ready\n'
+SERIAL-CHECK: occlusion: covers ready
+GUI-CHECK-RECT: 64 96 159 192 221 136 68
+GUI-CHECK-RECT: 224 96 160 192 136 85 170
+SERIAL: touch /tmp/gui-occlusion.update
+SERIAL-WAIT-FILE: /tmp/gui-occlusion.updated
+GUI-CHECK-RECT: 64 96 159 192 221 136 68
+GUI-CHECK-RECT: 224 96 160 192 136 85 170
+SERIAL: touch /tmp/gui-occlusion.move
+SERIAL-WAIT-FILE: /tmp/gui-occlusion.moved
+GUI-CHECK-RECT: 225 96 159 192 68 136 102
+GUI-CHECK-RECT: 600 96 160 192 136 85 170
+SERIAL: touch /tmp/gui-occlusion.close
+SERIAL-WAIT-FILE: /tmp/gui-occlusion.closed
+GUI-CHECK-RECT: 64 96 320 192 68 136 102
+GUI-CHECK-SCREEN-RECT: assets/wm-occlusion.png,0,40,802,400
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done; touch /tmp/gui-occlusion.text-update
+SERIAL-WAIT-FILE: /tmp/gui-occlusion.text-painted
+SERIAL: test ! -e /tmp/mario-wm.ready && printf 'occlusion: suspended commit stays off scanout\n'
+SERIAL-CHECK: occlusion: suspended commit stays off scanout
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 64 96 320 192 221 136 68
+GUI-CHECK-RECT: 600 96 160 192 136 85 170
+SERIAL: touch /tmp/gui-occlusion.finish; wait "$client_pid" && cat /tmp/gui-occlusion.log
+SERIAL-CHECK: wm-client: occlusion, partial staging and suspended reveal pass
+SERIAL: kill -TERM "$wm_pid"; wait "$wm_pid"; test ! -e /tmp/mario-wm.started && printf 'occlusion: clean teardown\n'
+SERIAL-CHECK: occlusion: clean teardown
+EXIT:

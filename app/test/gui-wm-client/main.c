@@ -940,6 +940,61 @@ static void test_many_windows(void)
 	budget_marker("/tmp/gui-many.done");
 }
 
+static void test_occlusion(void)
+{
+	int fd = connect_client();
+	uint32_t target;
+	uint32_t left;
+	uint32_t right;
+
+	hello(fd);
+	target = lifecycle_create(fd, 8000, 320, 192);
+	lifecycle_move(fd, target, 64, 96);
+	begin_surface(fd, target, 320, 192, 1);
+	budget_fill(fd, target, 320, 192, 1, 1, 0x00225688);
+	left = lifecycle_create(fd, 8001, 160, 192);
+	lifecycle_move(fd, left, 64, 96);
+	begin_surface(fd, left, 160, 192, 1);
+	budget_fill(fd, left, 160, 192, 1, 1, 0x00dd8844);
+	right = lifecycle_create(fd, 8002, 160, 192);
+	lifecycle_move(fd, right, 224, 96);
+	begin_surface(fd, right, 160, 192, 1);
+	budget_fill(fd, right, 160, 192, 1, 1, 0x008855aa);
+	budget_marker("/tmp/gui-occlusion.ready");
+	budget_wait("/tmp/gui-occlusion.update");
+	begin_surface(fd, target, 320, 192, 2);
+	budget_fill(fd, target, 320, 192, 1, 2, 0x00448866);
+	begin_surface(fd, target, 320, 192, 3);
+	send_surface_data(fd, target, 0, 1, 3, 0x00dd8844);
+	lifecycle_reply(fd, target, 1, 3, 0, 1);
+	commit_surface(fd, target, 3);
+	lifecycle_error(fd, GUI_PROTOCOL_SURFACE_COMMIT);
+	budget_marker("/tmp/gui-occlusion.updated");
+	budget_wait("/tmp/gui-occlusion.move");
+	lifecycle_move(fd, right, 600, 96);
+	budget_marker("/tmp/gui-occlusion.moved");
+	budget_wait("/tmp/gui-occlusion.close");
+	destroy_window(fd, left);
+	budget_marker("/tmp/gui-occlusion.closed");
+	budget_wait("/tmp/gui-occlusion.text-update");
+	for (uint32_t offset = 1; offset < 320 * 192;) {
+		uint32_t count = 320 * 192 - offset;
+
+		if (count > SURFACE_PIXELS_PER_MESSAGE)
+			count = SURFACE_PIXELS_PER_MESSAGE;
+		send_surface_data(fd, target, offset, count, 3, 0x00dd8844);
+		lifecycle_reply(fd, target, 1, 3, offset, count);
+		offset += count;
+	}
+	commit_surface(fd, target, 3);
+	budget_marker("/tmp/gui-occlusion.text-painted");
+	budget_wait("/tmp/gui-occlusion.finish");
+	close(fd);
+	puts("wm-client: occlusion, partial staging and suspended reveal pass");
+	fflush(stdout);
+	budget_marker("/tmp/gui-occlusion.done");
+}
+
 static void test_quotas(void)
 {
 	uint8_t frames[sizeof(gui_protocol_wire_header) +
@@ -1343,6 +1398,7 @@ int main(int argc, char **argv)
 		!strcmp(argv[1], "--quota-only") || !strcmp(argv[1], "--surface-budget") ||
 		!strcmp(argv[1], "--window-lifecycle") ||
 		!strcmp(argv[1], "--many-windows") ||
+		!strcmp(argv[1], "--occlusion") ||
 		!strcmp(argv[1], "--partial-only") ||
 		!strcmp(argv[1], "--commit-only") ||
 		!strcmp(argv[1], "--recovery-only") ||
@@ -1360,6 +1416,8 @@ int main(int argc, char **argv)
 			test_window_lifecycle();
 		} else if (!strcmp(argv[1], "--many-windows")) {
 			test_many_windows();
+		} else if (!strcmp(argv[1], "--occlusion")) {
+			test_occlusion();
 		} else if (!strcmp(argv[1], "--quota-only")) {
 			test_quotas();
 			puts("wm-client: quotas ok");

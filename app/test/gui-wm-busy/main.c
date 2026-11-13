@@ -71,6 +71,8 @@ static void test_commit(gui_flush_result result, int graphics)
 	assert(server.state.composite != NULL);
 	client->width = 8;
 	client->height = 8;
+	client->x = 0;
+	client->y = 0;
 	client->committed = previous;
 	client->committed_bytes = 256;
 	client->staging = next;
@@ -185,6 +187,151 @@ static void commit_staged(wm_window *client)
 	put_u64(commit + 4, client->configure_serial);
 	put_u64(commit + 12, client->staging_frame_serial);
 	assert(client_commit_surface(client, commit) == 0);
+}
+
+static void test_status_readers(void)
+{
+	wm_state state = { .frame_number = 17 };
+	int descriptor;
+	int synchronization[2];
+	pid_t child;
+	int status;
+	int result;
+	int saved_errno;
+	char marker[32] = { 0 };
+	char ready;
+
+	unlink(WM_FRAME_PATH);
+	unlink(WM_READY_PATH);
+	assert(wm_publish_completed_frame(&state) == 0 && state.frame_number == 18);
+	descriptor = open(WM_FRAME_PATH, O_RDONLY);
+	assert(descriptor >= 0 && pipe(synchronization) == 0);
+	child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		close(synchronization[0]);
+		if (write(synchronization[1], "r", 1) != 1 || usleep(40000) < 0 ||
+		    read(descriptor, marker, sizeof(marker)) != 3 || strcmp(marker, "18\n") != 0)
+			_exit(2);
+		close(descriptor);
+		close(synchronization[1]);
+		_exit(0);
+	}
+	close(descriptor);
+	close(synchronization[1]);
+	assert(read(synchronization[0], &ready, 1) == 1 && ready == 'r');
+	close(synchronization[0]);
+	result = wm_publish_completed_frame(&state);
+	saved_errno = errno;
+	assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	if (result < 0) {
+		fprintf(stderr, "gui-wm-busy: transient marker reader rejected: %d\n", saved_errno);
+		_exit(1);
+	}
+	assert(state.frame_number == 19);
+	descriptor = open(WM_FRAME_PATH, O_RDONLY);
+	assert(descriptor >= 0);
+	assert(wm_publish_completed_frame(&state) < 0 && errno == EBUSY);
+	assert(state.frame_number == 19 && access(WM_FRAME_PATH ".new", F_OK) < 0);
+	memset(marker, 0, sizeof(marker));
+	assert(read(descriptor, marker, sizeof(marker)) == 3 && strcmp(marker, "19\n") == 0);
+	close(descriptor);
+	unlink(WM_FRAME_PATH);
+	unlink(WM_READY_PATH);
+}
+
+static void test_occlusion(void)
+{
+	static wm_server server;
+	wm_window *target;
+	wm_window *left;
+	wm_window *right;
+	gui_surface *latest;
+	size_t retained = 320 * 192 * 4;
+	uint8_t commit[sizeof(gui_protocol_wire_surface_commit)] = { 0 };
+
+	init_server(&server, 1024, 768);
+	server.state.framebuffer = 123;
+	server.state.scanout_stride = 1024 * 4;
+	server.state.composite = gui_surface_create(1024, 768);
+	assert(server.state.composite != NULL);
+	server.state.graphics = 1;
+	server.state.frame_number = 17;
+	target = init_client(&server, 0, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	left = init_client(&server, 1, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	right = init_client(&server, 2, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	target->width = 320;
+	target->height = 192;
+	target->x = 64;
+	target->y = 96;
+	target->stack_order = 1;
+	left->width = right->width = 160;
+	left->height = right->height = 192;
+	left->x = 64;
+	right->x = 224;
+	left->y = right->y = 96;
+	left->stack_order = 2;
+	right->stack_order = 3;
+	assert(wm_window_obscured(&server, target));
+	assert(!wm_window_obscured(&server, left) && !wm_window_obscured(&server, right));
+	right->x += 3;
+	assert(!wm_window_obscured(&server, target));
+	right->x -= 3;
+	right->y++;
+	assert(!wm_window_obscured(&server, target));
+	right->y--;
+	right->stack_order = 0;
+	assert(!wm_window_obscured(&server, target));
+	right->stack_order = 3;
+	target->committed = gui_surface_create(320, 192);
+	assert(target->committed != NULL);
+	gui_fill_rect(target->committed, (gui_rect) { 0, 0, 320, 192 }, 0x00225688);
+	target->committed_bytes = retained;
+	target->client->surface_bytes = retained;
+	server.state.surface_bytes = retained;
+	stage(target, 1, 2);
+	latest = target->staging;
+	assert(latest != NULL && server.state.surface_bytes == 2 * retained);
+	gui_fill_rect(latest, (gui_rect) { 0, 0, 320, 192 }, 0x00448866);
+	scanout_calls = 0;
+	scanout_result = GUI_FLUSH_ERROR;
+	commit_staged(target);
+	assert(scanout_calls == 0 && server.state.frame_number == 17);
+	assert(target->committed == latest && target->staging == NULL);
+	assert(server.state.surface_bytes == retained && target->client->surface_bytes == retained);
+	stage(target, 1, 3);
+	assert(target->staging != NULL);
+	target->staging->pixels[0] = 0x00ffffff;
+	target->staging_pixels = 1;
+	put_u32(commit, target->window_id);
+	put_u64(commit + 4, 1);
+	put_u64(commit + 12, 3);
+	assert(client_commit_surface(target, commit) == 0);
+	assert(scanout_calls == 0 && target->committed == latest);
+	assert(target->staging_pixels == 1 && server.state.surface_bytes == 2 * retained);
+	client_discard_staging(target);
+	fail_surface_allocation = 1;
+	stage(target, 1, 4);
+	assert(target->committed == latest && target->staging == NULL);
+	assert(scanout_calls == 0 && server.state.surface_bytes == retained);
+	right->x = 600;
+	assert(!wm_window_obscured(&server, target));
+	scanout_result = GUI_FLUSH_BUSY;
+	assert(wm_compose(&server) == GUI_FLUSH_BUSY);
+	assert(scanout_calls == 1 && server.state.frame_number == 17);
+	assert(server.state.composite->pixels[100 * 1024 + 300] == 0x00448866);
+	window_destroy(left);
+	assert(wm_compose(&server) == GUI_FLUSH_BUSY);
+	assert(server.state.composite->pixels[100 * 1024 + 64] == 0x00448866);
+	server.state.graphics = 0;
+	stage(target, 2, 5);
+	gui_fill_rect(target->staging, (gui_rect) { 0, 0, 320, 192 }, 0x00dd8844);
+	commit_staged(target);
+	assert(scanout_calls == 2 && server.state.surface_bytes == retained);
+	server.state.graphics = 1;
+	assert(wm_compose(&server) == GUI_FLUSH_BUSY);
+	assert(scanout_calls == 3 && server.state.composite->pixels[100 * 1024 + 64] == 0x00dd8844);
+	cleanup_server(&server);
 }
 
 static void test_admission(void)
@@ -982,6 +1129,8 @@ int main(void)
 	test_commit(GUI_FLUSH_BUSY, 1);
 	test_commit(GUI_FLUSH_ERROR, 1);
 	test_commit(GUI_FLUSH_COMPLETE, 0);
+	test_status_readers();
+	test_occlusion();
 	test_admission();
 	test_transitions();
 	test_surface_flow();
@@ -996,5 +1145,7 @@ int main(void)
 	puts("gui-wm-busy: dynamic records, peer budgets and bounded snapshots pass");
 	puts("gui-wm-busy: large snapshots, ordered deltas and stable taskbar pages pass");
 	puts("gui-wm-busy: valid shell key input preserves the desktop");
+	puts("gui-wm-busy: union occlusion retains pixels and charges without scanout");
+	puts("gui-wm-busy: marker readers preserve atomic publication and bounded failure");
 	return 0;
 }

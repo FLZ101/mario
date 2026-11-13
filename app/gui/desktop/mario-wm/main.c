@@ -23,6 +23,8 @@
 
 #define WM_SHELL_SNAPSHOT_QUANTUM 8U
 #define WM_CLIENT_INPUT_READ_QUANTUM 4096U
+#define WM_STATUS_RENAME_ATTEMPTS 16U
+#define WM_STATUS_RENAME_DELAY_US 10000U
 #define WM_SHELL_PATH "/usr/bin/mario-desktop"
 #define WM_SHELL_FD 3
 #define WM_TERMINAL_PATH "/usr/bin/terminal"
@@ -310,14 +312,20 @@ static int write_status_file(const char *path, const char *temporary_path,
 		errno = saved_errno;
 		return -1;
 	}
-	if (rename(temporary_path, path) < 0) {
+	for (unsigned int attempt = 0;; attempt++) {
+		if (rename(temporary_path, path) == 0)
+			return 0;
 		int saved_errno = errno;
 
+		if (saved_errno == EBUSY && attempt + 1 < WM_STATUS_RENAME_ATTEMPTS) {
+			if (usleep(WM_STATUS_RENAME_DELAY_US) == 0 || errno == EINTR)
+				continue;
+			saved_errno = errno;
+		}
 		unlink(temporary_path);
 		errno = saved_errno;
 		return -1;
 	}
-	return 0;
 }
 
 static int mark_close_on_exec(int fd)
@@ -593,6 +601,86 @@ static void wm_draw_window(wm_state *state, const wm_window *client)
 			.h = (int)committed_height });
 }
 
+static gui_rect wm_window_bounds(const wm_server *server, const wm_window *window)
+{
+	int64_t left = 0;
+	int64_t top = 0;
+	int64_t right = server->state.width;
+	int64_t bottom = server->state.height;
+
+	if (window != NULL && window->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY) {
+		left = (int64_t)window->x - WM_WINDOW_BORDER;
+		top = (int64_t)window->y - WM_TITLE_HEIGHT - WM_WINDOW_BORDER;
+		right = (int64_t)window->x + window->width + WM_WINDOW_BORDER;
+		bottom = (int64_t)window->y + window->height + WM_WINDOW_BORDER;
+	}
+	if (left < 0)
+		left = 0;
+	if (top < 0)
+		top = 0;
+	if (right > server->state.width)
+		right = server->state.width;
+	if (bottom > server->state.height)
+		bottom = server->state.height;
+	return (gui_rect) { .x = (int)left, .y = (int)top,
+		.w = right > left ? (int)(right - left) : 0,
+		.h = bottom > top ? (int)(bottom - top) : 0 };
+}
+
+static int wm_window_above(const wm_window *cover, const wm_window *window)
+{
+	return cover != window && cover->client->fd >= 0 && cover->window_id != 0 &&
+		cover->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
+		(window == NULL || window->client->role == GUI_PROTOCOL_ENDPOINT_SHELL ||
+		 cover->stack_order > window->stack_order);
+}
+
+static int wm_window_obscured(const wm_server *server, const wm_window *window)
+{
+	gui_rect target = wm_window_bounds(server, window);
+	int bottom = target.y + target.h;
+	int right = target.x + target.w;
+
+	for (int top = target.y; top < bottom;) {
+		int band_bottom = bottom;
+		int covered = target.x;
+
+		for (wm_window *cover = server->windows; cover != NULL; cover = cover->next) {
+			gui_rect rectangle;
+
+			if (!wm_window_above(cover, window))
+				continue;
+			rectangle = wm_window_bounds(server, cover);
+			if (rectangle.w == 0 || rectangle.h == 0 ||
+			    rectangle.x >= right || rectangle.x + rectangle.w <= target.x)
+				continue;
+			if (rectangle.y > top && rectangle.y < band_bottom)
+				band_bottom = rectangle.y;
+			if (rectangle.y + rectangle.h > top &&
+			    rectangle.y + rectangle.h < band_bottom)
+				band_bottom = rectangle.y + rectangle.h;
+		}
+		while (covered < right) {
+			int previous = covered;
+
+			for (wm_window *cover = server->windows; cover != NULL; cover = cover->next) {
+				gui_rect rectangle;
+
+				if (!wm_window_above(cover, window))
+					continue;
+				rectangle = wm_window_bounds(server, cover);
+				if (rectangle.y <= top && rectangle.y + rectangle.h >= band_bottom &&
+				    rectangle.x <= covered && rectangle.x + rectangle.w > covered)
+					covered = rectangle.x + rectangle.w;
+			}
+			if (covered == previous)
+				return 0;
+		}
+		top = band_bottom;
+	}
+	return 1;
+}
+
 static gui_flush_result wm_compose(wm_server *server)
 {
 	wm_state *state = &server->state;
@@ -608,7 +696,7 @@ static gui_flush_result wm_compose(wm_server *server)
 		return GUI_FLUSH_COMPLETE;
 	gui_fill_rect(state->composite, (gui_rect) { .x = 0, .y = 0,
 		.w = state->composite->width, .h = state->composite->height }, 0);
-	if (desktop != NULL) {
+	if (desktop != NULL && !wm_window_obscured(server, NULL)) {
 		gui_blit(state->composite, 0, 0, desktop,
 			&(gui_rect) { .x = 0, .y = 0, .w = desktop->width,
 				.h = desktop->height });
@@ -627,7 +715,8 @@ static gui_flush_result wm_compose(wm_server *server)
 		}
 		if (next == NULL)
 			break;
-		wm_draw_window(state, next);
+		if (!wm_window_obscured(server, next))
+			wm_draw_window(state, next);
 		painted = next->stack_order;
 	}
 	/* The server-owned sprite is always the final layer, independent of focus. */
@@ -1177,7 +1266,8 @@ static void client_fail_surface(wm_window *client, gui_protocol_type failed_type
 	client->configure_serial++;
 	if (client_enqueue_configure(client) < 0)
 		client->client->hello = -1;
-	(void)wm_compose(client->server);
+	if (!wm_window_obscured(client->server, client))
+		(void)wm_compose(client->server);
 }
 
 static int client_stage_surface(wm_window *client, const uint8_t *bytes)
@@ -1280,7 +1370,8 @@ static int client_commit_surface(wm_window *client, const uint8_t *bytes)
 		client->committed_bytes = client->staging_bytes;
 		client->staging = NULL;
 		client->staging_bytes = 0;
-		result = wm_compose(client->server);
+		result = wm_window_obscured(client->server, client) ? GUI_FLUSH_COMPLETE :
+			wm_compose(client->server);
 		if (result == GUI_FLUSH_ERROR) {
 			client->staging = client->committed;
 			client->staging_bytes = client->committed_bytes;
