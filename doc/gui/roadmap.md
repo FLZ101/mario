@@ -1763,7 +1763,8 @@ skipped, leaving M9.6/integration deferred.
 M10.1 has a test-only implementation and a recorded baseline in
 [GUI drawing baseline](drawing-baseline.md); M10.2 implements bounded composition
 and scanout, M10.3 adds bounded motion pacing, and M10.4 batches layout-safe
-scanout spans. M10.5–M10.8 remain planned and unchecked.
+scanout spans. M10.5 reuses terminal pixels for unchanged cells;
+M10.6–M10.8 remain planned and unchecked.
 On November 14, 2026 its focused gates, 48-sample timing capture, and
 `make test SMP=16` runnable-suite gate pass: 145 guest cases pass, with the
 three recorded GUI deferrals and two SMP-4-only shell cases explicitly skipped.
@@ -1888,7 +1889,7 @@ item, its focused gates during development, and `make test SMP=16` plus
   validation was canceled after discovering a stale statically linked WM;
   an archive build dependency fixes that issue, and all gates were rerun
   against the freshly linked production binary before committing.
-- [ ] **M10.5 — render only changed terminal cells.**
+- [x] **M10.5 — render only changed terminal cells.**
   Prerequisite: M10.4. Owns `app/usr/terminal/`, `app/test/terminal-vt/`,
   `tests/shell/terminal-vt.test`, `tests/gui/terminal-damage.test`, its reviewed
   assets under `tests/gui/assets/`, and `doc/gui/`. Track bounded dirty
@@ -1907,6 +1908,16 @@ item, its focused gates during development, and `make test SMP=16` plus
   and
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test terminal-damage.test tests/gui`,
   then `make test SMP=16`. Commit: `terminal: reuse pixels for unchanged cells`.
+  Completed November 14, 2026: a field-compared, sized cell snapshot and glyph
+  bounds constrain reconstruction to a dirty rectangle. The full-render
+  oracle covers erases, colors/attributes, scrolling, alternate screens,
+  cursor changes, UTF-8/fallback glyphs, and eighty scattered glyph changes.
+  Unchanged state performs zero drawing; the adjacent-cursor single-cell case
+  fills 528 pixels, draws one glyph, and damages 16x16 pixels. All five grid/
+  snapshot/pixel allocation failures preserve the working state; a failed
+  configure recovers through deferred retry. The GUI two-cell fixture,
+  runnable Vim/top/nano and tmux fixtures, WM recovery test, and full suite
+  pass (149 guest cases, 49 host tests; unchanged explicit deferrals).
 - [ ] **M10.6 — add negotiated atomic rectangular surface uploads.**
   Prerequisite: M10.5. Owns `app/gui/libmario-ui/include/gui/protocol.h`,
   `app/gui/libmario-ui/src/protocol.c`, `app/gui/desktop/mario-wm/main.c`,

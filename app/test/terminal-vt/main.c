@@ -3,8 +3,70 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <gui/font.h>
 
 #include <vt.h>
+
+static unsigned int failing_allocation;
+static int measure_renderer;
+static uint64_t renderer_pixels;
+static unsigned int renderer_glyphs;
+
+static void *renderer_calloc(size_t count, size_t bytes)
+{
+	if (failing_allocation && --failing_allocation == 0) {
+		errno = ENOMEM;
+		return NULL;
+	}
+	return calloc(count, bytes);
+}
+
+static void *renderer_malloc(size_t bytes)
+{
+	if (failing_allocation && --failing_allocation == 0) {
+		errno = ENOMEM;
+		return NULL;
+	}
+	return malloc(bytes);
+}
+
+static void renderer_fill(gui_surface *surface, gui_rect rectangle, gui_color color)
+{
+	int64_t left = rectangle.x < 0 ? 0 : rectangle.x;
+	int64_t top = rectangle.y < 0 ? 0 : rectangle.y;
+	int64_t right = (int64_t)rectangle.x + rectangle.w;
+	int64_t bottom = (int64_t)rectangle.y + rectangle.h;
+
+	if (right > surface->width)
+		right = surface->width;
+	if (bottom > surface->height)
+		bottom = surface->height;
+	if (measure_renderer && rectangle.w > 0 && rectangle.h > 0 && right > left && bottom > top)
+		renderer_pixels += (right - left) * (bottom - top);
+	gui_fill_rect(surface, rectangle, color);
+}
+
+static void renderer_text(gui_surface *surface, int position_x, int baseline,
+			  gui_font *font, const char *text, gui_color color)
+{
+	if (measure_renderer)
+		renderer_glyphs++;
+	gui_font_draw_text(surface, position_x, baseline, font, text, color);
+}
+
+#define main terminal_program_main
+#define calloc renderer_calloc
+#define malloc renderer_malloc
+#define gui_fill_rect renderer_fill
+#define gui_font_draw_text renderer_text
+#include "../../usr/terminal/main.c"
+#undef gui_font_draw_text
+#undef gui_fill_rect
+#undef malloc
+#undef calloc
+#undef main
 
 typedef struct {
 	const uint8_t *bytes;
@@ -419,6 +481,134 @@ static void test_charset_designation(void)
 	       cells[2].codepoint == 0);
 }
 
+static void assert_renderer_oracle(terminal_state *state)
+{
+	gui_surface *oracle = gui_surface_create(state->width, state->height);
+
+	assert(oracle != NULL);
+	gui_fill_rect(oracle, (gui_rect) { 0, 0, state->width, state->height }, TERMINAL_BACKGROUND);
+	for (uint32_t row = 0; row < state->vt.rows; row++)
+		for (uint32_t column = 0; column < state->vt.columns; column++) {
+			const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
+			gui_color foreground = terminal_color(cell->foreground, TERMINAL_CURSOR);
+			gui_color background = terminal_color(cell->background, TERMINAL_BACKGROUND);
+			int cell_x = TERMINAL_MARGIN + column * TERMINAL_CELL_WIDTH;
+			int cell_y = TERMINAL_MARGIN + row * TERMINAL_CELL_HEIGHT;
+
+			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_INVERSE) {
+				gui_color color = foreground;
+
+				foreground = background;
+				background = color;
+			}
+			gui_fill_rect(oracle, (gui_rect) { cell_x, cell_y, TERMINAL_CELL_WIDTH, TERMINAL_CELL_HEIGHT }, background);
+			if (cell->codepoint != 0) {
+				char bytes[5] = { 0 };
+
+				terminal_encode_utf8(cell->codepoint, bytes);
+				gui_font_draw_text(oracle, cell_x, cell_y + TERMINAL_FONT_HEIGHT, state->font, bytes, foreground);
+			}
+			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_UNDERLINE)
+				gui_fill_rect(oracle, (gui_rect) { cell_x, cell_y + TERMINAL_CELL_HEIGHT - 2,
+					TERMINAL_CELL_WIDTH, 1 }, foreground);
+		}
+	if (state->vt.cursor_visible && state->vt.cursor_row < state->vt.rows && state->vt.cursor_column < state->vt.columns)
+		gui_fill_rect(oracle, (gui_rect) { TERMINAL_MARGIN + state->vt.cursor_column * TERMINAL_CELL_WIDTH,
+			TERMINAL_MARGIN + state->vt.cursor_row * TERMINAL_CELL_HEIGHT + TERMINAL_CELL_HEIGHT - 2,
+			TERMINAL_CELL_WIDTH, 2 }, TERMINAL_CURSOR);
+	assert(!memcmp(state->pixels, oracle->pixels, (size_t)state->width * state->height * sizeof(gui_color)));
+	gui_surface_destroy(oracle);
+}
+
+static void test_incremental_renderer(void)
+{
+	terminal_state state = { .fd = -1, .master = -1, .window_id = 1, .configure_serial = 1 };
+	static const char *sequences[] = {
+		"\033[?25l", "\033[4;8H\033[4;7;38;2;239;68;68mUnicode: \xc3\xa9\xe4\xb8\xad\xf0\x9f\x98\x80",
+		"\033[0m\033[2J\033[H", "0123456789\r\nsecond\r\nthird\r\nfourth\r\nfifth\r\nsixth\r\nseventh\r\neighth\r\nninth\r\ntenth\r\n",
+		"\033[2;5r\033[5;1Hscroll\nscroll\nscroll\033[r", "\033[?1049h\033[Halternate",
+		"\033[?1049l\033[?25h\033[2;3H", "\033[2K\033[3;4H\033[48;2;19;83;137m\033[K",
+		"\033[0m\033[1;1H\033[?25l", "\033c",
+	};
+	static const uint32_t glyphs[] = { 'j', 'W', 0x0301, 0x00c5, 0x4e2d, 0x1f600, 0x10ffff, 0 };
+	gui_protocol_header configure = { .type = GUI_PROTOCOL_WINDOW_CONFIGURE };
+	uint8_t payload[sizeof(gui_protocol_wire_window_configure)] = { 0 };
+	terminal_state previous;
+	gui_color *saved_pixels;
+
+	assert(terminal_resize_grid(&state, 320, 192) == 0);
+	state.font = gui_font_load(TERMINAL_FONT_PATH, TERMINAL_FONT_HEIGHT);
+	assert(state.font != NULL);
+	state.vt.cursor_row = state.vt.cursor_column = 1;
+	assert(terminal_render(&state) == 0);
+	assert(state.rendered_cell_bytes == (size_t)state.vt.rows * state.vt.columns * sizeof(terminal_vt_cell));
+	assert_renderer_oracle(&state);
+	renderer_pixels = renderer_glyphs = 0;
+	measure_renderer = 1;
+	assert(terminal_render(&state) == 0);
+	assert(renderer_pixels == 0 && renderer_glyphs == 0 && state.render_damage.w == 0);
+	terminal_vt_feed(&state.vt, (const uint8_t *)"A", 1);
+	assert(terminal_render(&state) == 0);
+	assert(state.render_damage.w <= 24 && state.render_damage.h <= 32);
+	assert(renderer_pixels <= 3 * 24 * 32 + 32 && renderer_glyphs <= 12);
+	printf("terminal-drawing-work: single-cell pixels=%llu glyphs=%u rectangle=%dx%d snapshot=%u\n",
+		(unsigned long long)renderer_pixels, renderer_glyphs,
+		state.render_damage.w, state.render_damage.h, (unsigned int)state.rendered_cell_bytes);
+	measure_renderer = 0;
+	assert_renderer_oracle(&state);
+	for (unsigned int index = 0; index < sizeof(sequences) / sizeof(sequences[0]); index++) {
+		terminal_vt_feed(&state.vt, (const uint8_t *)sequences[index], strlen(sequences[index]));
+		assert(terminal_render(&state) == 0);
+		assert_renderer_oracle(&state);
+	}
+	for (unsigned int index = 0; index < 80; index++) {
+		size_t cell_index = (index * 47) % ((size_t)state.vt.rows * state.vt.columns);
+
+		state.vt.cells[cell_index].codepoint = glyphs[index % (sizeof(glyphs) / sizeof(glyphs[0]))];
+		state.vt.cells[cell_index].background = TERMINAL_VT_COLOR_RGB_TAG | ((index * 89317) & 0xffffff);
+		state.vt.cells[cell_index].attributes = index % 8;
+		state.vt.cursor_row = (index * 3) % state.vt.rows;
+		state.vt.cursor_column = (index * 7) % state.vt.columns;
+		state.vt.cursor_visible = index % 2;
+		assert(terminal_render(&state) == 0);
+		assert_renderer_oracle(&state);
+	}
+	previous = state;
+	saved_pixels = malloc((size_t)state.width * state.height * sizeof(gui_color));
+	assert(saved_pixels != NULL);
+	memcpy(saved_pixels, state.pixels, (size_t)state.width * state.height * sizeof(gui_color));
+	for (unsigned int allocation = 1; allocation <= 5; allocation++) {
+		failing_allocation = allocation;
+		assert(terminal_resize_grid(&state, 400, 256) < 0 && failing_allocation == 0);
+		assert(!memcmp(&state, &previous, sizeof(state)));
+		assert(!memcmp(state.pixels, saved_pixels, (size_t)state.width * state.height * sizeof(gui_color)));
+		assert(terminal_render(&state) == 0);
+		previous = state;
+	}
+	free(saved_pixels);
+	put32(payload, 1);
+	put64(payload + 4, 2);
+	put32(payload + 12, 400);
+	put32(payload + 16, 256);
+	failing_allocation = 5;
+	assert(terminal_handle_message(&state, &configure, payload, sizeof(payload)) == 1);
+	assert(state.pending_configure_serial == 2 && state.configure_serial == 1 && state.width == 320);
+	assert(state.surface_flow.retry_pending && state.pixels == previous.pixels);
+	assert(terminal_apply_pending_configure(&state, -1) == 0 && state.width == 320);
+	state.surface_flow.retry_pending = 0;
+	assert(terminal_apply_pending_configure(&state, -1) == 0);
+	assert(state.pending_configure_serial == 0 && state.configure_serial == 2 && state.width == 400);
+	assert(terminal_render(&state) == 0 && state.render_damage.w == 400 && state.render_damage.h == 256);
+	assert_renderer_oracle(&state);
+	gui_font_destroy(state.font);
+	free(state.primary_cells);
+	free(state.alternate_cells);
+	free(state.scrollback_cells);
+	free(state.rendered_cells);
+	free(state.pixels);
+	puts("terminal-vt: incremental pixels match full rendering and resize failures preserve state");
+}
+
 int main(void)
 {
 	test_cases();
@@ -441,5 +631,6 @@ int main(void)
 	puts("terminal-vt: titles and RGB ok");
 	puts("terminal-vt: DEC modes ok");
 	puts("terminal-vt: charset designation ok");
+	test_incremental_renderer();
 	return 0;
 }

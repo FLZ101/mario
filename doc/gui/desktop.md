@@ -326,7 +326,22 @@ and deadlines are checked between batches and between bounded client drains.
 Poll timeouts include the pending deadline even without further input. BUSY
 scanout retains damage and suppresses deadline polling until foreground
 notification or a successful immediate transaction, avoiding an expired-timer
-spin. Terminal rendering and protocol contracts below remain M10 targets.
+spin.
+
+M10.5 retains terminal pixels and an explicitly sized prior-cell snapshot
+(`rows * columns * sizeof(terminal_vt_cell)`, 5760 bytes for the 320x192 grid).
+Cells are compared by fields rather than padding. Changed cells, old/new cursor
+cells, and old/new glyph bounds form one clipped dirty bounding rectangle;
+only cell backgrounds and glyphs intersecting it are reconstructed, in the
+original row/column order. Glyph overhangs are included, so clipping repairs
+neighboring cells and margins without changing full-render pixels. Scrolling,
+alternate screens, erases, and widely separated changes conservatively grow
+the rectangle; unchanged state does not draw. New geometry forces a full
+render. Replacement grids, snapshots, and pixels are allocated before
+discarding the working renderer. Allocation failure preserves it and defers
+the pending configure through the existing bounded surface retry timer.
+Uploads still use full configured-size v1.0 surface transactions at this step.
+The negotiated patch and pipelined upload contracts below remain M10 targets.
 
 - Keep a persistent composite and reuse each window's newest complete cached
   surface. Accumulate bounded screen-space damage for content, chrome, focus,

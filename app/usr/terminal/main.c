@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <pty.h>
 #include <signal.h>
@@ -49,6 +50,16 @@ typedef struct {
 	terminal_vt_cell *primary_cells;
 	terminal_vt_cell *alternate_cells;
 	terminal_vt_cell *scrollback_cells;
+	terminal_vt_cell *rendered_cells;
+	size_t rendered_cell_bytes;
+	int rendered;
+	uint32_t rendered_cursor_row;
+	uint32_t rendered_cursor_column;
+	int rendered_cursor_visible;
+	gui_rect render_damage;
+	uint64_t pending_configure_serial;
+	uint32_t pending_width;
+	uint32_t pending_height;
 	gui_surface surface;
 	gui_color *pixels;
 	gui_font *font;
@@ -216,6 +227,7 @@ static int terminal_resize_grid(terminal_state *state, uint32_t width,
 	terminal_vt_cell *primary_cells;
 	terminal_vt_cell *alternate_cells;
 	terminal_vt_cell *scrollback_cells;
+	terminal_vt_cell *rendered_cells;
 	gui_color *pixels;
 	uint32_t rows;
 	uint32_t columns;
@@ -227,7 +239,7 @@ static int terminal_resize_grid(terminal_state *state, uint32_t width,
 	pixels = NULL;
 	scrollback_cells = NULL;
 
-	if (width == 0 || height == 0 || width > UINT32_MAX / height ||
+	if (width == 0 || height == 0 || width > INT_MAX || height > INT_MAX || width > UINT32_MAX / height ||
 	    width > SIZE_MAX / height)
 		return -1;
 	terminal_grid_dimensions(width, height, &rows, &columns);
@@ -243,7 +255,10 @@ static int terminal_resize_grid(terminal_state *state, uint32_t width,
 	primary_cells = calloc(cell_count, sizeof(*primary_cells));
 	alternate_cells = calloc(cell_count, sizeof(*alternate_cells));
 	scrollback_cells = calloc(scrollback_cell_count, sizeof(*scrollback_cells));
-	if (primary_cells == NULL || alternate_cells == NULL || scrollback_cells == NULL)
+	rendered_cells = calloc(cell_count, sizeof(*rendered_cells));
+	pixels = malloc(pixel_count * sizeof(*pixels));
+	if (primary_cells == NULL || alternate_cells == NULL || scrollback_cells == NULL ||
+	    rendered_cells == NULL || pixels == NULL)
 		goto out;
 	if (state->primary_cells == NULL) {
 		if (terminal_vt_init(&resized, primary_cells, alternate_cells, rows,
@@ -258,19 +273,18 @@ static int terminal_resize_grid(terminal_state *state, uint32_t width,
 			scrollback_cells, TERMINAL_SCROLLBACK_LINES, rows, columns) < 0)
 			goto out;
 	}
-	/* Every frame repaints every pixel, so reclaim this large buffer first. */
-	free(state->pixels);
-	state->pixels = NULL;
-	pixels = malloc(pixel_count * sizeof(*pixels));
-	if (pixels == NULL)
-		goto out;
 	free(state->primary_cells);
 	free(state->alternate_cells);
 	free(state->scrollback_cells);
 	free(state->pixels);
+	free(state->rendered_cells);
 	state->primary_cells = primary_cells;
 	state->alternate_cells = alternate_cells;
 	state->scrollback_cells = scrollback_cells;
+	state->rendered_cells = rendered_cells;
+	state->rendered_cell_bytes = cell_count * sizeof(*rendered_cells);
+	state->rendered = 0;
+	state->render_damage = (gui_rect) { 0 };
 	state->pixels = pixels;
 	state->vt = resized;
 	state->width = width;
@@ -286,56 +300,174 @@ out:
 	free(primary_cells);
 	free(alternate_cells);
 	free(scrollback_cells);
+	free(rendered_cells);
 	free(pixels);
 	return -1;
 }
 
+static gui_rect terminal_cell_bounds(uint32_t row, uint32_t column)
+{
+	return (gui_rect) { TERMINAL_MARGIN + column * TERMINAL_CELL_WIDTH,
+		TERMINAL_MARGIN + row * TERMINAL_CELL_HEIGHT,
+		TERMINAL_CELL_WIDTH, TERMINAL_CELL_HEIGHT };
+}
+
+static gui_rect terminal_glyph_bounds(terminal_state *state, uint32_t row,
+				     uint32_t column, uint32_t codepoint)
+{
+	gui_rect bounds = terminal_cell_bounds(row, column);
+	gui_font_glyph glyph;
+	gui_text_glyph decoded;
+	char bytes[5] = { 0 };
+	const char *cursor = bytes;
+
+	if (codepoint == 0)
+		return (gui_rect) { 0 };
+	terminal_encode_utf8(codepoint, bytes);
+	if (gui_text_next(&cursor, &decoded) && decoded.source == GUI_TEXT_GLYPH_FONT &&
+	    gui_font_get_glyph(state->font, decoded.codepoint, &glyph)) {
+		bounds.x += glyph.x_offset;
+		bounds.y += TERMINAL_FONT_HEIGHT - glyph.y_offset;
+		bounds.w = glyph.width;
+		bounds.h = glyph.height;
+	}
+	return bounds;
+}
+
+static int terminal_rect_intersects(gui_rect first, gui_rect second)
+{
+	return first.w > 0 && first.h > 0 && second.w > 0 && second.h > 0 &&
+		(int64_t)first.x < (int64_t)second.x + second.w &&
+		(int64_t)second.x < (int64_t)first.x + first.w &&
+		(int64_t)first.y < (int64_t)second.y + second.h &&
+		(int64_t)second.y < (int64_t)first.y + first.h;
+}
+
+static void terminal_add_damage(const terminal_state *state, gui_rect *damage,
+				gui_rect bounds)
+{
+	int64_t left = bounds.x < 0 ? 0 : bounds.x;
+	int64_t top = bounds.y < 0 ? 0 : bounds.y;
+	int64_t right = (int64_t)bounds.x + bounds.w;
+	int64_t bottom = (int64_t)bounds.y + bounds.h;
+
+	if (right > state->width)
+		right = state->width;
+	if (bottom > state->height)
+		bottom = state->height;
+	if (bounds.w <= 0 || bounds.h <= 0 || left >= right || top >= bottom)
+		return;
+	if (damage->w > 0 && damage->h > 0) {
+		if (left > damage->x)
+			left = damage->x;
+		if (top > damage->y)
+			top = damage->y;
+		if (right < (int64_t)damage->x + damage->w)
+			right = (int64_t)damage->x + damage->w;
+		if (bottom < (int64_t)damage->y + damage->h)
+			bottom = (int64_t)damage->y + damage->h;
+	}
+	*damage = (gui_rect) { left, top, right - left, bottom - top };
+}
+
+static int terminal_same_cell(const terminal_vt_cell *first, const terminal_vt_cell *second)
+{
+	return first->codepoint == second->codepoint && first->foreground == second->foreground &&
+		first->background == second->background && first->attributes == second->attributes;
+}
+
+static void terminal_draw_cell(terminal_state *state, gui_surface *surface,
+			       uint32_t row, uint32_t column, int offset_x, int offset_y)
+{
+	const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
+	gui_rect bounds = terminal_cell_bounds(row, column);
+	gui_color foreground = terminal_color(cell->foreground, TERMINAL_CURSOR);
+	gui_color background = terminal_color(cell->background, TERMINAL_BACKGROUND);
+
+	bounds.x -= offset_x;
+	bounds.y -= offset_y;
+	if (cell->attributes & TERMINAL_VT_ATTRIBUTE_INVERSE) {
+		gui_color color = foreground;
+
+		foreground = background;
+		background = color;
+	}
+	gui_fill_rect(surface, bounds, background);
+	if (cell->codepoint != 0) {
+		char bytes[5] = { 0 };
+
+		terminal_encode_utf8(cell->codepoint, bytes);
+		gui_font_draw_text(surface, bounds.x, bounds.y + TERMINAL_FONT_HEIGHT,
+			state->font, bytes, foreground);
+	}
+	if (cell->attributes & TERMINAL_VT_ATTRIBUTE_UNDERLINE)
+		gui_fill_rect(surface, (gui_rect) { bounds.x, bounds.y + TERMINAL_CELL_HEIGHT - 2,
+			TERMINAL_CELL_WIDTH, 1 }, foreground);
+}
+
 static int terminal_render(terminal_state *state)
 {
-	if (state->font == NULL || state->surface.pixels == NULL)
+	gui_rect damage = { 0 };
+	gui_surface clipped;
+	int cursor_visible = state->vt.cursor_visible && state->vt.cursor_row < state->vt.rows &&
+		state->vt.cursor_column < state->vt.columns;
+
+	if (state->font == NULL || state->surface.pixels == NULL || state->rendered_cells == NULL)
 		return -1;
-	gui_fill_rect(&state->surface, (gui_rect) { 0, 0, state->width, state->height },
-		TERMINAL_BACKGROUND);
+	if (!state->rendered) {
+		damage = (gui_rect) { 0, 0, state->width, state->height };
+	} else {
+		for (uint32_t row = 0; row < state->vt.rows; row++)
+			for (uint32_t column = 0; column < state->vt.columns; column++) {
+				size_t index = (size_t)row * state->vt.columns + column;
+				const terminal_vt_cell *cell = state->vt.cells + index;
+				const terminal_vt_cell *old = state->rendered_cells + index;
+
+				if (terminal_same_cell(cell, old))
+					continue;
+				terminal_add_damage(state, &damage, terminal_cell_bounds(row, column));
+				terminal_add_damage(state, &damage, terminal_glyph_bounds(state, row, column, old->codepoint));
+				terminal_add_damage(state, &damage, terminal_glyph_bounds(state, row, column, cell->codepoint));
+			}
+		if (cursor_visible != state->rendered_cursor_visible ||
+		    state->vt.cursor_row != state->rendered_cursor_row ||
+		    state->vt.cursor_column != state->rendered_cursor_column) {
+			if (state->rendered_cursor_visible)
+				terminal_add_damage(state, &damage, terminal_cell_bounds(
+					state->rendered_cursor_row, state->rendered_cursor_column));
+			if (cursor_visible)
+				terminal_add_damage(state, &damage, terminal_cell_bounds(state->vt.cursor_row, state->vt.cursor_column));
+		}
+	}
+	state->render_damage = damage;
+	if (damage.w == 0 || damage.h == 0)
+		return 0;
+	clipped = (gui_surface) { .width = damage.w, .height = damage.h,
+		.stride = state->surface.stride, .pixels = state->pixels +
+			(size_t)damage.y * state->surface.stride + damage.x };
+	gui_fill_rect(&clipped, (gui_rect) { 0, 0, damage.w, damage.h }, TERMINAL_BACKGROUND);
 	for (uint32_t row = 0; row < state->vt.rows; row++)
 		for (uint32_t column = 0; column < state->vt.columns; column++) {
-			const terminal_vt_cell *cell = state->vt.cells +
-				(size_t)row * state->vt.columns + column;
-			gui_color foreground = terminal_color(cell->foreground, TERMINAL_CURSOR);
-			gui_color background = terminal_color(cell->background, TERMINAL_BACKGROUND);
-			int x = TERMINAL_MARGIN + column * TERMINAL_CELL_WIDTH;
-			int y = TERMINAL_MARGIN + row * TERMINAL_CELL_HEIGHT;
+			const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
 
-			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_INVERSE) {
-				gui_color color = foreground;
-
-				foreground = background;
-				background = color;
-			}
-			gui_fill_rect(&state->surface, (gui_rect) {
-				x, y, TERMINAL_CELL_WIDTH, TERMINAL_CELL_HEIGHT,
-			}, background);
-			if (cell->codepoint != 0) {
-				char bytes[5] = { 0 };
-
-				/* The UI font helper uses its CP437 fallback for missing glyphs. */
-				terminal_encode_utf8(cell->codepoint, bytes);
-				gui_font_draw_text(&state->surface, x,
-					y + TERMINAL_FONT_HEIGHT, state->font, bytes, foreground);
-			}
-			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_UNDERLINE)
-				gui_fill_rect(&state->surface, (gui_rect) {
-					x, y + TERMINAL_CELL_HEIGHT - 2,
-					TERMINAL_CELL_WIDTH, 1,
-				}, foreground);
+			if (terminal_rect_intersects(damage, terminal_cell_bounds(row, column)) ||
+			    terminal_rect_intersects(damage, terminal_glyph_bounds(state, row, column, cell->codepoint)))
+				terminal_draw_cell(state, &clipped, row, column, damage.x, damage.y);
 		}
-	if (state->vt.cursor_visible && state->vt.cursor_row < state->vt.rows &&
-	    state->vt.cursor_column < state->vt.columns)
-		gui_fill_rect(&state->surface, (gui_rect) {
-			TERMINAL_MARGIN + state->vt.cursor_column * TERMINAL_CELL_WIDTH,
-			TERMINAL_MARGIN + state->vt.cursor_row * TERMINAL_CELL_HEIGHT +
-				TERMINAL_CELL_HEIGHT - 2,
-			TERMINAL_CELL_WIDTH, 2,
-		}, TERMINAL_CURSOR);
+	if (cursor_visible) {
+		gui_rect cursor = terminal_cell_bounds(state->vt.cursor_row, state->vt.cursor_column);
+
+		cursor.y += TERMINAL_CELL_HEIGHT - 2;
+		cursor.h = 2;
+		cursor.x -= damage.x;
+		cursor.y -= damage.y;
+		gui_fill_rect(&clipped, cursor, TERMINAL_CURSOR);
+	}
+	memcpy(state->rendered_cells, state->vt.cells, state->rendered_cell_bytes);
+	state->rendered_cursor_row = state->vt.cursor_row;
+	state->rendered_cursor_column = state->vt.cursor_column;
+	state->rendered_cursor_visible = cursor_visible;
+	state->rendered = 1;
 	return 0;
 }
 
@@ -401,13 +533,19 @@ static int terminal_handle_message(terminal_state *state,
 		if (payload_bytes != sizeof(gui_protocol_wire_window_configure) ||
 		    get32(payload) != state->window_id ||
 		    get64(payload + 4) <= state->configure_serial ||
+		    get64(payload + 4) <= state->pending_configure_serial ||
 		    get32(payload + 12) == 0 || get32(payload + 16) == 0)
 			return -1;
 		if (terminal_resize_grid(state, get32(payload + 12), get32(payload + 16)) < 0) {
-			fprintf(stderr, "terminal: grid resize failed\n");
-			return -1;
+			state->pending_configure_serial = get64(payload + 4);
+			state->pending_width = get32(payload + 12);
+			state->pending_height = get32(payload + 16);
+			app_gui_surface_defer(&state->surface_flow);
+			fprintf(stderr, "terminal: grid resize deferred\n");
+			return 1;
 		}
 		state->configure_serial = get64(payload + 4);
+		state->pending_configure_serial = 0;
 		app_gui_surface_defer(&state->surface_flow);
 		if (state->master >= 0 && terminal_resize_pty(state->master, state) < 0)
 			return -1;
@@ -614,10 +752,29 @@ static int terminal_resize_pty(int master, const terminal_state *state)
 	return ioctl(master, TIOCSWINSZ, &size);
 }
 
+static int terminal_apply_pending_configure(terminal_state *state, int master)
+{
+	if (state->surface_flow.retry_pending)
+		return 0;
+	if (state->pending_configure_serial != 0) {
+		if (terminal_resize_grid(state, state->pending_width, state->pending_height) < 0) {
+			app_gui_surface_defer(&state->surface_flow);
+			return 0;
+		}
+		state->configure_serial = state->pending_configure_serial;
+		state->pending_configure_serial = 0;
+		if (master >= 0 && terminal_resize_pty(master, state) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 static int terminal_send_current_surface(terminal_state *state, int master)
 {
 	int result;
 
+	if (terminal_apply_pending_configure(state, master) < 0)
+		return -1;
 	if (state->surface_flow.retry_pending)
 		return 0;
 
@@ -840,6 +997,7 @@ out:
 	free(state.primary_cells);
 	free(state.alternate_cells);
 	free(state.scrollback_cells);
+	free(state.rendered_cells);
 	free(state.pixels);
 	if (state.fd >= 0)
 		close(state.fd);
