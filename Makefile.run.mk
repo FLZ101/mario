@@ -60,7 +60,12 @@ tmux-attach:
 tmux-kill:
 	$(MAKE) -C $(QEMU_DIR) tmux-kill
 
-test: shell-test tty-test gui-test
+.PHONY: image-builder-test
+
+test: image-builder-test shell-test tty-test gui-test
+
+image-builder-test:
+	$(PYTHON) $(ROOT)/tests/test_mkdisk.py
 
 shell-test:
 	$(PYTHON) $(ROOT)/tests/lit_shell_test.py --smp $(SMP) --jobs $(LIT_JOBS) $(SHELL_TEST_CASES)

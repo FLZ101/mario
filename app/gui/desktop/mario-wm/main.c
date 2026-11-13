@@ -101,6 +101,8 @@ struct wm_window {
 	wm_window *owner_next;
 	wm_client *client;
 	int focused;
+	int list_visible;
+	gui_protocol_type list_pending;
 	uint32_t window_id;
 	uint32_t width;
 	uint32_t height;
@@ -138,6 +140,8 @@ struct wm_client {
 	size_t record_bytes;
 	size_t surface_bytes;
 	uint32_t snapshot_cursor;
+	uint32_t snapshot_end;
+	uint32_t delta_cursor;
 	int snapshot_pending;
 };
 
@@ -152,6 +156,8 @@ struct wm_server {
 	wm_state state;
 	wm_client *clients;
 	wm_window *windows;
+	wm_window *removed_windows;
+	size_t list_pending;
 	wm_launch *launches;
 	size_t record_bytes;
 	size_t client_count;
@@ -334,11 +340,17 @@ static int wm_publish_completed_frame(wm_state *state)
 	}
 	/* Rename keeps a reader from observing a truncated counter during an update. */
 	if (write_status_file(WM_FRAME_PATH, WM_FRAME_PATH ".new", marker,
-			      (size_t)length) < 0)
+			      (size_t)length) < 0) {
+		fprintf(stderr, "mario-wm: frame publication failed: %d\n", errno);
 		return -1;
+	}
 	state->frame_number = frame_number;
 	/* Readiness is published only after the corresponding frame is visible. */
-	return write_status_file(WM_READY_PATH, WM_READY_PATH ".new", "ready\n", 6);
+	if (write_status_file(WM_READY_PATH, WM_READY_PATH ".new", "ready\n", 6) < 0) {
+		fprintf(stderr, "mario-wm: readiness publication failed: %d\n", errno);
+		return -1;
+	}
+	return 0;
 }
 
 static uint16_t get_u16(const uint8_t *bytes)
@@ -430,7 +442,31 @@ static void window_destroy(wm_window *window)
 	client_discard_staging(window);
 	client_discard_reservation(window);
 	client_discard_committed(window);
+	if (window->list_pending == GUI_PROTOCOL_WINDOW_LIST_REMOVE) {
+		client->record_bytes -= sizeof(*window);
+		window->client = NULL;
+		window->next = server->removed_windows;
+		server->removed_windows = window;
+		return;
+	}
+	if (window->list_pending != 0)
+		server->list_pending--;
 	wm_record_destroy(server, client, window, sizeof(*window));
+}
+
+static void wm_discard_shell_list(wm_server *server)
+{
+	for (wm_window *window = server->windows; window != NULL; window = window->next) {
+		window->list_visible = 0;
+		window->list_pending = 0;
+	}
+	while (server->removed_windows != NULL) {
+		wm_window *window = server->removed_windows;
+
+		server->removed_windows = window->next;
+		wm_record_destroy(server, NULL, window, sizeof(*window));
+	}
+	server->list_pending = 0;
 }
 
 static void client_destroy(wm_client *client)
@@ -602,8 +638,11 @@ static gui_flush_result wm_compose(wm_server *server)
 				.h = state->composite->height }, state->scanout_stride,
 			state->framebuffer);
 
-		if (result != GUI_FLUSH_COMPLETE)
+		if (result != GUI_FLUSH_COMPLETE) {
+			if (result == GUI_FLUSH_ERROR)
+				fprintf(stderr, "mario-wm: scanout failed: %d\n", errno);
 			return result;
+		}
 	}
 	return wm_publish_completed_frame(state) == 0 ? GUI_FLUSH_COMPLETE :
 		GUI_FLUSH_ERROR;
@@ -1016,49 +1055,101 @@ static int wm_enqueue_window_list(wm_client *shell, gui_protocol_type type,
 }
 
 static void wm_notify_shell_window(wm_server *server, gui_protocol_type type,
-				   const wm_window *window)
+				   wm_window *window)
 {
 	if (window->client->role != GUI_PROTOCOL_ENDPOINT_ORDINARY || window->window_id == 0)
 		return;
 	for (wm_client *shell = server->clients; shell != NULL; shell = shell->next) {
 		if (shell->role != GUI_PROTOCOL_ENDPOINT_SHELL || shell->hello <= 0 ||
-		    shell->windows == NULL ||
-		    (shell->snapshot_pending && window->window_id > shell->snapshot_cursor))
+		    shell->windows == NULL)
 			continue;
-		if (wm_enqueue_window_list(shell, type, window) < 0)
-			shell->hello = -1;
+		if (!window->list_visible) {
+			if (type == GUI_PROTOCOL_WINDOW_LIST_REMOVE) {
+				if (window->list_pending != 0)
+					server->list_pending--;
+				window->list_pending = 0;
+				return;
+			}
+			if (shell->snapshot_pending && window->window_id <= shell->snapshot_end)
+				return;
+			type = GUI_PROTOCOL_WINDOW_LIST_ADD;
+		} else if (type != GUI_PROTOCOL_WINDOW_LIST_REMOVE) {
+			type = GUI_PROTOCOL_WINDOW_LIST_CHANGE;
+		}
+		if (window->list_pending == 0)
+			server->list_pending++;
+		window->list_pending = type;
+		return;
 	}
 }
 
 static void wm_pump_shell_snapshot(wm_server *server, wm_client *shell)
 {
-	if (!shell->snapshot_pending || shell->hello <= 0 ||
+	if (shell->role != GUI_PROTOCOL_ENDPOINT_SHELL || shell->windows == NULL || shell->hello <= 0 ||
 	    gui_protocol_output_pending(shell->output))
 		return;
 	for (unsigned int count = 0; count < WM_SHELL_SNAPSHOT_QUANTUM; count++) {
 		wm_window *next = NULL;
+		gui_protocol_type type;
 
-		for (wm_window *window = server->windows; window != NULL; window = window->next) {
-			if (window->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
-			    window->client->hello > 0 && window->window_id > shell->snapshot_cursor &&
-			    (next == NULL || window->window_id < next->window_id))
-				next = window;
+		if (server->removed_windows != NULL) {
+			next = server->removed_windows;
+			if (wm_enqueue_window_list(shell, GUI_PROTOCOL_WINDOW_LIST_REMOVE, next) < 0) {
+				shell->hello = -1;
+				return;
+			}
+			server->removed_windows = next->next;
+			server->list_pending--;
+			wm_record_destroy(server, NULL, next, sizeof(*next));
+			continue;
 		}
-		if (next == NULL) {
-			shell->snapshot_pending = 0;
-			return;
+		if (shell->snapshot_pending) {
+			for (wm_window *window = server->windows; window != NULL; window = window->next) {
+				if (window->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
+				    window->client->hello > 0 && window->window_id > shell->snapshot_cursor &&
+				    window->window_id <= shell->snapshot_end &&
+				    (next == NULL || window->window_id < next->window_id))
+					next = window;
+			}
+			if (next == NULL)
+				shell->snapshot_pending = 0;
 		}
-		if (wm_enqueue_window_list(shell, GUI_PROTOCOL_WINDOW_LIST_SNAPSHOT, next) < 0) {
+		if (next != NULL) {
+			type = GUI_PROTOCOL_WINDOW_LIST_SNAPSHOT;
+		} else {
+			for (unsigned int pass = 0; pass < 2 && next == NULL; pass++) {
+				for (wm_window *window = server->windows; window != NULL; window = window->next) {
+					if (window->list_pending != 0 &&
+					    (pass != 0 || window->window_id > shell->delta_cursor) &&
+					    (next == NULL || window->window_id < next->window_id))
+						next = window;
+				}
+			}
+			if (next == NULL)
+				return;
+			type = next->list_pending;
+		}
+		if (wm_enqueue_window_list(shell, type, next) < 0) {
 			shell->hello = -1;
 			return;
 		}
-		shell->snapshot_cursor = next->window_id;
+		if (type == GUI_PROTOCOL_WINDOW_LIST_SNAPSHOT)
+			shell->snapshot_cursor = next->window_id;
+		else
+			shell->delta_cursor = next->window_id;
+		next->list_visible = 1;
+		if (next->list_pending != 0)
+			server->list_pending--;
+		next->list_pending = 0;
 	}
 }
 
 static void wm_send_shell_snapshot(wm_server *server, wm_client *shell)
 {
+	wm_discard_shell_list(server);
 	shell->snapshot_cursor = 0;
+	shell->snapshot_end = server->next_window_id;
+	shell->delta_cursor = 0;
 	shell->snapshot_pending = 1;
 	wm_pump_shell_snapshot(server, shell);
 }
@@ -1529,6 +1620,7 @@ static void wm_disconnect_client(wm_server *server, wm_client *client)
 	if (client->role == GUI_PROTOCOL_ENDPOINT_SHELL) {
 		wm_window *desktop = client->windows;
 
+		wm_discard_shell_list(server);
 		server->shell_pid = 0;
 		if (server->shell_replacement_started || !server->shell_ready ||
 		    desktop == NULL || desktop->committed == NULL || server->desktop_snapshot != NULL) {
@@ -2500,7 +2592,8 @@ int main(void)
 			short events = POLLIN;
 
 			wm_pump_shell_snapshot(&server, client);
-			if (client->drain_input || (client->snapshot_pending &&
+			if (client->drain_input || ((client->snapshot_pending ||
+			    (client->role == GUI_PROTOCOL_ENDPOINT_SHELL && server.list_pending != 0)) &&
 			    !gui_protocol_output_pending(client->output)))
 				poll_timeout = 0;
 			if (gui_protocol_output_pending(client->output))
@@ -2612,6 +2705,7 @@ int main(void)
 	status = 0;
 out:
 	wm_stop_shell(&server);
+	wm_discard_shell_list(&server);
 	while (server.clients != NULL)
 		client_destroy(server.clients);
 	while (server.launches != NULL) {

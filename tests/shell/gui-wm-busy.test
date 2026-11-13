@@ -3,3 +3,5 @@ CHECK: gui-wm-busy: valid commits survive suspended scanout
 CHECK: gui-wm-busy: reservations, shell headroom and transition rollback pass
 CHECK: gui-wm-busy: real terminal survives pressure and allocation/flush rollback
 CHECK: gui-wm-busy: dynamic records, peer budgets and bounded snapshots pass
+CHECK: gui-wm-busy: large snapshots, ordered deltas and stable taskbar pages pass
+CHECK: gui-wm-busy: valid shell key input preserves the desktop

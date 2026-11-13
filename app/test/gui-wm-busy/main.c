@@ -45,6 +45,10 @@ gui_flush_result gui_surface_flush_rect_fd(const gui_surface *surface,
 #undef calloc
 #undef main
 
+#define main desktop_program_main
+#include "../../gui/desktop/mario-desktop/main.c"
+#undef main
+
 static void init_server(wm_server *server, uint32_t width, uint32_t height);
 static wm_window *init_client(wm_server *server, size_t index, gui_protocol_endpoint_role role);
 static void cleanup_server(wm_server *server);
@@ -146,6 +150,7 @@ static wm_window *init_client(wm_server *server, size_t index,
 
 static void cleanup_server(wm_server *server)
 {
+	wm_discard_shell_list(server);
 	while (server->clients != NULL)
 		client_destroy(server->clients);
 	assert(wm_poll_resize(server, 0) == 0);
@@ -605,6 +610,195 @@ static void test_record_capacity(void)
 	cleanup_server(&server);
 }
 
+static void test_shell_keyboard_input(void)
+{
+	desktop_state model = { .window_id = 1 };
+	gui_protocol_header header = { .type = GUI_PROTOCOL_INPUT_EVENT };
+	uint8_t payload[sizeof(gui_protocol_wire_input_event)] = { 0 };
+
+	put32(payload, model.window_id);
+	put32(payload + 4, GUI_INPUT_EVENT_KEY);
+	put32(payload + 8, 'a');
+	assert(desktop_handle_message(&model, &header, payload, sizeof(payload)) == 0);
+	assert(model.redraw == 0 && model.mouse_buttons == 0);
+	put32(payload, model.window_id + 1);
+	assert(desktop_handle_message(&model, &header, payload, sizeof(payload)) < 0);
+}
+
+static int block_shell_output;
+
+static ssize_t capture_shell_output(void *context, const void *bytes, size_t count)
+{
+	if (block_shell_output && captured_bytes >= 32) {
+		errno = EAGAIN;
+		return -1;
+	}
+	if (block_shell_output && count > 32 - captured_bytes)
+		count = 32 - captured_bytes;
+	return capture_output(context, bytes, count);
+}
+
+static size_t feed_shell_model(desktop_state *model, uint32_t future_id,
+		unsigned int *snapshots, int *future_seen, int *changed_seen)
+{
+	size_t messages = 0;
+
+	for (size_t offset = 0; offset < captured_bytes;) {
+		gui_protocol_header header;
+		const uint8_t *payload = captured_output + offset + GUI_PROTOCOL_HEADER_SIZE;
+
+		assert(gui_protocol_decode_header(captured_output + offset,
+			captured_bytes - offset, &header) == 0);
+		assert(header.length <= captured_bytes - offset);
+		if (header.type == GUI_PROTOCOL_WINDOW_LIST_SNAPSHOT) {
+			assert(get_u32(payload) != future_id);
+			(*snapshots)++;
+		}
+		if (header.type == GUI_PROTOCOL_WINDOW_LIST_ADD && get_u32(payload) == future_id)
+			*future_seen = 1;
+		if (header.type == GUI_PROTOCOL_WINDOW_LIST_CHANGE && get_u32(payload) == 1) {
+			assert(get_u32(payload + 4) == 77);
+			*changed_seen = 1;
+		}
+		assert(desktop_handle_window_list(model, header.type, payload,
+			header.length - GUI_PROTOCOL_HEADER_SIZE) == 0);
+		if (header.type == GUI_PROTOCOL_WINDOW_LIST_CHANGE && get_u32(payload) == 1) {
+			model->redraw = 0;
+			assert(desktop_handle_window_list(model, header.type, payload,
+				header.length - GUI_PROTOCOL_HEADER_SIZE) == 0);
+			assert(model->redraw == 0);
+		}
+		offset += header.length;
+		messages++;
+	}
+	assert(messages <= WM_SHELL_SNAPSHOT_QUANTUM);
+	return messages;
+}
+
+static void check_model_pages(desktop_state *model)
+{
+	const desktop_window *expected = model->windows;
+	size_t reached = 0;
+
+	assert(desktop_prepare_taskbar(model) == 0);
+	size_t pages = model->painted_taskbar.pages;
+
+	for (size_t page = 0; page < pages; page++) {
+		model->taskbar_page = page;
+		assert(desktop_prepare_taskbar(model) == 0);
+		desktop_commit_taskbar(model);
+		for (size_t slot = 0; slot < model->displayed_taskbar.count; slot++) {
+			uint32_t pointer_x = model->displayed_taskbar.first_x +
+				slot * DESKTOP_TASKBAR_BUTTON_STRIDE + 10;
+			const desktop_window *hit = desktop_taskbar_window(model, pointer_x, 750);
+
+			assert(expected != NULL && hit == expected);
+			assert(hit->window_id == model->displayed_taskbar.buttons[slot].window_id);
+			assert(pointer_x + DESKTOP_TASKBAR_BUTTON_WIDTH - 10 < model->width - 40);
+			expected = expected->next;
+			reached++;
+		}
+	}
+	assert(expected == NULL && reached == model->window_count);
+	assert(desktop_taskbar_control(model, &model->displayed_taskbar, 74, 750) == -1);
+	assert(desktop_taskbar_control(model, &model->displayed_taskbar, 970, 750) == 1);
+}
+
+static void test_large_shell_stream(void)
+{
+	static wm_server server;
+	desktop_state model = { .width = 1024, .height = 768 };
+	wm_client *peer;
+	wm_window *shell;
+	wm_window *first;
+	uint32_t future_id;
+	unsigned int snapshots = 0;
+	unsigned int turns = 0;
+	int future_seen = 0;
+	int changed_seen = 0;
+	size_t wire_bytes = 0;
+
+	init_server(&server, 256, 192);
+	peer = wm_add_client(&server, dup(STDOUT_FILENO), GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	assert(peer != NULL);
+	peer->hello = 1;
+	for (unsigned int index = 0; index < 256; index++) {
+		create_record(peer, index + 1, 1, 1);
+		peer->windows->title_bytes = GUI_PROTOCOL_MAX_TITLE_BYTES;
+		memset(peer->windows->title, 's', GUI_PROTOCOL_MAX_TITLE_BYTES);
+		drain_peer(peer);
+	}
+	shell = init_client(&server, server.next_window_id, GUI_PROTOCOL_ENDPOINT_SHELL);
+	wm_send_shell_snapshot(&server, shell->client);
+	assert(shell->client->snapshot_cursor == 8);
+	first = wm_find_window(&server, 1);
+	first->x = 77;
+	for (unsigned int repeat = 0; repeat < 256; repeat++)
+		wm_notify_shell_window(&server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, first);
+	destroy_record(peer, 2);
+	destroy_record(peer, 100);
+	create_record(peer, 500, 1, 1);
+	future_id = peer->windows->window_id;
+	assert(future_id > shell->client->snapshot_end && server.list_pending == 3);
+	captured_bytes = 0;
+	block_shell_output = 1;
+	assert(gui_protocol_output_flush(shell->client->output, capture_shell_output, NULL) ==
+		GUI_PROTOCOL_OUTPUT_BLOCKED);
+	assert(captured_bytes == 32);
+	wm_pump_shell_snapshot(&server, shell->client);
+	assert(shell->client->snapshot_cursor == 8 && server.removed_windows != NULL);
+	block_shell_output = 0;
+	assert(gui_protocol_output_flush(shell->client->output, capture_shell_output, NULL) ==
+		GUI_PROTOCOL_OUTPUT_EMPTY);
+	wire_bytes += captured_bytes;
+	feed_shell_model(&model, future_id, &snapshots, &future_seen, &changed_seen);
+	while (shell->client->snapshot_pending || server.list_pending != 0) {
+		assert(turns++ < 1000);
+		if (!future_seen)
+			wm_notify_shell_window(&server, GUI_PROTOCOL_WINDOW_LIST_CHANGE, first);
+		wm_pump_shell_snapshot(&server, shell->client);
+		drain_peer(shell->client);
+		wire_bytes += captured_bytes;
+		feed_shell_model(&model, future_id, &snapshots, &future_seen, &changed_seen);
+	}
+	assert(snapshots == 255 && future_seen && changed_seen && wire_bytes > GUI_PROTOCOL_OUTPUT_LIMIT);
+	assert(model.window_count == 255 && shell->client->hello == 1);
+	assert(desktop_window_by_id(&model, 2) == NULL && desktop_window_by_id(&model, 100) == NULL);
+	assert(server.removed_windows == NULL && server.list_pending == 0);
+	check_model_pages(&model);
+	wm_set_input_owner(&server, wm_find_window(&server, 10));
+	wm_pump_shell_snapshot(&server, shell->client);
+	drain_peer(shell->client);
+	feed_shell_model(&model, future_id, &snapshots, &future_seen, &changed_seen);
+	assert(model.taskbar_page == 1);
+	assert(desktop_prepare_taskbar(&model) == 0);
+	desktop_commit_taskbar(&model);
+	assert(desktop_taskbar_window(&model, 98, 750)->window_id == 10);
+	destroy_record(peer, 10);
+	wm_pump_shell_snapshot(&server, shell->client);
+	drain_peer(shell->client);
+	feed_shell_model(&model, future_id, &snapshots, &future_seen, &changed_seen);
+	assert(desktop_taskbar_window(&model, 98, 750) == NULL);
+	create_record(peer, 501, 1, 1);
+	assert(peer->windows->window_id > future_id);
+	wm_pump_shell_snapshot(&server, shell->client);
+	drain_peer(shell->client);
+	feed_shell_model(&model, future_id, &snapshots, &future_seen, &changed_seen);
+	assert(desktop_taskbar_window(&model, 98, 750) == NULL);
+	check_model_pages(&model);
+	while (model.windows != NULL) {
+		uint8_t remove[sizeof(gui_protocol_wire_window_list)] = { 0 };
+
+		put32(remove, model.windows->window_id);
+		assert(desktop_handle_window_list(&model, GUI_PROTOCOL_WINDOW_LIST_REMOVE,
+			remove, sizeof(remove)) == 0);
+	}
+	model.record_bytes -= 2 * desktop_taskbar_capacity(&model, 0) * sizeof(desktop_button);
+	free(model.taskbar_storage);
+	assert(model.record_bytes == 0 && model.window_count == 0);
+	cleanup_server(&server);
+}
+
 static unsigned int rejected_begins;
 static unsigned int completed_frames;
 static unsigned int rollback_checks;
@@ -793,10 +987,14 @@ int main(void)
 	test_surface_flow();
 	test_peer_surface_capacity();
 	test_record_capacity();
+	test_large_shell_stream();
+	test_shell_keyboard_input();
 	test_terminal_recovery();
 	puts("gui-wm-busy: valid commits survive suspended scanout");
 	puts("gui-wm-busy: reservations, shell headroom and transition rollback pass");
 	puts("gui-wm-busy: real terminal survives pressure and allocation/flush rollback");
 	puts("gui-wm-busy: dynamic records, peer budgets and bounded snapshots pass");
+	puts("gui-wm-busy: large snapshots, ordered deltas and stable taskbar pages pass");
+	puts("gui-wm-busy: valid shell key input preserves the desktop");
 	return 0;
 }

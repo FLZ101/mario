@@ -1,0 +1,1555 @@
+GUI-VISUAL-TEST:
+TIMEOUT: 30
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-many.*; /usr/bin/mario-wm >>/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while test -e /tmp/mario-wm.started && ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done; cat /tmp/mario-wm.log
+SERIAL-CHECK: mario-desktop: private connection ready
+SERIAL: many_shell_pid=$(pgrep mario-desktop); ls /proc/$(cat /tmp/mario-wm.pid)/fd | wc -l >/tmp/gui-many.wm-fds; ls /proc/$many_shell_pid/fd | wc -l >/tmp/gui-many.shell-fds
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-TYPE: shell
+SERIAL: test "$(pgrep mario-desktop)" = "$many_shell_pid" && printf 'many-windows: shell survives background keyboard input\n'
+SERIAL-CHECK: many-windows: shell survives background keyboard input
+SERIAL: <<TERMINAL
+cat >/tmp/gui-many.term1.sh <<'SCRIPT'
+stty size >/tmp/gui-many.term1.size
+while read line; do
+    printf '%s\n' "$line" >>/tmp/gui-many.term1.input
+    test "$line" = exit && exit 0
+done
+SCRIPT
+TERMINAL
+SERIAL: /usr/bin/terminal --command '/bin/oksh /tmp/gui-many.term1.sh' >/tmp/gui-many.term1.log 2>&1 & echo $! >/tmp/gui-many.term1.pid
+SERIAL-WAIT-FILE: /tmp/gui-many.term1.size
+SERIAL: test "$(cat /tmp/gui-many.term1.size)" = "10 36" && printf "many-windows: terminal 1 size ready\n"
+SERIAL-CHECK: many-windows: terminal 1 size ready
+SERIAL: <<TERMINAL
+cat >/tmp/gui-many.term2.sh <<'SCRIPT'
+stty size >/tmp/gui-many.term2.size
+while read line; do
+    printf '%s\n' "$line" >>/tmp/gui-many.term2.input
+    test "$line" = exit && exit 0
+done
+SCRIPT
+TERMINAL
+SERIAL: /usr/bin/terminal --command '/bin/oksh /tmp/gui-many.term2.sh' >/tmp/gui-many.term2.log 2>&1 & echo $! >/tmp/gui-many.term2.pid
+SERIAL-WAIT-FILE: /tmp/gui-many.term2.size
+SERIAL: test "$(cat /tmp/gui-many.term2.size)" = "10 36" && printf "many-windows: terminal 2 size ready\n"
+SERIAL-CHECK: many-windows: terminal 2 size ready
+SERIAL: /usr/bin/test/gui-wm-client.exe --many-windows >>/tmp/gui-many.log 2>&1 & echo $! >/tmp/gui-many.pid
+SERIAL: while test ! -e /tmp/gui-many.initial && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: fourteen 320x192 windows ready beside two real terminals
+GUI-CHECK-SCREEN-RECT: assets/wm-many-windows.png,0,740,1024,28
+GUI-MOUSE-MOVE: 58,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,101
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 106 753 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 248 250 252
+GUI-MOUSE-MOVE: 94,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+GUI-TYPE: one
+SERIAL: while ! grep -q '^one$' /tmp/gui-many.term1.input; do sleep 1; done; printf 'many-windows: terminal 1 input one\n'
+SERIAL-CHECK: many-windows: terminal 1 input one
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+GUI-TYPE: two
+SERIAL: while ! grep -q '^two$' /tmp/gui-many.term2.input; do sleep 1; done; printf 'many-windows: terminal 2 input two\n'
+SERIAL-CHECK: many-windows: terminal 2 input two
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 0 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 0 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 0 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 1 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 1 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 1 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 2 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 2 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 2 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 3 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 3 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 3 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 71 85 105
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 4 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 4 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 4 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 5 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 5 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 5 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 6 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 6 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 6 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 7 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 7 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 7 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 8 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 8 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 8 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 9 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 9 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 9 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 10 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 10 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 10 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 11 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 11 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 11 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 106 753 2 2 248 250 252
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 12 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 12 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 12 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: initial focus 13 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: initial focus 13 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 13 1
+GUI-SEND-KEYS: alt,tab
+GUI-WAIT-FRAME:
+SERIAL: while ! grep -q '^wm-client: initial focus 12 2$' /tmp/gui-many.log; do sleep 1; done; grep '^wm-client: initial focus 12 2$' /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial focus 12 2
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while ! grep -q '^wm-client: initial close 12$' /tmp/gui-many.log; do sleep 1; done; grep '^wm-client: initial close 12$' /tmp/gui-many.log
+SERIAL-CHECK: wm-client: initial close 12
+SERIAL: touch /tmp/gui-many.grow
+SERIAL: while test ! -e /tmp/gui-many.grown && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: forty live windows, new identities and busy peer ready
+SERIAL-WAIT-FILE: /tmp/gui-many.busy
+GUI-MOUSE-MOVE: -127,-127
+GUI-MOUSE-MOVE: -125,-127
+GUI-MOUSE-MOVE: 0,-127
+GUI-MOUSE-MOVE: 0,-127
+GUI-MOUSE-MOVE: 0,-127
+GUI-MOUSE-MOVE: 0,-101
+GUI-CHECK-SCREEN-RECT: assets/wm-many-windows-growth.png,0,740,1024,28
+GUI-MOUSE-MOVE: 58,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,101
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 98 749 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 755 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 106 753 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 248 250 252
+GUI-MOUSE-MOVE: 127,0
+GUI-MOUSE-MOVE: 127,0
+GUI-MOUSE-MOVE: 127,0
+GUI-MOUSE-MOVE: 113,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 0 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 0 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 0 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 1 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 1 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 1 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 2 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 2 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 2 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 3 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 3 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 3 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 71 85 105
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 4 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 4 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 4 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 5 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 5 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 5 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 6 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 6 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 6 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 7 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 7 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 7 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 8 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 8 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 8 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 9 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 9 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 9 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 10 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 10 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 10 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 11 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 11 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 11 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 106 753 2 2 248 250 252
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 13 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 13 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 13 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 14 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 14 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 14 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 15 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 15 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 15 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 16 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 16 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 16 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 17 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 17 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 17 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 18 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 18 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 18 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 19 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 19 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 19 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 20 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 20 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 20 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 248 250 252
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 21 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 21 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 21 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 22 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 22 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 22 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 23 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 23 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 23 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 24 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 24 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 24 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 25 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 25 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 25 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 26 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 26 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 26 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 27 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 27 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 27 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 28 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 28 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 28 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 755 2 2 71 85 105
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 29 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 29 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 29 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 30 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 30 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 30 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 31 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 31 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 31 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 32 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 32 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 32 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 33 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 33 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 33 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 34 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 34 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 34 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 35 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 35 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 35 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 36 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 36 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 36 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 98 749 2 2 71 85 105
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 37 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 37 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 37 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 38 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 38 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 38 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 39 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 39 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 39 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: growth focus 40 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: growth focus 40 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: growth focus 40 1
+GUI-SEND-KEY: f1
+SERIAL: test "$(pgrep mario-desktop)" = "$many_shell_pid" && printf 'many-windows: busy peer preserves the original shell\n'
+SERIAL-CHECK: many-windows: busy peer preserves the original shell
+SERIAL: touch /tmp/gui-many.large-start
+SERIAL: while test ! -e /tmp/gui-many.large && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: more than 64 KiB of live window-list records ready
+TIMEOUT: 60
+SERIAL: old_shell=$(pgrep mario-desktop); kill "$old_shell"; while test -e /tmp/mario-wm.started && test $(grep -c 'private connection ready' /tmp/mario-wm.log) -lt 2; do sleep 1; done; replacement=$(pgrep mario-desktop); test -n "$replacement" && test "$replacement" != "$old_shell" && printf 'many-windows: large shell snapshot restored\n'
+SERIAL-CHECK: many-windows: large shell snapshot restored
+TIMEOUT: 30
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -73,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: large focus 255 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: large focus 255 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: large focus 255 1
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -67,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 755 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 755 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 751 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 751 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 112 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 755 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 106 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 106 749 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 755 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 112 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 749 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 755 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 112 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 751 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 751 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 755 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 106 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 112 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 106 749 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 755 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 749 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 112 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 755 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 751 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 751 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 755 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 98 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 98 749 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 755 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 248 250 252
+GUI-MOUSE-MOVE: 94,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+GUI-TYPE: recoveredone
+SERIAL: while ! grep -q '^recoveredone$' /tmp/gui-many.term1.input; do sleep 1; done; printf 'many-windows: terminal 1 input recoveredone\n'
+SERIAL-CHECK: many-windows: terminal 1 input recoveredone
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+GUI-TYPE: recoveredtwo
+SERIAL: while ! grep -q '^recoveredtwo$' /tmp/gui-many.term2.input; do sleep 1; done; printf 'many-windows: terminal 2 input recoveredtwo\n'
+SERIAL-CHECK: many-windows: terminal 2 input recoveredtwo
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 0 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 0 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 0 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 1 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 1 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 1 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 2 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 2 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 2 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 3 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 3 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 3 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 4 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 4 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 4 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 5 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 5 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 5 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 71 85 105
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 6 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 6 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 6 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 7 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 7 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 7 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 8 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 8 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 8 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 9 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 9 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 9 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 10 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 10 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 10 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 11 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 11 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 11 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 13 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 13 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 13 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 14 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 14 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 14 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 248 250 252
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 15 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 15 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 15 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 16 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 16 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 16 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 17 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 17 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 17 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 18 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 18 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 18 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 19 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 19 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 19 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 20 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 20 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 20 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 21 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 21 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 21 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 22 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 22 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 22 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 749 2 2 248 250 252
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 23 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 23 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 23 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 24 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 24 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 24 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 25 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 25 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 25 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 26 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 26 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 26 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 27 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 27 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 27 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 28 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 28 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 28 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 29 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 29 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 29 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 30 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 30 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 30 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 755 2 2 71 85 105
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 31 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 31 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 31 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 32 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 32 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 32 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 33 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 33 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 33 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 34 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 34 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 34 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 35 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 35 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 35 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 36 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 36 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 36 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 37 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 37 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 37 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 38 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 38 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 38 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 98 749 2 2 71 85 105
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 39 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 39 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 39 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: recovered focus 40 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: recovered focus 40 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: recovered focus 40 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: large focus 0 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: large focus 0 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: large focus 0 1
+SERIAL: touch /tmp/gui-many.drop-large
+SERIAL: while test ! -e /tmp/gui-many.dropped && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: large disconnect reclaimed without losing the shell
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 98 749 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 755 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 248 250 252
+GUI-MOUSE-MOVE: 127,0
+GUI-MOUSE-MOVE: 127,0
+GUI-MOUSE-MOVE: 40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 0 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 0 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 0 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 1 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 1 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 1 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 2 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 2 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 2 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 3 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 3 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 3 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 4 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 4 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 4 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 5 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 5 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 5 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 71 85 105
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 6 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 6 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 6 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 7 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 7 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 7 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 8 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 8 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 8 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 9 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 9 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 9 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 10 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 10 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 10 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 11 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 11 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 11 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 13 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 13 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 13 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 14 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 14 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 14 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 248 250 252
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 15 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 15 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 15 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 16 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 16 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 16 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 17 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 17 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 17 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 18 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 18 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 18 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 19 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 19 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 19 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 20 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 20 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 20 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 21 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 21 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 21 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 22 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 22 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 22 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 749 2 2 248 250 252
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 23 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 23 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 23 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 24 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 24 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 24 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 25 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 25 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 25 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 26 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 26 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 26 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 27 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 27 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 27 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 28 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 28 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 28 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 29 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 29 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 29 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 30 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 30 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 30 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 755 2 2 71 85 105
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 31 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 31 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 31 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 32 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 32 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 32 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 378 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 33 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 33 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 33 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 478 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 34 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 34 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 34 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 578 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 35 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 35 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 35 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 678 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 36 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 36 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 36 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 778 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 37 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 37 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 37 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 878 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 38 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 38 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 38 1
+GUI-MOUSE-MOVE: 102,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 98 749 2 2 71 85 105
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -40,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 39 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 39 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 39 1
+GUI-MOUSE-MOVE: 100,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 278 746 2 2 37 99 235
+SERIAL: while ! grep -q '^wm-client: post-large focus 40 1$' /tmp/gui-many.log && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; grep '^wm-client: post-large focus 40 1$' /tmp/gui-many.log || cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: post-large focus 40 1
+GUI-MOUSE-MOVE: -127,0
+GUI-MOUSE-MOVE: -67,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 98 749 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 755 2 2 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 104 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 71 85 105
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 96 749 2 2 248 250 252
+GUI-MOUSE-MOVE: 94,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+GUI-TYPE: exit
+SERIAL: while kill -0 $(cat /tmp/gui-many.term1.pid) 2>/dev/null; do sleep 1; done; wait $(cat /tmp/gui-many.term1.pid) && printf "many-windows: terminal one clean exit\n"
+SERIAL-CHECK: many-windows: terminal one clean exit
+GUI-MOUSE-MOVE: -94,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 74 749 1 1 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 74 749 1 1 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 74 749 1 1 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 74 749 1 1 248 250 252
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 74 749 1 1 71 85 105
+GUI-MOUSE-MOVE: 94,0
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 178 746 2 2 37 99 235
+GUI-TYPE: exit
+SERIAL: while kill -0 $(cat /tmp/gui-many.term2.pid) 2>/dev/null; do sleep 1; done; wait $(cat /tmp/gui-many.term2.pid) && printf "many-windows: terminal two clean exit\n"
+SERIAL-CHECK: many-windows: terminal two clean exit
+SERIAL: touch /tmp/gui-many.finish
+SERIAL: while test ! -e /tmp/gui-many.done && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; cat /tmp/gui-many.log
+SERIAL-CHECK: wm-client: paged workloads and resource reclamation pass
+GUI-MOUSE-MOVE: -127,-127
+GUI-MOUSE-MOVE: -25,-127
+GUI-MOUSE-MOVE: 0,-127
+GUI-MOUSE-MOVE: 0,-127
+GUI-MOUSE-MOVE: 0,-127
+GUI-MOUSE-MOVE: 0,-101
+GUI-CHECK-RECT: 128 752 8 8 71 85 105
+SERIAL: while test "$(ls /proc/$(cat /tmp/mario-wm.pid)/fd | wc -l)" != "$(cat /tmp/gui-many.wm-fds)"; do sleep 1; done; test "$(ls /proc/$(pgrep mario-desktop)/fd | wc -l)" = "$(cat /tmp/gui-many.shell-fds)" && kill -0 $(cat /tmp/mario-wm.pid) && printf "many-windows: WM and shell descriptor counts restored\n"
+SERIAL-CHECK: many-windows: WM and shell descriptor counts restored
+SERIAL: /usr/bin/test/pty.exe
+SERIAL-CHECK: pty-ok
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done; printf "many-windows: clean teardown\n"
+SERIAL-CHECK: many-windows: clean teardown
+EXIT:

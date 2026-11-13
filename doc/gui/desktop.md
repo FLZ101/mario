@@ -108,9 +108,9 @@ Focus, raising, and input routing:
 M9.1 implements the expanded surface pool, admission reservations, shell
 replacement headroom, and recoverable transition rollback. M9.2 implements
 resource-bounded dynamic connection/window/launch/poll records, multiple
-windows per ordinary connection, and a dynamic shell window list. Taskbar
-paging, large snapshot/delta recovery, occlusion optimization, and fullscreen
-remain planned in subsequent M9 steps.
+windows per ordinary connection, and a dynamic shell window list. M9.3 implements
+taskbar paging and large snapshot/delta recovery. Occlusion optimization and
+fullscreen remain planned in subsequent M9 steps.
 
 - Replace fixed client/window arrays with dynamically allocated records in
   the WM and shell. There is no small fixed window-count or connection-count
@@ -185,7 +185,7 @@ The desktop client provides:
 - taskbar buttons for open windows;
 - taskbar-driven activate/raise requests and Super-Return launch requests;
   `mario-wm`, not the shell, owns Alt-Tab and Super-W;
-- in M9, a dynamically allocated window list with deterministic
+- a dynamically allocated window list with deterministic
   previous/next taskbar pages when buttons do not fit. Preserve launcher and
   clock space, keep every window reachable, and reveal the focused window's
   page automatically. Bind clicks to stable window IDs rather than recycled
@@ -195,6 +195,27 @@ The desktop client provides:
   panel is hidden only while an ordinary window is fullscreen;
 - desktop icons and wallpaper configuration are deferred beyond the first
   desktop milestone.
+
+At 1024x768 the unpaged taskbar fits nine windows. Overflow uses eight
+stable-ID buttons per page, with previous/next controls outside the launcher
+and clock. A newly focused window reveals its page; clicks resolve against
+the last submitted button table and validate the ID against the current model.
+The button tables and model records share the shell's metadata budget.
+Snapshots freeze their upper window ID and stream at most eight records per
+empty output queue. Changes coalesce until delivery; removals retain charged
+tombstones until their ordered notification is queued. A cyclic delta cursor
+prevents a continuously changing window from starving later additions. Shell
+replacement reclaims this state and starts a fresh bounded snapshot.
+Metadata changes that do not change the taskbar's visible model do not trigger
+a shell repaint, so a busy title writer cannot force redundant full frames.
+Valid keyboard events directed to the focused shell are ignored when they have
+no shell binding; they do not terminate its private connection.
+The protocol workload reports fatal assertions and exits unsuccessfully instead
+of entering an unsupported abort loop. Readiness waits have bounded per-action
+deadlines, so a failed fixture does not spend repeated three-minute timeouts
+before reporting its log.
+Freed MarioFS block chains restore the free-block admission counter, so repeated
+atomic frame-marker replacement does not falsely exhaust the root ramdisk.
 
 The first desktop uses a fixed testable theme: background `#1f2933`, 28-pixel
 bottom panel `#111827`, 24-pixel title bars, 1-pixel borders `#0f172a`, active

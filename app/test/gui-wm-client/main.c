@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -22,6 +23,15 @@ static uint8_t surface_frame[sizeof(gui_protocol_wire_header) +
 			     sizeof(gui_protocol_wire_surface_data) +
 			     SURFACE_PIXELS_PER_MESSAGE * sizeof(gui_color)];
 static unsigned int test_window_placement;
+
+_Noreturn void __assert_fail(const char *expression, const char *file, int line,
+		const char *function)
+{
+	fprintf(stderr, "wm-client: assertion failed: %s:%d: %s: %s\n",
+		file, line, function, expression);
+	fflush(NULL);
+	_exit(1);
+}
 
 static void put32(uint8_t *bytes, uint32_t value)
 {
@@ -740,6 +750,196 @@ static void test_window_lifecycle(void)
 	budget_marker("/tmp/gui-lifecycle.done");
 }
 
+static uint32_t many_large_create(int fd, uint32_t request_id)
+{
+	uint8_t frame[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_create) +
+		GUI_PROTOCOL_MAX_TITLE_BYTES] = { 0 };
+	uint8_t reply[64];
+
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_CREATE,
+		sizeof(gui_protocol_wire_window_create) + GUI_PROTOCOL_MAX_TITLE_BYTES) == 0);
+	put32(frame + 8, request_id);
+	put32(frame + 12, 1);
+	put32(frame + 16, 1);
+	put16(frame + 20, GUI_PROTOCOL_MAX_TITLE_BYTES);
+	memset(frame + GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_create),
+		's', GUI_PROTOCOL_MAX_TITLE_BYTES);
+	write_full(fd, frame, sizeof(frame));
+	budget_reply(fd, reply, GUI_PROTOCOL_WINDOW_CREATE_REPLY);
+	assert(get32(reply + 8) == request_id && get64(reply + 16) == 1);
+	return get32(reply + 12);
+}
+
+static void many_event(int fd, uint32_t *windows, unsigned int count,
+		unsigned int *focus_counts, const char *phase)
+{
+	uint8_t frame[64];
+	gui_protocol_header header;
+	unsigned int index;
+
+	read_full(fd, frame, GUI_PROTOCOL_HEADER_SIZE);
+	assert(gui_protocol_decode_header(frame, GUI_PROTOCOL_HEADER_SIZE, &header) == 0);
+	assert(header.length <= sizeof(frame));
+	read_full(fd, frame + GUI_PROTOCOL_HEADER_SIZE, header.length - GUI_PROTOCOL_HEADER_SIZE);
+	if (header.type == GUI_PROTOCOL_INPUT_RESET || header.type == GUI_PROTOCOL_INPUT_EVENT)
+		return;
+	assert(header.type == GUI_PROTOCOL_WINDOW_FOCUS || header.type == GUI_PROTOCOL_WINDOW_CLOSE_REQUEST);
+	if (header.type == GUI_PROTOCOL_WINDOW_FOCUS && !get32(frame + 12))
+		return;
+	for (index = 0; index < count && windows[index] != get32(frame + 8); index++)
+		;
+	assert(index < count && windows[index] != 0);
+	if (header.type == GUI_PROTOCOL_WINDOW_FOCUS) {
+		if (get32(frame + 12)) {
+			printf("wm-client: %s focus %u %u\n", phase, index, ++focus_counts[index]);
+			fflush(stdout);
+		}
+	} else {
+		destroy_window(fd, windows[index]);
+		windows[index] = 0;
+		printf("wm-client: %s close %u\n", phase, index);
+		fflush(stdout);
+	}
+}
+
+static void many_wait(int fd, uint32_t *windows, unsigned int count, int large_fd,
+		uint32_t *large_windows, const char *phase, const char *marker)
+{
+	static unsigned int focus_counts[41];
+	static unsigned int large_counts[256];
+	unsigned int peer_count = large_fd >= 0 ? 2 : 1;
+	struct pollfd descriptors[2] = {
+		{ .fd = fd, .events = POLLIN }, { .fd = large_fd, .events = POLLIN } };
+
+	memset(focus_counts, 0, sizeof(focus_counts));
+	memset(large_counts, 0, sizeof(large_counts));
+
+	while (access(marker, F_OK) < 0) {
+		int ready = poll(descriptors, peer_count, 100);
+
+		assert(ready >= 0 || errno == EINTR);
+		if (ready <= 0)
+			continue;
+		for (unsigned int peer = 0; peer < peer_count; peer++) {
+			assert(!(descriptors[peer].revents & (POLLHUP | POLLERR | POLLNVAL)));
+			if (!(descriptors[peer].revents & POLLIN))
+				continue;
+			many_event(descriptors[peer].fd, peer == 0 ? windows : large_windows,
+				peer == 0 ? count : 256, peer == 0 ? focus_counts : large_counts,
+				peer == 0 ? phase : "large");
+		}
+	}
+}
+
+static pid_t many_start_busy(int fd, uint32_t window_id)
+{
+	pid_t child = fork();
+
+	assert(child >= 0);
+	if (child == 0) {
+		uint8_t frame[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_set_title) + 16] = { 0 };
+
+		assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_WINDOW_SET_TITLE,
+			sizeof(gui_protocol_wire_window_set_title) + 16) == 0);
+		put32(frame + 8, window_id);
+		put16(frame + 12, 16);
+		memset(frame + GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_set_title), 'b', 16);
+		budget_marker("/tmp/gui-many.busy");
+		while (access("/tmp/gui-many.busy-stop", F_OK) < 0) {
+			for (unsigned int round = 0; round < 64; round++)
+				write_full(fd, frame, sizeof(frame));
+			assert(usleep(100000) == 0);
+		}
+		_exit(0);
+	}
+	return child;
+}
+
+static void test_many_windows(void)
+{
+	static uint32_t windows[41];
+	static uint32_t large_windows[256];
+	uint32_t removed_id;
+	uint32_t last_id = 0;
+	int fd = connect_client();
+	int large_fd;
+	pid_t busy;
+	int status;
+
+	hello(fd);
+	for (unsigned int index = 0; index < 14; index++) {
+		windows[index] = lifecycle_create(fd, 5000 + index, 320, 192);
+		lifecycle_move(fd, windows[index], 48 + index % 4 * 144, 96 + index / 4 * 96);
+		begin_surface(fd, windows[index], 320, 192, 1);
+		budget_fill(fd, windows[index], 320, 192, 1, 1, lifecycle_color(index));
+		last_id = windows[index];
+		printf("wm-client: initial created %u id %u\n", index, last_id);
+		fflush(stdout);
+	}
+	removed_id = windows[12];
+	puts("wm-client: fourteen 320x192 windows ready beside two real terminals");
+	fflush(stdout);
+	budget_marker("/tmp/gui-many.initial");
+	many_wait(fd, windows, 14, -1, NULL, "initial", "/tmp/gui-many.grow");
+	assert(windows[12] == 0);
+	lifecycle_invalid_window(fd, removed_id, GUI_PROTOCOL_WINDOW_MOVE);
+	for (unsigned int index = 14; index < 41; index++) {
+		windows[index] = lifecycle_create(fd, 5000 + index, 96, 64);
+		assert(windows[index] > last_id);
+		last_id = windows[index];
+		lifecycle_move(fd, windows[index], 16 + index % 8 * 112, 48 + index / 8 * 96);
+		begin_surface(fd, windows[index], 96, 64, 1);
+		budget_fill(fd, windows[index], 96, 64, 1, 1, lifecycle_color(index));
+	}
+	busy = many_start_busy(fd, windows[0]);
+	puts("wm-client: forty live windows, new identities and busy peer ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-many.grown");
+	many_wait(fd, windows, 41, -1, NULL, "growth", "/tmp/gui-many.large-start");
+	budget_marker("/tmp/gui-many.busy-stop");
+	assert(waitpid(busy, &status, 0) == busy && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	large_fd = connect_client();
+	hello(large_fd);
+	for (unsigned int index = 0; index < 256; index++) {
+		large_windows[index] = many_large_create(large_fd, 6000 + index);
+		assert(large_windows[index] > last_id);
+		last_id = large_windows[index];
+		lifecycle_move(large_fd, large_windows[index], 900, 80);
+	}
+	begin_surface(large_fd, large_windows[255], 1, 1, 1);
+	send_surface_data(large_fd, large_windows[255], 0, 1, 1, 0x00224466);
+	lifecycle_reply(large_fd, large_windows[255], 1, 1, 0, 1);
+	commit_surface(large_fd, large_windows[255], 1);
+	assert(256 * (GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_list) +
+		GUI_PROTOCOL_MAX_TITLE_BYTES) > GUI_PROTOCOL_OUTPUT_LIMIT);
+	puts("wm-client: more than 64 KiB of live window-list records ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-many.large");
+	many_wait(fd, windows, 41, large_fd, large_windows, "recovered", "/tmp/gui-many.drop-large");
+	close(large_fd);
+	let_server_observe_disconnect();
+	begin_surface(fd, windows[0], 320, 192, 2);
+	budget_fill(fd, windows[0], 320, 192, 1, 2, lifecycle_color(0));
+	puts("wm-client: large disconnect reclaimed without losing the shell");
+	fflush(stdout);
+	budget_marker("/tmp/gui-many.dropped");
+	many_wait(fd, windows, 41, -1, NULL, "post-large", "/tmp/gui-many.finish");
+	close(fd);
+	let_server_observe_disconnect();
+	fd = connect_client();
+	hello(fd);
+	uint32_t fresh = lifecycle_create(fd, 7000, 64, 48);
+
+	assert(fresh > last_id);
+	begin_surface(fd, fresh, 64, 48, 1);
+	budget_fill(fd, fresh, 64, 48, 1, 1, 0x00224466);
+	destroy_window(fd, fresh);
+	close(fd);
+	puts("wm-client: paged workloads and resource reclamation pass");
+	fflush(stdout);
+	budget_marker("/tmp/gui-many.done");
+}
+
 static void test_quotas(void)
 {
 	uint8_t frames[sizeof(gui_protocol_wire_header) +
@@ -1142,6 +1342,7 @@ int main(int argc, char **argv)
 	assert(argc == 1 || (argc == 2 && (!strcmp(argv[1], "--surface-only") ||
 		!strcmp(argv[1], "--quota-only") || !strcmp(argv[1], "--surface-budget") ||
 		!strcmp(argv[1], "--window-lifecycle") ||
+		!strcmp(argv[1], "--many-windows") ||
 		!strcmp(argv[1], "--partial-only") ||
 		!strcmp(argv[1], "--commit-only") ||
 		!strcmp(argv[1], "--recovery-only") ||
@@ -1157,6 +1358,8 @@ int main(int argc, char **argv)
 			test_surface_budget();
 		} else if (!strcmp(argv[1], "--window-lifecycle")) {
 			test_window_lifecycle();
+		} else if (!strcmp(argv[1], "--many-windows")) {
+			test_many_windows();
 		} else if (!strcmp(argv[1], "--quota-only")) {
 			test_quotas();
 			puts("wm-client: quotas ok");

@@ -1448,8 +1448,8 @@ grow dynamically under resource budgets instead of a fixed 32-entry ceiling;
 multiple windows may share an application connection. Literally unlimited
 windows are not a deliverable. The target contracts are in
 [Desktop and applications](desktop.md#expanded-capacity-and-fullscreen-m9-target)
-and [UI toolkit](ui-toolkit.md#surface-memory-and-failure-handling). M9.1 and
-M9.2 are implemented; the remaining items are planned. Run `make test SMP=16` before
+and [UI toolkit](ui-toolkit.md#surface-memory-and-failure-handling). M9.1 through
+M9.3 are implemented; the remaining items are planned. Run `make test SMP=16` before
 starting each item and before each commit, with `git diff --check` after the
 focused gate.
 
@@ -1516,11 +1516,16 @@ focused gate.
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-window-lifecycle.test tests/gui`,
   plus `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-wm-busy.test tests/shell`,
   then `make test SMP=16`. Commit: `gui: allocate clients and windows dynamically`.
-- [ ] **M9.3 — page dynamic taskbars and validate window-list recovery.**
+- [x] **M9.3 — page dynamic taskbars and validate window-list recovery.**
   Prerequisite: M9.2. Owns `app/include/app/gui-limits.h`,
   `app/gui/desktop/mario-wm/main.c`,
   `app/gui/desktop/mario-desktop/main.c`, `app/test/gui-wm-client/`,
+  `app/test/gui-wm-busy/`, `tests/shell/gui-wm-busy.test`,
   `tests/gui/wm-many-windows.test`, `tests/gui/assets/wm-many-windows.png`,
+  `tests/gui/assets/wm-many-windows-growth.png`,
+  `qemu/mkdisk.py`, `tests/test_mkdisk.py`, `Makefile.run.mk`,
+  `src/fs/mariofs/super_block.c`, `app/test/mariofs-reclaim/`,
+  `tests/shell/mariofs-reclaim.test`,
   `rd/copy_files.py` only if a new test binary is needed, and
   `doc/gui/desktop.md`. Add deterministic previous/next taskbar pages over the
   dynamic model without drawing over the launcher or clock. Stream snapshots
@@ -1533,7 +1538,13 @@ focused gate.
   reuse, and shell recovery through QMP, with stable-ID button checks and
   reviewed screenshot crops. Verify every admitted window remains reachable
   after each change, keep a busy peer from starving the shell, and reclaim
-  model records, descriptors, and PTYs after teardown. Focused gate:
+  model records, descriptors, and PTYs after teardown.
+  Build the common image atomically and retain mounted content if unmounting
+  fails; a failed build must not publish an incomplete or externally mounted
+  backing image. Cover cleanup and publication with host-only builder tests.
+  Repeated frame-marker replacement must return freed MarioFS blocks to its
+  admission counter; cover multi-block truncation and replacement reclamation.
+  Focused gate:
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-many-windows.test tests/gui`,
   then `make test SMP=16`. Commit: `gui: page dynamic taskbars and validate recovery`.
 - [ ] **M9.4 — skip composition and scanout for fully obscured updates.**

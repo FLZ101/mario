@@ -251,9 +251,15 @@ def _populate_filesystem(fstype: str, content: tuple, mountpoint: Path) -> None:
             _copy_file(fstype, source, dest_path)
 
 
-def _umount_quiet(mountpoint: Path) -> None:
-    """Unmount a mountpoint if possible, without masking other errors."""
-    _run(_root_cmd(["umount", str(mountpoint)]), check=False)
+def _unmount(mountpoint: Path) -> None:
+    """Retry transient busy mounts and fail without deleting mounted content."""
+    for attempt in range(5):
+        result = _run(_root_cmd(["umount", str(mountpoint)]), check=False)
+        if result.returncode == 0:
+            return
+        if attempt != 4:
+            time.sleep(0.1)
+    result.check_returncode()
 
 
 def _detach_loop_quiet(loop: str) -> None:
@@ -302,13 +308,19 @@ def expand_deps(disk: Disk):
 def build(disk: Disk) -> None:
     _ensure_sbin_in_path()
     here = Path.cwd()
-    image = here / (disk.name + ".img")
+    target_image = here / (disk.name + ".img")
     tmp = here / "tmp"
     tmp.mkdir(exist_ok=True)
+    descriptor, image_path = tempfile.mkstemp(
+        prefix=disk.name + ".", suffix=".img", dir=tmp
+    )
+    os.close(descriptor)
+    image = Path(image_path)
 
     data_partitions = [p for p in disk.partitions if p.fstype is not None]
     loop = None
     mount_root = None
+    mounted = set()
 
     try:
         print("Create %s.img ..." % disk.name, flush=True)
@@ -354,8 +366,10 @@ def build(disk: Disk) -> None:
                         ]
                     )
                 )
+                mounted.add(mountpoint)
             else:
                 _quiet(_root_cmd(["mount", device, str(mountpoint)]))
+                mounted.add(mountpoint)
                 # Make the ext root directory writable by the current user so
                 # the unprivileged cp commands can populate it.
                 _quiet(
@@ -370,18 +384,20 @@ def build(disk: Disk) -> None:
             try:
                 _populate_filesystem(partition.fstype, partition.content, mountpoint)
             finally:
-                _umount_quiet(mountpoint)
+                _unmount(mountpoint)
+                mounted.remove(mountpoint)
     finally:
         if loop is not None:
             _detach_loop_quiet(loop)
-        if mount_root is not None:
+        if mount_root is not None and not mounted:
             shutil.rmtree(mount_root, ignore_errors=True)
 
     if disk.boot_mbr is not None:
         print("Install boot code into %s.img ..." % disk.name, flush=True)
         install_mbr_bootcode(image, disk.boot_mbr)
 
-    _run(["sfdisk", "-l", str(image)])
+    os.replace(image, target_image)
+    _run(["sfdisk", "-l", str(target_image)])
 
 
 def main(disk: Disk) -> int:

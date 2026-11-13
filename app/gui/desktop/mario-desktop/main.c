@@ -27,6 +27,8 @@
 #define DESKTOP_TASKBAR_BUTTON_WIDTH 96U
 #define DESKTOP_TASKBAR_BUTTON_STRIDE 100U
 #define DESKTOP_TASKBAR_BUTTON_HEIGHT 20U
+#define DESKTOP_TASKBAR_CONTROL_WIDTH 20U
+#define DESKTOP_TASKBAR_CONTROL_STRIDE 24U
 #define DIAGNOSTIC_WELCOME 0U
 #define DIAGNOSTIC_DISPLAY 1U
 #define DIAGNOSTIC_COUNT 2U
@@ -74,6 +76,22 @@ typedef struct desktop_window {
 
 typedef struct {
 	uint32_t window_id;
+	uint32_t focused;
+	char label[11];
+} desktop_button;
+
+typedef struct {
+	desktop_button *buttons;
+	size_t capacity;
+	size_t count;
+	size_t page;
+	size_t pages;
+	uint32_t first_x;
+	int paged;
+} desktop_taskbar;
+
+typedef struct {
+	uint32_t window_id;
 	uint64_t configure_serial;
 	uint32_t width;
 	uint32_t height;
@@ -84,6 +102,11 @@ typedef struct {
 	app_gui_surface_flow surface_flow;
 	desktop_window *windows;
 	size_t record_bytes;
+	size_t window_count;
+	size_t taskbar_page;
+	desktop_button *taskbar_storage;
+	desktop_taskbar painted_taskbar;
+	desktop_taskbar displayed_taskbar;
 } desktop_state;
 
 /* Keep the largest wire frame out of the small initial userspace stack. */
@@ -100,8 +123,11 @@ static void read_full(int fd, void *buffer, size_t byte_count)
 
 		if (count < 0 && errno == EINTR)
 			continue;
-		if (count <= 0)
+		if (count <= 0) {
+			fprintf(stderr, "mario-desktop: read failed on fd %d: count %ld, errno %d\n",
+				fd, (long)count, errno);
 			_exit(1);
+		}
 		bytes += count;
 		byte_count -= count;
 	}
@@ -160,6 +186,16 @@ static int glyph_pixel(char character, unsigned int column, unsigned int row)
 		/* M */ { 0x05, 0x07, 0x07, 0x05, 0x05 },
 		/* N */ { 0x05, 0x07, 0x07, 0x07, 0x05 },
 		/* U */ { 0x05, 0x05, 0x05, 0x05, 0x07 },
+		{ 0x07, 0x05, 0x05, 0x05, 0x07 },
+		{ 0x02, 0x06, 0x02, 0x02, 0x07 },
+		{ 0x07, 0x01, 0x07, 0x04, 0x07 },
+		{ 0x07, 0x01, 0x07, 0x01, 0x07 },
+		{ 0x05, 0x05, 0x07, 0x01, 0x01 },
+		{ 0x07, 0x04, 0x07, 0x01, 0x07 },
+		{ 0x07, 0x04, 0x07, 0x05, 0x07 },
+		{ 0x07, 0x01, 0x01, 0x01, 0x01 },
+		{ 0x07, 0x05, 0x07, 0x05, 0x07 },
+		{ 0x07, 0x05, 0x07, 0x01, 0x07 },
 	};
 	const uint8_t *glyph;
 
@@ -172,7 +208,11 @@ static int glyph_pixel(char character, unsigned int column, unsigned int row)
 	case 'M': glyph = glyphs[3]; break;
 	case 'N': glyph = glyphs[4]; break;
 	case 'U': glyph = glyphs[5]; break;
-	default: return 0;
+	default:
+		if (character < '0' || character > '9')
+			return 0;
+		glyph = glyphs[6 + character - '0'];
+		break;
 	}
 	return glyph[row] & (1U << (2 - column));
 }
@@ -200,34 +240,134 @@ static desktop_window *desktop_window_by_id(desktop_state *state,
 	return NULL;
 }
 
-static const desktop_window *desktop_window_at(const desktop_state *state,
-						uint32_t slot)
+static size_t desktop_taskbar_capacity(const desktop_state *state, int paged)
 {
-	const desktop_window *window = state->windows;
+	uint32_t clock_x = state->width > 40 ? state->width - 40 : 0;
+	uint32_t reserved = DESKTOP_TASKBAR_FIRST_X +
+		(paged ? 2 * DESKTOP_TASKBAR_CONTROL_STRIDE : 0);
 
-	while (window != NULL && slot != 0) {
-		window = window->next;
-		slot--;
-	}
-	return window;
+	return clock_x < reserved + DESKTOP_TASKBAR_BUTTON_WIDTH ? 0 :
+		(clock_x - reserved - DESKTOP_TASKBAR_BUTTON_WIDTH) /
+		DESKTOP_TASKBAR_BUTTON_STRIDE + 1;
 }
 
-static const desktop_window *desktop_taskbar_window(const desktop_state *state,
-						     uint32_t x, uint32_t y)
+static int desktop_prepare_taskbar(desktop_state *state)
+{
+	desktop_taskbar *taskbar = &state->painted_taskbar;
+	size_t maximum = desktop_taskbar_capacity(state, 0);
+	const desktop_window *window = state->windows;
+	size_t offset;
+
+	if (maximum != 0 && state->taskbar_storage == NULL) {
+		size_t bytes;
+
+		if (maximum > SIZE_MAX / (2 * sizeof(desktop_button)))
+			return -1;
+		bytes = 2 * maximum * sizeof(desktop_button);
+		if (state->record_bytes > APP_GUI_DESKTOP_RECORD_BYTES ||
+		    bytes > APP_GUI_DESKTOP_RECORD_BYTES - state->record_bytes ||
+		    (state->taskbar_storage = calloc(1, bytes)) == NULL)
+			return -1;
+		state->record_bytes += bytes;
+		taskbar->buttons = state->taskbar_storage;
+		state->displayed_taskbar.buttons = state->taskbar_storage + maximum;
+	}
+	taskbar->paged = state->window_count > maximum;
+	taskbar->capacity = desktop_taskbar_capacity(state, taskbar->paged);
+	taskbar->pages = taskbar->capacity == 0 || state->window_count == 0 ? 1 :
+		(state->window_count - 1) / taskbar->capacity + 1;
+	if (state->taskbar_page >= taskbar->pages)
+		state->taskbar_page = taskbar->pages - 1;
+	taskbar->page = state->taskbar_page;
+	taskbar->first_x = DESKTOP_TASKBAR_FIRST_X +
+		(taskbar->paged ? DESKTOP_TASKBAR_CONTROL_STRIDE : 0);
+	taskbar->count = 0;
+	offset = taskbar->page * taskbar->capacity;
+	while (window != NULL && offset != 0) {
+		window = window->next;
+		offset--;
+	}
+	while (window != NULL && taskbar->count < taskbar->capacity) {
+		desktop_button *button = &taskbar->buttons[taskbar->count++];
+
+		*button = (desktop_button) {
+			.window_id = window->window_id, .focused = window->focused };
+		snprintf(button->label, sizeof(button->label), "%u", window->window_id);
+		window = window->next;
+	}
+	return 0;
+}
+
+static void desktop_commit_taskbar(desktop_state *state)
+{
+	desktop_button *buttons = state->displayed_taskbar.buttons;
+
+	state->displayed_taskbar = state->painted_taskbar;
+	state->displayed_taskbar.buttons = buttons;
+	if (state->painted_taskbar.count != 0)
+		memcpy(buttons, state->painted_taskbar.buttons,
+			state->painted_taskbar.count * sizeof(*buttons));
+}
+
+static const desktop_button *desktop_taskbar_button(const desktop_state *state,
+		const desktop_taskbar *taskbar, uint32_t pointer_x, uint32_t pointer_y)
 {
 	uint32_t panel_y = state->height > DESKTOP_PANEL_HEIGHT ?
 		state->height - DESKTOP_PANEL_HEIGHT : 0;
-	uint32_t clock_x = state->width > 40 ? state->width - 40 : 0;
-	uint32_t slot;
+	size_t slot;
 
-	if (y < panel_y + 4 || y >= panel_y + 4 + DESKTOP_TASKBAR_BUTTON_HEIGHT ||
-	    x < DESKTOP_TASKBAR_FIRST_X || x >= clock_x)
+	if (pointer_y < panel_y + 4 || pointer_y >= panel_y + 4 + DESKTOP_TASKBAR_BUTTON_HEIGHT ||
+	    pointer_x < taskbar->first_x)
 		return NULL;
-	slot = (x - DESKTOP_TASKBAR_FIRST_X) / DESKTOP_TASKBAR_BUTTON_STRIDE;
-	if (x - DESKTOP_TASKBAR_FIRST_X - slot * DESKTOP_TASKBAR_BUTTON_STRIDE >=
+	slot = (pointer_x - taskbar->first_x) / DESKTOP_TASKBAR_BUTTON_STRIDE;
+	if (slot >= taskbar->count ||
+	    (pointer_x - taskbar->first_x) % DESKTOP_TASKBAR_BUTTON_STRIDE >=
 	    DESKTOP_TASKBAR_BUTTON_WIDTH)
 		return NULL;
-	return desktop_window_at(state, slot);
+	return &taskbar->buttons[slot];
+}
+
+static const desktop_window *desktop_taskbar_window(desktop_state *state,
+		uint32_t pointer_x, uint32_t pointer_y)
+{
+	const desktop_button *button = desktop_taskbar_button(state,
+		&state->displayed_taskbar, pointer_x, pointer_y);
+
+	return button == NULL ? NULL : desktop_window_by_id(state, button->window_id);
+}
+
+static int desktop_taskbar_control(const desktop_state *state,
+		const desktop_taskbar *taskbar, uint32_t pointer_x, uint32_t pointer_y)
+{
+	uint32_t panel_y = state->height > DESKTOP_PANEL_HEIGHT ?
+		state->height - DESKTOP_PANEL_HEIGHT : 0;
+	uint32_t next_x = state->width > 40 + DESKTOP_TASKBAR_CONTROL_STRIDE ?
+		state->width - 40 - DESKTOP_TASKBAR_CONTROL_STRIDE : 0;
+
+	if (!taskbar->paged || taskbar->capacity == 0 || pointer_y < panel_y + 4 ||
+	    pointer_y >= panel_y + 4 + DESKTOP_TASKBAR_BUTTON_HEIGHT)
+		return 0;
+	if (pointer_x >= DESKTOP_TASKBAR_FIRST_X &&
+	    pointer_x < DESKTOP_TASKBAR_FIRST_X + DESKTOP_TASKBAR_CONTROL_WIDTH)
+		return -1;
+	if (pointer_x >= next_x && pointer_x < next_x + DESKTOP_TASKBAR_CONTROL_WIDTH)
+		return 1;
+	return 0;
+}
+
+static void desktop_reveal_window(desktop_state *state, const desktop_window *target)
+{
+	size_t capacity = desktop_taskbar_capacity(state,
+		state->window_count > desktop_taskbar_capacity(state, 0));
+	size_t position = 0;
+
+	for (const desktop_window *window = state->windows; window != NULL; window = window->next) {
+		if (window == target) {
+			state->taskbar_page = capacity == 0 ? 0 : position / capacity;
+			return;
+		}
+		position++;
+	}
 }
 
 static uint32_t desktop_pixel(const desktop_state *state, uint32_t offset)
@@ -236,7 +376,8 @@ static uint32_t desktop_pixel(const desktop_state *state, uint32_t offset)
 	uint32_t y = offset / state->width;
 	uint32_t panel_y = state->height > DESKTOP_PANEL_HEIGHT ?
 		state->height - DESKTOP_PANEL_HEIGHT : 0;
-	const desktop_window *window;
+	const desktop_button *button;
+	int control;
 
 	if (y < panel_y)
 		return DESKTOP_BACKGROUND;
@@ -245,9 +386,32 @@ static uint32_t desktop_pixel(const desktop_state *state, uint32_t offset)
 			return DESKTOP_TEXT;
 		return DESKTOP_LAUNCHER;
 	}
-	window = desktop_taskbar_window(state, x, y);
-	if (window != NULL)
-		return window->focused ? DESKTOP_TASK_ACTIVE : DESKTOP_TASK_INACTIVE;
+	control = desktop_taskbar_control(state, &state->painted_taskbar, x, y);
+	if (control != 0) {
+		uint32_t origin = control < 0 ? DESKTOP_TASKBAR_FIRST_X :
+			state->width - 40 - DESKTOP_TASKBAR_CONTROL_STRIDE;
+		uint32_t row = y - panel_y - 4;
+		int enabled = control < 0 ? state->painted_taskbar.page != 0 :
+			state->painted_taskbar.page + 1 < state->painted_taskbar.pages;
+
+		if (row >= 5 && row < 15) {
+			uint32_t distance = row < 10 ? 9 - row : row - 10;
+			uint32_t column = control < 0 ? 6 + distance : 13 - distance;
+
+			if (x - origin >= column && x - origin < column + 2)
+				return enabled ? DESKTOP_TEXT : DESKTOP_TASK_INACTIVE;
+		}
+		return enabled ? DESKTOP_TASK_INACTIVE : DESKTOP_PANEL;
+	}
+	button = desktop_taskbar_button(state, &state->painted_taskbar, x, y);
+	if (button != NULL) {
+		if (state->painted_taskbar.paged && text_pixel(button->label, x, y,
+			state->painted_taskbar.first_x +
+			(button - state->painted_taskbar.buttons) * DESKTOP_TASKBAR_BUTTON_STRIDE + 8,
+			panel_y + 9))
+			return DESKTOP_TEXT;
+		return button->focused ? DESKTOP_TASK_ACTIVE : DESKTOP_TASK_INACTIVE;
+	}
 	if (state->width >= 40 &&
 	    text_pixel("--:--", x, y, state->width - 40, panel_y + 9))
 		return DESKTOP_TEXT;
@@ -323,6 +487,7 @@ static int desktop_handle_window_list(desktop_state *state,
 			return -1;
 		*link = window->next;
 		state->record_bytes -= sizeof(*window);
+		state->window_count--;
 		free(window);
 		state->redraw = 1;
 		return 0;
@@ -339,16 +504,23 @@ static int desktop_handle_window_list(desktop_state *state,
 			window->next = *link;
 			*link = window;
 			state->record_bytes += sizeof(*window);
+			state->window_count++;
+			state->redraw = 1;
 		}
 		if (window == NULL)
 			return -1;
 	} else if (window == NULL) {
 		return -1;
 	}
+	int newly_focused = get32(payload + 20) && !window->focused;
+	int focus_changed = get32(payload + 20) != window->focused;
+
 	window->window_id = window_id;
 	window->focused = get32(payload + 20);
 	window->order = get32(payload + 24);
-	state->redraw = 1;
+	if (newly_focused)
+		desktop_reveal_window(state, window);
+	state->redraw |= focus_changed;
 	return 0;
 }
 
@@ -387,10 +559,14 @@ static int desktop_handle_message(desktop_state *state,
 		uint32_t x;
 		uint32_t y;
 		const desktop_window *window;
+		int control;
 
 		if (payload_bytes != sizeof(gui_protocol_wire_input_event) ||
-		    get32(payload) != state->window_id ||
-		    get32(payload + 4) != GUI_INPUT_EVENT_MOUSE)
+		    get32(payload) != state->window_id)
+			return -1;
+		if (get32(payload + 4) == GUI_INPUT_EVENT_KEY)
+			return 0;
+		if (get32(payload + 4) != GUI_INPUT_EVENT_MOUSE)
 			return -1;
 		x = get32(payload + 16);
 		y = get32(payload + 20);
@@ -402,6 +578,19 @@ static int desktop_handle_message(desktop_state *state,
 		    state->height - DESKTOP_PANEL_HEIGHT : 0) + 24) {
 			state->launch_diagnostic = x < 32 ? DIAGNOSTIC_WELCOME + 1 :
 				DIAGNOSTIC_DISPLAY + 1;
+			state->mouse_buttons = buttons;
+			return 0;
+		}
+		control = desktop_taskbar_control(state, &state->displayed_taskbar, x, y);
+		if (!(state->mouse_buttons & 1) && (buttons & 1) && control != 0) {
+			if (control < 0 && state->displayed_taskbar.page != 0) {
+				state->taskbar_page = state->displayed_taskbar.page - 1;
+				state->redraw = 1;
+			} else if (control > 0 && state->displayed_taskbar.page + 1 <
+				   state->displayed_taskbar.pages) {
+				state->taskbar_page = state->displayed_taskbar.page + 1;
+				state->redraw = 1;
+			}
 			state->mouse_buttons = buttons;
 			return 0;
 		}
@@ -459,7 +648,7 @@ static int send_desktop(desktop_state *state)
 	uint64_t frame_serial = ++state->frame_serial;
 	uint32_t total;
 
-	if (frame_serial == 0 || (state->width != 0 &&
+	if (desktop_prepare_taskbar(state) < 0 || frame_serial == 0 || (state->width != 0 &&
 	    state->height > UINT32_MAX / state->width))
 		return -1;
 	total = state->width * state->height;
@@ -507,7 +696,10 @@ static int send_desktop(desktop_state *state)
 	put32(commit + 8, state->window_id);
 	put64(commit + 12, state->configure_serial);
 	put64(commit + 20, frame_serial);
-	return write_full(WM_FD, commit, sizeof(commit));
+	if (write_full(WM_FD, commit, sizeof(commit)) < 0)
+		return -1;
+	desktop_commit_taskbar(state);
+	return 0;
 }
 
 static void diagnostic_reset(diagnostic_client *client)
@@ -813,8 +1005,10 @@ int main(int argc, char **argv)
 	for (;;) {
 		if (state.redraw && !state.surface_flow.retry_pending) {
 			state.redraw = 0;
-			if (send_desktop(&state) < 0)
+			if (send_desktop(&state) < 0) {
+				fprintf(stderr, "mario-desktop: desktop upload failed: %d\n", errno);
 				return 1;
+			}
 			continue;
 		}
 		for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
@@ -869,15 +1063,21 @@ int main(int argc, char **argv)
 		    (pollfds[0].revents & POLLIN &&
 		     (desktop_read_message(&header, payload, sizeof(payload)) < 0 ||
 		      desktop_handle_message(&state, &header, payload,
-			header.length - GUI_PROTOCOL_HEADER_SIZE) < 0)))
+			header.length - GUI_PROTOCOL_HEADER_SIZE) < 0))) {
+			fprintf(stderr, "mario-desktop: desktop event failed: %u, %u, %d\n",
+				header.type, header.length, errno);
 			return 1;
+		}
 		for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
 			if (!(pollfds[index + 1].revents & POLLIN))
 				continue;
 			if (read_message(diagnostics[index].fd, &header, payload,
 			    sizeof(payload)) < 0 || diagnostic_handle_message(&diagnostics[index],
-			    &header, payload, header.length - GUI_PROTOCOL_HEADER_SIZE) < 0)
+			    &header, payload, header.length - GUI_PROTOCOL_HEADER_SIZE) < 0) {
+				fprintf(stderr, "mario-desktop: diagnostic event failed: %u, %u, %d\n",
+					header.type, header.length, errno);
 				return 1;
+			}
 		}
 		if (app_gui_surface_retry_ready(&state.surface_flow))
 			state.redraw = 1;

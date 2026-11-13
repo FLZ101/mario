@@ -1,0 +1,2 @@
+RUN: /usr/bin/test/mariofs-reclaim.exe
+CHECK: mariofs: truncate and replacement return every freed block

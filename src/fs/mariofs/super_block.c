@@ -253,11 +253,12 @@ int mario_get_block(struct super_block *sb, int nr, int *head, int *tail)
 	*tail = 0;
 	if (nr < 1 || !sb || sb->s_magic != MARIO_MAGIC)
 		return -EINVAL;
-	if (MARIO_NR_FREE(sb) < nr)
-		return -ENOSPC;
-
 	n = nr;
 	down(&sb->s_sem);
+	if (MARIO_NR_FREE(sb) < nr) {
+		up(&sb->s_sem);
+		return -ENOSPC;
+	}
 	for (i = j = MARIO_FREE(sb); ; ) {
 		k = j;
 		if (!j) {	/* terribly bad */
@@ -300,13 +301,34 @@ int mario_get_block(struct super_block *sb, int nr, int *head, int *tail)
 int mario_put_block(struct super_block *sb, int head, int tail)
 {
 	struct buffer_head *bh;
+	unsigned int block_count = 1;
+	int block = head;
+
+	if (!sb || sb->s_magic != MARIO_MAGIC || head <= 0 || tail <= 0)
+		return -EINVAL;
+	while (block != tail) {
+		if (!(bh = bread(sb->s_dev, block)))
+			return -EIO;
+		block = *(int *)(bh->b_data + sb->s_block_size - 4);
+		brelse(bh);
+		if (block <= 0 || block_count >= MARIO_NR_BLOCKS(sb))
+			return -EIO;
+		block_count++;
+	}
 
 	if (!(bh = bread(sb->s_dev, tail)))
 		return -EIO;
 
 	down(&sb->s_sem);
+	if (MARIO_NR_FREE(sb) > MARIO_NR_BLOCKS(sb) ||
+	    block_count > MARIO_NR_BLOCKS(sb) - MARIO_NR_FREE(sb)) {
+		up(&sb->s_sem);
+		brelse(bh);
+		return -EIO;
+	}
 	*(int *)(bh->b_data + sb->s_block_size - 4) = MARIO_FREE(sb);
 	MARIO_FREE(sb) = head;
+	MARIO_NR_FREE(sb) += block_count;
 	set_bit(SB_Dirty, &(sb)->s_state);
 	up(&sb->s_sem);
 
