@@ -316,7 +316,17 @@ the final cursor stores, so scene reconstruction cannot touch unrelated pixels.
 Damage and last-presented geometry are retained until every rectangle is flushed
 and the completed-frame marker is published. Hidden commits retain their cached
 surface without scanout; foreground return invalidates all physical pixels.
-The remaining pacing, terminal, and protocol contracts below are M10 targets.
+M10.3 applies motion records immediately but schedules their physical drawing
+at the first pending motion's monotonic 16 ms deadline. Later motion replaces
+the pending destination without extending that deadline or damaging unseen
+intermediate positions. Button transitions and client transactions retain
+immediate presentation; ordinary keys are dispatched without waiting for the
+motion deadline. Each keyboard/mouse drain reads at most four 16-record batches,
+and deadlines are checked between batches and between bounded client drains.
+Poll timeouts include the pending deadline even without further input. BUSY
+scanout retains damage and suppresses deadline polling until foreground
+notification or a successful immediate transaction, avoiding an expired-timer
+spin. Terminal rendering and protocol contracts below remain M10 targets.
 
 - Keep a persistent composite and reuse each window's newest complete cached
   surface. Accumulate bounded screen-space damage for content, chrome, focus,

@@ -1,0 +1,40 @@
+GUI-VISUAL-TEST:
+SERIAL: /usr/bin/test/gui-wm-busy.exe >/tmp/wm-motion.log 2>&1; cat /tmp/wm-motion.log
+SERIAL-CHECK: gui-wm-busy: motion deadlines preserve ordered input and bounded dispatch
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & motion_wm=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: <<FIXTURE
+cat >/tmp/wm-motion.run <<'PAINT'
+printf '\033[?25l\033[48;2;19;83;137m\033[2J'
+set -- $(stty size)
+columns=$(($2 - 1))
+for row in $(seq 1 "$1"); do
+    printf '\033[%s;1H%*s' "$row" "$columns" ''
+done
+printf '\033[H'
+sleep 70
+PAINT
+FIXTURE
+SERIAL: /usr/bin/terminal --command ". /tmp/wm-motion.run" >/tmp/wm-motion.term 2>&1 & motion_term=$!
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/wm-motion.term; do sleep 1; done
+GUI-CHECK-RECT: 144 112 8 8 19 83 137
+GUI-MOUSE-MOVE: 144,68
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 32,0
+GUI-MOUSE-MOVE: 32,0
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 480 128 8 8 19 83 137
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: -32,0
+GUI-MOUSE-MOVE: -32,0
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 144 112 8 8 19 83 137
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$motion_term" && printf 'motion: clean close\n'
+SERIAL-CHECK: motion: clean close
+GUI-SEND-KEY: f6
+SERIAL: kill -TERM "$motion_wm"; while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

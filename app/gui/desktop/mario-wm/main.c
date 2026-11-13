@@ -23,6 +23,9 @@
 
 #define WM_SHELL_SNAPSHOT_QUANTUM 8U
 #define WM_CLIENT_INPUT_READ_QUANTUM 4096U
+#define WM_INPUT_BATCH_RECORDS 16U
+#define WM_INPUT_READ_QUANTUM 4U
+#define WM_MOTION_FRAME_MS 16U
 #define WM_STATUS_RENAME_ATTEMPTS 16U
 #define WM_STATUS_RENAME_DELAY_US 10000U
 #define WM_SHELL_PATH "/usr/bin/mario-desktop"
@@ -86,6 +89,9 @@ typedef struct {
 	uint32_t painted_cursor_y;
 	uint32_t painted_fullscreen;
 	const gui_surface *painted_desktop;
+	int motion_pending;
+	int scanout_busy;
+	uint64_t motion_deadline_ms;
 } wm_state;
 
 typedef struct wm_server wm_server;
@@ -910,8 +916,10 @@ static gui_flush_result wm_compose(wm_server *server)
 	if (!state->graphics)
 		return GUI_FLUSH_COMPLETE;
 	wm_collect_damage(server);
-	if (state->damage.count == 0)
+	if (state->damage.count == 0) {
+		state->motion_pending = 0;
 		return GUI_FLUSH_COMPLETE;
+	}
 	for (int index = 0; index < state->damage.count; index++) {
 		gui_region_rect rectangle = state->damage.rects[index];
 
@@ -924,6 +932,8 @@ static gui_flush_result wm_compose(wm_server *server)
 			state->scanout_stride, state->framebuffer);
 
 		if (result != GUI_FLUSH_COMPLETE) {
+			if (result == GUI_FLUSH_BUSY)
+				state->scanout_busy = 1;
 			if (result == GUI_FLUSH_ERROR)
 				fprintf(stderr, "mario-wm: scanout failed: %d\n", errno);
 			return result;
@@ -933,7 +943,53 @@ static gui_flush_result wm_compose(wm_server *server)
 		return GUI_FLUSH_ERROR;
 	wm_record_presented(server);
 	gui_region_clear(&state->damage);
+	state->motion_pending = 0;
+	state->scanout_busy = 0;
 	return GUI_FLUSH_COMPLETE;
+}
+
+static uint64_t wm_now_ms(void)
+{
+	struct timespec now;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) {
+		stop_requested = 1;
+		return 0;
+	}
+	return (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+static int wm_motion_timeout(wm_server *server)
+{
+	wm_state *state = &server->state;
+	uint64_t now;
+
+	if (!state->motion_pending || !state->graphics || state->scanout_busy)
+		return -1;
+	now = wm_now_ms();
+	return now >= state->motion_deadline_ms ? 0 :
+		(int)(state->motion_deadline_ms - now);
+}
+
+static int wm_present_motion(wm_server *server)
+{
+	if (wm_motion_timeout(server) != 0)
+		return 0;
+	return wm_compose(server) == GUI_FLUSH_ERROR ? -1 : 0;
+}
+
+static void wm_present_input(wm_server *server, int changed, int motion_only)
+{
+	wm_state *state = &server->state;
+
+	if (motion_only) {
+		if (changed && !state->motion_pending) {
+			state->motion_pending = 1;
+			state->motion_deadline_ms = wm_now_ms() + WM_MOTION_FRAME_MS;
+		}
+	} else if ((changed || state->motion_pending) && wm_compose(server) == GUI_FLUSH_ERROR) {
+		stop_requested = 1;
+	}
 }
 
 static wm_client *wm_add_client(wm_server *server, int fd,
@@ -2291,12 +2347,14 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 		wm_reset_key_state(state);
 		wm_cancel_capture(server);
 		wm_reset_input_owner(server);
+		wm_present_input(server, 0, 0);
 		return;
 	}
 	if (event->type == GUI_INPUT_EVENT_MOUSE_RESET) {
 		state->mouse_buttons = 0;
 		wm_cancel_capture(server);
 		wm_reset_input_owner(server);
+		wm_present_input(server, 0, 0);
 		return;
 	}
 	if (!server->state.graphics)
@@ -2333,6 +2391,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	}
 	if (event->type == GUI_INPUT_EVENT_MOUSE) {
 		uint8_t previous_buttons = state->mouse_buttons;
+		int motion_only = previous_buttons == event->mouse.buttons;
 		int64_t cursor_x = (int64_t)state->cursor_x + event->mouse.dx;
 		int64_t cursor_y = (int64_t)state->cursor_y - event->mouse.dy;
 
@@ -2355,8 +2414,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 				compose |= wm_update_capture(server);
 			else
 				wm_cancel_capture(server);
-			if (compose && wm_compose(server) == GUI_FLUSH_ERROR)
-				stop_requested = 1;
+			wm_present_input(server, compose, motion_only);
 			return;
 		}
 		if (!(previous_buttons & 1) && (state->mouse_buttons & 1)) {
@@ -2373,20 +2431,17 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 			if (hit != NULL && hit->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
 			    !hit->mode_pending && operation != WM_CAPTURE_NONE) {
 				wm_begin_capture(server, hit, operation);
-				if (compose && wm_compose(server) == GUI_FLUSH_ERROR)
-					stop_requested = 1;
+				wm_present_input(server, compose, 0);
 				return;
 			}
 			if (hit != NULL && hit->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
 			    region == WM_HIT_CLOSE) {
 				client_enqueue_close_request(hit);
-				if (compose && wm_compose(server) == GUI_FLUSH_ERROR)
-					stop_requested = 1;
+				wm_present_input(server, compose, 0);
 				return;
 			}
 		}
-		if (compose && wm_compose(server) == GUI_FLUSH_ERROR)
-				stop_requested = 1;
+		wm_present_input(server, compose, motion_only);
 	}
 	client = server->input_owner;
 	if (client == NULL || client->mode_pending)
@@ -2410,6 +2465,35 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	if (window_enqueue(client, GUI_PROTOCOL_INPUT_EVENT, message,
 			   sizeof(message)) < 0)
 		client->client->hello = -1;
+}
+
+static int wm_read_input(wm_server *server, int descriptor, int mouse)
+{
+	union {
+		struct mario_gui_key_event keys[WM_INPUT_BATCH_RECORDS];
+		struct mario_psaux_event mice[WM_INPUT_BATCH_RECORDS];
+	} records;
+	size_t record_bytes = mouse ? sizeof(records.mice[0]) : sizeof(records.keys[0]);
+
+	for (unsigned int batch = 0; batch < WM_INPUT_READ_QUANTUM; batch++) {
+		ssize_t count = read(descriptor, &records, record_bytes * WM_INPUT_BATCH_RECORDS);
+
+		if (count > 0) {
+			if (mouse)
+				gui_input_normalize_mouse_records(records.mice, count / record_bytes,
+					wm_emit_input, server);
+			else
+				gui_input_normalize_key_records(records.keys, count / record_bytes,
+					wm_emit_input, server);
+		} else if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+			return 0;
+		} else if (count == 0 || errno != EINTR) {
+			return -1;
+		}
+		if (wm_present_motion(server) < 0)
+			return -1;
+	}
+	return 0;
 }
 
 static void window_message(wm_window *client, const gui_protocol_header *header,
@@ -2948,8 +3032,6 @@ int main(void)
 	struct sigaction child_action = { .sa_handler = request_child_reap };
 	struct pollfd *pollfds;
 	wm_client **poll_clients;
-	struct mario_gui_key_event events[16];
-	struct mario_psaux_event mouse_events[16];
 	wm_server server = { .state = { .framebuffer = -1, .gui = -1,
 		.mouse = -1, .listener = -1 } };
 	int status = 1;
@@ -3020,6 +3102,12 @@ int main(void)
 			poll_clients[poll_count - 4] = client;
 			pollfds[poll_count++] = (struct pollfd) { .fd = client->fd, .events = events };
 		}
+		{
+			int motion_timeout = wm_motion_timeout(&server);
+
+			if (motion_timeout >= 0 && (poll_timeout < 0 || motion_timeout < poll_timeout))
+				poll_timeout = motion_timeout;
+		}
 		ready = poll(pollfds, poll_count, poll_timeout);
 
 		if (ready < 0) {
@@ -3034,6 +3122,8 @@ int main(void)
 				  &graphics) < 0)
 				goto out;
 			server.state.graphics = graphics == FB_CONSOLE_GRAPHICS;
+			server.state.scanout_busy = 0;
+			server.state.motion_pending = 0;
 			wm_damage_init(&server.state);
 			gui_region_mark_full(&server.state.damage);
 			if (!server.state.graphics) {
@@ -3050,28 +3140,12 @@ int main(void)
 			wm_cancel_capture(&server);
 			wm_reset_input_owner(&server);
 		}
-		if (pollfds[0].revents & POLLIN) {
-			ssize_t event_bytes;
-
-			while ((event_bytes = read(server.state.gui, events, sizeof(events))) > 0) {
-				gui_input_normalize_key_records(events,
-						event_bytes / sizeof(events[0]),
-						wm_emit_input, &server);
-			}
-			if (errno != EAGAIN)
-				goto out;
-		}
-		if (pollfds[3].revents & POLLIN) {
-			ssize_t event_bytes;
-
-			while ((event_bytes = read(server.state.mouse, mouse_events,
-					       sizeof(mouse_events))) > 0) {
-				gui_input_normalize_mouse_records(mouse_events,
-					event_bytes / sizeof(mouse_events[0]), wm_emit_input, &server);
-			}
-			if (errno != EAGAIN)
-				goto out;
-		}
+		if ((pollfds[0].revents & POLLIN) && wm_read_input(&server, server.state.gui, 0) < 0)
+			goto out;
+		if ((pollfds[3].revents & POLLIN) && wm_read_input(&server, server.state.mouse, 1) < 0)
+			goto out;
+		if (wm_present_motion(&server) < 0)
+			goto out;
 		/* Mouse-driven moves and resizes queue configure messages without I/O. */
 		wm_flush_client_outputs(&server);
 		for (size_t poll_index = 4; poll_index < poll_count; poll_index++) {
@@ -3110,6 +3184,8 @@ int main(void)
 				client->hello = -1;
 			if (client->hello < 0)
 				wm_disconnect_client(&server, client);
+			if (wm_present_motion(&server) < 0)
+				goto out;
 		}
 		if (pollfds[2].revents & POLLIN) {
 			int fd = accept4(server.state.listener, NULL, NULL, SOCK_NONBLOCK);
@@ -3122,7 +3198,8 @@ int main(void)
 		}
 		if (server.client_count < server.poll_capacity / 2)
 			(void)wm_poll_resize(&server, server.client_count);
-		if (server.state.damage.count != 0 && wm_compose(&server) == GUI_FLUSH_ERROR)
+		if (!server.state.scanout_busy && server.state.damage.count != 0 &&
+		    wm_compose(&server) == GUI_FLUSH_ERROR)
 			goto out;
 	}
 	status = 0;

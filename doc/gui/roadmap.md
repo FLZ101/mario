@@ -1762,7 +1762,8 @@ allows implementation after M9.5 and the runnable-suite gate with
 skipped, leaving M9.6/integration deferred.
 M10.1 has a test-only implementation and a recorded baseline in
 [GUI drawing baseline](drawing-baseline.md); M10.2 implements bounded composition
-and scanout, while M10.3–M10.8 remain planned and unchecked.
+and scanout, M10.3 adds bounded motion pacing, and M10.4–M10.8 remain planned
+and unchecked.
 On November 14, 2026 its focused gates, 48-sample timing capture, and
 `make test SMP=16` runnable-suite gate pass: 145 guest cases pass, with the
 three recorded GUI deferrals and two SMP-4-only shell cases explicitly skipped.
@@ -1825,7 +1826,7 @@ item, its focused gates during development, and `make test SMP=16` plus
   overlap/move/foreground fixtures pass. The surface short-write/interruption
   regression and full runnable suite also pass (146 guest cases, 49 host tests;
   the same three GUI deferrals and two SMP-4-only cases remain explicit).
-- [ ] **M10.3 — batch motion drawing without delaying input dispatch.**
+- [x] **M10.3 — batch motion drawing without delaying input dispatch.**
   Prerequisite: M10.2. Owns `app/gui/desktop/mario-wm/main.c`,
   `app/test/gui-wm-busy/`, `app/test/gui-wm-client/`,
   `tests/shell/gui-wm-busy.test`, `tests/gui/wm-motion-batch.test`, its reviewed
@@ -1851,6 +1852,15 @@ item, its focused gates during development, and `make test SMP=16` plus
   and
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-motion-batch.test tests/gui`,
   then `make test SMP=16`. Commit: `gui: batch pointer presentation with fair dispatch`.
+  Completed November 14, 2026: controlled-clock tests cover a sixteen-record
+  burst, edge clamps, immediate keys/release, bounded continuously readable
+  keyboard/mouse drains, suspended deadlines, and BUSY retry suppression.
+  The GUI drag/restore and preceding damage fixture pass. The full runnable
+  gate passes (147 guest cases, 49 host tests; unchanged explicit deferrals).
+  Two earlier gate attempts failed: imageviewer-zoom startup timed out, then
+  wm-quota's seventeenth process launch reported the executable not found.
+  Both pass focused reproduction (quota twice), and the unchanged third full
+  gate passes. Causes remain unconfirmed; no assertions or skips were changed.
 - [ ] **M10.4 — batch contiguous framebuffer writes safely.**
   Prerequisite: M10.3. Owns `app/gui/libmario-ui/src/flush.c`,
   `app/test/gui-surface/`, `tests/shell/gui-surface.test`,

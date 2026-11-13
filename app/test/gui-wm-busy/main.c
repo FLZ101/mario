@@ -3,12 +3,50 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+#include <mario/input.h>
 #include <gui/surface.h>
 
 static gui_flush_result scanout_result;
 static unsigned int scanout_calls;
 static int fail_surface_allocation;
 static int fail_record_allocation;
+static int use_test_clock;
+static uint64_t test_clock_ms;
+static int busy_input;
+static unsigned int input_reads;
+
+static int test_clock_gettime(clockid_t clock, struct timespec *now)
+{
+	if (!use_test_clock)
+		return clock_gettime(clock, now);
+	assert(clock == CLOCK_MONOTONIC);
+	now->tv_sec = test_clock_ms / 1000;
+	now->tv_nsec = (test_clock_ms % 1000) * 1000000;
+	return 0;
+}
+
+static ssize_t test_input_read(int descriptor, void *buffer, size_t bytes)
+{
+	if (!busy_input || (descriptor != 900 && descriptor != 901))
+		return read(descriptor, buffer, bytes);
+	input_reads++;
+	test_clock_ms++;
+	if (descriptor == 900) {
+		struct mario_psaux_event *events = buffer;
+
+		assert(bytes == 16 * sizeof(*events));
+		for (unsigned int index = 0; index < 16; index++)
+			events[index] = (struct mario_psaux_event) { .dx = 1 };
+	} else {
+		struct mario_gui_key_event *events = buffer;
+
+		assert(bytes == 16 * sizeof(*events));
+		for (unsigned int index = 0; index < 16; index++)
+			events[index] = (struct mario_gui_key_event) { .scancode = 0x1e, .pressed = 1 };
+	}
+	return bytes;
+}
 
 typedef struct {
 	uint64_t filled_pixels;
@@ -123,7 +161,11 @@ static gui_flush_result test_surface_flush_rect_fd(const gui_surface *surface,
 #define gui_fill_rect measured_fill
 #define gui_blit measured_blit
 #define gui_surface_flush_rect_fd test_surface_flush_rect_fd
+#define clock_gettime test_clock_gettime
+#define read test_input_read
 #include "../../gui/desktop/mario-wm/main.c"
+#undef read
+#undef clock_gettime
 #undef gui_surface_flush_rect_fd
 #undef gui_blit
 #undef gui_fill_rect
@@ -1505,6 +1547,8 @@ static void test_drawing_work(void)
 	previous_frame = begin_drawing_measurement(&server);
 	pointer.mouse.dx = 32;
 	wm_emit_input(&server, &pointer);
+	assert(server.state.motion_pending);
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
 	report_drawing_work("cursor", &server, previous_frame, 1);
 	assert_full_scene(&server);
 	previous_frame = begin_drawing_measurement(&server);
@@ -1602,6 +1646,146 @@ static void test_drawing_work(void)
 	puts("gui-wm-busy: drawing work is counted independently of logical flushes");
 }
 
+static void test_motion_batch(void)
+{
+	static wm_server server;
+	wm_window *target;
+	gui_input_event pointer = { .type = GUI_INPUT_EVENT_MOUSE, .mouse = { .dx = 2 } };
+	gui_input_event key = { .type = GUI_INPUT_EVENT_KEY,
+		.key = { .scancode = 0x1e, .pressed = 1 } };
+	uint64_t previous_frame;
+	uint64_t deadline;
+	unsigned int previous_calls;
+	int old_x;
+
+	init_server(&server, 1024, 768);
+	server.state.graphics = 1;
+	server.state.framebuffer = 123;
+	server.state.scanout_stride = 4096;
+	server.state.composite = gui_surface_create(1024, 768);
+	assert(server.state.composite != NULL && wm_load_cursor(&server.state) == 0);
+	server.state.cursor_x = server.state.cursor_y = 16;
+	target = init_client(&server, 0, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	target->width = 320;
+	target->height = 192;
+	target->stack_order = 1;
+	fullscreen_stage(target, 0x00225688);
+	scanout_result = GUI_FLUSH_COMPLETE;
+	commit_staged(target);
+	use_test_clock = 1;
+	test_clock_ms = 1000;
+	previous_frame = begin_drawing_measurement(&server);
+	for (unsigned int index = 0; index < 16; index++)
+		wm_emit_input(&server, &pointer);
+	assert(server.state.cursor_x == 48 && server.state.frame_number == previous_frame);
+	assert(server.state.damage.count == 0 && wm_motion_timeout(&server) == 16);
+	test_clock_ms += 15;
+	assert(wm_present_motion(&server) == 0 && wm_motion_timeout(&server) == 1);
+	assert(server.state.frame_number == previous_frame && measured_work.writer_calls == 0);
+	test_clock_ms++;
+	assert(wm_present_motion(&server) == 0 && server.state.frame_number == previous_frame + 1);
+	assert(measured_work.filled_pixels == 512 && measured_work.written_bytes == 2048);
+	assert(measured_work.flush_requests == 2 && !server.state.motion_pending);
+	measure_drawing = 0;
+	assert_full_scene(&server);
+	pointer.mouse.dx = 0;
+	previous_frame = server.state.frame_number;
+	for (unsigned int index = 0; index < 16; index++)
+		wm_emit_input(&server, &pointer);
+	assert(!server.state.motion_pending && wm_motion_timeout(&server) == -1);
+	assert(server.state.frame_number == previous_frame);
+	pointer.mouse.dx = -2000;
+	wm_emit_input(&server, &pointer);
+	pointer.mouse.dx = 10;
+	wm_emit_input(&server, &pointer);
+	assert(server.state.cursor_x == 10);
+	test_clock_ms += 16;
+	assert(wm_present_motion(&server) == 0);
+	assert_full_scene(&server);
+	server.state.cursor_x = target->x + 8;
+	server.state.cursor_y = target->y - 12;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	pointer.mouse.dx = 0;
+	pointer.mouse.buttons = 1;
+	wm_emit_input(&server, &pointer);
+	assert(server.capture_client == target && server.input_owner == target);
+	drain_output(target);
+	previous_frame = server.state.frame_number;
+	old_x = target->x;
+	pointer.mouse.dx = 2;
+	for (unsigned int index = 0; index < 16; index++)
+		wm_emit_input(&server, &pointer);
+	assert(target->x == old_x + 32 && server.state.frame_number == previous_frame);
+	wm_emit_input(&server, &key);
+	drain_output(target);
+	assert(captured_bytes == GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_input_event));
+	assert(get_u32(captured_output + GUI_PROTOCOL_HEADER_SIZE + 8) == 'a');
+	assert(server.state.frame_number == previous_frame);
+	pointer.mouse.dx = 0;
+	pointer.mouse.buttons = 0;
+	wm_emit_input(&server, &pointer);
+	assert(server.capture_client == NULL && target->x == old_x + 32);
+	assert(server.state.frame_number == previous_frame + 1 && !server.state.motion_pending);
+	assert_full_scene(&server);
+	drain_output(target);
+	previous_frame = server.state.frame_number;
+	busy_input = 1;
+	input_reads = 0;
+	for (unsigned int iteration = 0; iteration < 5; iteration++) {
+		unsigned int previous_reads = input_reads;
+
+		assert(wm_read_input(&server, 900, 1) == 0);
+		assert(input_reads - previous_reads == WM_INPUT_READ_QUANTUM);
+		wm_emit_input(&server, &key);
+		drain_output(target);
+		assert(captured_bytes > 0 && target->client->hello == 1);
+	}
+	assert(input_reads == 20 && server.state.frame_number == previous_frame + 1);
+	assert(wm_read_input(&server, 901, 0) == 0 && input_reads == 24);
+	drain_output(target);
+	assert(captured_bytes == 64 * (GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_input_event)));
+	busy_input = 0;
+	test_clock_ms += 16;
+	assert(wm_present_motion(&server) == 0);
+	assert_full_scene(&server);
+	pointer.mouse.dx = 4;
+	wm_emit_input(&server, &pointer);
+	deadline = server.state.motion_deadline_ms;
+	previous_frame = server.state.frame_number;
+	previous_calls = scanout_calls;
+	scanout_result = GUI_FLUSH_BUSY;
+	test_clock_ms = deadline;
+	assert(wm_present_motion(&server) == 0 && server.state.scanout_busy);
+	assert(server.state.damage.count > 0 && server.state.frame_number == previous_frame);
+	for (unsigned int index = 0; index < 16; index++) {
+		test_clock_ms += 16;
+		wm_emit_input(&server, &pointer);
+		assert(wm_motion_timeout(&server) == -1 && wm_present_motion(&server) == 0);
+	}
+	assert(scanout_calls == previous_calls + 1);
+	scanout_result = GUI_FLUSH_COMPLETE;
+	server.state.scanout_busy = 0;
+	gui_region_mark_full(&server.state.damage);
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert_full_scene(&server);
+	wm_emit_input(&server, &pointer);
+	server.state.graphics = 0;
+	previous_frame = server.state.frame_number;
+	old_x = server.state.cursor_x;
+	test_clock_ms += 16;
+	assert(wm_motion_timeout(&server) == -1 && wm_present_motion(&server) == 0);
+	wm_emit_input(&server, &pointer);
+	assert(server.state.frame_number == previous_frame && server.state.cursor_x == (uint32_t)old_x);
+	server.state.graphics = 1;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	pointer.type = GUI_INPUT_EVENT_MOUSE_RESET;
+	wm_emit_input(&server, &pointer);
+	assert(!server.state.mouse_buttons && !server.capture_client);
+	use_test_clock = 0;
+	cleanup_server(&server);
+	puts("gui-wm-busy: motion deadlines preserve ordered input and bounded dispatch");
+}
+
 int main(void)
 {
 	struct sigaction ignore_pipe = { .sa_handler = SIG_IGN };
@@ -1625,6 +1809,7 @@ int main(void)
 	test_terminal_recovery();
 	test_drawing_counter_clipping();
 	test_drawing_work();
+	test_motion_batch();
 	puts("gui-wm-busy: valid commits survive suspended scanout");
 	puts("gui-wm-busy: reservations, shell headroom and transition rollback pass");
 	puts("gui-wm-busy: real terminal survives pressure and allocation/flush rollback");
