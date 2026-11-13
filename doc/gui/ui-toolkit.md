@@ -427,8 +427,10 @@ Window properties:
 
 ### Incremental Presentation and Uploads (M10 Target)
 
-These are planned contracts; through M9 the wire protocol accepts only complete
-configured-size surface replacements. Existing committed window surfaces and
+Through M9 the wire protocol accepts only complete configured-size surface
+replacements. M10.2–M10.6 implement bounded drawing, cell reuse, and negotiated
+rectangular transactions; terminal pipelining remains an M10.7 target.
+Existing committed window surfaces and
 the bounded damage/flush helpers are reused rather than replaced by a new
 rendering stack or an assumed GPU API.
 
@@ -480,6 +482,38 @@ call; its 320x192 content update remains 192 narrow scanline calls.
   replies during cancellation without applying them to a newer transaction,
   and retain recoverable-error backoff. No busy waits, additional commit
   acknowledgements, or larger protocol queue quotas are required.
+
+## Surface Patch Wire Contract (v1.1)
+
+`HELLO` retains its four-byte major/minor payload. A v1.1 server replies with
+the requested supported minor, including zero for existing v1.0 clients.
+Before creating any windows, a v1.1 peer may send `CAPABILITIES` with a
+four-byte little-endian bit mask; `CAPABILITIES_REPLY` selects supported bits.
+Bit 0 enables rectangular uploads and cancellation. Without this selected bit,
+`SURFACE_PATCH_BEGIN` and `SURFACE_CANCEL` return `-EPROTONOSUPPORT`.
+
+`SURFACE_PATCH_BEGIN` is 44 bytes: window ID (u32), configure serial (u64),
+exact committed base-frame serial (u64), new frame serial (u64), rectangle x/y
+(i32 each), width/height (u32 each). All fields are little-endian. The rectangle
+must be nonempty and wholly within the current configured surface. Negotiated
+uploads use strictly increasing frame serials, including canceled admissions;
+a complete full replacement establishes the base for creation, configure,
+fullscreen, or error recovery. A patch cannot establish a missing base.
+
+Existing `SURFACE_DATA`/`SURFACE_DATA_REPLY` (28-byte identity/chunk prefix) and
+`SURFACE_COMMIT` (20 bytes) are reused without changing v1.0 payloads. Patch
+pixel offsets/counts describe ordered, tightly packed rectangle pixels, not
+whole-window offsets. Data is copied into a full-size, quota-charged immutable
+base staging copy; only a complete commit atomically replaces the image.
+`SURFACE_CANCEL` uses the same 20-byte window/configure/frame identity and
+reclaims that exact active staging transaction without changing committed
+pixels or its base. Configure, disconnect, and destruction also reclaim it.
+
+Malformed bounds/lengths/data/identities return `-EINVAL`, stale bases or frame
+serials return `-ESTALE`, an active transaction returns `-EBUSY`, and budget or
+allocation failure returns `-ENOMEM`. Real scanout failure retains the existing
+`-EIO` rollback/configure recovery contract; BUSY remains logical commit
+success. Rejected or incomplete data never exposes a partial committed image.
 
 ## Widgets
 

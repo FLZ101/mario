@@ -1764,7 +1764,8 @@ M10.1 has a test-only implementation and a recorded baseline in
 [GUI drawing baseline](drawing-baseline.md); M10.2 implements bounded composition
 and scanout, M10.3 adds bounded motion pacing, and M10.4 batches layout-safe
 scanout spans. M10.5 reuses terminal pixels for unchanged cells;
-M10.6–M10.8 remain planned and unchecked.
+M10.6 adds negotiated atomic surface patches. M10.7–M10.8 remain planned
+and unchecked.
 On November 14, 2026 its focused gates, 48-sample timing capture, and
 `make test SMP=16` runnable-suite gate pass: 145 guest cases pass, with the
 three recorded GUI deferrals and two SMP-4-only shell cases explicitly skipped.
@@ -1918,7 +1919,7 @@ item, its focused gates during development, and `make test SMP=16` plus
   configure recovers through deferred retry. The GUI two-cell fixture,
   runnable Vim/top/nano and tmux fixtures, WM recovery test, and full suite
   pass (149 guest cases, 49 host tests; unchanged explicit deferrals).
-- [ ] **M10.6 — add negotiated atomic rectangular surface uploads.**
+- [x] **M10.6 — add negotiated atomic rectangular surface uploads.**
   Prerequisite: M10.5. Owns `app/gui/libmario-ui/include/gui/protocol.h`,
   `app/gui/libmario-ui/src/protocol.c`, `app/gui/desktop/mario-wm/main.c`,
   `app/test/gui-protocol/`, `app/test/gui-wm-busy/`, `app/test/gui-wm-client/`,
@@ -1942,6 +1943,16 @@ item, its focused gates during development, and `make test SMP=16` plus
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-surface-patch.test tests/gui`,
   plus the WM-link regression, then `make test SMP=16`.
   Commit: `gui: negotiate atomic rectangular surface updates`.
+  Completed November 14, 2026: v1.1 capability negotiation preserves v1.0
+  payloads and rejects unnegotiated patches/cancellation. Full-size charged
+  base copies accept ordered rectangle data and atomically replace committed
+  pixels. Tests cover exact base/configure/frame identities, monotonic
+  admissions, bounds, duplicate data, incomplete commit, cancellation, shell
+  headroom, allocation and scanout rollback, hidden updates/reveal, configure
+  reclamation, disconnect, and an unchanged healthy peer. A real deterministic
+  protocol client verifies incomplete pixels remain hidden and cancellation
+  preserves the completed patch. Focused protocol/WM/GUI gates and the full
+  runnable suite pass (150 guest cases, 49 host tests; unchanged deferrals).
 - [ ] **M10.7 — send incremental terminal updates with bounded pipelining.**
   Prerequisite: M10.6. Owns `app/usr/terminal/`, `app/test/gui-wm-busy/`,
   `app/test/gui-wm-client/`, `tests/shell/gui-wm-busy.test`,

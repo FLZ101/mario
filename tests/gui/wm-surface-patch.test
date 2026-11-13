@@ -1,0 +1,19 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-patch.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & patch_wm=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/gui-wm-client.exe --patch-only >/tmp/gui-patch.log 2>&1 & patch_client=$!
+SERIAL-WAIT-FILE: /tmp/gui-patch.partial
+GUI-CHECK-RECT: 132 99 8 5 34 86 136
+GUI-CHECK-RECT: 144 112 8 8 34 86 136
+SERIAL: touch /tmp/gui-patch.complete
+SERIAL-WAIT-FILE: /tmp/gui-patch.committed
+GUI-CHECK-RECT: 132 99 8 5 204 136 68
+GUI-CHECK-RECT: 144 112 8 8 34 86 136
+SERIAL: touch /tmp/gui-patch.finish; wait "$patch_client"; cat /tmp/gui-patch.log
+SERIAL-CHECK: wm-client: atomic patches, stale bases, cancellation and recovery pass
+GUI-SEND-KEY: f6
+SERIAL: kill -TERM "$patch_wm"; while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

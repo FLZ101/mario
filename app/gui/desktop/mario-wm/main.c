@@ -88,7 +88,7 @@ typedef struct {
 	uint32_t painted_cursor_x;
 	uint32_t painted_cursor_y;
 	uint32_t painted_fullscreen;
-	const gui_surface *painted_desktop;
+	const void *painted_desktop;
 	int motion_pending;
 	int scanout_busy;
 	uint64_t motion_deadline_ms;
@@ -142,6 +142,12 @@ struct wm_window {
 	size_t staging_bytes;
 	size_t staging_pixels;
 	gui_surface *staging;
+	int staging_patch;
+	gui_rect staging_rectangle;
+	uint64_t staging_base_frame_serial;
+	uint64_t last_admitted_frame_serial;
+	uint64_t committed_frame_serial;
+	uint64_t committed_configure_serial;
 	size_t committed_bytes;
 	gui_surface *committed;
 	wm_server *server;
@@ -160,6 +166,8 @@ struct wm_client {
 	wm_window *windows;
 	int fd;
 	int hello;
+	uint16_t protocol_minor;
+	uint32_t capabilities;
 	gui_protocol_endpoint_role role;
 	gui_protocol_input *input;
 	gui_protocol_output *output;
@@ -454,6 +462,9 @@ static void client_discard_staging(wm_window *client)
 		client->staging_frame_serial = 0;
 	}
 	client->staging_pixels = 0;
+	client->staging_patch = 0;
+	client->staging_base_frame_serial = 0;
+	client->staging_rectangle = (gui_rect) { 0 };
 }
 
 static void client_discard_committed(wm_window *client)
@@ -794,6 +805,17 @@ static int wm_window_visible(const wm_server *server, const wm_window *window)
 		(fullscreen == NULL || fullscreen == window) && !wm_window_obscured(server, window);
 }
 
+static const void *wm_desktop_identity(const wm_server *server)
+{
+	const void *identity = server->desktop_snapshot;
+
+	for (wm_window *window = server->windows; window != NULL; window = window->next)
+		if (window->client->fd >= 0 && window->window_id != 0 &&
+		    window->client->role == GUI_PROTOCOL_ENDPOINT_SHELL && window->committed != NULL)
+			identity = window;
+	return identity;
+}
+
 static int wm_same_rect(gui_rect first, gui_rect second)
 {
 	return first.x == second.x && first.y == second.y && first.w == second.w && first.h == second.h;
@@ -815,7 +837,7 @@ static void wm_collect_damage(wm_server *server)
 
 	wm_damage_init(state);
 	if (!state->painted || state->painted_fullscreen != fullscreen_id ||
-	    (state->painted_desktop != wm_desktop_surface(server) && !wm_window_obscured(server, NULL)))
+	    (state->painted_desktop != wm_desktop_identity(server) && !wm_window_obscured(server, NULL)))
 		gui_region_mark_full(&state->damage);
 	if (state->painted && (state->cursor_x != state->painted_cursor_x ||
 	    state->cursor_y != state->painted_cursor_y)) {
@@ -850,7 +872,7 @@ static void wm_record_presented(wm_server *server)
 	state->painted_cursor_x = state->cursor_x;
 	state->painted_cursor_y = state->cursor_y;
 	state->painted_fullscreen = fullscreen != NULL ? fullscreen->window_id : 0;
-	state->painted_desktop = wm_desktop_surface(server);
+	state->painted_desktop = wm_desktop_identity(server);
 	for (wm_window *window = server->windows; window != NULL; window = window->next) {
 		window->painted = wm_window_visible(server, window);
 		window->painted_bounds = wm_window_bounds(server, window);
@@ -1559,6 +1581,11 @@ static int client_stage_surface(wm_window *client, const uint8_t *bytes)
 		window_reject(client, GUI_PROTOCOL_SURFACE_BEGIN, -EBUSY);
 		return 0;
 	}
+	if ((client->client->capabilities & GUI_PROTOCOL_CAP_SURFACE_PATCH) &&
+	    frame_serial <= client->last_admitted_frame_serial) {
+		window_reject(client, GUI_PROTOCOL_SURFACE_BEGIN, -ESTALE);
+		return 0;
+	}
 	if (client->reserved_bytes != bytes_needed &&
 	    !client_surface_fits(client, bytes_needed, client->reserved_bytes)) {
 		window_reject(client, GUI_PROTOCOL_SURFACE_BEGIN, -ENOMEM);
@@ -1576,9 +1603,87 @@ static int client_stage_surface(wm_window *client, const uint8_t *bytes)
 	client->staging_bytes = bytes_needed;
 	client->staging_frame_serial = frame_serial;
 	client->staging_pixels = 0;
+	client->staging_patch = 0;
+	client->staging_rectangle = (gui_rect) { 0, 0, width, height };
+	if (frame_serial > client->last_admitted_frame_serial)
+		client->last_admitted_frame_serial = frame_serial;
 	state->surface_bytes += bytes_needed;
 	client->client->surface_bytes += bytes_needed;
 	return 0;
+}
+
+static int client_stage_patch(wm_window *window, const uint8_t *bytes)
+{
+	uint64_t configure_serial = get_u64(bytes + 4);
+	uint64_t base_frame_serial = get_u64(bytes + 12);
+	uint64_t frame_serial = get_u64(bytes + 20);
+	int32_t rectangle_x = (int32_t)get_u32(bytes + 28);
+	int32_t rectangle_y = (int32_t)get_u32(bytes + 32);
+	uint32_t width = get_u32(bytes + 36);
+	uint32_t height = get_u32(bytes + 40);
+	size_t bytes_needed;
+	gui_surface *surface;
+
+	if (!(window->client->capabilities & GUI_PROTOCOL_CAP_SURFACE_PATCH)) {
+		window_reject(window, GUI_PROTOCOL_SURFACE_PATCH_BEGIN, -EPROTONOSUPPORT);
+		return 0;
+	}
+	if (get_u32(bytes) != window->window_id || configure_serial != window->configure_serial ||
+	    frame_serial == 0 || width == 0 || height == 0 || rectangle_x < 0 || rectangle_y < 0 ||
+	    (uint32_t)rectangle_x > window->width || (uint32_t)rectangle_y > window->height ||
+	    width > window->width - (uint32_t)rectangle_x || height > window->height - (uint32_t)rectangle_y ||
+	    surface_bytes(window->width, window->height, &bytes_needed) < 0 ||
+	    bytes_needed > window->server->state.frame_bytes) {
+		window_reject(window, GUI_PROTOCOL_SURFACE_PATCH_BEGIN, -EINVAL);
+		return 0;
+	}
+	if (window->staging != NULL) {
+		window_reject(window, GUI_PROTOCOL_SURFACE_PATCH_BEGIN, -EBUSY);
+		return 0;
+	}
+	if (window->committed == NULL || window->mode_pending ||
+	    window->committed_configure_serial != configure_serial ||
+	    base_frame_serial == 0 || base_frame_serial != window->committed_frame_serial ||
+	    frame_serial <= window->last_admitted_frame_serial ||
+	    window->committed->width != (int)window->width || window->committed->height != (int)window->height) {
+		window_reject(window, GUI_PROTOCOL_SURFACE_PATCH_BEGIN, -ESTALE);
+		return 0;
+	}
+	if (!client_surface_fits(window, bytes_needed, 0)) {
+		window_reject(window, GUI_PROTOCOL_SURFACE_PATCH_BEGIN, -ENOMEM);
+		return 0;
+	}
+	surface = gui_surface_create(window->width, window->height);
+	if (surface == NULL) {
+		client_fail_surface(window, GUI_PROTOCOL_SURFACE_PATCH_BEGIN, -ENOMEM);
+		return 0;
+	}
+	memcpy(surface->pixels, window->committed->pixels, bytes_needed);
+	window->staging = surface;
+	window->staging_bytes = bytes_needed;
+	window->staging_pixels = 0;
+	window->staging_patch = 1;
+	window->staging_rectangle = (gui_rect) { rectangle_x, rectangle_y, width, height };
+	window->staging_base_frame_serial = base_frame_serial;
+	window->staging_frame_serial = frame_serial;
+	window->last_admitted_frame_serial = frame_serial;
+	window->client->surface_bytes += bytes_needed;
+	window->server->state.surface_bytes += bytes_needed;
+	return 0;
+}
+
+static void client_cancel_surface(wm_window *window, const uint8_t *bytes)
+{
+	if (!(window->client->capabilities & GUI_PROTOCOL_CAP_SURFACE_PATCH)) {
+		window_reject(window, GUI_PROTOCOL_SURFACE_CANCEL, -EPROTONOSUPPORT);
+		return;
+	}
+	if (get_u32(bytes) != window->window_id || get_u64(bytes + 4) != window->configure_serial ||
+	    window->staging == NULL || get_u64(bytes + 12) != window->staging_frame_serial) {
+		window_reject(window, GUI_PROTOCOL_SURFACE_CANCEL, -EINVAL);
+		return;
+	}
+	client_discard_staging(window);
 }
 
 static int client_surface_data(wm_window *client, const uint8_t *bytes,
@@ -1596,7 +1701,9 @@ static int client_surface_data(wm_window *client, const uint8_t *bytes,
 	    configure_serial != client->configure_serial ||
 	    frame_serial != client->staging_frame_serial || pixel_count == 0 ||
 	    client->width > SIZE_MAX / client->height ||
-	    (surface_pixels = (size_t)client->width * client->height) > UINT32_MAX ||
+	    (surface_pixels = client->staging_patch ?
+		(size_t)client->staging_rectangle.w * client->staging_rectangle.h :
+		(size_t)client->width * client->height) > UINT32_MAX ||
 	    pixel_offset != client->staging_pixels || pixel_offset > surface_pixels ||
 	    pixel_count > surface_pixels - pixel_offset ||
 	    pixel_count > SIZE_MAX / sizeof(gui_color) ||
@@ -1605,8 +1712,28 @@ static int client_surface_data(wm_window *client, const uint8_t *bytes,
 		window_reject(client, GUI_PROTOCOL_SURFACE_DATA, -EINVAL);
 		return 0;
 	}
-	memcpy(client->staging->pixels + pixel_offset,
-	       bytes + sizeof(gui_protocol_wire_surface_data), byte_count);
+	if (client->staging_patch) {
+		size_t remaining = pixel_count;
+		size_t offset = pixel_offset;
+		const uint8_t *source = bytes + sizeof(gui_protocol_wire_surface_data);
+		gui_rect rectangle = client->staging_rectangle;
+
+		while (remaining > 0) {
+			size_t column = offset % rectangle.w;
+			size_t count = rectangle.w - column;
+			size_t destination = (rectangle.y + offset / rectangle.w) * client->width + rectangle.x + column;
+
+			if (count > remaining)
+				count = remaining;
+			memcpy(client->staging->pixels + destination, source, count * sizeof(gui_color));
+			source += count * sizeof(gui_color);
+			offset += count;
+			remaining -= count;
+		}
+	} else {
+		memcpy(client->staging->pixels + pixel_offset,
+			bytes + sizeof(gui_protocol_wire_surface_data), byte_count);
+	}
 	client->staging_pixels += pixel_count;
 	return window_enqueue(client, GUI_PROTOCOL_SURFACE_DATA_REPLY, bytes,
 			      sizeof(gui_protocol_wire_surface_data));
@@ -1623,7 +1750,10 @@ static int client_commit_surface(wm_window *client, const uint8_t *bytes)
 	if (client->staging == NULL || window_id != client->window_id ||
 	    configure_serial != client->configure_serial ||
 	    frame_serial != client->staging_frame_serial ||
-	    client->staging_pixels != (size_t)client->width * client->height) {
+	    client->staging_pixels != (client->staging_patch ?
+		(size_t)client->staging_rectangle.w * client->staging_rectangle.h :
+		(size_t)client->width * client->height) ||
+	    (client->staging_patch && client->staging_base_frame_serial != client->committed_frame_serial)) {
 		window_reject(client, GUI_PROTOCOL_SURFACE_COMMIT, -EINVAL);
 		return 0;
 	}
@@ -1637,7 +1767,13 @@ static int client_commit_surface(wm_window *client, const uint8_t *bytes)
 		client->staging_bytes = 0;
 		client->mode_pending = 0;
 		if (mode_pending || !wm_window_obscured(client->server, client)) {
-			if (client->client->role == GUI_PROTOCOL_ENDPOINT_SHELL)
+			if (client->staging_patch) {
+				gui_rect rectangle = client->staging_rectangle;
+
+				rectangle.x += client->x;
+				rectangle.y += client->y;
+				wm_damage_rect(&client->server->state, rectangle);
+			} else if (client->client->role == GUI_PROTOCOL_ENDPOINT_SHELL)
 				wm_damage_rect(&client->server->state,
 					(gui_rect) { 0, 0, client->width, client->height });
 			else
@@ -1663,6 +1799,9 @@ static int client_commit_surface(wm_window *client, const uint8_t *bytes)
 	}
 	client->staging_frame_serial = 0;
 	client->staging_pixels = 0;
+	client->staging_patch = 0;
+	client->committed_frame_serial = frame_serial;
+	client->committed_configure_serial = configure_serial;
 	client->transition_pending = 0;
 	if (mode_pending)
 		wm_complete_mode(client);
@@ -2499,6 +2638,14 @@ static int wm_read_input(wm_server *server, int descriptor, int mouse)
 static void window_message(wm_window *client, const gui_protocol_header *header,
 			   const uint8_t *bytes, size_t payload_bytes)
 {
+	if (header->type == GUI_PROTOCOL_SURFACE_PATCH_BEGIN) {
+		(void)client_stage_patch(client, bytes);
+		return;
+	}
+	if (header->type == GUI_PROTOCOL_SURFACE_CANCEL) {
+		client_cancel_surface(client, bytes);
+		return;
+	}
 	if (header->type == GUI_PROTOCOL_WINDOW_SET_TITLE) {
 		uint16_t title_bytes;
 
@@ -2686,8 +2833,26 @@ static void client_message(void *context, const gui_protocol_header *header,
 			return;
 		}
 		put_u16(reply, GUI_PROTOCOL_VERSION_MAJOR);
-		put_u16(reply + 2, GUI_PROTOCOL_VERSION_MINOR);
+		client->protocol_minor = get_u16(bytes + 2);
+		put_u16(reply + 2, client->protocol_minor);
 		client->hello = client_enqueue(client, GUI_PROTOCOL_HELLO_REPLY, reply, sizeof(reply)) < 0 ? -1 : 1;
+		return;
+	}
+	if (header->type == GUI_PROTOCOL_CAPABILITIES) {
+		uint8_t capabilities[sizeof(gui_protocol_wire_capabilities)];
+
+		if (payload_bytes != sizeof(capabilities)) {
+			client_reject(client, header->type, -EINVAL);
+		} else if (client->protocol_minor < 1) {
+			client_reject(client, header->type, -EPROTONOSUPPORT);
+		} else if (client->windows != NULL) {
+			client_reject(client, header->type, -EBUSY);
+		} else {
+			client->capabilities = get_u32(bytes) & GUI_PROTOCOL_CAP_SURFACE_PATCH;
+			put_u32(capabilities, client->capabilities);
+			if (client_enqueue(client, GUI_PROTOCOL_CAPABILITIES_REPLY, capabilities, sizeof(capabilities)) < 0)
+				client->hello = -1;
+		}
 		return;
 	}
 	if (header->type == GUI_PROTOCOL_LAUNCH_REQUEST) {
@@ -2730,6 +2895,12 @@ static void client_message(void *context, const gui_protocol_header *header,
 	case GUI_PROTOCOL_SURFACE_BEGIN:
 		window_payload_bytes = sizeof(gui_protocol_wire_surface_begin);
 		break;
+	case GUI_PROTOCOL_SURFACE_PATCH_BEGIN:
+		window_payload_bytes = sizeof(gui_protocol_wire_surface_patch_begin);
+		break;
+	case GUI_PROTOCOL_SURFACE_CANCEL:
+		window_payload_bytes = sizeof(gui_protocol_wire_surface_cancel);
+		break;
 	case GUI_PROTOCOL_SURFACE_DATA:
 		window_payload_bytes = sizeof(gui_protocol_wire_surface_data);
 		variable_payload = 1;
@@ -2752,6 +2923,10 @@ static void client_message(void *context, const gui_protocol_header *header,
 	}
 	if (payload_bytes < window_payload_bytes ||
 	    (!variable_payload && payload_bytes != window_payload_bytes)) {
+		if (header->type == GUI_PROTOCOL_SURFACE_PATCH_BEGIN || header->type == GUI_PROTOCOL_SURFACE_CANCEL) {
+			client_reject(client, header->type, -EINVAL);
+			return;
+		}
 		client->hello = -1;
 		return;
 	}

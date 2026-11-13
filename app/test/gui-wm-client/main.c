@@ -1576,6 +1576,77 @@ static void test_launch(void)
 	close(fd);
 }
 
+static void patch_begin_wire(int descriptor, uint32_t window, uint64_t base,
+			     uint64_t frame_serial, gui_rect rectangle)
+{
+	uint8_t bytes[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_patch_begin)] = { 0 };
+
+	assert(gui_protocol_encode_header(bytes, sizeof(bytes), GUI_PROTOCOL_SURFACE_PATCH_BEGIN,
+		sizeof(gui_protocol_wire_surface_patch_begin)) == 0);
+	put32(bytes + 8, window);
+	put64(bytes + 12, 1);
+	put64(bytes + 20, base);
+	put64(bytes + 28, frame_serial);
+	put32(bytes + 36, rectangle.x);
+	put32(bytes + 40, rectangle.y);
+	put32(bytes + 44, rectangle.w);
+	put32(bytes + 48, rectangle.h);
+	write_full(descriptor, bytes, sizeof(bytes));
+}
+
+static void test_rectangular_upload(void)
+{
+	uint8_t frame[64];
+	gui_rect rectangle = { 4, 3, 8, 5 };
+	int descriptor = connect_client();
+	uint32_t window;
+
+	hello(descriptor);
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_CAPABILITIES, 4) == 0);
+	put32(frame + 8, GUI_PROTOCOL_CAP_SURFACE_PATCH);
+	write_full(descriptor, frame, 12);
+	read_frame(descriptor, frame, GUI_PROTOCOL_CAPABILITIES_REPLY);
+	assert(get32(frame + 8) == GUI_PROTOCOL_CAP_SURFACE_PATCH);
+	window = lifecycle_create(descriptor, 1, 64, 48);
+	lifecycle_move(descriptor, window, 128, 96);
+	begin_surface(descriptor, window, 64, 48, 1);
+	budget_fill(descriptor, window, 64, 48, 1, 1, 0x00225688);
+	patch_begin_wire(descriptor, window, 1, 2, rectangle);
+	send_surface_data(descriptor, window, 0, 17, 2, 0x00cc8844);
+	lifecycle_reply(descriptor, window, 1, 2, 0, 17);
+	commit_surface(descriptor, window, 2);
+	read_error(descriptor, -EINVAL, GUI_PROTOCOL_SURFACE_COMMIT);
+	budget_marker("/tmp/gui-patch.partial");
+	budget_wait("/tmp/gui-patch.complete");
+	send_surface_data(descriptor, window, 17, 23, 2, 0x00cc8844);
+	lifecycle_reply(descriptor, window, 1, 2, 17, 23);
+	commit_surface(descriptor, window, 2);
+	patch_begin_wire(descriptor, window, 1, 3, rectangle);
+	read_error(descriptor, -ESTALE, GUI_PROTOCOL_SURFACE_PATCH_BEGIN);
+	patch_begin_wire(descriptor, window, 2, 3, rectangle);
+	send_surface_data(descriptor, window, 0, 7, 3, 0x00448866);
+	lifecycle_reply(descriptor, window, 1, 3, 0, 7);
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_SURFACE_CANCEL,
+		sizeof(gui_protocol_wire_surface_cancel)) == 0);
+	put32(frame + 8, window);
+	put64(frame + 12, 1);
+	put64(frame + 20, 3);
+	write_full(descriptor, frame, GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_cancel));
+	patch_begin_wire(descriptor, window, 2, 3, rectangle);
+	read_error(descriptor, -ESTALE, GUI_PROTOCOL_SURFACE_PATCH_BEGIN);
+	budget_marker("/tmp/gui-patch.committed");
+	budget_wait("/tmp/gui-patch.finish");
+	destroy_window(descriptor, window);
+	close(descriptor);
+	let_server_observe_disconnect();
+	descriptor = connect_client();
+	window = create_window(descriptor, 2, 64, 48);
+	commit_color_surface(descriptor, window, 64, 48, 0x00225688);
+	destroy_window(descriptor, window);
+	close(descriptor);
+	puts("wm-client: atomic patches, stale bases, cancellation and recovery pass");
+}
+
 int main(int argc, char **argv)
 {
 	uint8_t frame[64];
@@ -1589,6 +1660,7 @@ int main(int argc, char **argv)
 		!strcmp(argv[1], "--many-windows") ||
 		!strcmp(argv[1], "--occlusion") ||
 		!strcmp(argv[1], "--fullscreen") ||
+		!strcmp(argv[1], "--patch-only") ||
 		!strcmp(argv[1], "--partial-only") ||
 		!strcmp(argv[1], "--commit-only") ||
 		!strcmp(argv[1], "--recovery-only") ||
@@ -1597,7 +1669,9 @@ int main(int argc, char **argv)
 		!strcmp(argv[1], "--interact-only") || !strcmp(argv[1], "--launch-only") ||
 		!strcmp(argv[1], "--launch-cleanup-only"))));
 	if (argc == 2) {
-		if (!strcmp(argv[1], "--surface-only")) {
+		if (!strcmp(argv[1], "--patch-only")) {
+			test_rectangular_upload();
+		} else if (!strcmp(argv[1], "--surface-only")) {
 			test_staging();
 			puts("wm-client: staging ok");
 		} else if (!strcmp(argv[1], "--surface-budget")) {

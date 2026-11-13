@@ -11,3 +11,4 @@ CHECK: gui-wm-busy: fullscreen transactions preserve modes, focus, geometry and 
 CHECK: gui-wm-busy: drawing work is counted independently of logical flushes
 CHECK: gui-wm-busy: incremental damage matches full composition with bounded work
 CHECK: gui-wm-busy: motion deadlines preserve ordered input and bounded dispatch
+CHECK: gui-wm-busy: negotiated patches preserve atomic pixels, identities and charges

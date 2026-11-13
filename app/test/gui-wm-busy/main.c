@@ -1786,6 +1786,234 @@ static void test_motion_batch(void)
 	puts("gui-wm-busy: motion deadlines preserve ordered input and bounded dispatch");
 }
 
+static void test_patch_begin(wm_window *window, uint64_t base, uint64_t frame, gui_rect rectangle)
+{
+	uint8_t bytes[sizeof(gui_protocol_wire_surface_patch_begin)] = { 0 };
+
+	put_u32(bytes, window->window_id);
+	put_u64(bytes + 4, window->configure_serial);
+	put_u64(bytes + 12, base);
+	put_u64(bytes + 20, frame);
+	put_u32(bytes + 28, rectangle.x);
+	put_u32(bytes + 32, rectangle.y);
+	put_u32(bytes + 36, rectangle.w);
+	put_u32(bytes + 40, rectangle.h);
+	assert(client_stage_patch(window, bytes) == 0);
+}
+
+static void test_patch_data(wm_window *window, uint64_t frame, uint32_t offset, uint32_t count)
+{
+	uint8_t bytes[sizeof(gui_protocol_wire_surface_data) + 64 * sizeof(gui_color)] = { 0 };
+
+	assert(count <= 64);
+	put_u32(bytes, window->window_id);
+	put_u64(bytes + 4, window->configure_serial);
+	put_u64(bytes + 12, frame);
+	put_u32(bytes + 20, offset);
+	put_u32(bytes + 24, count);
+	for (unsigned int index = 0; index < count; index++)
+		put_u32(bytes + sizeof(gui_protocol_wire_surface_data) + index * sizeof(gui_color), 0x00cc8844);
+	assert(client_surface_data(window, bytes, sizeof(gui_protocol_wire_surface_data) + count * sizeof(gui_color)) == 0);
+}
+
+static void test_patch_finish(wm_window *window, uint64_t frame, int cancel)
+{
+	uint8_t bytes[sizeof(gui_protocol_wire_surface_commit)] = { 0 };
+
+	put_u32(bytes, window->window_id);
+	put_u64(bytes + 4, window->configure_serial);
+	put_u64(bytes + 12, frame);
+	if (cancel)
+		client_cancel_surface(window, bytes);
+	else
+		assert(client_commit_surface(window, bytes) == 0);
+}
+
+static void assert_patch_error(wm_window *window, int status)
+{
+	gui_protocol_header header;
+
+	drain_output(window);
+	assert(gui_protocol_decode_header(captured_output, captured_bytes, &header) == 0);
+	assert(header.type == GUI_PROTOCOL_ERROR);
+	assert((int32_t)get_u32(captured_output + GUI_PROTOCOL_HEADER_SIZE) == status);
+}
+
+static wm_window *test_patch_window(wm_server *server, uint16_t minor)
+{
+	wm_client *peer = wm_add_client(server, dup(STDOUT_FILENO), GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	gui_protocol_header hello = { .type = GUI_PROTOCOL_HELLO };
+	gui_protocol_header capabilities = { .type = GUI_PROTOCOL_CAPABILITIES };
+	uint8_t payload[sizeof(gui_protocol_wire_window_create)] = { 0 };
+	wm_window *window;
+
+	assert(peer != NULL);
+	put_u16(payload, 1);
+	put_u16(payload + 2, minor);
+	client_message(peer, &hello, payload, 4);
+	assert(peer->hello == 1 && peer->protocol_minor == minor);
+	captured_bytes = 0;
+	assert(gui_protocol_output_flush(peer->output, capture_output, NULL) == GUI_PROTOCOL_OUTPUT_EMPTY);
+	assert(get_u16(captured_output + GUI_PROTOCOL_HEADER_SIZE + 2) == minor);
+	put_u32(payload, GUI_PROTOCOL_CAP_SURFACE_PATCH | 2);
+	client_message(peer, &capabilities, payload, 4);
+	captured_bytes = 0;
+	assert(gui_protocol_output_flush(peer->output, capture_output, NULL) == GUI_PROTOCOL_OUTPUT_EMPTY);
+	assert(peer->capabilities == (minor ? GUI_PROTOCOL_CAP_SURFACE_PATCH : 0));
+	assert(get_u32(captured_output + GUI_PROTOCOL_HEADER_SIZE) == (minor ? 1U : (uint32_t)-EPROTONOSUPPORT));
+	memset(payload, 0, sizeof(payload));
+	put_u32(payload, 1);
+	put_u32(payload + 4, 64);
+	put_u32(payload + 8, 48);
+	client_create_window(peer, payload, sizeof(payload), 0);
+	window = peer->windows;
+	assert(window != NULL);
+	drain_output(window);
+	stage(window, window->configure_serial, 2);
+	assert(window->staging != NULL);
+	gui_fill_rect(window->staging, (gui_rect) { 0, 0, 64, 48 }, 0x00225688);
+	commit_staged(window);
+	drain_output(window);
+	return window;
+}
+
+static void test_atomic_patches(void)
+{
+	static wm_server server;
+	wm_window *legacy;
+	wm_window *window;
+	wm_window *cover;
+	gui_rect rectangle = { 4, 3, 8, 5 };
+	gui_surface *base;
+	uint64_t previous_frame;
+	size_t previous_bytes;
+	size_t limit;
+
+	init_server(&server, 1024, 768);
+	server.state.graphics = 1;
+	server.state.framebuffer = 123;
+	server.state.scanout_stride = 4096;
+	server.state.composite = gui_surface_create(1024, 768);
+	assert(server.state.composite != NULL);
+	scanout_result = GUI_FLUSH_COMPLETE;
+	legacy = test_patch_window(&server, 0);
+	window = test_patch_window(&server, 1);
+	drain_output(legacy);
+	base = window->committed;
+	previous_bytes = server.state.surface_bytes;
+	test_patch_begin(legacy, 2, 3, rectangle);
+	assert_patch_error(legacy, -EPROTONOSUPPORT);
+	test_patch_begin(window, 99, 3, rectangle);
+	assert_patch_error(window, -ESTALE);
+	test_patch_begin(window, 2, 3, (gui_rect) { -1, 0, 8, 5 });
+	assert_patch_error(window, -EINVAL);
+	test_patch_begin(window, 2, 3, (gui_rect) { 60, 0, 8, 5 });
+	assert_patch_error(window, -EINVAL);
+	test_patch_begin(window, 2, 3, rectangle);
+	assert(window->staging != NULL && window->committed == base);
+	assert(server.state.surface_bytes == previous_bytes + 64 * 48 * 4);
+	assert(!memcmp(base->pixels, window->staging->pixels, 64 * 48 * 4));
+	test_patch_begin(window, 2, 4, rectangle);
+	assert_patch_error(window, -EBUSY);
+	test_patch_data(window, 3, 0, 17);
+	drain_output(window);
+	test_patch_finish(window, 3, 0);
+	assert_patch_error(window, -EINVAL);
+	assert(window->committed == base && window->staging_pixels == 17);
+	test_patch_data(window, 3, 0, 17);
+	assert_patch_error(window, -EINVAL);
+	test_patch_data(window, 3, 17, 23);
+	drain_output(window);
+	previous_frame = begin_drawing_measurement(&server);
+	test_patch_finish(window, 3, 0);
+	measure_drawing = 0;
+	assert(server.state.frame_number == previous_frame + 1 && measured_work.written_bytes == 160);
+	assert(measured_work.flush_requests == 1 && measured_work.writer_calls == 5);
+	assert(window->committed_frame_serial == 3 && window->staging == NULL);
+	for (unsigned int row = 0; row < 48; row++)
+		for (unsigned int column = 0; column < 64; column++)
+			assert(window->committed->pixels[row * 64 + column] ==
+				(row >= 3 && row < 8 && column >= 4 && column < 12 ? 0x00cc8844 : 0x00225688));
+	assert_full_scene(&server);
+	cover = init_client(&server, 2, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	cover->x = window->x;
+	cover->y = window->y;
+	cover->stack_order = ++server.next_stack_order;
+	stage(cover, 1, 2);
+	assert(cover->staging != NULL);
+	gui_fill_rect(cover->staging, (gui_rect) { 0, 0, 64, 48 }, 0x00665544);
+	commit_staged(cover);
+	assert(wm_window_obscured(&server, window));
+	test_patch_begin(window, 3, 4, (gui_rect) { 20, 10, 8, 5 });
+	test_patch_data(window, 4, 0, 40);
+	drain_output(window);
+	previous_frame = begin_drawing_measurement(&server);
+	test_patch_finish(window, 4, 0);
+	measure_drawing = 0;
+	assert(server.state.frame_number == previous_frame && measured_work.writer_calls == 0);
+	window_destroy(cover);
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert(window->committed->pixels[10 * 64 + 20] == 0x00cc8844);
+	assert_full_scene(&server);
+	limit = server.state.surface_limit;
+	server.state.surface_limit = server.state.surface_bytes + window->committed_bytes;
+	test_patch_begin(window, 4, 5, rectangle);
+	assert_patch_error(window, -ENOMEM);
+	assert(window->staging == NULL && window->committed_frame_serial == 4);
+	server.state.surface_limit = limit;
+	test_patch_begin(window, 4, 5, rectangle);
+	test_patch_finish(window, 5, 1);
+	assert(window->staging == NULL && window->committed_frame_serial == 4);
+	test_patch_begin(window, 4, 5, rectangle);
+	assert_patch_error(window, -ESTALE);
+	fail_surface_allocation = 1;
+	test_patch_begin(window, 4, 6, rectangle);
+	assert_patch_error(window, -ENOMEM);
+	assert(window->staging == NULL && window->configure_serial == 2 && window->committed_frame_serial == 4);
+	test_patch_begin(window, 4, 7, rectangle);
+	assert_patch_error(window, -ESTALE);
+	stage(window, 2, 8);
+	assert(window->staging != NULL);
+	gui_fill_rect(window->staging, (gui_rect) { 0, 0, 64, 48 }, 0x00225688);
+	commit_staged(window);
+	test_patch_begin(window, 8, 9, rectangle);
+	test_patch_data(window, 9, 0, 40);
+	drain_output(window);
+	base = window->committed;
+	scanout_result = GUI_FLUSH_ERROR;
+	test_patch_finish(window, 9, 0);
+	assert_patch_error(window, -EIO);
+	assert(window->committed == base && window->committed_frame_serial == 8 && window->configure_serial == 3);
+	scanout_result = GUI_FLUSH_COMPLETE;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert_full_scene(&server);
+	assert(legacy->client->hello == 1 && legacy->committed != NULL);
+	stage(window, 3, 10);
+	assert(window->staging != NULL);
+	gui_fill_rect(window->staging, (gui_rect) { 0, 0, 64, 48 }, 0x00225688);
+	commit_staged(window);
+	test_patch_begin(window, 10, 11, rectangle);
+	test_patch_data(window, 11, 0, 7);
+	drain_output(window);
+	assert(wm_resize_window(&server, window, window->x, window->y, 80, 48) == 1);
+	assert(window->staging == NULL && window->reserved_bytes == 80 * 48 * 4);
+	drain_output(window);
+	test_patch_begin(window, 10, 12, rectangle);
+	assert_patch_error(window, -ESTALE);
+	{
+		int descriptor = window->client->fd;
+
+		wm_disconnect_client(&server, window->client);
+		assert(fcntl(descriptor, F_GETFD) < 0 && errno == EBADF);
+	}
+	assert(server.state.surface_bytes == legacy->committed_bytes);
+	assert(legacy->client->hello == 1 && legacy->committed->pixels[0] == 0x00225688);
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert_full_scene(&server);
+	cleanup_server(&server);
+	puts("gui-wm-busy: negotiated patches preserve atomic pixels, identities and charges");
+}
+
 int main(void)
 {
 	struct sigaction ignore_pipe = { .sa_handler = SIG_IGN };
@@ -1810,6 +2038,7 @@ int main(void)
 	test_drawing_counter_clipping();
 	test_drawing_work();
 	test_motion_batch();
+	test_atomic_patches();
 	puts("gui-wm-busy: valid commits survive suspended scanout");
 	puts("gui-wm-busy: reservations, shell headroom and transition rollback pass");
 	puts("gui-wm-busy: real terminal survives pressure and allocation/flush rollback");

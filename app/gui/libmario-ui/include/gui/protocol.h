@@ -6,7 +6,8 @@
 #include <sys/types.h>
 
 #define GUI_PROTOCOL_VERSION_MAJOR 1U
-#define GUI_PROTOCOL_VERSION_MINOR 0U
+#define GUI_PROTOCOL_VERSION_MINOR 1U
+#define GUI_PROTOCOL_CAP_SURFACE_PATCH 0x00000001U
 #define GUI_PROTOCOL_HEADER_SIZE 8U
 #define GUI_PROTOCOL_MIN_MESSAGE_SIZE GUI_PROTOCOL_HEADER_SIZE
 #define GUI_PROTOCOL_MAX_MESSAGE_SIZE 65536U
@@ -50,6 +51,10 @@ typedef enum {
 	GUI_PROTOCOL_LAUNCH_RESULT,
 	GUI_PROTOCOL_APP_READY,
 	GUI_PROTOCOL_APP_EXIT,
+	GUI_PROTOCOL_CAPABILITIES,
+	GUI_PROTOCOL_CAPABILITIES_REPLY,
+	GUI_PROTOCOL_SURFACE_PATCH_BEGIN,
+	GUI_PROTOCOL_SURFACE_CANCEL,
 } gui_protocol_type;
 
 typedef enum {
@@ -70,6 +75,10 @@ typedef struct __attribute__((packed)) {
 	uint16_t major_le;
 	uint16_t minor_le;
 } gui_protocol_wire_hello;
+
+typedef struct __attribute__((packed)) {
+	uint32_t capabilities_le;
+} gui_protocol_wire_capabilities;
 
 typedef struct __attribute__((packed)) {
 	int32_t status_le;
@@ -141,6 +150,17 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
 	uint32_t window_id_le;
 	uint64_t configure_serial_le;
+	uint64_t base_frame_serial_le;
+	uint64_t frame_serial_le;
+	int32_t x_le;
+	int32_t y_le;
+	uint32_t width_le;
+	uint32_t height_le;
+} gui_protocol_wire_surface_patch_begin;
+
+typedef struct __attribute__((packed)) {
+	uint32_t window_id_le;
+	uint64_t configure_serial_le;
 	uint64_t frame_serial_le;
 	uint32_t pixel_offset_le;
 	uint32_t pixel_count_le;
@@ -153,6 +173,8 @@ typedef struct __attribute__((packed)) {
 	uint64_t configure_serial_le;
 	uint64_t frame_serial_le;
 } gui_protocol_wire_surface_commit;
+
+typedef gui_protocol_wire_surface_commit gui_protocol_wire_surface_cancel;
 
 typedef struct __attribute__((packed)) {
 	uint32_t window_id_le;

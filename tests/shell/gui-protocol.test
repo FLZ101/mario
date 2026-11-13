@@ -4,3 +4,4 @@ CHECK: gui-protocol: hello ok
 CHECK: gui-protocol: roles ok
 CHECK: gui-protocol: input ok
 CHECK: gui-protocol: output ok
+CHECK: gui-protocol: negotiated patch wire layouts preserve v1.0 payloads
