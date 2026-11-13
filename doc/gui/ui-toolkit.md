@@ -432,6 +432,16 @@ configured-size surface replacements. Existing committed window surfaces and
 the bounded damage/flush helpers are reused rather than replaced by a new
 rendering stack or an assumed GPU API.
 
+M10.4 batches a full-width rectangle into a contiguous span only when its
+source stride and scanout pitch both equal the intended row bytes. Narrow
+rectangles and padding on either side retain scanline writes. Requests are
+capped at `SSIZE_MAX`, without a packing buffer; partial writes can cross row
+boundaries and retry at the exact byte offset. BUSY retains the original
+unfinished rectangle, and region retries preserve order. The WM's native build
+now depends on the static toolkit archive, preventing stale scanout code after
+library-only edits. The complete 1024x768 fixture uses one 3145728-byte writer
+call; its 320x192 content update remains 192 narrow scanline calls.
+
 - The WM owns screen-space damage. Application cell/region tracking and WM
   damage are separate: changing geometry exposes cached pixels without asking
   the application to rerender them. Clip fill/blit operations as well as

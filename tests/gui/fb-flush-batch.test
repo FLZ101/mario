@@ -1,0 +1,18 @@
+GUI-VISUAL-TEST:
+SERIAL: /usr/bin/test/gui-surface.exe
+SERIAL-CHECK: gui-surface: contiguous flush preserves layout and retry bounds
+SERIAL: /usr/bin/test/gui-wm-busy.exe >/tmp/fb-batch.work 2>&1; cat /tmp/fb-batch.work
+SERIAL-CHECK: gui-wm-busy: drawing work is counted independently of logical flushes
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & batch_wm=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 32 32 32 32 31 41 51
+GUI-SEND-KEY: f1
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 32 32 32 32 31 41 51
+GUI-SEND-KEY: f6
+SERIAL: kill -TERM "$batch_wm"; while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

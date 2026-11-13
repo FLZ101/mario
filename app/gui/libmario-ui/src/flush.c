@@ -27,6 +27,34 @@ static int gui_flush_offset(size_t scanout_stride, int row, size_t line_offset,
 	return 1;
 }
 
+static gui_flush_result gui_flush_span(const char *pixels, size_t remaining,
+				      off_t offset, gui_pwrite64_fn writer, void *context)
+{
+	while (remaining > 0) {
+		size_t requested = remaining > SSIZE_MAX ? SSIZE_MAX : remaining;
+		ssize_t written = writer(context, pixels, requested, offset);
+
+		if (written > 0) {
+			if ((size_t)written > requested)
+				return GUI_FLUSH_ERROR;
+			pixels += written;
+			remaining -= (size_t)written;
+			if (remaining > 0) {
+				if ((uint64_t)offset > INT64_MAX - (uint64_t)written)
+					return GUI_FLUSH_ERROR;
+				offset += written;
+			}
+			continue;
+		}
+		if (written == -1 && errno == EINTR)
+			continue;
+		if (written == -1 && errno == EBUSY)
+			return GUI_FLUSH_BUSY;
+		return GUI_FLUSH_ERROR;
+	}
+	return GUI_FLUSH_COMPLETE;
+}
+
 gui_flush_result gui_surface_flush_rect(const gui_surface *surface,
 					gui_rect rect, size_t scanout_stride,
 					gui_pwrite64_fn pwrite64_fn, void *context)
@@ -37,6 +65,8 @@ gui_flush_result gui_surface_flush_rect(const gui_surface *surface,
 	int height;
 	size_t line_offset;
 	size_t line_bytes;
+	size_t source_stride;
+	off_t final_offset;
 
 	if (pwrite64_fn == NULL || scanout_stride == 0)
 		return GUI_FLUSH_ERROR;
@@ -50,40 +80,41 @@ gui_flush_result gui_surface_flush_rect(const gui_surface *surface,
 	line_bytes = (size_t)width * sizeof(gui_color);
 	if (line_offset > scanout_stride || line_bytes > scanout_stride - line_offset)
 		return GUI_FLUSH_ERROR;
+	if (surface->stride < surface->width || surface->stride <= 0 ||
+	    (size_t)surface->stride > SIZE_MAX / sizeof(gui_color))
+		return GUI_FLUSH_ERROR;
+	source_stride = (size_t)surface->stride * sizeof(gui_color);
+	if (line_offset > SIZE_MAX - line_bytes ||
+	    (size_t)(clipped_y + height - 1) >
+		(SIZE_MAX - line_offset - line_bytes) / source_stride ||
+	    !gui_flush_offset(scanout_stride, clipped_y + height - 1, line_offset,
+		&final_offset) ||
+	    (uint64_t)final_offset > INT64_MAX - (uint64_t)(line_bytes - 1))
+		return GUI_FLUSH_ERROR;
+	if (clipped_x == 0 && line_bytes == source_stride && line_bytes == scanout_stride) {
+		off_t offset;
+
+		if (line_bytes > SIZE_MAX / (size_t)height ||
+		    !gui_flush_offset(scanout_stride, clipped_y, 0, &offset))
+			return GUI_FLUSH_ERROR;
+		return gui_flush_span((const char *)surface->pixels +
+			(size_t)clipped_y * source_stride, line_bytes * height,
+			offset, pwrite64_fn, context);
+	}
 
 	for (int row = 0; row < height; row++) {
 		const char *pixels = (const char *)surface->pixels +
 			((size_t)(clipped_y + row) * surface->stride + clipped_x) *
 			sizeof(*surface->pixels);
-		size_t remaining = line_bytes;
 		off_t offset;
+		gui_flush_result result;
 
 		if (!gui_flush_offset(scanout_stride, clipped_y + row, line_offset,
 				      &offset))
 			return GUI_FLUSH_ERROR;
-		while (remaining > 0) {
-			ssize_t written = pwrite64_fn(context, pixels, remaining, offset);
-
-			if (written > 0) {
-				if ((size_t)written > remaining)
-					return GUI_FLUSH_ERROR;
-				pixels += written;
-				remaining -= (size_t)written;
-				if (remaining > 0) {
-					if ((uint64_t)offset > INT64_MAX -
-					    (uint64_t)written)
-						return GUI_FLUSH_ERROR;
-					offset += written;
-				}
-				continue;
-			}
-			if (written == -1 && errno == EINTR)
-				continue;
-			/* A partial scanout is retried as the original rectangle later. */
-			if (written == -1 && errno == EBUSY)
-				return GUI_FLUSH_BUSY;
-			return GUI_FLUSH_ERROR;
-		}
+		result = gui_flush_span(pixels, line_bytes, offset, pwrite64_fn, context);
+		if (result != GUI_FLUSH_COMPLETE)
+			return result;
 	}
 	return GUI_FLUSH_COMPLETE;
 }

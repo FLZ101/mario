@@ -192,6 +192,91 @@ static void test_flush_region(void)
 	gui_surface_destroy(surface);
 }
 
+static void test_flush_batch(void)
+{
+	gui_color pixels[18];
+	gui_surface surface = { .width = 4, .height = 3, .stride = 4, .pixels = pixels };
+	gui_rect full = { 0, 0, 4, 3 };
+	gui_region_rect rectangles[2];
+	gui_region region;
+	mock_sink sink = { .results = { 48 } };
+
+	for (unsigned int index = 0; index < 18; index++)
+		pixels[index] = 0x01020300 + index;
+	assert(gui_surface_flush_rect(&surface, full, 16, mock_pwrite64, &sink) == GUI_FLUSH_COMPLETE);
+	assert(sink.count == 1 && sink.offsets[0] == 0 && sink.counts[0] == 48);
+	assert(!memcmp(sink.bytes, pixels, 48));
+	memset(&sink, 0, sizeof(sink));
+	sink.results[0] = 32;
+	assert(gui_surface_flush_rect(&surface, (gui_rect) { 0, 1, 4, 2 }, 16,
+		mock_pwrite64, &sink) == GUI_FLUSH_COMPLETE);
+	assert(sink.count == 1 && sink.offsets[0] == 16 && sink.counts[0] == 32);
+	assert(!memcmp(sink.bytes + 16, pixels + 4, 32));
+	memset(&sink, 0, sizeof(sink));
+	sink.results[0] = -1;
+	sink.errors[0] = EINTR;
+	sink.results[1] = 19;
+	sink.results[2] = -1;
+	sink.errors[2] = EINTR;
+	sink.results[3] = 29;
+	assert(gui_surface_flush_rect(&surface, full, 16, mock_pwrite64, &sink) == GUI_FLUSH_COMPLETE);
+	assert(sink.count == 4 && sink.offsets[0] == 0 && sink.offsets[1] == 0);
+	assert(sink.offsets[2] == 19 && sink.offsets[3] == 19);
+	assert(sink.counts[0] == 48 && sink.counts[1] == 48 && sink.counts[2] == 29 && sink.counts[3] == 29);
+	assert(!memcmp(sink.bytes, pixels, 48));
+	gui_region_init(&region, rectangles, 2, full);
+	gui_region_mark_full(&region);
+	memset(&sink, 0, sizeof(sink));
+	sink.results[0] = 19;
+	sink.results[1] = -1;
+	sink.errors[1] = EBUSY;
+	assert(gui_surface_flush_region(&surface, &region, 16, mock_pwrite64, &sink) == GUI_FLUSH_BUSY);
+	assert(sink.count == 2 && sink.offsets[1] == 19 && sink.counts[1] == 29);
+	assert(region.count == 1 && region.full);
+	memset(&sink, 0, sizeof(sink));
+	sink.results[0] = 48;
+	assert(gui_surface_flush_region(&surface, &region, 16, mock_pwrite64, &sink) == GUI_FLUSH_COMPLETE);
+	assert(sink.count == 1 && region.count == 0 && !region.full);
+	assert(!memcmp(sink.bytes, pixels, 48));
+	memset(&sink, 0, sizeof(sink));
+	sink.results[0] = sink.results[1] = sink.results[2] = 16;
+	assert(gui_surface_flush_rect(&surface, full, 24, mock_pwrite64, &sink) == GUI_FLUSH_COMPLETE);
+	assert(sink.count == 3 && sink.offsets[0] == 0 && sink.offsets[1] == 24 && sink.offsets[2] == 48);
+	for (unsigned int row = 0; row < 3; row++) {
+		assert(!memcmp(sink.bytes + row * 24, pixels + row * 4, 16));
+		for (unsigned int padding = 16; padding < 24; padding++)
+			assert(sink.bytes[row * 24 + padding] == 0);
+	}
+	surface.stride = 6;
+	memset(&sink, 0, sizeof(sink));
+	sink.results[0] = sink.results[1] = sink.results[2] = 16;
+	assert(gui_surface_flush_rect(&surface, full, 16, mock_pwrite64, &sink) == GUI_FLUSH_COMPLETE);
+	assert(sink.count == 3);
+	for (unsigned int row = 0; row < 3; row++)
+		assert(!memcmp(sink.bytes + row * 16, pixels + row * 6, 16));
+	surface.stride = 4;
+	memset(&sink, 0, sizeof(sink));
+	sink.results[0] = sink.results[1] = 8;
+	assert(gui_surface_flush_rect(&surface, (gui_rect) { 1, 1, 2, 2 }, 16,
+		mock_pwrite64, &sink) == GUI_FLUSH_COMPLETE);
+	assert(sink.count == 2 && sink.offsets[0] == 20 && sink.offsets[1] == 36);
+	assert(!memcmp(sink.bytes + 20, pixels + 5, 8));
+	assert(!memcmp(sink.bytes + 36, pixels + 9, 8));
+	memset(&sink, 0, sizeof(sink));
+	sink.results[0] = 48;
+	assert(gui_surface_flush_rect(&surface, (gui_rect) { -10, -10, 100, 100 }, 16,
+		mock_pwrite64, &sink) == GUI_FLUSH_COMPLETE);
+	assert(sink.count == 1 && !memcmp(sink.bytes, pixels, 48));
+	memset(&sink, 0, sizeof(sink));
+	assert(gui_surface_flush_rect(&surface, (gui_rect) { 4, 3, 1, 1 }, 16,
+		mock_pwrite64, &sink) == GUI_FLUSH_COMPLETE && sink.count == 0);
+	assert(gui_surface_flush_rect(&surface, (gui_rect) { 0, 1, 4, 2 }, SIZE_MAX / 2 + 1,
+		mock_pwrite64, &sink) == GUI_FLUSH_ERROR && sink.count == 0);
+	surface.width = surface.height = surface.stride = INT_MAX;
+	assert(gui_surface_flush_rect(&surface, (gui_rect) { 0, 0, INT_MAX, INT_MAX }, SIZE_MAX,
+		mock_pwrite64, &sink) == GUI_FLUSH_ERROR && sink.count == 0);
+}
+
 int main(void)
 {
 	gui_surface *surface;
@@ -220,11 +305,13 @@ int main(void)
 	test_damage_region();
 	test_flush_rect();
 	test_flush_region();
+	test_flush_batch();
 
 	puts("gui-surface: ok");
 	puts("gui-surface: drawing ok");
 	puts("gui-surface: damage ok");
 	puts("gui-surface: flush ok");
 	puts("gui-surface: region flush ok");
+	puts("gui-surface: contiguous flush preserves layout and retry bounds");
 	return 0;
 }

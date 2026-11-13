@@ -1762,8 +1762,8 @@ allows implementation after M9.5 and the runnable-suite gate with
 skipped, leaving M9.6/integration deferred.
 M10.1 has a test-only implementation and a recorded baseline in
 [GUI drawing baseline](drawing-baseline.md); M10.2 implements bounded composition
-and scanout, M10.3 adds bounded motion pacing, and M10.4–M10.8 remain planned
-and unchecked.
+and scanout, M10.3 adds bounded motion pacing, and M10.4 batches layout-safe
+scanout spans. M10.5–M10.8 remain planned and unchecked.
 On November 14, 2026 its focused gates, 48-sample timing capture, and
 `make test SMP=16` runnable-suite gate pass: 145 guest cases pass, with the
 three recorded GUI deferrals and two SMP-4-only shell cases explicitly skipped.
@@ -1861,9 +1861,10 @@ item, its focused gates during development, and `make test SMP=16` plus
   wm-quota's seventeenth process launch reported the executable not found.
   Both pass focused reproduction (quota twice), and the unchanged third full
   gate passes. Causes remain unconfirmed; no assertions or skips were changed.
-- [ ] **M10.4 — batch contiguous framebuffer writes safely.**
+- [x] **M10.4 — batch contiguous framebuffer writes safely.**
   Prerequisite: M10.3. Owns `app/gui/libmario-ui/src/flush.c`,
   `app/test/gui-surface/`, `tests/shell/gui-surface.test`,
+  `app/gui/desktop/mario-wm/Makefile.local`, `app/test/gui-wm-busy/`,
   `tests/gui/fb-flush-batch.test`, and `doc/gui/`. Use contiguous spans when
   both source and destination strides/layouts permit writing exactly the
   intended pixels. Keep narrow/padded rectangles on the scanline path; no
@@ -1879,6 +1880,14 @@ item, its focused gates during development, and `make test SMP=16` plus
   and
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test fb-flush-batch.test tests/gui`,
   then `make test SMP=16`. Commit: `gui: batch layout-safe framebuffer writes`.
+  Completed November 14, 2026: contiguous full-frame scanout takes one writer
+  call, while narrow and padded layouts preserve scanline writes. Exact bytes,
+  clipping, overflow, cross-row short writes, EINTR, BUSY retention, and ordered
+  retries pass, as do foreground GUI checks and the full runnable suite
+  (148 guest cases, 49 host tests; unchanged explicit deferrals). Initial
+  validation was canceled after discovering a stale statically linked WM;
+  an archive build dependency fixes that issue, and all gates were rerun
+  against the freshly linked production binary before committing.
 - [ ] **M10.5 — render only changed terminal cells.**
   Prerequisite: M10.4. Owns `app/usr/terminal/`, `app/test/terminal-vt/`,
   `tests/shell/terminal-vt.test`, `tests/gui/terminal-damage.test`, its reviewed

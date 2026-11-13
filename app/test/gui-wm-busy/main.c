@@ -1482,7 +1482,7 @@ static void report_drawing_work(const char *name, const wm_server *server,
 		assert(measured_work.flush_requests == 1 && measured_work.writer_calls == 192 && measured_work.written_bytes == 245760);
 	} else {
 		assert(measured_work.filled_pixels == 1572864 && measured_work.blitted_pixels == 786432);
-		assert(measured_work.flush_requests == 1 && measured_work.writer_calls == 768 && measured_work.written_bytes == 3145728);
+		assert(measured_work.flush_requests == 1 && measured_work.writer_calls == 1 && measured_work.written_bytes == 3145728);
 	}
 	printf("gui-drawing-work: {\"case\":\"%s\",\"filled_pixels\":%llu,"
 		"\"blitted_pixels\":%llu,\"flush_requests\":%llu,\"writer_calls\":%llu,"

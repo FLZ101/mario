@@ -1,2 +1,3 @@
 CFLAGS += -I$(ROOT)/gui/libmario-ui/include
 LDFLAGS += -L$(ROOT)/gui/libmario-ui -lmario-ui
+$(EXE): $(ROOT)/gui/libmario-ui/libmario-ui.a

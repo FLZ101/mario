@@ -4,3 +4,4 @@ CHECK: gui-surface: drawing ok
 CHECK: gui-surface: damage ok
 CHECK: gui-surface: flush ok
 CHECK: gui-surface: region flush ok
+CHECK: gui-surface: contiguous flush preserves layout and retry bounds
