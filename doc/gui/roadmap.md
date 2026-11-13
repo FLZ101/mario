@@ -1760,7 +1760,11 @@ and fullscreen tmux application tests. The recorded November 13, 2026 exception
 allows implementation after M9.5 and the runnable-suite gate with
 `GUI-TMUX-STARTUP`, `GUI-STRESS-CLEANUP`, and `GUI-CAPACITY-FRAME` explicitly
 skipped, leaving M9.6/integration deferred.
-All items below are planned and unchecked.
+M10.1 has a test-only implementation and a recorded baseline in
+[GUI drawing baseline](drawing-baseline.md); M10.2–M10.8 remain planned and unchecked.
+On November 14, 2026 its focused gates, 48-sample timing capture, and
+`make test SMP=16` runnable-suite gate pass: 145 guest cases pass, with the
+three recorded GUI deferrals and two SMP-4-only shell cases explicitly skipped.
 The target contracts are
 [Desktop and applications](desktop.md#incremental-drawing-m10-target) and
 [UI toolkit](ui-toolkit.md#incremental-presentation-and-uploads-m10-target).
@@ -1770,10 +1774,11 @@ latency. Run `make test SMP=16` on the preceding commit before starting each
 item, its focused gates during development, and `make test SMP=16` plus
 `git diff --check` before each commit. Use one commit per numbered item.
 
-- [ ] **M10.1 — establish deterministic drawing-work and timing baselines.**
+- [x] **M10.1 — establish deterministic drawing-work and timing baselines.**
   Prerequisite: the M9 checkpoint above. Owns `app/test/gui-wm-busy/`,
   `tests/shell/gui-wm-busy.test`, `tests/gui/gui-drawing-performance.test`,
-  `tests/bench_gui_drawing.py`, `doc/gui/drawing-baseline.md`, and this roadmap.
+  `tests/bench_gui_drawing.py`, `tests/test_gui_drawing_benchmark.py`,
+  `Makefile.run.mk`, `doc/gui/drawing-baseline.md`, and this roadmap.
   Use the existing test-only WM link to count composed pixels, flushed bytes,
   flush requests, actual writer calls, and completed presentations separately;
   do not add a production debug switch or infer syscalls from logical flush

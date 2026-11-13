@@ -1,0 +1,40 @@
+GUI-VISUAL-TEST:
+SERIAL: /usr/bin/test/gui-wm-busy.exe >/tmp/gui-perf.work 2>&1; cat /tmp/gui-perf.work
+SERIAL-CHECK: gui-wm-busy: drawing work is counted independently of logical flushes
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & perf_wm=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: <<FIXTURE
+cat >/tmp/gui-perf.run <<'PAINT'
+printf '\033[?25l\033[48;2;19;83;137m\033[2J'
+set -- $(stty size)
+columns=$(($2 - 1))
+for row in $(seq 1 "$1"); do
+    printf '\033[%s;1H%*s' "$row" "$columns" ''
+done
+printf '\033[H'
+sleep 70
+PAINT
+FIXTURE
+SERIAL: /usr/bin/terminal --command ". /tmp/gui-perf.run" >/tmp/gui-perf.term 2>&1 & perf_terminal=$!
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/gui-perf.term; do sleep 1; done
+GUI-CHECK-RECT: 144 112 8 8 19 83 137
+GUI-MOUSE-MOVE: 144,68
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 32,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 448 128 8 8 19 83 137
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: -32,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 144 112 8 8 19 83 137
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$perf_terminal" && printf 'gui-performance: terminal closed\n'
+SERIAL-CHECK: gui-performance: terminal closed
+GUI-SEND-KEY: f6
+SERIAL: kill -TERM "$perf_wm"; while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

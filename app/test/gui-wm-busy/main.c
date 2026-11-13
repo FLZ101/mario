@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <gui/surface.h>
 
@@ -8,6 +9,78 @@ static gui_flush_result scanout_result;
 static unsigned int scanout_calls;
 static int fail_surface_allocation;
 static int fail_record_allocation;
+
+typedef struct {
+	uint64_t filled_pixels;
+	uint64_t blitted_pixels;
+	uint64_t flush_requests;
+	uint64_t writer_calls;
+	uint64_t written_bytes;
+} drawing_work;
+
+static drawing_work measured_work;
+static int measure_drawing;
+
+static uint64_t drawing_area(const gui_surface *surface, int64_t x, int64_t y,
+			    int64_t width, int64_t height)
+{
+	int64_t right = x + width;
+	int64_t bottom = y + height;
+
+	if (surface == NULL || surface->pixels == NULL || width <= 0 || height <= 0)
+		return 0;
+	if (x < 0)
+		x = 0;
+	if (y < 0)
+		y = 0;
+	if (right > surface->width)
+		right = surface->width;
+	if (bottom > surface->height)
+		bottom = surface->height;
+	return right > x && bottom > y ? (uint64_t)(right - x) * (bottom - y) : 0;
+}
+
+static void measured_fill(gui_surface *surface, gui_rect rectangle, gui_color color)
+{
+	if (measure_drawing)
+		measured_work.filled_pixels += drawing_area(surface, rectangle.x,
+			rectangle.y, rectangle.w, rectangle.h);
+	gui_fill_rect(surface, rectangle, color);
+}
+
+static void measured_blit(gui_surface *destination, int destination_x,
+			  int destination_y, const gui_surface *source,
+			  const gui_rect *rectangle)
+{
+	if (measure_drawing && source != NULL && rectangle != NULL) {
+		int64_t left = rectangle->x > 0 ? rectangle->x : 0;
+		int64_t top = rectangle->y > 0 ? rectangle->y : 0;
+		int64_t right = (int64_t)rectangle->x + rectangle->w;
+		int64_t bottom = (int64_t)rectangle->y + rectangle->h;
+
+		if (right > source->width)
+			right = source->width;
+		if (bottom > source->height)
+			bottom = source->height;
+		if (source->pixels != NULL && rectangle->w > 0 && rectangle->h > 0)
+			measured_work.blitted_pixels += drawing_area(destination,
+				(int64_t)destination_x + left - rectangle->x,
+				(int64_t)destination_y + top - rectangle->y,
+				right - left, bottom - top);
+	}
+	gui_blit(destination, destination_x, destination_y, source, rectangle);
+}
+
+static ssize_t measured_write(void *context, const void *bytes, size_t count,
+			      off_t offset)
+{
+	(void)context;
+	assert(bytes != NULL && offset >= 0 && count > 0);
+	assert((uint64_t)offset + count <= 1024 * 768 * 4);
+	measured_work.writer_calls++;
+	measured_work.written_bytes += count;
+	return (ssize_t)count;
+}
 
 static void *test_record_create(size_t count, size_t bytes)
 {
@@ -28,19 +101,31 @@ static gui_surface *test_surface_create(int width, int height)
 	return gui_surface_create(width, height);
 }
 
-gui_flush_result gui_surface_flush_rect_fd(const gui_surface *surface,
+static gui_flush_result test_surface_flush_rect_fd(const gui_surface *surface,
 		gui_rect rectangle, size_t stride, int descriptor)
 {
 	assert(surface != NULL && rectangle.w == surface->width && rectangle.h == surface->height);
 	assert(stride == (size_t)surface->width * 4 && descriptor == 123);
 	scanout_calls++;
+	if (measure_drawing) {
+		measured_work.flush_requests++;
+		assert(scanout_result == GUI_FLUSH_COMPLETE);
+		return gui_surface_flush_rect(surface, rectangle, stride,
+			measured_write, NULL);
+	}
 	return scanout_result;
 }
 
 #define main wm_program_main
 #define gui_surface_create test_surface_create
 #define calloc test_record_create
+#define gui_fill_rect measured_fill
+#define gui_blit measured_blit
+#define gui_surface_flush_rect_fd test_surface_flush_rect_fd
 #include "../../gui/desktop/mario-wm/main.c"
+#undef gui_surface_flush_rect_fd
+#undef gui_blit
+#undef gui_fill_rect
 #undef gui_surface_create
 #undef calloc
 #undef main
@@ -1306,6 +1391,145 @@ static void test_terminal_recovery(void)
 	cleanup_server(&server);
 }
 
+static uint64_t begin_drawing_measurement(const wm_server *server)
+{
+	memset(&measured_work, 0, sizeof(measured_work));
+	measure_drawing = 1;
+	scanout_result = GUI_FLUSH_COMPLETE;
+	return server->state.frame_number;
+}
+
+static void test_drawing_counter_clipping(void)
+{
+	gui_surface *destination = gui_surface_create(8, 6);
+	gui_surface *source = gui_surface_create(4, 4);
+
+	assert(destination != NULL && source != NULL);
+	memset(&measured_work, 0, sizeof(measured_work));
+	measure_drawing = 1;
+	measured_fill(destination, (gui_rect) { -3, -2, 5, 4 }, 0);
+	measured_fill(destination, (gui_rect) { 8, 6, 2, 2 }, 0);
+	measured_blit(destination, -1, 1, source, &(gui_rect) { -2, -1, 8, 7 });
+	measured_blit(destination, -2, -2, source, &(gui_rect) { 3, 3, 4, 4 });
+	measured_blit(destination, 0, 0, source, NULL);
+	measure_drawing = 0;
+	assert(measured_work.filled_pixels == 4 && measured_work.blitted_pixels == 16);
+	gui_surface_destroy(destination);
+	gui_surface_destroy(source);
+}
+
+static void report_drawing_work(const char *name, const wm_server *server,
+			       uint64_t previous_frame, int presented)
+{
+	uint64_t frames = server->state.frame_number - previous_frame;
+
+	measure_drawing = 0;
+	assert(frames == (uint64_t)presented);
+	assert(measured_work.flush_requests == (uint64_t)presented);
+	assert(measured_work.writer_calls == (uint64_t)presented * 768);
+	assert(measured_work.written_bytes == (uint64_t)presented * 1024 * 768 * 4);
+	if (presented) {
+		uint64_t screen_pixels = 1024 * 768;
+		uint64_t window_pixels = 320 * 192;
+		uint64_t decorated_pixels = (320 + 2 * WM_WINDOW_BORDER) *
+			(192 + WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER);
+		uint64_t chrome_pixels = decorated_pixels + 320 * WM_TITLE_HEIGHT +
+			WM_CLOSE_BUTTON_SIZE * WM_CLOSE_BUTTON_SIZE;
+
+		assert(measured_work.filled_pixels == (server->fullscreen_window != NULL ?
+			2 * screen_pixels : screen_pixels + chrome_pixels + window_pixels));
+		assert(measured_work.blitted_pixels == (server->fullscreen_window != NULL ?
+			screen_pixels : screen_pixels + window_pixels));
+	} else {
+		assert(measured_work.filled_pixels == 0 && measured_work.blitted_pixels == 0);
+	}
+	printf("gui-drawing-work: {\"case\":\"%s\",\"filled_pixels\":%llu,"
+		"\"blitted_pixels\":%llu,\"flush_requests\":%llu,\"writer_calls\":%llu,"
+		"\"written_bytes\":%llu,\"presentations\":%llu}\n", name,
+		(unsigned long long)measured_work.filled_pixels,
+		(unsigned long long)measured_work.blitted_pixels,
+		(unsigned long long)measured_work.flush_requests,
+		(unsigned long long)measured_work.writer_calls,
+		(unsigned long long)measured_work.written_bytes,
+		(unsigned long long)frames);
+}
+
+static void test_drawing_work(void)
+{
+	static wm_server server;
+	wm_window *target;
+	wm_window *cover;
+	gui_input_event pointer = { .type = GUI_INPUT_EVENT_MOUSE };
+	uint64_t previous_frame;
+
+	init_server(&server, 1024, 768);
+	server.state.framebuffer = 123;
+	server.state.scanout_stride = 1024 * 4;
+	server.state.graphics = 1;
+	server.state.composite = gui_surface_create(1024, 768);
+	server.desktop_snapshot = gui_surface_create(1024, 768);
+	assert(server.state.composite != NULL && server.desktop_snapshot != NULL);
+	server.desktop_snapshot_bytes = 1024 * 768 * 4;
+	server.state.surface_bytes = server.desktop_snapshot_bytes;
+	gui_fill_rect(server.desktop_snapshot, (gui_rect) { 0, 0, 1024, 768 }, 0x00112233);
+	target = init_client(&server, 0, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	target->x = 144;
+	target->y = 112;
+	target->width = 320;
+	target->height = 192;
+	target->stack_order = 1;
+	target->committed = gui_surface_create(320, 192);
+	assert(target->committed != NULL);
+	target->committed_bytes = 320 * 192 * 4;
+	target->client->surface_bytes = target->committed_bytes;
+	server.state.surface_bytes += target->committed_bytes;
+	gui_fill_rect(target->committed, (gui_rect) { 0, 0, 320, 192 }, 0x00225688);
+	scanout_result = GUI_FLUSH_COMPLETE;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	previous_frame = begin_drawing_measurement(&server);
+	wm_emit_input(&server, &pointer);
+	report_drawing_work("idle", &server, previous_frame, 0);
+	previous_frame = begin_drawing_measurement(&server);
+	pointer.mouse.dx = 32;
+	wm_emit_input(&server, &pointer);
+	report_drawing_work("cursor", &server, previous_frame, 1);
+	previous_frame = begin_drawing_measurement(&server);
+	assert(wm_move_window(&server, target, 152, 112) == 1);
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	report_drawing_work("small-window-move", &server, previous_frame, 1);
+	stage(target, 1, 2);
+	assert(target->staging != NULL);
+	gui_fill_rect(target->staging, (gui_rect) { 0, 0, 320, 192 }, 0x00336699);
+	previous_frame = begin_drawing_measurement(&server);
+	commit_staged(target);
+	report_drawing_work("visible-commit", &server, previous_frame, 1);
+	cover = init_client(&server, 1, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	cover->x = cover->y = 0;
+	cover->width = 1024;
+	cover->height = 768;
+	cover->fullscreen = 1;
+	cover->stack_order = 2;
+	cover->committed = gui_surface_create(1024, 768);
+	assert(cover->committed != NULL);
+	cover->committed_bytes = 1024 * 768 * 4;
+	cover->client->surface_bytes = cover->committed_bytes;
+	server.state.surface_bytes += cover->committed_bytes;
+	server.fullscreen_window = cover;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	stage(target, 1, 3);
+	assert(target->staging != NULL);
+	previous_frame = begin_drawing_measurement(&server);
+	commit_staged(target);
+	report_drawing_work("hidden-commit", &server, previous_frame, 0);
+	stage(cover, 1, 2);
+	assert(cover->staging != NULL);
+	previous_frame = begin_drawing_measurement(&server);
+	commit_staged(cover);
+	report_drawing_work("fullscreen-commit", &server, previous_frame, 1);
+	cleanup_server(&server);
+	puts("gui-wm-busy: drawing work is counted independently of logical flushes");
+}
+
 int main(void)
 {
 	struct sigaction ignore_pipe = { .sa_handler = SIG_IGN };
@@ -1327,6 +1551,8 @@ int main(void)
 	test_large_shell_stream();
 	test_shell_keyboard_input();
 	test_terminal_recovery();
+	test_drawing_counter_clipping();
+	test_drawing_work();
 	puts("gui-wm-busy: valid commits survive suspended scanout");
 	puts("gui-wm-busy: reservations, shell headroom and transition rollback pass");
 	puts("gui-wm-busy: real terminal survives pressure and allocation/flush rollback");
