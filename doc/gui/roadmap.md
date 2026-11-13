@@ -1761,7 +1761,8 @@ allows implementation after M9.5 and the runnable-suite gate with
 `GUI-TMUX-STARTUP`, `GUI-STRESS-CLEANUP`, and `GUI-CAPACITY-FRAME` explicitly
 skipped, leaving M9.6/integration deferred.
 M10.1 has a test-only implementation and a recorded baseline in
-[GUI drawing baseline](drawing-baseline.md); M10.2–M10.8 remain planned and unchecked.
+[GUI drawing baseline](drawing-baseline.md); M10.2 implements bounded composition
+and scanout, while M10.3–M10.8 remain planned and unchecked.
 On November 14, 2026 its focused gates, 48-sample timing capture, and
 `make test SMP=16` runnable-suite gate pass: 145 guest cases pass, with the
 three recorded GUI deferrals and two SMP-4-only shell cases explicitly skipped.
@@ -1796,7 +1797,7 @@ item, its focused gates during development, and `make test SMP=16` plus
   benchmark:
   `.venv/bin/python tests/bench_gui_drawing.py --smp 16 --output /tmp/mario-gui-baseline.json`,
   then `make test SMP=16`. Commit: `test: establish GUI drawing performance baselines`.
-- [ ] **M10.2 — compose and flush only damaged screen regions.**
+- [x] **M10.2 — compose and flush only damaged screen regions.**
   Prerequisite: M10.1. Owns `app/gui/desktop/mario-wm/main.c`,
   `app/gui/libmario-ui/`, `app/test/gui-surface/`, `app/test/gui-wm-busy/`,
   `app/test/gui-wm-client/`, `tests/shell/gui-wm-busy.test`,
@@ -1819,6 +1820,11 @@ item, its focused gates during development, and `make test SMP=16` plus
   and
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-damage.test tests/gui`,
   then `make test SMP=16`. Commit: `gui: compose and scan out bounded damage`.
+  Completed November 14, 2026: the WM-link full-scene pixel oracle, bounded
+  cursor/drag counters, BUSY retention, overflow fallback, and real GUI
+  overlap/move/foreground fixtures pass. The surface short-write/interruption
+  regression and full runnable suite also pass (146 guest cases, 49 host tests;
+  the same three GUI deferrals and two SMP-4-only cases remain explicit).
 - [ ] **M10.3 — batch motion drawing without delaying input dispatch.**
   Prerequisite: M10.2. Owns `app/gui/desktop/mario-wm/main.c`,
   `app/test/gui-wm-busy/`, `app/test/gui-wm-client/`,

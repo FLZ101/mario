@@ -9,3 +9,4 @@ CHECK: gui-wm-busy: union occlusion retains pixels and charges without scanout
 CHECK: gui-wm-busy: marker readers preserve atomic publication and bounded failure
 CHECK: gui-wm-busy: fullscreen transactions preserve modes, focus, geometry and charges
 CHECK: gui-wm-busy: drawing work is counted independently of logical flushes
+CHECK: gui-wm-busy: incremental damage matches full composition with bounded work

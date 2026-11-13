@@ -1,0 +1,44 @@
+GUI-VISUAL-TEST:
+SERIAL: /usr/bin/test/gui-wm-busy.exe >/tmp/wm-damage.log 2>&1; cat /tmp/wm-damage.log
+SERIAL-CHECK: gui-wm-busy: incremental damage matches full composition with bounded work
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & wm_pid=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: <<FIXTURE
+cat >/tmp/wm-damage.run <<'PAINT'
+printf '\033[?25l\033[48;2;19;83;137m\033[2J'
+set -- $(stty size)
+columns=$(($2 - 1))
+for row in $(seq 1 "$1"); do
+    printf '\033[%s;1H%*s' "$row" "$columns" ''
+done
+printf '\033[H'
+sleep 70
+PAINT
+FIXTURE
+SERIAL: /usr/bin/terminal --command ". /tmp/wm-damage.run" >/tmp/wm-damage.term 2>&1 & term_pid=$!
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/wm-damage.term; do sleep 1; done
+GUI-CHECK-RECT: 144 112 8 8 19 83 137
+GUI-MOUSE-MOVE: 144,68
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 32,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 448 128 8 8 19 83 137
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: -32,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 144 112 8 8 19 83 137
+GUI-SEND-KEY: f1
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 144 112 8 8 19 83 137
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$term_pid" && printf 'damage: clean close\n'
+SERIAL-CHECK: damage: clean close
+GUI-SEND-KEY: f6
+SERIAL: kill -TERM "$wm_pid"; while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

@@ -307,6 +307,17 @@ the transaction error.
 
 ### Incremental Drawing (M10 Target)
 
+M10.2 implements bounded composition and scanout. The WM retains its composite
+and a fixed 64-rectangle region; overflow conservatively invalidates the screen.
+No additional production image or cursor save-under allocation is required.
+Window presentation bookkeeping is included in the existing charged window
+records. Each damaged rectangle is a clipped view of the composite, including
+the final cursor stores, so scene reconstruction cannot touch unrelated pixels.
+Damage and last-presented geometry are retained until every rectangle is flushed
+and the completed-frame marker is published. Hidden commits retain their cached
+surface without scanout; foreground return invalidates all physical pixels.
+The remaining pacing, terminal, and protocol contracts below are M10 targets.
+
 - Keep a persistent composite and reuse each window's newest complete cached
   surface. Accumulate bounded screen-space damage for content, chrome, focus,
   stacking, geometry, lifecycle, desktop, and cursor changes. Clip all drawing

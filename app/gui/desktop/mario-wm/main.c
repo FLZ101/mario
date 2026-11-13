@@ -79,6 +79,13 @@ typedef struct {
 	uint8_t key_down[512];
 	uint8_t cursor_rgba[WM_CURSOR_WIDTH * WM_CURSOR_HEIGHT * 4];
 	gui_surface *composite;
+	gui_region damage;
+	gui_region_rect damage_rects[GUI_REGION_MAX_RECTS];
+	int painted;
+	uint32_t painted_cursor_x;
+	uint32_t painted_cursor_y;
+	uint32_t painted_fullscreen;
+	const gui_surface *painted_desktop;
 } wm_state;
 
 typedef struct wm_server wm_server;
@@ -134,6 +141,11 @@ struct wm_window {
 	wm_server *server;
 	uint16_t title_bytes;
 	uint8_t title[GUI_PROTOCOL_MAX_TITLE_BYTES];
+	int painted;
+	gui_rect painted_bounds;
+	gui_rect painted_content;
+	int painted_focus;
+	uint64_t painted_order;
 };
 
 struct wm_client {
@@ -211,6 +223,21 @@ static void window_reject(wm_window *window, gui_protocol_type type, int status)
 static void wm_cancel_capture(wm_server *server);
 static void wm_reset_input_owner(wm_server *server);
 static void wm_complete_mode(wm_window *window);
+
+static void wm_damage_init(wm_state *state)
+{
+	if (state->damage.rects != NULL)
+		return;
+	gui_region_init(&state->damage, state->damage_rects, GUI_REGION_MAX_RECTS,
+		(gui_rect) { 0, 0, state->width, state->height });
+	gui_region_mark_full(&state->damage);
+}
+
+static void wm_damage_rect(wm_state *state, gui_rect rectangle)
+{
+	wm_damage_init(state);
+	gui_region_add(&state->damage, rectangle);
+}
 
 static void *wm_record_create(wm_server *server, wm_client *client, size_t bytes)
 {
@@ -449,6 +476,9 @@ static void window_destroy(wm_window *window)
 	wm_client *client = window->client;
 	wm_window **link = &server->windows;
 
+	if (window->painted)
+		wm_damage_rect(&server->state, window->painted_bounds);
+
 	if (server->fullscreen_window == window) {
 		server->fullscreen_window = NULL;
 		server->deferred_focus_id = 0;
@@ -563,19 +593,23 @@ static int wm_load_cursor(wm_state *state)
 	return 0;
 }
 
-static void wm_draw_cursor(wm_state *state)
+static void wm_draw_cursor(wm_state *state, gui_rect clip)
 {
 	for (uint32_t row = 0; row < WM_CURSOR_HEIGHT; row++) {
 		uint32_t y = state->cursor_y + row;
 
 		if (y >= state->height)
 			break;
+		if (y < (uint32_t)clip.y || y >= (uint32_t)(clip.y + clip.h))
+			continue;
 		for (uint32_t column = 0; column < WM_CURSOR_WIDTH; column++) {
 			uint32_t x = state->cursor_x + column;
 			size_t source = ((size_t)row * WM_CURSOR_WIDTH + column) * 4;
 
 			if (x >= state->width)
 				break;
+			if (x < (uint32_t)clip.x || x >= (uint32_t)(clip.x + clip.w))
+				continue;
 			if (state->cursor_rgba[source + 3] != 0) {
 				state->composite->pixels[(size_t)y * state->composite->stride + x] =
 					(uint32_t)state->cursor_rgba[source] << 16 |
@@ -732,10 +766,8 @@ static int wm_window_obscured(const wm_server *server, const wm_window *window)
 	return 1;
 }
 
-static gui_flush_result wm_compose(wm_server *server)
+static gui_surface *wm_desktop_surface(const wm_server *server)
 {
-	wm_state *state = &server->state;
-	wm_window *fullscreen = wm_presented_fullscreen(server);
 	gui_surface *desktop = server->desktop_snapshot;
 
 	for (wm_window *client = server->windows; client != NULL; client = client->next) {
@@ -744,12 +776,100 @@ static gui_flush_result wm_compose(wm_server *server)
 		    client->committed != NULL)
 			desktop = client->committed;
 	}
-	if (!state->graphics)
-		return GUI_FLUSH_COMPLETE;
+	return desktop;
+}
+
+static int wm_window_visible(const wm_server *server, const wm_window *window)
+{
+	wm_window *fullscreen = wm_presented_fullscreen(server);
+
+	return window->client->fd >= 0 && window->window_id != 0 &&
+		window->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
+		(fullscreen == NULL || fullscreen == window) && !wm_window_obscured(server, window);
+}
+
+static int wm_same_rect(gui_rect first, gui_rect second)
+{
+	return first.x == second.x && first.y == second.y && first.w == second.w && first.h == second.h;
+}
+
+static gui_rect wm_content_bounds(const wm_window *window)
+{
+	wm_window storage;
+	const wm_window *presented = wm_presented_window(window, &storage);
+
+	return (gui_rect) { presented->x, presented->y, presented->width, presented->height };
+}
+
+static void wm_collect_damage(wm_server *server)
+{
+	wm_state *state = &server->state;
+	wm_window *fullscreen = wm_presented_fullscreen(server);
+	uint32_t fullscreen_id = fullscreen != NULL ? fullscreen->window_id : 0;
+
+	wm_damage_init(state);
+	if (!state->painted || state->painted_fullscreen != fullscreen_id ||
+	    (state->painted_desktop != wm_desktop_surface(server) && !wm_window_obscured(server, NULL)))
+		gui_region_mark_full(&state->damage);
+	if (state->painted && (state->cursor_x != state->painted_cursor_x ||
+	    state->cursor_y != state->painted_cursor_y)) {
+		wm_damage_rect(state, (gui_rect) { state->painted_cursor_x,
+			state->painted_cursor_y, WM_CURSOR_WIDTH, WM_CURSOR_HEIGHT });
+		wm_damage_rect(state, (gui_rect) { state->cursor_x, state->cursor_y,
+			WM_CURSOR_WIDTH, WM_CURSOR_HEIGHT });
+	}
+	for (wm_window *window = server->windows; window != NULL; window = window->next) {
+		int visible = wm_window_visible(server, window);
+		gui_rect bounds = wm_window_bounds(server, window);
+
+		if (window->painted == visible && (!visible ||
+		    (wm_same_rect(bounds, window->painted_bounds) &&
+		     wm_same_rect(wm_content_bounds(window), window->painted_content) &&
+		     (window == fullscreen || (window->focused == window->painted_focus &&
+		      window->stack_order == window->painted_order)))))
+			continue;
+		if (window->painted)
+			wm_damage_rect(state, window->painted_bounds);
+		if (visible)
+			wm_damage_rect(state, bounds);
+	}
+}
+
+static void wm_record_presented(wm_server *server)
+{
+	wm_state *state = &server->state;
+	wm_window *fullscreen = wm_presented_fullscreen(server);
+
+	state->painted = 1;
+	state->painted_cursor_x = state->cursor_x;
+	state->painted_cursor_y = state->cursor_y;
+	state->painted_fullscreen = fullscreen != NULL ? fullscreen->window_id : 0;
+	state->painted_desktop = wm_desktop_surface(server);
+	for (wm_window *window = server->windows; window != NULL; window = window->next) {
+		window->painted = wm_window_visible(server, window);
+		window->painted_bounds = wm_window_bounds(server, window);
+		window->painted_content = wm_content_bounds(window);
+		window->painted_focus = window->focused;
+		window->painted_order = window->stack_order;
+	}
+}
+
+static void wm_paint_rect(wm_server *server, gui_rect rectangle)
+{
+	wm_state clipped = server->state;
+	gui_surface view = { .width = rectangle.w, .height = rectangle.h,
+		.stride = server->state.composite->stride,
+		.pixels = server->state.composite->pixels +
+			(size_t)rectangle.y * server->state.composite->stride + rectangle.x };
+	wm_state *state = &clipped;
+	wm_window *fullscreen = wm_presented_fullscreen(server);
+	gui_surface *desktop = wm_desktop_surface(server);
+
+	state->composite = &view;
 	gui_fill_rect(state->composite, (gui_rect) { .x = 0, .y = 0,
 		.w = state->composite->width, .h = state->composite->height }, 0);
 	if (desktop != NULL && !wm_window_obscured(server, NULL)) {
-		gui_blit(state->composite, 0, 0, desktop,
+		gui_blit(state->composite, -rectangle.x, -rectangle.y, desktop,
 			&(gui_rect) { .x = 0, .y = 0, .w = desktop->width,
 				.h = desktop->height });
 	}
@@ -768,17 +888,40 @@ static gui_flush_result wm_compose(wm_server *server)
 		}
 		if (next == NULL)
 			break;
-		if (!wm_window_obscured(server, next))
-			wm_draw_window(state, next);
+		if (!wm_window_obscured(server, next)) {
+			wm_window presented;
+			wm_window shifted = *wm_presented_window(next, &presented);
+
+			shifted.mode_pending = 0;
+			shifted.x -= rectangle.x;
+			shifted.y -= rectangle.y;
+			wm_draw_window(state, &shifted);
+		}
 		painted = next->stack_order;
 	}
 	/* The server-owned sprite is always the final layer, independent of focus. */
-	wm_draw_cursor(state);
-	{
+	wm_draw_cursor(&server->state, rectangle);
+}
+
+static gui_flush_result wm_compose(wm_server *server)
+{
+	wm_state *state = &server->state;
+
+	if (!state->graphics)
+		return GUI_FLUSH_COMPLETE;
+	wm_collect_damage(server);
+	if (state->damage.count == 0)
+		return GUI_FLUSH_COMPLETE;
+	for (int index = 0; index < state->damage.count; index++) {
+		gui_region_rect rectangle = state->damage.rects[index];
+
+		wm_paint_rect(server, (gui_rect) { rectangle.x, rectangle.y, rectangle.width, rectangle.height });
+	}
+	for (int index = 0; index < state->damage.count; index++) {
+		gui_region_rect rectangle = state->damage.rects[index];
 		gui_flush_result result = gui_surface_flush_rect_fd(state->composite,
-			(gui_rect) { .x = 0, .y = 0, .w = state->composite->width,
-				.h = state->composite->height }, state->scanout_stride,
-			state->framebuffer);
+			(gui_rect) { rectangle.x, rectangle.y, rectangle.width, rectangle.height },
+			state->scanout_stride, state->framebuffer);
 
 		if (result != GUI_FLUSH_COMPLETE) {
 			if (result == GUI_FLUSH_ERROR)
@@ -786,8 +929,11 @@ static gui_flush_result wm_compose(wm_server *server)
 			return result;
 		}
 	}
-	return wm_publish_completed_frame(state) == 0 ? GUI_FLUSH_COMPLETE :
-		GUI_FLUSH_ERROR;
+	if (wm_publish_completed_frame(state) < 0)
+		return GUI_FLUSH_ERROR;
+	wm_record_presented(server);
+	gui_region_clear(&state->damage);
+	return GUI_FLUSH_COMPLETE;
 }
 
 static wm_client *wm_add_client(wm_server *server, int fd,
@@ -1434,6 +1580,14 @@ static int client_commit_surface(wm_window *client, const uint8_t *bytes)
 		client->staging = NULL;
 		client->staging_bytes = 0;
 		client->mode_pending = 0;
+		if (mode_pending || !wm_window_obscured(client->server, client)) {
+			if (client->client->role == GUI_PROTOCOL_ENDPOINT_SHELL)
+				wm_damage_rect(&client->server->state,
+					(gui_rect) { 0, 0, client->width, client->height });
+			else
+				wm_damage_rect(&client->server->state,
+					(gui_rect) { client->x, client->y, client->width, client->height });
+		}
 		result = !mode_pending && wm_window_obscured(client->server, client) ? GUI_FLUSH_COMPLETE :
 			wm_compose(client->server);
 		if (result == GUI_FLUSH_ERROR) {
@@ -2880,6 +3034,8 @@ int main(void)
 				  &graphics) < 0)
 				goto out;
 			server.state.graphics = graphics == FB_CONSOLE_GRAPHICS;
+			wm_damage_init(&server.state);
+			gui_region_mark_full(&server.state.damage);
 			if (!server.state.graphics) {
 				/* A stale completed frame is never a readiness signal in text mode. */
 				unlink(WM_READY_PATH);
@@ -2966,6 +3122,8 @@ int main(void)
 		}
 		if (server.client_count < server.poll_capacity / 2)
 			(void)wm_poll_resize(&server, server.client_count);
+		if (server.state.damage.count != 0 && wm_compose(&server) == GUI_FLUSH_ERROR)
+			goto out;
 	}
 	status = 0;
 out:

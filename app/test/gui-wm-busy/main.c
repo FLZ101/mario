@@ -104,7 +104,8 @@ static gui_surface *test_surface_create(int width, int height)
 static gui_flush_result test_surface_flush_rect_fd(const gui_surface *surface,
 		gui_rect rectangle, size_t stride, int descriptor)
 {
-	assert(surface != NULL && rectangle.w == surface->width && rectangle.h == surface->height);
+	assert(surface != NULL && rectangle.x >= 0 && rectangle.y >= 0 && rectangle.w > 0 && rectangle.h > 0);
+	assert(rectangle.x + rectangle.w <= surface->width && rectangle.y + rectangle.h <= surface->height);
 	assert(stride == (size_t)surface->width * 4 && descriptor == 123);
 	scanout_calls++;
 	if (measure_drawing) {
@@ -1425,23 +1426,21 @@ static void report_drawing_work(const char *name, const wm_server *server,
 
 	measure_drawing = 0;
 	assert(frames == (uint64_t)presented);
-	assert(measured_work.flush_requests == (uint64_t)presented);
-	assert(measured_work.writer_calls == (uint64_t)presented * 768);
-	assert(measured_work.written_bytes == (uint64_t)presented * 1024 * 768 * 4);
-	if (presented) {
-		uint64_t screen_pixels = 1024 * 768;
-		uint64_t window_pixels = 320 * 192;
-		uint64_t decorated_pixels = (320 + 2 * WM_WINDOW_BORDER) *
-			(192 + WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER);
-		uint64_t chrome_pixels = decorated_pixels + 320 * WM_TITLE_HEIGHT +
-			WM_CLOSE_BUTTON_SIZE * WM_CLOSE_BUTTON_SIZE;
-
-		assert(measured_work.filled_pixels == (server->fullscreen_window != NULL ?
-			2 * screen_pixels : screen_pixels + chrome_pixels + window_pixels));
-		assert(measured_work.blitted_pixels == (server->fullscreen_window != NULL ?
-			screen_pixels : screen_pixels + window_pixels));
-	} else {
+	if (!presented) {
+		assert(measured_work.flush_requests == 0 && measured_work.writer_calls == 0 && measured_work.written_bytes == 0);
 		assert(measured_work.filled_pixels == 0 && measured_work.blitted_pixels == 0);
+	} else if (!strcmp(name, "cursor")) {
+		assert(measured_work.filled_pixels == 512 && measured_work.blitted_pixels == 512);
+		assert(measured_work.flush_requests == 2 && measured_work.writer_calls == 32 && measured_work.written_bytes == 2048);
+	} else if (!strcmp(name, "small-window-move")) {
+		assert(measured_work.filled_pixels == 211832 && measured_work.blitted_pixels == 133380);
+		assert(measured_work.flush_requests == 1 && measured_work.writer_calls == 218 && measured_work.written_bytes == 287760);
+	} else if (!strcmp(name, "visible-commit")) {
+		assert(measured_work.filled_pixels == 184320 && measured_work.blitted_pixels == 122880);
+		assert(measured_work.flush_requests == 1 && measured_work.writer_calls == 192 && measured_work.written_bytes == 245760);
+	} else {
+		assert(measured_work.filled_pixels == 1572864 && measured_work.blitted_pixels == 786432);
+		assert(measured_work.flush_requests == 1 && measured_work.writer_calls == 768 && measured_work.written_bytes == 3145728);
 	}
 	printf("gui-drawing-work: {\"case\":\"%s\",\"filled_pixels\":%llu,"
 		"\"blitted_pixels\":%llu,\"flush_requests\":%llu,\"writer_calls\":%llu,"
@@ -1452,6 +1451,19 @@ static void report_drawing_work(const char *name, const wm_server *server,
 		(unsigned long long)measured_work.writer_calls,
 		(unsigned long long)measured_work.written_bytes,
 		(unsigned long long)frames);
+}
+
+static void assert_full_scene(wm_server *server)
+{
+	gui_surface *actual = server->state.composite;
+	gui_surface *oracle = gui_surface_create(server->state.width, server->state.height);
+
+	assert(oracle != NULL);
+	server->state.composite = oracle;
+	wm_paint_rect(server, (gui_rect) { 0, 0, server->state.width, server->state.height });
+	server->state.composite = actual;
+	assert(memcmp(actual->pixels, oracle->pixels, (size_t)actual->stride * actual->height * 4) == 0);
+	gui_surface_destroy(oracle);
 }
 
 static void test_drawing_work(void)
@@ -1486,6 +1498,7 @@ static void test_drawing_work(void)
 	gui_fill_rect(target->committed, (gui_rect) { 0, 0, 320, 192 }, 0x00225688);
 	scanout_result = GUI_FLUSH_COMPLETE;
 	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert_full_scene(&server);
 	previous_frame = begin_drawing_measurement(&server);
 	wm_emit_input(&server, &pointer);
 	report_drawing_work("idle", &server, previous_frame, 0);
@@ -1493,16 +1506,19 @@ static void test_drawing_work(void)
 	pointer.mouse.dx = 32;
 	wm_emit_input(&server, &pointer);
 	report_drawing_work("cursor", &server, previous_frame, 1);
+	assert_full_scene(&server);
 	previous_frame = begin_drawing_measurement(&server);
 	assert(wm_move_window(&server, target, 152, 112) == 1);
 	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
 	report_drawing_work("small-window-move", &server, previous_frame, 1);
+	assert_full_scene(&server);
 	stage(target, 1, 2);
 	assert(target->staging != NULL);
 	gui_fill_rect(target->staging, (gui_rect) { 0, 0, 320, 192 }, 0x00336699);
 	previous_frame = begin_drawing_measurement(&server);
 	commit_staged(target);
 	report_drawing_work("visible-commit", &server, previous_frame, 1);
+	assert_full_scene(&server);
 	cover = init_client(&server, 1, GUI_PROTOCOL_ENDPOINT_ORDINARY);
 	cover->x = cover->y = 0;
 	cover->width = 1024;
@@ -1526,7 +1542,63 @@ static void test_drawing_work(void)
 	previous_frame = begin_drawing_measurement(&server);
 	commit_staged(cover);
 	report_drawing_work("fullscreen-commit", &server, previous_frame, 1);
+	assert_full_scene(&server);
+	assert(wm_load_cursor(&server.state) == 0);
+	wm_damage_rect(&server.state, (gui_rect) { 0, 0, 64, 16 });
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert_full_scene(&server);
+	for (unsigned int index = 0; index < 20; index++) {
+		server.state.cursor_x = (index * 173) % 1024;
+		server.state.cursor_y = (index * 113) % 768;
+		assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+		assert_full_scene(&server);
+	}
+	server.fullscreen_window = NULL;
+	window_destroy(cover);
+	for (unsigned int row = 0; row < target->height; row++)
+		for (unsigned int column = 0; column < target->width; column++)
+			target->committed->pixels[row * target->width + column] =
+				(row * 397 + column * 173) & 0x00ffffff;
+	wm_damage_rect(&server.state, wm_content_bounds(target));
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert_full_scene(&server);
+	cover = init_client(&server, 1, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	cover->x = 224;
+	cover->y = 176;
+	cover->stack_order = 3;
+	cover->committed = gui_surface_create(cover->width, cover->height);
+	assert(cover->committed != NULL);
+	cover->committed_bytes = cover->width * cover->height * 4;
+	cover->client->surface_bytes = cover->committed_bytes;
+	server.state.surface_bytes += cover->committed_bytes;
+	gui_fill_rect(cover->committed, (gui_rect) { 0, 0, cover->width, cover->height }, 0x00665544);
+	for (unsigned int index = 0; index < 12; index++) {
+		assert(wm_move_window(&server, target, (index * 137) % 1024 - 32,
+			(index * 93) % 768 - 16) >= 0);
+		assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+		assert_full_scene(&server);
+	}
+	window_destroy(cover);
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert_full_scene(&server);
+	previous_frame = server.state.frame_number;
+	scanout_result = GUI_FLUSH_BUSY;
+	server.state.cursor_x = 17;
+	server.state.cursor_y = 19;
+	assert(wm_compose(&server) == GUI_FLUSH_BUSY);
+	assert(server.state.frame_number == previous_frame && server.state.damage.count > 0);
+	scanout_result = GUI_FLUSH_COMPLETE;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert_full_scene(&server);
+	previous_frame = server.state.frame_number;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE && server.state.frame_number == previous_frame);
+	for (unsigned int index = 0; index <= GUI_REGION_MAX_RECTS; index++)
+		wm_damage_rect(&server.state, (gui_rect) { index * 3, 0, 1, 1 });
+	assert(server.state.damage.full);
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert_full_scene(&server);
 	cleanup_server(&server);
+	puts("gui-wm-busy: incremental damage matches full composition with bounded work");
 	puts("gui-wm-busy: drawing work is counted independently of logical flushes");
 }
 
