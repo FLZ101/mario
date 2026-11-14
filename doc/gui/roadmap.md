@@ -2169,7 +2169,7 @@ lowercase hyphenated convention.
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-resize.test tests/gui`.
   Commit: `gui: harden pointer resize affordances`.
 
-- [ ] **M11.4 — add the desktop application menu.**
+- [x] **M11.4 — add the desktop application menu.**
   Prerequisite: M11.1. Owns `app/gui/desktop/mario-desktop/main.c`,
   `app/gui/desktop/mario-wm/main.c` only for launch validation,
   `tests/gui/gui-launcher.test`, reviewed assets, and this roadmap. Replace the

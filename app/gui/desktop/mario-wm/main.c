@@ -1378,6 +1378,11 @@ static void client_handle_launch_request(wm_client *client, const uint8_t *bytes
 		client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
 		return;
 	}
+	if (client->role != GUI_PROTOCOL_ENDPOINT_SHELL &&
+	    launch_type != GUI_PROTOCOL_LAUNCH_EXECUTABLE) {
+		client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EPERM);
+		return;
+	}
 	switch (launch_type) {
 	case GUI_PROTOCOL_LAUNCH_TERMINAL:
 		if (path_bytes != 0) {

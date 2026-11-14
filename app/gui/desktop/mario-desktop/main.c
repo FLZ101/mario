@@ -22,6 +22,7 @@
 #define DESKTOP_TASK_ACTIVE 0x002563ebU
 #define DESKTOP_TASK_INACTIVE 0x00475569U
 #define DESKTOP_TEXT 0x00f8fafcU
+#define DESKTOP_LAUNCH_ERROR 0x00ef4444U
 #define DESKTOP_PANEL_HEIGHT 28U
 #define DESKTOP_TASKBAR_FIRST_X 64U
 #define DESKTOP_TASKBAR_BUTTON_WIDTH 96U
@@ -29,9 +30,19 @@
 #define DESKTOP_TASKBAR_BUTTON_HEIGHT 20U
 #define DESKTOP_TASKBAR_CONTROL_WIDTH 20U
 #define DESKTOP_TASKBAR_CONTROL_STRIDE 24U
+#define DESKTOP_MENU_X 8U
+#define DESKTOP_MENU_WIDTH 120U
+#define DESKTOP_MENU_ITEM_HEIGHT 20U
+#define DESKTOP_MENU_ITEM_COUNT 3U
 #define DIAGNOSTIC_WELCOME 0U
 #define DIAGNOSTIC_DISPLAY 1U
 #define DIAGNOSTIC_COUNT 2U
+
+typedef enum {
+	DESKTOP_MENU_TERMINAL,
+	DESKTOP_MENU_FILES,
+	DESKTOP_MENU_IMAGES,
+} desktop_menu_entry;
 
 typedef struct {
 	int fd;
@@ -97,7 +108,12 @@ typedef struct {
 	uint32_t height;
 	uint64_t frame_serial;
 	uint8_t mouse_buttons;
-	uint8_t launch_diagnostic;
+	uint8_t menu_open;
+	uint8_t launch_failed;
+	uint32_t last_focused_window_id;
+	uint32_t menu_restore_window_id;
+	uint32_t next_request_id;
+	uint32_t pending_request_id;
 	int redraw;
 	app_gui_surface_flow surface_flow;
 	desktop_window *windows;
@@ -156,6 +172,12 @@ static void put32(uint8_t *bytes, uint32_t value)
 		bytes[index] = value >> (index * 8);
 }
 
+static void put16(uint8_t *bytes, uint16_t value)
+{
+	bytes[0] = value;
+	bytes[1] = value >> 8;
+}
+
 static void put64(uint8_t *bytes, uint64_t value)
 {
 	for (unsigned int index = 0; index < 8; index++)
@@ -196,6 +218,14 @@ static int glyph_pixel(char character, unsigned int column, unsigned int row)
 		{ 0x07, 0x01, 0x01, 0x01, 0x01 },
 		{ 0x07, 0x05, 0x07, 0x05, 0x07 },
 		{ 0x07, 0x05, 0x07, 0x01, 0x07 },
+		/* A */ { 0x02, 0x05, 0x07, 0x05, 0x05 },
+		/* F */ { 0x07, 0x04, 0x07, 0x04, 0x04 },
+		/* G */ { 0x07, 0x04, 0x05, 0x05, 0x03 },
+		/* I */ { 0x07, 0x02, 0x02, 0x02, 0x07 },
+		/* L */ { 0x04, 0x04, 0x04, 0x04, 0x07 },
+		/* R */ { 0x07, 0x05, 0x06, 0x05, 0x05 },
+		/* S */ { 0x07, 0x04, 0x07, 0x01, 0x07 },
+		/* T */ { 0x07, 0x02, 0x02, 0x02, 0x02 },
 	};
 	const uint8_t *glyph;
 
@@ -208,6 +238,22 @@ static int glyph_pixel(char character, unsigned int column, unsigned int row)
 	case 'M': glyph = glyphs[3]; break;
 	case 'N': glyph = glyphs[4]; break;
 	case 'U': glyph = glyphs[5]; break;
+	case 'a':
+	case 'A': glyph = glyphs[16]; break;
+	case 'f':
+	case 'F': glyph = glyphs[17]; break;
+	case 'g':
+	case 'G': glyph = glyphs[18]; break;
+	case 'i':
+	case 'I': glyph = glyphs[19]; break;
+	case 'l':
+	case 'L': glyph = glyphs[20]; break;
+	case 'r':
+	case 'R': glyph = glyphs[21]; break;
+	case 's':
+	case 'S': glyph = glyphs[22]; break;
+	case 't':
+	case 'T': glyph = glyphs[23]; break;
 	default:
 		if (character < '0' || character > '9')
 			return 0;
@@ -370,15 +416,76 @@ static void desktop_reveal_window(desktop_state *state, const desktop_window *ta
 	}
 }
 
+static uint32_t desktop_panel_y(const desktop_state *state)
+{
+	return state->height > DESKTOP_PANEL_HEIGHT ?
+		state->height - DESKTOP_PANEL_HEIGHT : 0;
+}
+
+static uint32_t desktop_menu_top(const desktop_state *state)
+{
+	uint32_t panel_y = desktop_panel_y(state);
+	uint32_t menu_height = DESKTOP_MENU_ITEM_HEIGHT * DESKTOP_MENU_ITEM_COUNT;
+
+	return panel_y > menu_height ? panel_y - menu_height : 0;
+}
+
+static const char *desktop_menu_label(desktop_menu_entry entry)
+{
+	switch (entry) {
+	case DESKTOP_MENU_TERMINAL: return "Terminal";
+	case DESKTOP_MENU_FILES: return "Files";
+	case DESKTOP_MENU_IMAGES: return "Images";
+	default: return "";
+	}
+}
+
+static int desktop_menu_entry_at(const desktop_state *state, uint32_t x,
+				 uint32_t y)
+{
+	uint32_t menu_top;
+
+	if (!state->menu_open || x < DESKTOP_MENU_X ||
+	    x >= DESKTOP_MENU_X + DESKTOP_MENU_WIDTH)
+		return -1;
+	menu_top = desktop_menu_top(state);
+	if (y < menu_top || y >= desktop_panel_y(state))
+		return -1;
+	return (int)((y - menu_top) / DESKTOP_MENU_ITEM_HEIGHT);
+}
+
+static uint32_t desktop_focused_window_id(const desktop_state *state)
+{
+	for (const desktop_window *window = state->windows; window != NULL; window = window->next)
+		if (window->focused)
+			return window->window_id;
+	return 0;
+}
+
 static uint32_t desktop_pixel(const desktop_state *state, uint32_t offset)
 {
 	uint32_t x = offset % state->width;
 	uint32_t y = offset / state->width;
-	uint32_t panel_y = state->height > DESKTOP_PANEL_HEIGHT ?
-		state->height - DESKTOP_PANEL_HEIGHT : 0;
+	uint32_t panel_y = desktop_panel_y(state);
 	const desktop_button *button;
 	int control;
 
+	if (state->menu_open && x >= DESKTOP_MENU_X &&
+	    x < DESKTOP_MENU_X + DESKTOP_MENU_WIDTH && y >= desktop_menu_top(state) &&
+	    y < panel_y) {
+		int entry = desktop_menu_entry_at(state, x, y);
+
+		if (entry >= 0 && (size_t)entry < DESKTOP_MENU_ITEM_COUNT) {
+			uint32_t row_y = desktop_menu_top(state) +
+				(uint32_t)entry * DESKTOP_MENU_ITEM_HEIGHT;
+
+			if (text_pixel(desktop_menu_label((desktop_menu_entry)entry), x, y,
+				DESKTOP_MENU_X + 12, row_y + 5))
+				return DESKTOP_TEXT;
+			return DESKTOP_LAUNCHER;
+		}
+		return DESKTOP_PANEL;
+	}
 	if (y < panel_y)
 		return DESKTOP_BACKGROUND;
 	if (x >= 8 && x < 56 && y >= panel_y + 4 && y < panel_y + 24) {
@@ -415,6 +522,9 @@ static uint32_t desktop_pixel(const desktop_state *state, uint32_t offset)
 	if (state->width >= 40 &&
 	    text_pixel("--:--", x, y, state->width - 40, panel_y + 9))
 		return DESKTOP_TEXT;
+	if (state->launch_failed && x >= 56 && x < 64 &&
+	    y >= panel_y + 9 && y < panel_y + 19)
+		return DESKTOP_LAUNCH_ERROR;
 	return DESKTOP_PANEL;
 }
 
@@ -475,6 +585,67 @@ static int desktop_send_work_area(const desktop_state *state)
 	return send_message(WM_FD, GUI_PROTOCOL_SHELL_WORK_AREA, payload, sizeof(payload));
 }
 
+static int desktop_restore_menu_focus(desktop_state *state)
+{
+	uint32_t window_id = state->menu_restore_window_id;
+
+	state->menu_restore_window_id = 0;
+	if (window_id != 0 && desktop_window_by_id(state, window_id) != NULL &&
+	    desktop_activate_window(window_id) < 0)
+		return -1;
+	return 0;
+}
+
+static int desktop_open_menu(desktop_state *state)
+{
+	if (state->menu_open)
+		return 0;
+	state->menu_restore_window_id = desktop_focused_window_id(state);
+	if (state->menu_restore_window_id == 0)
+		state->menu_restore_window_id = state->last_focused_window_id;
+	state->menu_open = 1;
+	state->redraw = 1;
+	return 0;
+}
+
+static int desktop_close_menu(desktop_state *state)
+{
+	if (!state->menu_open)
+		return 0;
+	state->menu_open = 0;
+	state->redraw = 1;
+	return desktop_restore_menu_focus(state);
+}
+
+static int desktop_send_launch(desktop_state *state,
+			       gui_protocol_launch_type launch_type,
+			       const char *path)
+{
+	uint8_t payload[sizeof(gui_protocol_wire_launch_request) +
+		GUI_PROTOCOL_MAX_PATH_BYTES];
+	size_t path_bytes = path == NULL ? 0 : strlen(path);
+	uint32_t request_id;
+
+	if (path_bytes > GUI_PROTOCOL_MAX_PATH_BYTES ||
+	    state->pending_request_id != 0)
+		return -1;
+	request_id = ++state->next_request_id;
+	if (request_id == 0)
+		request_id = ++state->next_request_id;
+	put32(payload, request_id);
+	put16(payload + 4, launch_type);
+	put16(payload + 6, path_bytes);
+	if (path_bytes != 0)
+		memcpy(payload + sizeof(gui_protocol_wire_launch_request), path, path_bytes);
+	if (send_message(WM_FD, GUI_PROTOCOL_LAUNCH_REQUEST, payload,
+		sizeof(gui_protocol_wire_launch_request) + path_bytes) < 0)
+		return -1;
+	state->pending_request_id = request_id;
+	state->launch_failed = 0;
+	state->redraw = 1;
+	return 0;
+}
+
 static int desktop_handle_window_list(desktop_state *state,
 				      gui_protocol_type type, const uint8_t *payload,
 				      size_t payload_bytes)
@@ -531,6 +702,8 @@ static int desktop_handle_window_list(desktop_state *state,
 	window->window_id = window_id;
 	window->focused = get32(payload + 20);
 	window->order = get32(payload + 24);
+	if (window->focused)
+		state->last_focused_window_id = window_id;
 	if (newly_focused)
 		desktop_reveal_window(state, window);
 	state->redraw |= focus_changed;
@@ -561,6 +734,25 @@ static int desktop_handle_message(desktop_state *state,
 	    header->type == GUI_PROTOCOL_WINDOW_LIST_CHANGE ||
 	    header->type == GUI_PROTOCOL_WINDOW_LIST_REMOVE)
 		return desktop_handle_window_list(state, header->type, payload, payload_bytes);
+	if (header->type == GUI_PROTOCOL_LAUNCH_RESULT) {
+		uint32_t request_id;
+		int32_t status;
+
+		if (payload_bytes != sizeof(gui_protocol_wire_launch_result))
+			return -1;
+		request_id = get32(payload);
+		status = (int32_t)get32(payload + 4);
+		if (request_id != state->pending_request_id)
+			return -1;
+		state->pending_request_id = 0;
+		if (status != 0) {
+			state->launch_failed = 1;
+			fprintf(stderr, "mario-desktop: launch %u failed: %d\n",
+				request_id, status);
+		}
+		state->redraw = 1;
+		return 0;
+	}
 	if (header->type == GUI_PROTOCOL_INPUT_RESET) {
 		if (payload_bytes != 0)
 			return -1;
@@ -571,28 +763,71 @@ static int desktop_handle_message(desktop_state *state,
 		uint8_t buttons;
 		uint32_t x;
 		uint32_t y;
+		uint32_t panel_y = desktop_panel_y(state);
 		const desktop_window *window;
 		int control;
+		int menu_entry;
+		int menu_button;
 
 		if (payload_bytes != sizeof(gui_protocol_wire_input_event) ||
 		    get32(payload) != state->window_id)
 			return -1;
-		if (get32(payload + 4) == GUI_INPUT_EVENT_KEY)
+		if (get32(payload + 4) == GUI_INPUT_EVENT_KEY) {
+			if (state->menu_open && get32(payload + 8) == GUI_KEYSYM_ESCAPE &&
+			    desktop_close_menu(state) < 0)
+				return -1;
 			return 0;
+		}
 		if (get32(payload + 4) != GUI_INPUT_EVENT_MOUSE)
 			return -1;
 		x = get32(payload + 16);
 		y = get32(payload + 20);
 		buttons = payload[24];
-		if (!(state->mouse_buttons & 1) && (buttons & 1) &&
-		    x >= 8 && x < 56 && y >= (state->height > DESKTOP_PANEL_HEIGHT ?
-		    state->height - DESKTOP_PANEL_HEIGHT : 0) + 4 &&
-		    y < (state->height > DESKTOP_PANEL_HEIGHT ?
-		    state->height - DESKTOP_PANEL_HEIGHT : 0) + 24) {
-			state->launch_diagnostic = x < 32 ? DIAGNOSTIC_WELCOME + 1 :
-				DIAGNOSTIC_DISPLAY + 1;
-			state->mouse_buttons = buttons;
-			return 0;
+		menu_entry = desktop_menu_entry_at(state, x, y);
+		menu_button = x >= 8 && x < 56 && y >= panel_y + 4 && y < panel_y + 24;
+		if (!(state->mouse_buttons & 1) && (buttons & 1)) {
+			if (menu_entry >= 0) {
+				int result;
+
+				if (state->pending_request_id != 0)
+					return -1;
+				switch ((desktop_menu_entry)menu_entry) {
+				case DESKTOP_MENU_TERMINAL:
+					result = desktop_send_launch(state,
+						GUI_PROTOCOL_LAUNCH_TERMINAL, NULL);
+					break;
+				case DESKTOP_MENU_FILES:
+					result = desktop_send_launch(state,
+						GUI_PROTOCOL_LAUNCH_FILE_MANAGER, "/");
+					break;
+				case DESKTOP_MENU_IMAGES:
+					result = desktop_send_launch(state,
+						GUI_PROTOCOL_LAUNCH_FILE_MANAGER,
+						"/usr/share/mario-tests/gui");
+					break;
+				default:
+					result = -1;
+					break;
+				}
+				if (result < 0)
+					return -1;
+				state->menu_restore_window_id = 0;
+				state->menu_open = 0;
+				state->mouse_buttons = buttons;
+				return 0;
+			}
+			if (menu_button) {
+				if (state->menu_open) {
+					if (desktop_close_menu(state) < 0)
+						return -1;
+				} else if (desktop_open_menu(state) < 0) {
+					return -1;
+				}
+				state->mouse_buttons = buttons;
+				return 0;
+			}
+			if (state->menu_open && desktop_close_menu(state) < 0)
+				return -1;
 		}
 		control = desktop_taskbar_control(state, &state->displayed_taskbar, x, y);
 		if (!(state->mouse_buttons & 1) && (buttons & 1) && control != 0) {
@@ -937,19 +1172,6 @@ fail:
 	return -1;
 }
 
-static int desktop_launch_diagnostic(desktop_state *state,
-				     diagnostic_client *diagnostics, unsigned int index)
-{
-	diagnostic_client *client = &diagnostics[index];
-
-	if (client->fd >= 0)
-		return desktop_activate_window(client->window_id);
-	if (diagnostic_connect(client, index) < 0)
-		return -1;
-	state->redraw = 1;
-	return 0;
-}
-
 static int private_fd_only(void)
 {
 	if (fcntl(WM_FD, F_GETFD) < 0)
@@ -1034,15 +1256,6 @@ int main(int argc, char **argv)
 					return 1;
 				break;
 			}
-		}
-		if (state.launch_diagnostic != 0) {
-			unsigned int index = state.launch_diagnostic - 1;
-
-			state.launch_diagnostic = 0;
-			if (index >= DIAGNOSTIC_COUNT ||
-			    desktop_launch_diagnostic(&state, diagnostics, index) < 0)
-				return 1;
-			continue;
 		}
 		pollfds[0] = (struct pollfd) { .fd = WM_FD, .events = POLLIN };
 		for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {

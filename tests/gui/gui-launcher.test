@@ -1,0 +1,65 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-launcher.log /tmp/gui-launcher.pid; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+# Move from the WM's initial cursor to the MENU panel button at (24,754).
+GUI-MOUSE-MOVE: 16,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,127
+GUI-MOUSE-MOVE: 0,111
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+# The popup occupies y=680..740 above the bottom panel.
+GUI-CHECK-RECT: 100 690 1 1 37 99 235
+# Terminal is the first entry at y=680..700.
+GUI-MOUSE-MOVE: 16,-64
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! pgrep terminal >/dev/null; do sleep 1; done; echo launcher: terminal started
+SERIAL-CHECK: launcher: terminal started
+GUI-CHECK-RECT: 100 690 1 1 31 41 51
+# Reopen the menu and launch Files from the middle entry.
+GUI-MOUSE-MOVE: -16,64
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 100 700 1 1 37 99 235
+GUI-MOUSE-MOVE: 16,-44
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! pgrep filemanager >/dev/null; do sleep 1; done; echo launcher: files started
+SERIAL-CHECK: launcher: files started
+GUI-CHECK-RECT: 100 700 1 1 31 41 51
+# Launch Images from the third entry while the first file manager stays alive.
+GUI-MOUSE-MOVE: -16,44
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 100 720 1 1 37 99 235
+GUI-MOUSE-MOVE: 16,-24
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while test "$(pgrep filemanager | wc -l)" -lt 2; do sleep 1; done; echo launcher: images started
+SERIAL-CHECK: launcher: images started
+GUI-CHECK-RECT: 100 720 1 1 31 41 51
+# Escape closes the popup and returns the desktop to its resting background.
+GUI-MOUSE-MOVE: -16,24
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 100 690 1 1 37 99 235
+GUI-SEND-KEY: esc
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 100 690 1 1 31 41 51
+SERIAL: while pgrep terminal >/dev/null; do kill -TERM $(pgrep terminal) 2>/dev/null; sleep 1; done
+SERIAL: while pgrep filemanager >/dev/null; do kill -TERM $(pgrep filemanager) 2>/dev/null; sleep 1; done
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:
