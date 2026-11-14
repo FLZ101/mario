@@ -2140,7 +2140,7 @@ lowercase hyphenated convention.
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-window-state.test tests/gui`.
   Commit: `gui: add window states and shell work area`.
 
-- [ ] **M11.2 — draw title-bar controls and hit targets.**
+- [x] **M11.2 — draw title-bar controls and hit targets.**
   Prerequisite: M11.1. Owns `app/gui/desktop/mario-wm/main.c`,
   `tests/gui/wm-chrome.test`, reviewed assets under `tests/gui/assets/`, and
   this roadmap. Replace the solid close rectangle with three deterministic

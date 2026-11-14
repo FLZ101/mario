@@ -8,7 +8,7 @@ SERIAL: /usr/bin/test/gui-wm-client.exe --interact-only >/tmp/wm-interact.log 2>
 SERIAL: while ! grep -q 'wm-client: interact ready' /tmp/wm-interact.log; do sleep 1; done
 GUI-CHECK-RECT: 64 64 1 1 255 0 0
 GUI-CHECK-RECT: 64 40 1 1 37 99 235
-GUI-MOUSE-MOVE: 64,34
+GUI-MOUSE-MOVE: 63,34
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 100,100
@@ -17,7 +17,7 @@ GUI-MOUSE-BUTTON: left,up
 # Releasing a completed drag changes no pixels, so it must not require a frame.
 GUI-CHECK-RECT: 164 164 1 1 255 0 0
 GUI-CHECK-RECT: 164 140 1 1 37 99 235
-GUI-MOUSE-MOVE: -17,-11
+GUI-MOUSE-MOVE: -16,-11
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: -20,-20
@@ -58,7 +58,7 @@ GUI-MOUSE-BUTTON: left,up
 SERIAL: while ! grep -q 'wm-client: minimum resize ready' /tmp/wm-interact.log; do sleep 1; done
 # The minimum-size configure is likewise acknowledgement-only after the drag.
 GUI-CHECK-RECT: 204 204 1 1 255 0 0
-GUI-MOUSE-MOVE: -150,-210
+GUI-MOUSE-MOVE: -140,-210
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up

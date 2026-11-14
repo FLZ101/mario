@@ -38,7 +38,7 @@
 #define WM_CURSOR_HEIGHT 16U
 #define WM_WINDOW_BORDER 1U
 #define WM_TITLE_HEIGHT 24U
-#define WM_CLOSE_BUTTON_SIZE 24U
+#define WM_TITLE_BUTTON_WIDTH 16U
 #define WM_MIN_CONTENT_WIDTH 64U
 #define WM_MIN_CONTENT_HEIGHT 48U
 #define WM_WINDOW_BORDER_COLOR 0x000f172aU
@@ -111,6 +111,13 @@ typedef enum {
 	WM_CAPTURE_RESIZE_BOTTOM_RIGHT,
 } wm_capture_operation;
 
+typedef enum {
+	WM_TITLE_BUTTON_NONE,
+	WM_TITLE_BUTTON_MINIMIZE,
+	WM_TITLE_BUTTON_MAXIMIZE,
+	WM_TITLE_BUTTON_CLOSE,
+} wm_title_button;
+
 struct wm_window {
 	wm_window *next;
 	wm_window *owner_next;
@@ -161,7 +168,11 @@ struct wm_window {
 	gui_rect painted_bounds;
 	gui_rect painted_content;
 	int painted_focus;
+	wm_title_button painted_hover_button;
+	wm_title_button painted_pressed_button;
 	uint64_t painted_order;
+	wm_title_button hover_button;
+	wm_title_button pressed_button;
 };
 
 struct wm_client {
@@ -672,6 +683,61 @@ static wm_window *wm_presented_fullscreen(const wm_server *server)
 		window->fullscreen) ? window : NULL;
 }
 
+static int wm_title_button_x(const wm_window *client, wm_title_button button)
+{
+	if (button == WM_TITLE_BUTTON_CLOSE)
+		return (int)client->x + client->width - WM_TITLE_BUTTON_WIDTH;
+	if (button == WM_TITLE_BUTTON_MAXIMIZE)
+		return (int)client->x + client->width - 2 * WM_TITLE_BUTTON_WIDTH;
+	return (int)client->x + client->width - 3 * WM_TITLE_BUTTON_WIDTH;
+}
+
+static gui_color wm_title_button_background(const wm_window *client,
+					    wm_title_button button)
+{
+	if (client->pressed_button == button)
+		return WM_WINDOW_BORDER_COLOR;
+	if (client->hover_button == button)
+		return WM_WINDOW_CONTENT_COLOR;
+	return client->focused ? WM_WINDOW_TITLE_ACTIVE_COLOR :
+		WM_WINDOW_TITLE_INACTIVE_COLOR;
+}
+
+static gui_color wm_title_icon_color(const wm_window *client,
+				     wm_title_button button)
+{
+	return client->pressed_button == button ? WM_WINDOW_CONTENT_COLOR :
+		WM_WINDOW_BORDER_COLOR;
+}
+
+static void wm_draw_title_icon(wm_state *state, int button_x, int button_y,
+			       wm_title_button button, gui_color color)
+{
+	int icon_x = button_x + 4;
+	int icon_y = button_y + 8;
+
+	if (button == WM_TITLE_BUTTON_MINIMIZE) {
+		gui_fill_rect(state->composite, (gui_rect) { icon_x, icon_y + 6, 8, 2 },
+			color);
+		return;
+	}
+	if (button == WM_TITLE_BUTTON_MAXIMIZE) {
+		gui_fill_rect(state->composite, (gui_rect) { icon_x, icon_y, 8, 1 }, color);
+		gui_fill_rect(state->composite, (gui_rect) { icon_x, icon_y + 7, 8, 1 }, color);
+		gui_fill_rect(state->composite, (gui_rect) { icon_x, icon_y, 1, 8 }, color);
+		gui_fill_rect(state->composite, (gui_rect) { icon_x + 7, icon_y, 1, 8 }, color);
+		return;
+	}
+	if (button == WM_TITLE_BUTTON_CLOSE) {
+		for (int offset = 0; offset < 8; offset++) {
+			gui_fill_rect(state->composite, (gui_rect) { icon_x + offset,
+				icon_y + offset, 1, 1 }, color);
+			gui_fill_rect(state->composite, (gui_rect) { icon_x + 7 - offset,
+				icon_y + offset, 1, 1 }, color);
+		}
+	}
+}
+
 static void wm_draw_window(wm_state *state, const wm_window *client)
 {
 	wm_window presented;
@@ -692,10 +758,17 @@ static void wm_draw_window(wm_state *state, const wm_window *client)
 			.y = client->y - WM_TITLE_HEIGHT, .w = (int)client->width,
 			.h = WM_TITLE_HEIGHT }, client->focused ? WM_WINDOW_TITLE_ACTIVE_COLOR :
 			WM_WINDOW_TITLE_INACTIVE_COLOR);
-		gui_fill_rect(state->composite, (gui_rect) { .x = client->x +
-			(int)client->width - (int)WM_CLOSE_BUTTON_SIZE,
-			.y = client->y - (int)WM_TITLE_HEIGHT,
-			.w = WM_CLOSE_BUTTON_SIZE, .h = WM_CLOSE_BUTTON_SIZE }, WM_WINDOW_BORDER_COLOR);
+		for (wm_title_button button = WM_TITLE_BUTTON_MINIMIZE;
+		     button <= WM_TITLE_BUTTON_CLOSE; button++) {
+			int button_x = wm_title_button_x(client, button);
+			int button_y = client->y - WM_TITLE_HEIGHT;
+
+			gui_fill_rect(state->composite, (gui_rect) { button_x, button_y,
+				WM_TITLE_BUTTON_WIDTH, WM_TITLE_HEIGHT },
+				wm_title_button_background(client, button));
+			wm_draw_title_icon(state, button_x, button_y, button,
+				wm_title_icon_color(client, button));
+		}
 	}
 	gui_fill_rect(state->composite, (gui_rect) { .x = client->x, .y = client->y,
 		.w = (int)client->width, .h = (int)client->height }, WM_WINDOW_CONTENT_COLOR);
@@ -868,7 +941,9 @@ static void wm_collect_damage(wm_server *server)
 		    (wm_same_rect(bounds, window->painted_bounds) &&
 		     wm_same_rect(wm_content_bounds(window), window->painted_content) &&
 		     (window == fullscreen || (window->focused == window->painted_focus &&
-		      window->stack_order == window->painted_order)))))
+		      window->stack_order == window->painted_order &&
+		      window->hover_button == window->painted_hover_button &&
+		      window->pressed_button == window->painted_pressed_button)))))
 			continue;
 		if (window->painted)
 			wm_damage_rect(state, window->painted_bounds);
@@ -892,6 +967,8 @@ static void wm_record_presented(wm_server *server)
 		window->painted_bounds = wm_window_bounds(server, window);
 		window->painted_content = wm_content_bounds(window);
 		window->painted_focus = window->focused;
+		window->painted_hover_button = window->hover_button;
+		window->painted_pressed_button = window->pressed_button;
 		window->painted_order = window->stack_order;
 	}
 }
@@ -2155,6 +2232,8 @@ typedef enum {
 	WM_HIT_NONE,
 	WM_HIT_CONTENT,
 	WM_HIT_TITLE,
+	WM_HIT_MINIMIZE,
+	WM_HIT_MAXIMIZE,
 	WM_HIT_CLOSE,
 	WM_HIT_RESIZE_LEFT,
 	WM_HIT_RESIZE_RIGHT,
@@ -2190,9 +2269,17 @@ static wm_hit_region wm_hit_region_for_client(const wm_window *client, uint32_t 
 		return WM_HIT_RESIZE_TOP;
 	if ((int64_t)y == bottom)
 		return WM_HIT_RESIZE_BOTTOM;
-	if ((int64_t)y < client->y)
-		return x >= (uint32_t)client->x + client->width - WM_CLOSE_BUTTON_SIZE ?
-			WM_HIT_CLOSE : WM_HIT_TITLE;
+	if ((int64_t)y < client->y) {
+		if ((int64_t)x >= (int64_t)client->x + client->width -
+		    3 * WM_TITLE_BUTTON_WIDTH)
+			return (int64_t)x >= (int64_t)client->x + client->width -
+				2 * WM_TITLE_BUTTON_WIDTH ?
+				((int64_t)x >= (int64_t)client->x + client->width -
+					WM_TITLE_BUTTON_WIDTH ? WM_HIT_CLOSE :
+					WM_HIT_MAXIMIZE) :
+				WM_HIT_MINIMIZE;
+		return WM_HIT_TITLE;
+	}
 	return WM_HIT_CONTENT;
 }
 
@@ -2223,6 +2310,39 @@ static wm_window *wm_hit_test(wm_server *server, uint32_t x, uint32_t y,
 	if (region != NULL)
 		*region = hit_region;
 	return hit;
+}
+
+static wm_title_button wm_title_button_for_region(wm_hit_region region)
+{
+	switch (region) {
+	case WM_HIT_MINIMIZE: return WM_TITLE_BUTTON_MINIMIZE;
+	case WM_HIT_MAXIMIZE: return WM_TITLE_BUTTON_MAXIMIZE;
+	case WM_HIT_CLOSE: return WM_TITLE_BUTTON_CLOSE;
+	default: return WM_TITLE_BUTTON_NONE;
+	}
+}
+
+static int wm_update_title_buttons(wm_server *server, wm_window *hit,
+				   wm_hit_region region, int left_pressed)
+{
+	wm_title_button hover = wm_title_button_for_region(region);
+	wm_title_button pressed = left_pressed ? hover : WM_TITLE_BUTTON_NONE;
+	int changed = 0;
+
+	for (wm_window *window = server->windows; window != NULL; window = window->next) {
+		wm_title_button next_hover = window == hit ? hover : WM_TITLE_BUTTON_NONE;
+		wm_title_button next_pressed = window == hit ? pressed : WM_TITLE_BUTTON_NONE;
+
+		if (window->hover_button != next_hover) {
+			window->hover_button = next_hover;
+			changed = 1;
+		}
+		if (window->pressed_button != next_pressed) {
+			window->pressed_button = next_pressed;
+			changed = 1;
+		}
+	}
+	return changed;
 }
 
 static void wm_cancel_capture(wm_server *server)
@@ -2625,6 +2745,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	if (event->type == GUI_INPUT_EVENT_KEY_RESET) {
 		wm_reset_key_state(state);
 		wm_cancel_capture(server);
+		wm_update_title_buttons(server, NULL, WM_HIT_NONE, 0);
 		wm_reset_input_owner(server);
 		wm_present_input(server, 0, 0);
 		return;
@@ -2632,6 +2753,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	if (event->type == GUI_INPUT_EVENT_MOUSE_RESET) {
 		state->mouse_buttons = 0;
 		wm_cancel_capture(server);
+		wm_update_title_buttons(server, NULL, WM_HIT_NONE, 0);
 		wm_reset_input_owner(server);
 		wm_present_input(server, 0, 0);
 		return;
@@ -2689,6 +2811,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 		}
 		state->mouse_buttons = event->mouse.buttons;
 		if (server->capture_client != NULL) {
+			compose |= wm_update_title_buttons(server, NULL, WM_HIT_NONE, 0);
 			if (state->mouse_buttons & 1)
 				compose |= wm_update_capture(server);
 			else
@@ -2696,28 +2819,61 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 			wm_present_input(server, compose, motion_only);
 			return;
 		}
-		if (!(previous_buttons & 1) && (state->mouse_buttons & 1)) {
+		{
 			wm_hit_region region;
 			wm_window *hit = wm_hit_test(server, state->cursor_x, state->cursor_y, &region);
-			wm_capture_operation operation = wm_capture_operation_for_region(region);
 
-			if (hit == NULL)
-				hit = wm_shell_client(server);
-			if (hit != NULL) {
-				wm_set_input_owner(server, hit);
-				compose = 1;
-			}
-			if (hit != NULL && hit->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
-			    !hit->mode_pending && operation != WM_CAPTURE_NONE) {
-				wm_begin_capture(server, hit, operation);
-				wm_present_input(server, compose, 0);
-				return;
-			}
-			if (hit != NULL && hit->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
-			    region == WM_HIT_CLOSE) {
-				client_enqueue_close_request(hit);
-				wm_present_input(server, compose, 0);
-				return;
+			compose |= wm_update_title_buttons(server, hit, region,
+				state->mouse_buttons & 1);
+			if (!(previous_buttons & 1) && (state->mouse_buttons & 1)) {
+				wm_capture_operation operation =
+					wm_capture_operation_for_region(region);
+
+				if (hit == NULL)
+					hit = wm_shell_client(server);
+				if (hit != NULL) {
+					wm_set_input_owner(server, hit);
+					compose = 1;
+				}
+				if (hit != NULL &&
+				    hit->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
+				    !hit->mode_pending) {
+					if (operation != WM_CAPTURE_NONE) {
+						wm_begin_capture(server, hit, operation);
+						wm_present_input(server, compose, 0);
+						return;
+					}
+					switch (region) {
+					case WM_HIT_MINIMIZE: {
+						int result = wm_request_minimize(server, hit);
+
+						if (result < 0)
+							window_reject(hit,
+								GUI_PROTOCOL_WINDOW_STATE_REQUEST, result);
+						break;
+					}
+					case WM_HIT_MAXIMIZE: {
+						int result = wm_request_maximize(server, hit,
+							!hit->maximized);
+
+						if (result < 0)
+							window_reject(hit,
+								GUI_PROTOCOL_WINDOW_STATE_REQUEST, result);
+						break;
+					}
+					case WM_HIT_CLOSE:
+						client_enqueue_close_request(hit);
+						break;
+					default:
+						break;
+					}
+					if (region == WM_HIT_MINIMIZE ||
+					    region == WM_HIT_MAXIMIZE ||
+					    region == WM_HIT_CLOSE) {
+						wm_present_input(server, compose, 0);
+						return;
+					}
+				}
 			}
 		}
 		wm_present_input(server, compose, motion_only);

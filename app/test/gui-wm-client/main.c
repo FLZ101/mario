@@ -1948,6 +1948,41 @@ static void test_window_state(void)
 	puts("wm-client: window-state requests pass");
 }
 
+static void test_chrome(void)
+{
+	int minimized_seen = 0;
+	int fd = connect_client();
+	uint32_t window_id = create_window(fd, 901, 200, 150);
+
+	commit_color_surface(fd, window_id, 200, 150, 0x00ff0000);
+	puts("wm-client: chrome ready");
+	fflush(stdout);
+	budget_wait("/tmp/gui-chrome.initial-checked");
+
+	window_state_expect(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_MINIMIZED,
+		&minimized_seen);
+	budget_marker("/tmp/gui-chrome.minimized");
+	budget_wait("/tmp/gui-chrome.minimized-checked");
+
+	send_window_state_request(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_NORMAL);
+	window_state_expect(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_NORMAL,
+		&minimized_seen);
+	budget_marker("/tmp/gui-chrome.restored");
+	budget_wait("/tmp/gui-chrome.restored-checked");
+
+	window_state_expect(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_MAXIMIZED,
+		&minimized_seen);
+	budget_marker("/tmp/gui-chrome.maximized");
+	budget_wait("/tmp/gui-chrome.maximized-checked");
+
+	window_state_expect(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_NORMAL,
+		&minimized_seen);
+	budget_marker("/tmp/gui-chrome.unmaximized");
+
+	read_close_request(fd, window_id);
+	puts("wm-client: chrome requests pass");
+}
+
 int main(int argc, char **argv)
 {
 	uint8_t frame[64];
@@ -1970,7 +2005,8 @@ int main(int argc, char **argv)
 		!strcmp(argv[1], "--taskbar-only") || !strcmp(argv[1], "--shortcuts-only") ||
 		!strcmp(argv[1], "--interact-only") || !strcmp(argv[1], "--launch-only") ||
 		!strcmp(argv[1], "--launch-cleanup-only") ||
-		!strcmp(argv[1], "--window-state-only"))));
+		!strcmp(argv[1], "--window-state-only") ||
+		!strcmp(argv[1], "--chrome-only"))));
 	if (argc == 2) {
 		if (!strcmp(argv[1], "--patch-only")) {
 			test_rectangular_upload();
@@ -2014,6 +2050,8 @@ int main(int argc, char **argv)
 			test_launch_cleanup();
 		} else if (!strcmp(argv[1], "--window-state-only")) {
 			test_window_state();
+		} else if (!strcmp(argv[1], "--chrome-only")) {
+			test_chrome();
 		} else {
 			test_public_shell();
 			puts("wm-client: public shell denied");

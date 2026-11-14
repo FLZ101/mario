@@ -1,0 +1,41 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-chrome.* /tmp/wm-chrome.log /tmp/wm-chrome.pid; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/gui-wm-client.exe --chrome-only >/tmp/wm-chrome.log 2>&1 & echo $! >/tmp/wm-chrome.pid
+SERIAL: while ! grep -q 'wm-client: chrome ready' /tmp/wm-chrome.log; do sleep 1; done
+GUI-CHECK-RECT: 64 64 1 1 255 0 0
+SERIAL: touch /tmp/gui-chrome.initial-checked
+GUI-MOUSE-MOVE: 208,36
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+SERIAL-WAIT-FILE: /tmp/gui-chrome.minimized
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 64 64 1 1 31 41 51
+SERIAL: touch /tmp/gui-chrome.minimized-checked
+SERIAL-WAIT-FILE: /tmp/gui-chrome.restored
+GUI-CHECK-RECT: 64 64 1 1 255 0 0
+SERIAL: touch /tmp/gui-chrome.restored-checked
+GUI-MOUSE-MOVE: 16,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+SERIAL-WAIT-FILE: /tmp/gui-chrome.maximized
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 1 25 1 1 255 0 0
+SERIAL: touch /tmp/gui-chrome.maximized-checked
+GUI-MOUSE-MOVE: 759,-40
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+SERIAL-WAIT-FILE: /tmp/gui-chrome.unmaximized
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 64 64 1 1 255 0 0
+GUI-MOUSE-MOVE: -743,40
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+SERIAL: while ! grep -q 'wm-client: chrome requests pass' /tmp/wm-chrome.log; do sleep 1; done
+SERIAL-CHECK: wm-client: chrome requests pass
+GUI-MOUSE-BUTTON: left,up
+SERIAL: kill $(cat /tmp/wm-chrome.pid) 2>/dev/null; kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:
