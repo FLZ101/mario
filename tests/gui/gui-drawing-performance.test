@@ -1,11 +1,14 @@
 GUI-VISUAL-TEST:
 SERIAL: /usr/bin/test/gui-wm-busy.exe >/tmp/gui-perf.work 2>&1; cat /tmp/gui-perf.work
 SERIAL-CHECK: gui-wm-busy: drawing work is counted independently of logical flushes
-SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & perf_wm=$!
+SERIAL-CHECK: gui-wm-busy: sixteen windows preserve bounded drawing, motion and reclaimed capacity
+SERIAL-CHECK: gui-wm-busy: live uploads service PTY, keys and resize with bounded single-cell traffic
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-perf.finish; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & perf_wm=$!
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
+SERIAL: perf_shell=$(pgrep mario-desktop); perf_wm_fds=$(ls /proc/$perf_wm/fd | wc -l); perf_shell_fds=$(ls /proc/$perf_shell/fd | wc -l); perf_ptys=$(/usr/bin/test/gui-cleanup.exe --pty-pool)
 SERIAL: <<FIXTURE
 cat >/tmp/gui-perf.run <<'PAINT'
 printf '\033[?25l\033[48;2;19;83;137m\033[2J'
@@ -15,7 +18,7 @@ for row in $(seq 1 "$1"); do
     printf '\033[%s;1H%*s' "$row" "$columns" ''
 done
 printf '\033[H'
-sleep 70
+while test ! -e /tmp/gui-perf.finish; do sleep 1; done
 PAINT
 FIXTURE
 SERIAL: /usr/bin/terminal --command ". /tmp/gui-perf.run" >/tmp/gui-perf.term 2>&1 & perf_terminal=$!
@@ -32,9 +35,102 @@ GUI-MOUSE-MOVE: -32,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
 GUI-CHECK-RECT: 144 112 8 8 19 83 137
-GUI-SEND-KEYS: meta_l,w
+SERIAL: touch /tmp/gui-perf.finish
 SERIAL: wait "$perf_terminal" && printf 'gui-performance: terminal closed\n'
 SERIAL-CHECK: gui-performance: terminal closed
+GUI-CHECK-RECT: 144 112 8 8 29 78 216
+SERIAL: <<MANY
+cat >/tmp/gui-perf-many.run <<'CHILD'
+index=$1
+stty size >/tmp/gui-perf-many.size.$index
+printf '\033[?25l\033[48;2;%s;83;137m\033[2J' "$index"
+set -- $(stty size)
+columns=$(($2 - 1))
+for row in $(seq 1 "$1"); do
+    printf '\033[%s;1H%*s' "$row" "$columns" ''
+done
+printf '\033[H'
+while read line; do
+    printf '%s\n' "$line" >>/tmp/gui-perf-many.input.$index
+    test "$line" = size && stty size >/tmp/gui-perf-many.size.$index
+    test "$line" = exit && exit 0
+done
+CHILD
+MANY
+SERIAL: perf_close_ok=1; for index in $(seq 1 16); do ( /usr/bin/terminal --command ". /tmp/gui-perf-many.run $index" >/tmp/gui-perf-many.log.$index 2>&1; result=$?; echo "$result" >/tmp/gui-perf-many.status.$index; while test ! -e /tmp/gui-perf-many.release.$index; do sleep 1; done; exit "$result" ) & perf_last=$!; echo "$perf_last" >/tmp/gui-perf-many.pid.$index; while test ! -e /tmp/gui-perf-many.size.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 16 && printf 'gui-performance: sixteen terminals ready\n'
+SERIAL-CHECK: gui-performance: sixteen terminals ready
+GUI-CHECK-RECT: 656 496 8 8 16 83 137
+GUI-TYPE: a
+SERIAL: while test ! -e /tmp/gui-perf-many.input.16; do sleep 1; done; grep -qx a /tmp/gui-perf-many.input.16 && printf 'gui-performance: final input preserved\n'
+SERIAL-CHECK: gui-performance: final input preserved
+GUI-SEND-KEYS: meta_l,f
+GUI-WAIT-FRAME:
+GUI-TYPE: size
+SERIAL: while ! grep -qx '46 124' /tmp/gui-perf-many.size.16; do sleep 1; done
+GUI-CHECK-RECT: 16 144 8 8 16 83 137
+GUI-SEND-KEYS: meta_l,f
+GUI-WAIT-FRAME:
+GUI-TYPE: size
+SERIAL: while ! grep -qx '10 36' /tmp/gui-perf-many.size.16; do sleep 1; done
+GUI-CHECK-RECT: 656 496 8 8 16 83 137
+SERIAL: healthy_ok=1; for index in $(seq 1 15); do test ! -e /tmp/gui-perf-many.input.$index || { healthy_ok=0; break; }; done; test "$healthy_ok" -eq 1 && printf 'gui-performance: healthy peers unchanged\n'
+SERIAL-CHECK: gui-performance: healthy peers unchanged
+GUI-TYPE: exit
+SERIAL: while test ! -e /tmp/gui-perf-many.status.16; do sleep 1; done; touch /tmp/gui-perf-many.release.16; wait "$perf_last" && test "$(cat /tmp/gui-perf-many.status.16)" -eq 0 && grep -q 'terminal: child exit 0' /tmp/gui-perf-many.log.16 && printf 'gui-performance: top terminal exited cleanly\n'
+SERIAL-CHECK: gui-performance: top terminal exited cleanly
+GUI-CHECK-RECT: 656 496 8 8 15 83 137
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.15; do sleep 1; done; touch /tmp/gui-perf-many.release.15; wait $(cat /tmp/gui-perf-many.pid.15) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.15)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.14; do sleep 1; done; touch /tmp/gui-perf-many.release.14; wait $(cat /tmp/gui-perf-many.pid.14) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.14)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.13; do sleep 1; done; touch /tmp/gui-perf-many.release.13; wait $(cat /tmp/gui-perf-many.pid.13) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.13)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.12; do sleep 1; done; touch /tmp/gui-perf-many.release.12; wait $(cat /tmp/gui-perf-many.pid.12) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.12)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.11; do sleep 1; done; touch /tmp/gui-perf-many.release.11; wait $(cat /tmp/gui-perf-many.pid.11) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.11)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.10; do sleep 1; done; touch /tmp/gui-perf-many.release.10; wait $(cat /tmp/gui-perf-many.pid.10) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.10)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.9; do sleep 1; done; touch /tmp/gui-perf-many.release.9; wait $(cat /tmp/gui-perf-many.pid.9) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.9)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.8; do sleep 1; done; touch /tmp/gui-perf-many.release.8; wait $(cat /tmp/gui-perf-many.pid.8) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.8)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.7; do sleep 1; done; touch /tmp/gui-perf-many.release.7; wait $(cat /tmp/gui-perf-many.pid.7) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.7)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.6; do sleep 1; done; touch /tmp/gui-perf-many.release.6; wait $(cat /tmp/gui-perf-many.pid.6) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.6)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.5; do sleep 1; done; touch /tmp/gui-perf-many.release.5; wait $(cat /tmp/gui-perf-many.pid.5) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.5)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.4; do sleep 1; done; touch /tmp/gui-perf-many.release.4; wait $(cat /tmp/gui-perf-many.pid.4) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.4)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.3; do sleep 1; done; touch /tmp/gui-perf-many.release.3; wait $(cat /tmp/gui-perf-many.pid.3) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.3)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.2; do sleep 1; done; touch /tmp/gui-perf-many.release.2; wait $(cat /tmp/gui-perf-many.pid.2) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.2)" -eq 0 || perf_close_ok=0
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: while test ! -e /tmp/gui-perf-many.status.1; do sleep 1; done; touch /tmp/gui-perf-many.release.1; wait $(cat /tmp/gui-perf-many.pid.1) || perf_close_ok=0; test "$(cat /tmp/gui-perf-many.status.1)" -eq 0 || perf_close_ok=0
+SERIAL: while test "$(ls /proc/$perf_wm/fd | wc -l)" -ne "$perf_wm_fds"; do sleep 1; done; perf_pool_now=$(/usr/bin/test/gui-cleanup.exe --pty-pool); printf 'reclamation: exits=%s ptys=%s/%s shell-fds=%s/%s\n' "$perf_close_ok" "$perf_pool_now" "$perf_ptys" "$(ls /proc/$perf_shell/fd | wc -l)" "$perf_shell_fds"; test "$perf_close_ok" -eq 1 && test "$(ls /proc/$perf_shell/fd | wc -l)" -eq "$perf_shell_fds" && test "$perf_pool_now" -eq "$perf_ptys" && printf 'gui-performance: sixteen terminals reclaimed\n'
+SERIAL-CHECK: gui-performance: sixteen terminals reclaimed
+SERIAL: cycles_ok=1; for cycle in $(seq 1 16); do /usr/bin/terminal --command "printf 'cycle-%s' $cycle" >/tmp/gui-perf-cycle.log 2>&1 & cycle_pid=$!; wait "$cycle_pid" && grep -q 'terminal: child exit 0' /tmp/gui-perf-cycle.log || { cycles_ok=0; printf 'failed cycle: %s\n' "$cycle"; cat /tmp/gui-perf-cycle.log; break; }; done; test "$cycles_ok" -eq 1 && printf 'gui-performance: sixteen close/reopen cycles passed\n'
+SERIAL-CHECK: gui-performance: sixteen close/reopen cycles passed
+SERIAL: while test "$(ls /proc/$perf_wm/fd | wc -l)" -ne "$perf_wm_fds"; do sleep 1; done; test "$(pgrep mario-wm)" = "$perf_wm" && test "$(pgrep mario-desktop)" = "$perf_shell" && test -z "$(pgrep terminal)" && test "$(/usr/bin/test/gui-cleanup.exe --pty-pool)" -eq "$perf_ptys" && printf 'gui-performance: final capacity and session preserved\n'
+SERIAL-CHECK: gui-performance: final capacity and session preserved
+GUI-CHECK-RECT: 144 112 8 8 29 78 216
 GUI-SEND-KEY: f6
 SERIAL: kill -TERM "$perf_wm"; while test -e /tmp/mario-wm.started; do sleep 1; done
 EXIT:

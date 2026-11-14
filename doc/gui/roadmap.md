@@ -1765,10 +1765,14 @@ M10.1 has a test-only implementation and a recorded baseline in
 and scanout, M10.3 adds bounded motion pacing, and M10.4 batches layout-safe
 scanout spans. M10.5 reuses terminal pixels for unchanged cells;
 M10.6 adds negotiated atomic surface patches and M10.7 implements bounded
-terminal pipelining. M10.8 remains planned and unchecked.
-On November 14, 2026 its focused gates, 48-sample timing capture, and
-`make test SMP=16` runnable-suite gate pass: 145 guest cases pass, with the
-three recorded GUI deferrals and two SMP-4-only shell cases explicitly skipped.
+terminal pipelining. M10.8 validates drawing bounds and recovery with one and
+sixteen windows and records the same-configuration before/after comparison.
+M10.1–M10.8 deliver the drawing checkpoint under the recorded exceptions;
+unqualified M9/M10 integration remains deferred.
+On November 14, 2026 the final focused gates, 48-sample after timing capture,
+and `make test SMP=16` runnable-suite gate pass: 151 guest cases and 49 host
+tests pass, with the three recorded GUI deferrals and two SMP-4-only shell
+cases explicitly skipped.
 The target contracts are
 [Desktop and applications](desktop.md#incremental-drawing-m10-target) and
 [UI toolkit](ui-toolkit.md#incremental-presentation-and-uploads-m10-target).
@@ -1995,9 +1999,10 @@ item, its focused gates during development, and `make test SMP=16` plus
   The subsequent default-four-worker `make test SMP=16` gate passes on
   November 14, 2026: 151 guest cases and 49 host tests, with the unchanged
   three GUI deferrals and two SMP-4-only skips. `git diff --check` passes.
-- [ ] **M10.8 — validate drawing performance and recovery end to end.**
-  Prerequisite: M10.7. Owns `tests/gui/gui-drawing-performance.test`, reviewed
-  assets under `tests/gui/assets/`, `tests/bench_gui_drawing.py`,
+- [x] **M10.8 — validate drawing performance and recovery end to end.**
+  Prerequisite: M10.7. Owns final native assertions under `app/test/gui-wm-busy/`
+  and `tests/shell/gui-wm-busy.test`, `tests/gui/gui-drawing-performance.test`,
+  reviewed assets under `tests/gui/assets/`, `tests/bench_gui_drawing.py`,
   `doc/gui/drawing-baseline.md`, and this roadmap. Repeat the M10.1 workloads
   on the same host, accelerator, compiler flags, SMP count, resolution, and
   sampling policy. Report before/after latency and throughput without claiming
@@ -2023,6 +2028,34 @@ item, its focused gates during development, and `make test SMP=16` plus
   benchmark:
   `.venv/bin/python tests/bench_gui_drawing.py --smp 16 --output /tmp/mario-gui-after.json`,
   then `make test SMP=16`. Commit: `test: validate incremental GUI drawing and recovery`.
+  Implemented and validated on November 14, 2026 under the recorded integration
+  exceptions. Native sixteen-window coverage asserts zero idle/hidden drawing,
+  one scheduled presentation for sixteen motion records, 2048 cursor scanout
+  bytes, and a small drag bounded by its 330x218 decorated damage region.
+  Sixteen close/reopen cycles preserve every healthy cached pixel, exact
+  surface/metadata charges and client count, verify closed descriptors before
+  reuse, and reclaim all charges at teardown. The real GUI fixture retains
+  one-terminal exact RGB and drag/reveal coverage, adds sixteen independent
+  terminals, ordered focused input and unchanged peer input, actual 46x124
+  fullscreen/10x36 restored PTY geometry, exact RGB after restore/reveal,
+  sixteen clean closes, and sixteen further EOF/close/reopen cycles. WM/shell
+  identity, descriptor counts and PTY capacity return to their original baselines.
+  Existing runnable VT, shell-replacement, renderer/uploader, allocation and
+  scanout-failure regressions remain unchanged; no golden or tolerance changes.
+  The unchanged benchmark records twelve successful warm-ups and 48 timed
+  samples with no failures. Observed cursor/drag median ratios are 2.602x–22.239x;
+  normal/fullscreen burst throughput rises from 61659.666/13874.526 to
+  140442.048/28678.159 bytes/s. Host load is substantially lower than the
+  baseline, so these are qualified observations, not isolated causal estimates
+  or universal FPS claims. Exact work bounds, samples, environment, fingerprints
+  and retained development failures are in [GUI drawing baseline](drawing-baseline.md).
+  Final focused native and real GUI tests pass in 19.29s and 86.06s; the
+  default-four-worker `make test SMP=16` gate exits zero with 77 shell, six TTY
+  and 68 GUI cases (151 guests), plus 49 host tests. `git diff --check` passes.
+  `GUI-TMUX-STARTUP`, `GUI-STRESS-CLEANUP`, `GUI-CAPACITY-FRAME` and the two
+  SMP-4-only skips remain unchanged. This completes M10 drawing validation
+  and its runnable gate, not M9.6 or the deferred fullscreen tmux/Vim/top/nano
+  integration audit; independent terminals do not replace those contracts.
 
 ### Checkpoint and Non-Goals
 

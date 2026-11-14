@@ -1649,6 +1649,111 @@ static void test_drawing_work(void)
 	puts("gui-wm-busy: drawing work is counted independently of logical flushes");
 }
 
+static wm_window *drawing_window(wm_server *server, unsigned int index)
+{
+	wm_window *window = init_client(server, index, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+
+	window->x = 144;
+	window->y = 112;
+	window->width = 320;
+	window->height = 192;
+	window->stack_order = index + 1;
+	window->committed = gui_surface_create(320, 192);
+	assert(window->committed != NULL);
+	window->committed_bytes = 320 * 192 * 4;
+	window->client->surface_bytes = window->committed_bytes;
+	server->state.surface_bytes += window->committed_bytes;
+	gui_fill_rect(window->committed, (gui_rect) { 0, 0, 320, 192 }, 0x00200000 + index);
+	return window;
+}
+
+static void test_sixteen_window_drawing(void)
+{
+	static wm_server server;
+	wm_window *windows[16];
+	gui_input_event motion = { .type = GUI_INPUT_EVENT_MOUSE, .mouse = { .dx = 32 } };
+	uint64_t previous_frame;
+	size_t surface_bytes_before;
+	size_t record_bytes_before;
+	uint64_t damage_pixels = (320 + 2 * WM_WINDOW_BORDER + 8) *
+		(192 + WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER);
+
+	init_server(&server, 1024, 768);
+	server.state.graphics = 1;
+	server.state.framebuffer = 123;
+	server.state.scanout_stride = 4096;
+	server.state.composite = gui_surface_create(1024, 768);
+	server.desktop_snapshot = gui_surface_create(1024, 768);
+	assert(server.state.composite != NULL && server.desktop_snapshot != NULL);
+	server.desktop_snapshot_bytes = server.state.frame_bytes;
+	server.state.surface_bytes = server.desktop_snapshot_bytes;
+	gui_fill_rect(server.desktop_snapshot, (gui_rect) { 0, 0, 1024, 768 }, 0x00112233);
+	for (unsigned int index = 0; index < 16; index++)
+		windows[index] = drawing_window(&server, index);
+	assert(wm_load_cursor(&server.state) == 0);
+	scanout_result = GUI_FLUSH_COMPLETE;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert_full_scene(&server);
+	previous_frame = begin_drawing_measurement(&server);
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert(server.state.frame_number == previous_frame && measured_work.written_bytes == 0);
+	assert(measured_work.filled_pixels == 0 && measured_work.blitted_pixels == 0 && measured_work.writer_calls == 0);
+	use_test_clock = 1;
+	test_clock_ms = 1000;
+	for (unsigned int index = 0; index < 16; index++)
+		wm_emit_input(&server, &motion);
+	assert(server.state.cursor_x == 512 && server.state.motion_pending);
+	assert(server.state.frame_number == previous_frame && wm_motion_timeout(&server) == WM_MOTION_FRAME_MS);
+	test_clock_ms += WM_MOTION_FRAME_MS;
+	assert(wm_present_motion(&server) == 0);
+	use_test_clock = 0;
+	measure_drawing = 0;
+	assert(server.state.frame_number == previous_frame + 1 && !server.state.motion_pending);
+	assert(measured_work.written_bytes == 2 * WM_CURSOR_WIDTH * WM_CURSOR_HEIGHT * 4);
+	assert(measured_work.flush_requests == 2 && measured_work.writer_calls == 2 * WM_CURSOR_HEIGHT);
+	assert(measured_work.filled_pixels <= 2 * WM_CURSOR_WIDTH * WM_CURSOR_HEIGHT);
+	assert(measured_work.blitted_pixels <= 2 * WM_CURSOR_WIDTH * WM_CURSOR_HEIGHT);
+	assert_full_scene(&server);
+	stage(windows[0], 1, 2);
+	gui_fill_rect(windows[0]->staging, (gui_rect) { 0, 0, 320, 192 }, 0x00335566);
+	previous_frame = begin_drawing_measurement(&server);
+	commit_staged(windows[0]);
+	measure_drawing = 0;
+	assert(windows[0]->committed->pixels[0] == 0x00335566);
+	assert(server.state.frame_number == previous_frame && measured_work.written_bytes == 0);
+	assert(measured_work.filled_pixels == 0 && measured_work.blitted_pixels == 0 && measured_work.writer_calls == 0);
+	assert_full_scene(&server);
+	previous_frame = begin_drawing_measurement(&server);
+	assert(wm_move_window(&server, windows[15], 152, 112) == 1);
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	measure_drawing = 0;
+	assert(server.state.frame_number == previous_frame + 1 && measured_work.written_bytes <= damage_pixels * 4);
+	assert(measured_work.filled_pixels <= damage_pixels * 9 && measured_work.blitted_pixels <= damage_pixels * 3);
+	assert(measured_work.flush_requests == 1 && measured_work.writer_calls <= 192 + WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER);
+	assert_full_scene(&server);
+	surface_bytes_before = server.state.surface_bytes;
+	record_bytes_before = server.record_bytes;
+	for (unsigned int index = 0; index < 16; index++) {
+		int descriptor = windows[index]->client->fd;
+
+		wm_disconnect_client(&server, windows[index]->client);
+		assert(fcntl(descriptor, F_GETFD) < 0 && errno == EBADF);
+		windows[index] = drawing_window(&server, index + 16);
+		assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+		assert(server.client_count == 16 && server.record_bytes == record_bytes_before);
+		assert(server.state.surface_bytes == surface_bytes_before);
+		for (unsigned int peer = 0; peer < 16; peer++) {
+			gui_color expected = 0x00200000 + peer + (peer <= index ? 16 : 0);
+
+			for (unsigned int pixel = 0; pixel < 320 * 192; pixel++)
+				assert(windows[peer]->committed->pixels[pixel] == expected);
+		}
+		assert_full_scene(&server);
+	}
+	cleanup_server(&server);
+	puts("gui-wm-busy: sixteen windows preserve bounded drawing, motion and reclaimed capacity");
+}
+
 static void test_motion_batch(void)
 {
 	static wm_server server;
@@ -2492,6 +2597,7 @@ int main(void)
 	test_terminal_recovery();
 	test_drawing_counter_clipping();
 	test_drawing_work();
+	test_sixteen_window_drawing();
 	test_motion_batch();
 	test_atomic_patches();
 	test_upload_window();

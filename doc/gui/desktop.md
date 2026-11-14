@@ -274,8 +274,8 @@ diagnostic window or create a replacement through the same protocol framing.
 Through M9, `mario-wm` can eagerly compose and flush the full screen for each
 visible update or pointer movement. Window contents are already cached in
 committed surfaces; moving a window does not require regenerating its text or
-widgets. The incremental sequence below is the M10 target, not a claim that
-damage-based presentation or frame pacing is already implemented. Paint the
+widgets. M10 now implements damage-based presentation, bounded motion pacing,
+cell reuse and bounded negotiated uploads. Paint the
 shell desktop surface first, then normal windows/chrome, then the cursor:
 
 1. Collect dirty rectangles.

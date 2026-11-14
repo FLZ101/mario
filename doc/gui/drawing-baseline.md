@@ -1,9 +1,9 @@
 # GUI Drawing Baseline
 
-This is the test-only M10.1 baseline for [M10](roadmap.md#m10-incremental-gui-drawing),
-not an implementation of incremental drawing. Production composition, scanout,
-terminal rendering, and the wire protocol are unchanged. M10.2–M10.8 and the
-deferred M9 integration checkpoint remain separate work items.
+This preserves the test-only M10.1 baseline and the M10.8 comparison for
+[M10](roadmap.md#m10-incremental-gui-drawing). M10.2–M10.7 implement incremental
+composition, scanout, terminal rendering, and negotiated uploads. The deferred
+M9 integration checkpoint remains separate from the runnable drawing gate.
 
 ## Reproduce
 
@@ -49,8 +49,8 @@ workloads use the real server-owned cursor and verify its visible movement.
 Client glyph/cell rendering and upload bytes are not inferred from WM counters;
 their deterministic instrumentation belongs to subsequent terminal items.
 
-All presented cases currently clear/compose and flush the entire 1024x768
-screen. A full flush uses 768 writer calls, each accepting 4096 bytes. The
+All presented baseline cases clear/compose and flush the entire 1024x768
+screen. A baseline full flush uses 768 writer calls, each accepting 4096 bytes. The
 ordinary window's content is 320x192; the move is eight pixels to the right.
 
 | Case | Filled Pixels | Blitted Pixels | Flush Requests | Writer Calls | Written Bytes | Completed Presentations |
@@ -67,6 +67,62 @@ title, close button, and content clear. Its blitted count is desktop plus
 committed content. Fullscreen skips the obscured desktop and ordinary windows,
 but still clears the screen and fullscreen content before copying the cache.
 These are exact assertions for the pre-incremental path, not M10's final bounds.
+
+### Final Deterministic Work
+
+The original workloads and counter meanings are retained. Their final counts
+are hard assertions, not estimated savings from smaller framebuffer writes:
+
+| Case | Filled Pixels | Blitted Pixels | Flush Requests | Writer Calls | Written Bytes | Completed Presentations |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Idle, unchanged pointer | 0 | 0 | 0 | 0 | 0 | 0 |
+| Cursor, +32 pixels | 512 | 512 | 2 | 32 | 2048 | 1 |
+| Small window move | 211832 | 133380 | 1 | 218 | 287760 | 1 |
+| Visible window commit | 184320 | 122880 | 1 | 192 | 245760 | 1 |
+| Fully hidden window commit | 0 | 0 | 0 | 0 | 0 | 0 |
+| Fullscreen window commit | 1572864 | 786432 | 1 | 1 | 3145728 | 1 |
+
+Cursor scanout in this fixture is the sum of two disjoint 16x16 footprints,
+2048 bytes, versus 3145728 bytes before. The general region helper may merge
+touching/overlapping footprints into their bounding box: at most 32x32 pixels
+(4096 bytes) for two 16x16 sprites. Disjoint footprints remain separate. This
+documents the bounded coalescing overhead rather than promising their exact
+union in every direction. Opaque sprite/blend stores add at most 256 stores
+per presentation, independently of the clipped fill/blit counters. When a
+cursor intersects windows, primitive work also counts those damaged scene
+intersections and their overdraw; unrelated screen pixels are not composed.
+These cursor-only bounds apply to settled scanout; initial presentation and
+foreground/session recovery still require a full-screen repaint.
+
+The eight-pixel drag flushes its 330x218 old/new decorated bounding rectangle,
+287760 bytes, not the whole screen. Narrow scanout remains scanline-based;
+the full-width layout-safe replacement batches 768 rows into one writer call.
+The full-screen content still needs a full repaint; batching does not claim
+to eliminate its pixel work or bypass framebuffer generation checks.
+
+The final native fixture repeats idle, hidden update, motion, overlap/reveal,
+and close/reopen with sixteen charged 320x192 windows. A sixteen-record
+motion-only burst preserves final position and presents exactly once at its
+deadline, with 2048 scanout bytes. Its small drag retains the same 287760-byte
+ceiling; fills are bounded by nine damaged-region areas (647460 stores), and
+blits by three (215820 stores), covering the desktop and the two intersecting
+visible window layers, not sixteen full-screen draws. Each of sixteen
+close/reopen cycles restores surface/record charges and client count, proves
+the closed descriptor is invalid, preserves every healthy peer pixel, and
+matches the full-scene oracle. Cleanup returns all native charges to zero.
+
+The renderer oracle covers unchanged state, glyph overhang, cursor movement,
+scrolling, alternate screens, erases, direct RGB, Unicode and resize rollback.
+Its single-cell bound is a 24x32 dirty rectangle, 2336 counted stores and at
+most twelve glyph calls; unchanged state performs no drawing. The real `A`
+with adjacent cursor fixture produces a 16x16 patch with exactly 1140 wire
+bytes and 1024 scanout bytes, preserving all pixels outside the rectangle.
+WM primitive bounds there are 768 fills and 256 blits. Distant dirty cells and
+scrolling may coalesce into much larger rectangles; they are not single-cell
+traffic. Four encoded unacknowledged chunks peak at 16144 bytes; the encoder
+is 4036 bytes, reply and PTY-input queues are 4096 bytes each, and PTY-output
+scratch is 512 bytes. Delayed/short/stale/error replies never expand these
+caps or expose a mixed frame.
 
 ## Timing Method
 
@@ -173,9 +229,114 @@ inside a serial heredoc subprocess and unavailable to its parent shell's
 `wait`. Launch now runs in the parent serial shell; the existing clean-exit
 assertion remains intact and its focused visual test passes.
 
-## Validation Record
+## After Capture — November 14, 2026
 
-The November 14, 2026 final run completed successfully:
+The uncontended after capture starts at `2026-11-14T08:11:24.083015+08:00`,
+after the focused recovery guest exits. Revision is
+`42efd7cee8dc38f97b9dd271252ce82c58cd7f43` with the M10.8 test/documentation
+changes; like the baseline, this is a working-tree measurement. Production
+WM/terminal binaries contain M10.2–M10.7. The full report and serial transcript
+are `/tmp/mario-gui-after.json` and `/tmp/mario-gui-after.serial.log`.
+
+Host, CPU affinity, memory, Fedora 45 GCC 16 build, `-O0`, QEMU 8.2.2 TCG,
+16 guest CPUs, 256 MiB, 1024x768x32, workload, polling and sampling policy
+match the baseline. The benchmark script itself is unchanged. All twelve
+warm-ups and 48 timed samples succeed; there are no discarded/failed samples
+or report errors. The six final work-counter records match the hard table.
+
+Ambient host load is not controlled: setup/completion load averages are
+0.062 / 0.170 / 0.486 and 0.196 / 0.191 / 0.478, respectively, substantially
+lower than the earlier baseline. Neither capture runs alongside another QEMU
+guest, but these observations are not an isolated causal estimate of the
+code change. The deterministic work reductions are independent of host load;
+timings retain the stated QMP/screendump/polling overhead and imply no universal
+hardware FPS target.
+
+| Workload | Baseline Median (ms) | After Median (ms) | After p95 (ms) | After Max (ms) | Observed Median Ratio | Failures |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Cursor, one event | 156.593 | 29.178 | 45.384 | 45.384 | 5.367x | 0 |
+| Cursor, sixteen events | 515.971 | 33.514 | 35.503 | 35.503 | 15.396x | 0 |
+| Window drag, one event | 110.598 | 42.510 | 44.883 | 44.883 | 2.602x | 0 |
+| Window drag, sixteen events | 681.164 | 30.629 | 47.118 | 47.118 | 22.239x | 0 |
+| Terminal normal burst | 544.172 | 237.187 | 279.500 | 279.500 | 2.294x | 0 |
+| Terminal fullscreen burst | 2398.802 | 1160.784 | 1271.825 | 1271.825 | 2.067x | 0 |
+
+Each row has eight timed samples. Cursor/drag sixteen-event timings are not
+sixteen-window timing measurements; the independent sixteen-window fixture
+provides deterministic work/recovery coverage instead.
+
+| Terminal Workload | Payload Bytes | Baseline Median (bytes/s) | After Median (bytes/s) | After p95 (bytes/s) | After Max (bytes/s) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Normal burst | 33280 | 61659.666 | 140442.048 | 193999.392 | 193999.392 |
+| Fullscreen burst | 33280 | 13874.526 | 28678.159 | 31250.304 | 31250.304 |
+
+Per-sample throughput, not an inverted latency percentile, supplies the rates.
+Rounded after samples are retained alongside the full-precision JSON:
+
+```text
+milliseconds
+cursor-1-events:          28.571 28.636 45.384 29.720 43.926 27.796 31.552 27.881
+cursor-16-events:         30.007 35.503 33.987 33.492 33.242 33.275 33.537 35.159
+window-drag-1-events:     43.212 41.681 42.660 29.207 43.858 42.361 32.521 44.883
+window-drag-16-events:    28.289 47.118 30.854 30.153 29.453 34.758 30.403 33.273
+terminal-normal-burst:  171.547 197.832 219.507 229.951 244.423 254.297 279.500 272.886
+terminal-fullscreen-burst: 1064.950 1100.992 1088.104 1141.548 1180.019 1210.240 1271.825 1257.356
+```
+
+After binary/ramdisk SHA-256 fingerprints:
+
+```text
+mario-wm.exe:    354d88eafb466433f84623172b74b303ca33d99ca2b7a6910dbc161b82ab946f
+terminal.exe:    f8a4796e7dbb344ea7ee900292011d0147e2369568e311d3ac329a7120ffcde9
+gui-wm-busy.exe: 014237005804d24a2836e96174e584b6a8a64a2d8d64497956f79ef2e06a437e
+rd/rdx:         ad1ca8b85d440e5eab6b838870b0f523058da5e8152970d2f427a4de6a0a3b71
+```
+
+## Recovery Audit
+
+`gui-drawing-performance.test` exercises one terminal's exact-color content and
+drag/reveal, then sixteen independent terminals. It verifies final input to
+the focused peer, untouched healthy peer input, a real 46x124 fullscreen PTY
+and 10x36 restored PTY, exact RGB pixels before/after restore and close/reveal,
+sixteen clean closes, and sixteen subsequent EOF/close/reopen cycles. WM/shell
+PIDs and descriptor baselines survive; the recorded PTY pool is fully restored.
+The native sixteen-window test separately verifies exact surface/metadata
+charges and every healthy cached pixel on each close/reopen, then zero charges
+at teardown. Native delayed-reply tests and the repeated timed payloads cover
+continuous output and resize/cancellation without buffer growth.
+
+The unchanged runnable suite retains `wm-damage`, `wm-motion-batch`,
+`wm-occlusion`, `wm-fullscreen`, `wm-recovery`, framebuffer transition/generation
+and flush tests, real terminal input/resize/RGB, plain tmux, and Vim/top/less
+editing/quit/reclamation fixtures. These retain reviewed pixels, foreground
+F1/F6/F8 return, exact restore geometry, replacement-shell recovery, sibling
+health and old allocation/scanout-failure assertions. No golden is replaced
+and no comparison tolerance is introduced by M10.8.
+
+The user-approved `GUI-TMUX-STARTUP`, `GUI-STRESS-CLEANUP` and
+`GUI-CAPACITY-FRAME` exclusions remain explicit and unchanged. The original
+resized tmux Vim/top/nano fixture, M9.6 fullscreen tmux pane/edit audit, and
+original multiple-windows-per-connection capacity/stress scenarios are **not**
+claimed to pass. The new independent-terminal drawing/recovery fixture does
+not silently replace those deferred contracts. M10 drawing work and its
+runnable gate are therefore reported separately from unqualified M9/M10
+integration completion.
+
+Development runs `/tmp/mario-m10-8-performance*.log` retain fixture failures.
+The first version waited for an oksh WINCH trap while its builtin read blocked;
+geometry is now queried by real input after each completed configure. The
+second version ignored read EOF and sampled PTY capacity after an earlier
+sleeping child, making the baseline transient. The first child now exits
+through a marker, the baseline precedes every workload, and reader EOF ends
+the child. Recorded exit-status wrappers stay alive until the parent releases
+and reaps them, avoiding lost historical shell job statuses without accepting
+nonzero application exits. A short-child cycle's missing exit marker is also
+retained, not dropped. The final focused native, visual and benchmark-host
+tests pass; timing capture itself has no failed sample.
+
+## Baseline Validation Record
+
+The M10.1 baseline's November 14, 2026 final run completed successfully:
 
 - Focused `gui-wm-busy.test`: passes, including exact counters and clipping.
 - Focused `gui-drawing-performance.test`: passes with the real desktop,
@@ -195,11 +356,36 @@ The full-suite log is `/tmp/mario-m10-final-suite.log`. Focused logs are
 `/tmp/mario-m10-drawing-final-focused.log`. M10.1 passes its implementation
 gates; the recorded timings identify the working tree before that step's commit.
 
+## Final M10.8 Validation Record
+
+The November 14, 2026 final drawing/recovery gate completes successfully:
+
+- Focused `gui-wm-busy.test`: passes in 19.29s, including sixteen-window work
+  bounds, exact cached pixels and reclaimed resource charges.
+- Focused `gui-drawing-performance.test`: passes in 86.06s, including sixteen
+  real terminals, fullscreen/restore, ordered input, clean closes and repeated
+  capacity recovery. The same fixture passes in 86.50s in the full gate.
+- After benchmark: twelve warm-ups and 48 timed samples succeed, no report
+  errors or discarded failures; sampling, workload and benchmark script unchanged.
+- Host benchmark and GUI-parser tests pass; all 49 host tests pass in the full gate.
+- `make test SMP=16`: exits zero with 77 shell, six TTY and 68 GUI cases
+  (151 guest cases), using the default four workers and the same five explicit skips.
+- `git diff --check`: passes; the suite restores normal kernel/image artifacts
+  after its framebuffer self-test variants.
+
+Final logs are `/tmp/mario-m10-8-suite.log`, `/tmp/mario-m10-8-native-final.log`,
+`/tmp/mario-m10-8-performance4.log`, `/tmp/mario-m10-8-benchmark.log`,
+`/tmp/mario-m10-8-benchmark-unit.log`, and `/tmp/mario-m10-8-parser-final.log`.
+The timing comparison and recovery audit above qualify what this gate proves;
+the deferred integrations remain separate.
+
 ## Validation Boundaries
 
 The recorded `GUI-TMUX-STARTUP`, `GUI-STRESS-CLEANUP`, and `GUI-CAPACITY-FRAME`
 deferrals remain explicit skips; no new skip is introduced. A passing runnable
-suite does not establish that those integrations pass or complete M9.6/M10.
+suite does not establish that those integrations pass or complete unqualified
+M9/M10 integration, including M9.6.
 GTK dual-cursor/alignment behavior is not changed or measured by this headless
-QMP benchmark. Keep the same compiler flags, host/accelerator, resolution, SMP,
-instrumentation, and sample policy for the M10.8 comparison.
+QMP benchmark. The M10.8 comparison retains the same compiler flags,
+host/accelerator, resolution, SMP, instrumentation and sample policy, with
+the explicitly reported ambient-host-load difference.
