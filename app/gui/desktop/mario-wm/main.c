@@ -36,6 +36,7 @@
 #define WM_CURSOR_PATH "/usr/share/mario/cursor-arrow-16.rgba"
 #define WM_CURSOR_WIDTH 16U
 #define WM_CURSOR_HEIGHT 16U
+#define WM_DIAGNOSTIC_COUNT 2U
 #define WM_RESIZE_GRIP 4U
 #define WM_TITLE_HEIGHT 24U
 #define WM_TITLE_BUTTON_WIDTH 16U
@@ -241,6 +242,7 @@ struct wm_server {
 	pid_t shell_pid;
 	int shell_ready;
 	int shell_replacement_started;
+	int diagnostics;
 };
 
 static int wm_start_shell(wm_server *server);
@@ -1379,7 +1381,9 @@ static void client_handle_launch_request(wm_client *client, const uint8_t *bytes
 		return;
 	}
 	if (client->role != GUI_PROTOCOL_ENDPOINT_SHELL &&
-	    launch_type != GUI_PROTOCOL_LAUNCH_EXECUTABLE) {
+	    (launch_type == GUI_PROTOCOL_LAUNCH_TERMINAL ||
+	     launch_type == GUI_PROTOCOL_LAUNCH_FILE_MANAGER ||
+	     client->windows == NULL)) {
 		client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EPERM);
 		return;
 	}
@@ -3368,7 +3372,7 @@ static int bind_listener(void)
 	return listener;
 }
 
-static void shell_exec(int fd)
+static void shell_exec(int fd, int diagnostics)
 {
 	if (fd != WM_SHELL_FD) {
 		if (dup2(fd, WM_SHELL_FD) < 0)
@@ -3376,7 +3380,10 @@ static void shell_exec(int fd)
 		close(fd);
 	}
 	/* All server descriptors are close-on-exec; fd 3 is the shell's only capability. */
-	execl(WM_SHELL_PATH, WM_SHELL_PATH, "--wm-fd=3", NULL);
+	if (diagnostics)
+		execl(WM_SHELL_PATH, WM_SHELL_PATH, "--wm-fd=3", "--diagnostics", NULL);
+	else
+		execl(WM_SHELL_PATH, WM_SHELL_PATH, "--wm-fd=3", NULL);
 	_exit(127);
 }
 
@@ -3402,7 +3409,7 @@ static int wm_start_shell(wm_server *server)
 	}
 	if (pid == 0) {
 		close(fds[0]);
-		shell_exec(fds[1]);
+		shell_exec(fds[1], server->diagnostics);
 	}
 	close(fds[1]);
 	if (wm_add_client(server, fds[0], GUI_PROTOCOL_ENDPOINT_SHELL) == NULL) {
@@ -3566,7 +3573,7 @@ static int wm_start_file_manager(const uint8_t *path, size_t path_bytes)
 	return 0;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
 	struct sigaction action = { .sa_handler = request_stop };
 	struct sigaction ignore_pipe = { .sa_handler = SIG_IGN };
@@ -3576,6 +3583,14 @@ int main(void)
 	wm_server server = { .state = { .framebuffer = -1, .gui = -1,
 		.mouse = -1, .listener = -1 } };
 	int status = 1;
+
+	if (argc > 2 || (argc == 2 && strcmp(argv[1], "--diagnostics") != 0)) {
+		fprintf(stderr, "mario-wm: usage: mario-wm [--diagnostics]\n");
+		return 1;
+	}
+	server.diagnostics = argc == 2;
+	/* Preserve the previous cascade origin so normal applications stay put. */
+	server.next_placement = server.diagnostics ? 0 : WM_DIAGNOSTIC_COUNT;
 
 	/* Acquire both descriptors before F8 may expose the graphics seat. */
 	server.state.framebuffer = open("/dev/fb0", O_RDWR);

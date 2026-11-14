@@ -2184,7 +2184,7 @@ lowercase hyphenated convention.
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test gui-launcher.test tests/gui`.
   Commit: `desktop: add application menu and launcher`.
 
-- [ ] **M11.5 — start applications through the launcher.**
+- [x] **M11.5 — start applications through the launcher.**
   Prerequisite: M11.4. Owns `app/gui/desktop/mario-wm/main.c`,
   `app/gui/desktop/mario-desktop/main.c`, `tests/gui/wm-autostart.test`,
   `tests/gui/wm-startup.test`, `tests/gui/wm-launch.test`, and this roadmap.

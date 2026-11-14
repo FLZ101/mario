@@ -1,5 +1,5 @@
 GUI-VISUAL-TEST:
-SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-chrome.* /tmp/wm-chrome.log /tmp/wm-chrome.pid; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-chrome.* /tmp/wm-chrome.log /tmp/wm-chrome.pid; /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8
@@ -23,7 +23,7 @@ GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,down
 SERIAL-WAIT-FILE: /tmp/gui-chrome.maximized
 GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 1 25 1 1 255 0 0
+GUI-CHECK-RECT: 4 28 1 1 255 0 0
 SERIAL: touch /tmp/gui-chrome.maximized-checked
 GUI-MOUSE-MOVE: 759,-40
 GUI-WAIT-FRAME:

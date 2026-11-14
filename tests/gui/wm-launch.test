@@ -7,7 +7,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-RECT: 32 32 1 1 31 41 51
 SERIAL: /usr/bin/test/gui-wm-client.exe --launch-only
 SERIAL-CHECK: wm-client: launch requests handled safely
-GUI-WAIT-FRAME:
-GUI-CHECK-RECT: 128 96 1 1 17 24 39
+# Non-shell launch requests are rejected, so no application window appears at
+# the former diagnostic-cascade terminal position.
+GUI-CHECK-RECT: 128 96 1 1 31 41 51
 SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
 EXIT:

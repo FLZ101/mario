@@ -1,6 +1,6 @@
 GUI-VISUAL-TEST:
 TIMEOUT: 30
-SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-occlusion.*; /usr/bin/mario-wm >>/tmp/mario-wm.log 2>&1 & wm_pid=$!
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-occlusion.*; /usr/bin/mario-wm --diagnostics >>/tmp/mario-wm.log 2>&1 & wm_pid=$!
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8
@@ -8,15 +8,15 @@ GUI-WAIT-FRAME:
 SERIAL: /usr/bin/test/gui-wm-client.exe --occlusion >/tmp/gui-occlusion.log 2>&1 & client_pid=$!
 SERIAL: while test ! -e /tmp/gui-occlusion.ready && kill -0 "$client_pid" 2>/dev/null; do sleep 1; done; cat /tmp/gui-occlusion.log; test -e /tmp/gui-occlusion.ready && printf 'occlusion: covers ready\n'
 SERIAL-CHECK: occlusion: covers ready
-GUI-CHECK-RECT: 64 96 159 192 221 136 68
+GUI-CHECK-RECT: 64 96 156 192 221 136 68
 GUI-CHECK-RECT: 224 96 160 192 136 85 170
 SERIAL: touch /tmp/gui-occlusion.update
 SERIAL-WAIT-FILE: /tmp/gui-occlusion.updated
-GUI-CHECK-RECT: 64 96 159 192 221 136 68
+GUI-CHECK-RECT: 64 96 156 192 221 136 68
 GUI-CHECK-RECT: 224 96 160 192 136 85 170
 SERIAL: touch /tmp/gui-occlusion.move
 SERIAL-WAIT-FILE: /tmp/gui-occlusion.moved
-GUI-CHECK-RECT: 225 96 159 192 68 136 102
+GUI-CHECK-RECT: 228 96 156 192 68 136 102
 GUI-CHECK-RECT: 600 96 160 192 136 85 170
 SERIAL: touch /tmp/gui-occlusion.close
 SERIAL-WAIT-FILE: /tmp/gui-occlusion.closed

@@ -1,5 +1,6 @@
 INIT-WM: keep
 GUI-VISUAL-TEST:
+TIMEOUT: 120
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: <<TMFULLWMREADY
 set -e

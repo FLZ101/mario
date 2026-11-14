@@ -1,6 +1,6 @@
 GUI-VISUAL-TEST:
 TIMEOUT: 120
-SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-budget.* /tmp/gb*; /usr/bin/mario-wm >>/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-budget.* /tmp/gb*; /usr/bin/mario-wm --diagnostics >>/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while test -e /tmp/mario-wm.started && ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done; cat /tmp/mario-wm.log
 SERIAL-CHECK: mario-desktop: private connection ready

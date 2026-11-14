@@ -1187,6 +1187,7 @@ int main(int argc, char **argv)
 {
 	desktop_state state = { 0 };
 	diagnostic_client diagnostics[DIAGNOSTIC_COUNT] = { 0 };
+	int diagnostics_mode;
 	uint8_t frame[64];
 	uint8_t payload[sizeof(gui_protocol_wire_window_list) + GUI_PROTOCOL_MAX_TITLE_BYTES];
 	gui_protocol_header header;
@@ -1195,7 +1196,16 @@ int main(int argc, char **argv)
 	for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++)
 		diagnostics[index].fd = -1;
 
-	if (argc != 2 || strcmp(argv[1], "--wm-fd=3") != 0 || private_fd_only() < 0) {
+	if (argc == 2 && strcmp(argv[1], "--wm-fd=3") == 0) {
+		diagnostics_mode = 0;
+	} else if (argc == 3 && strcmp(argv[1], "--wm-fd=3") == 0 &&
+		   strcmp(argv[2], "--diagnostics") == 0) {
+		diagnostics_mode = 1;
+	} else {
+		fprintf(stderr, "mario-desktop: invalid inherited descriptors\n");
+		return 1;
+	}
+	if (private_fd_only() < 0) {
 		fprintf(stderr, "mario-desktop: invalid inherited descriptors\n");
 		return 1;
 	}
@@ -1231,10 +1241,11 @@ int main(int argc, char **argv)
 		return 1;
 	if (send_desktop(&state) < 0)
 		return 1;
-	for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
-		if (diagnostic_connect(&diagnostics[index], index) < 0)
-			return 1;
-	}
+	if (diagnostics_mode)
+		for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
+			if (diagnostic_connect(&diagnostics[index], index) < 0)
+				return 1;
+		}
 	/* The WM may have forked after another shell wrote stdout. */
 	if (write_full(STDOUT_FILENO, "mario-desktop: private connection ready\n",
 		       sizeof("mario-desktop: private connection ready\n") - 1) < 0)

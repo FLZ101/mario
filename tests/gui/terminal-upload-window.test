@@ -3,7 +3,7 @@ SERIAL: /usr/bin/test/gui-wm-busy.exe >/tmp/upload-window.work 2>&1; cat /tmp/up
 SERIAL-CHECK: gui-wm-busy: upload window caps encoded bytes and survives short, delayed and stale replies
 SERIAL-CHECK: gui-wm-busy: live uploads service PTY, keys and resize with bounded single-cell traffic
 SERIAL-CHECK: gui-wm-busy: rejected negotiation reconnects to legacy full-frame uploads
-SERIAL: rm -f /tmp/mario-wm.* /tmp/upload-window.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & upload_wm=$!
+SERIAL: rm -f /tmp/mario-wm.* /tmp/upload-window.*; /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & upload_wm=$!
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8

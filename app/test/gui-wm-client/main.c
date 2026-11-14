@@ -464,8 +464,8 @@ static void test_surface_budget(void)
 	uint32_t windows[4];
 	uint8_t reply[64];
 	uint8_t resize[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_window_resize)];
-	uint32_t width = 1022;
-	uint32_t height = 742;
+	uint32_t width = 1016;
+	uint32_t height = 736;
 
 	assert(app_gui_surface_budget(1024 * 768 * 4) == 16 * 1024 * 768 * 4);
 	for (size_t index = 0; index < 4; index++) {
@@ -1731,7 +1731,7 @@ static void test_launch(void)
 	put32(frame + 8, 1);
 	put16(frame + 12, GUI_PROTOCOL_LAUNCH_TERMINAL);
 	write_full(fd, frame, 16);
-	read_launch_result(fd, 1, 0);
+	read_error(fd, -EPERM, GUI_PROTOCOL_LAUNCH_REQUEST);
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
 		       sizeof(gui_protocol_wire_launch_request) + path_bytes) == 0);
 	put32(frame + 8, 2);
@@ -1739,8 +1739,8 @@ static void test_launch(void)
 	put16(frame + 14, path_bytes);
 	memcpy(frame + 16, marker, path_bytes);
 	write_full(fd, frame, 16 + path_bytes);
-	/* Executable completion is reported to the requesting window. */
-	read_launch_result(fd, 2, -EINVAL);
+	/* Window-less peers cannot request even the diagnostics launch path. */
+	read_error(fd, -EPERM, GUI_PROTOCOL_LAUNCH_REQUEST);
 	assert(access(marker, F_OK) < 0 && errno == ENOENT);
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
 		       sizeof(gui_protocol_wire_launch_request) + sizeof(image) - 1) == 0);
@@ -1749,7 +1749,7 @@ static void test_launch(void)
 	put16(frame + 14, sizeof(image) - 1);
 	memcpy(frame + 16, image, sizeof(image) - 1);
 	write_full(fd, frame, 16 + sizeof(image) - 1);
-	read_launch_result(fd, 3, 0);
+	read_error(fd, -EPERM, GUI_PROTOCOL_LAUNCH_REQUEST);
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
 		       sizeof(gui_protocol_wire_launch_request) + sizeof(directory) - 1) == 0);
 	put32(frame + 8, 4);
@@ -1757,7 +1757,7 @@ static void test_launch(void)
 	put16(frame + 14, sizeof(directory) - 1);
 	memcpy(frame + 16, directory, sizeof(directory) - 1);
 	write_full(fd, frame, 16 + sizeof(directory) - 1);
-	read_launch_result(fd, 4, 0);
+	read_error(fd, -EPERM, GUI_PROTOCOL_LAUNCH_REQUEST);
 	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
 		       sizeof(gui_protocol_wire_launch_request) + 1) == 0);
 	put32(frame + 8, 5);
@@ -1765,7 +1765,7 @@ static void test_launch(void)
 	put16(frame + 14, 1);
 	frame[16] = '/';
 	write_full(fd, frame, 17);
-	read_error(fd, -EINVAL, GUI_PROTOCOL_LAUNCH_REQUEST);
+	read_error(fd, -EPERM, GUI_PROTOCOL_LAUNCH_REQUEST);
 	close(fd);
 }
 

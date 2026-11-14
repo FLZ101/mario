@@ -1,5 +1,5 @@
 GUI-VISUAL-TEST:
-SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-state.* /tmp/wm-window-state.log /tmp/wm-window-state.pid; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-state.* /tmp/wm-window-state.log /tmp/wm-window-state.pid; /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8
@@ -17,7 +17,7 @@ SERIAL: touch /tmp/gui-state.restored-checked
 TIMEOUT: 180
 SERIAL: for i in $(seq 1 170); do if test -e /tmp/gui-state.maximized; then echo __MR_MAXIMIZED; break; fi; if grep -q 'window-state error' /tmp/wm-window-state.log; then cat /tmp/wm-window-state.log; break; fi; sleep 1; done; test -e /tmp/gui-state.maximized
 SERIAL-CHECK: __MR_MAXIMIZED
-GUI-CHECK-RECT: 1 25 1 1 255 0 0
+GUI-CHECK-RECT: 4 28 1 1 255 0 0
 SERIAL: touch /tmp/gui-state.maximized-checked
 SERIAL-WAIT-FILE: /tmp/gui-state.unmaximized
 GUI-CHECK-RECT: 64 64 1 1 255 0 0
