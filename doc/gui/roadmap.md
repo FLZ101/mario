@@ -2121,7 +2121,7 @@ focused gate during development, and `make test SMP=16` plus `git diff --check`
 before each commit. One commit per numbered item. New GUI test names use the
 lowercase hyphenated convention.
 
-- [ ] **M11.1 — add window states and shell work area.**
+- [x] **M11.1 — add window states and shell work area.**
   Prerequisite: M10. Owns `app/gui/libmario-ui/include/gui/protocol.h`,
   `app/gui/libmario-ui/src/protocol.c`, `app/gui/desktop/mario-wm/main.c`,
   `app/gui/desktop/mario-desktop/main.c`, `app/test/gui-wm-client/`,

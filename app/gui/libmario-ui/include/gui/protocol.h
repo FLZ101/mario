@@ -55,7 +55,16 @@ typedef enum {
 	GUI_PROTOCOL_CAPABILITIES_REPLY,
 	GUI_PROTOCOL_SURFACE_PATCH_BEGIN,
 	GUI_PROTOCOL_SURFACE_CANCEL,
+	GUI_PROTOCOL_WINDOW_STATE,
+	GUI_PROTOCOL_SHELL_WORK_AREA,
+	GUI_PROTOCOL_WINDOW_STATE_REQUEST,
 } gui_protocol_type;
+
+typedef enum {
+	GUI_PROTOCOL_WINDOW_STATE_NORMAL,
+	GUI_PROTOCOL_WINDOW_STATE_MINIMIZED,
+	GUI_PROTOCOL_WINDOW_STATE_MAXIMIZED,
+} gui_protocol_window_state;
 
 typedef enum {
 	GUI_PROTOCOL_LAUNCH_TERMINAL,
@@ -218,6 +227,25 @@ typedef struct __attribute__((packed)) {
 
 typedef struct __attribute__((packed)) {
 	uint32_t window_id_le;
+	uint32_t state_le;
+	uint64_t configure_serial_le;
+} gui_protocol_wire_window_state;
+
+typedef struct __attribute__((packed)) {
+	int32_t x_le;
+	int32_t y_le;
+	uint32_t width_le;
+	uint32_t height_le;
+} gui_protocol_wire_shell_work_area;
+
+typedef struct __attribute__((packed)) {
+	uint32_t window_id_le;
+	uint32_t state_le;
+	uint32_t reserved_le;
+} gui_protocol_wire_window_state_request;
+
+typedef struct __attribute__((packed)) {
+	uint32_t window_id_le;
 	int32_t status_le;
 } gui_protocol_wire_app_exit;
 
@@ -257,6 +285,12 @@ _Static_assert(sizeof(gui_protocol_wire_surface_data) == 28,
 	       "GUI protocol surface data size");
 _Static_assert(sizeof(gui_protocol_wire_surface_commit) == 20,
 	       "GUI protocol surface commit size");
+_Static_assert(sizeof(gui_protocol_wire_window_state) == 16,
+	       "GUI protocol window state size");
+_Static_assert(sizeof(gui_protocol_wire_shell_work_area) == 16,
+	       "GUI protocol shell work area size");
+_Static_assert(sizeof(gui_protocol_wire_window_state_request) == 12,
+	       "GUI protocol window state request size");
 
 int gui_protocol_message_length(size_t payload_bytes, uint32_t *length);
 int gui_protocol_encode_header(void *buffer, size_t buffer_bytes,

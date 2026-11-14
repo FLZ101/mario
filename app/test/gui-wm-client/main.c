@@ -225,17 +225,27 @@ static void read_launch_result(int fd, uint32_t request_id, int status)
 	assert(get32(frame + 8) == request_id && (int32_t)get32(frame + 12) == status);
 }
 
-static void read_surface_data_reply(int fd, uint32_t window_id, uint32_t pixel_offset,
-				    uint32_t pixel_count, uint64_t frame_serial)
+static void read_surface_data_reply_configured(int fd, uint32_t window_id,
+		uint32_t pixel_offset, uint32_t pixel_count,
+		uint64_t configure_serial, uint64_t frame_serial)
 {
 	uint8_t frame[sizeof(gui_protocol_wire_header) +
 		      sizeof(gui_protocol_wire_surface_data_reply)];
 
 	read_frame(fd, frame, GUI_PROTOCOL_SURFACE_DATA_REPLY);
-	assert(get32(frame + 8) == window_id && get32(frame + 12) == 1 &&
+	assert(get32(frame + 8) == window_id &&
+	       get32(frame + 12) == (uint32_t)configure_serial &&
+	       get32(frame + 16) == (uint32_t)(configure_serial >> 32) &&
 	       get32(frame + 20) == (uint32_t)frame_serial &&
 	       get32(frame + 24) == (uint32_t)(frame_serial >> 32) &&
 	       get32(frame + 28) == pixel_offset && get32(frame + 32) == pixel_count);
+}
+
+static void read_surface_data_reply(int fd, uint32_t window_id, uint32_t pixel_offset,
+				    uint32_t pixel_count, uint64_t frame_serial)
+{
+	read_surface_data_reply_configured(fd, window_id, pixel_offset, pixel_count,
+		1, frame_serial);
 }
 
 
@@ -1821,6 +1831,123 @@ static void test_rectangular_upload(void)
 	puts("wm-client: atomic patches, stale bases, cancellation and recovery pass");
 }
 
+static void send_window_state_request(int fd, uint32_t window_id, uint32_t state)
+{
+	uint8_t frame[GUI_PROTOCOL_HEADER_SIZE +
+		      sizeof(gui_protocol_wire_window_state_request)] = { 0 };
+
+	assert(gui_protocol_encode_header(frame, sizeof(frame),
+		GUI_PROTOCOL_WINDOW_STATE_REQUEST,
+		sizeof(gui_protocol_wire_window_state_request)) == 0);
+	put32(frame + 8, window_id);
+	put32(frame + 12, state);
+	write_full(fd, frame, sizeof(frame));
+}
+
+static void window_state_expect(int fd, uint32_t window_id, uint32_t expected,
+				int *minimized_seen)
+{
+	uint8_t frame[64];
+	uint64_t frame_serial = 2;
+
+	for (;;) {
+		gui_protocol_header header;
+
+		read_full(fd, frame, GUI_PROTOCOL_HEADER_SIZE);
+		assert(gui_protocol_decode_header(frame, GUI_PROTOCOL_HEADER_SIZE, &header) == 0);
+		assert(header.length <= sizeof(frame));
+		read_full(fd, frame + GUI_PROTOCOL_HEADER_SIZE,
+			header.length - GUI_PROTOCOL_HEADER_SIZE);
+		if (header.type == GUI_PROTOCOL_WINDOW_STATE) {
+			uint32_t state = get32(frame + 12);
+
+			assert(get32(frame + 8) == window_id);
+			assert(state <= GUI_PROTOCOL_WINDOW_STATE_MAXIMIZED);
+			if (state == GUI_PROTOCOL_WINDOW_STATE_MINIMIZED)
+				*minimized_seen = 1;
+			else if (state == GUI_PROTOCOL_WINDOW_STATE_NORMAL)
+				*minimized_seen = 0;
+			if (state == expected)
+				return;
+			continue;
+		}
+		if (header.type == GUI_PROTOCOL_WINDOW_CONFIGURE) {
+			uint64_t configure_serial = get64(frame + 12);
+			uint32_t width = get32(frame + 20);
+			uint32_t height = get32(frame + 24);
+			uint32_t total = width * height;
+
+			assert(get32(frame + 8) == window_id);
+			assert(!*minimized_seen);
+			begin_surface_configured(fd, window_id, width, height,
+				configure_serial, frame_serial);
+			for (uint32_t offset = 0; offset < total;) {
+				uint32_t count = total - offset > SURFACE_PIXELS_PER_MESSAGE ?
+					SURFACE_PIXELS_PER_MESSAGE : total - offset;
+
+				send_surface_data_configured(fd, window_id, offset, count,
+					configure_serial, frame_serial, 0x00ff0000);
+				read_surface_data_reply_configured(fd, window_id,
+					offset, count, configure_serial, frame_serial);
+				offset += count;
+			}
+			commit_surface_configured(fd, window_id, configure_serial,
+				frame_serial);
+			frame_serial++;
+			continue;
+		}
+		if (header.type == GUI_PROTOCOL_ERROR) {
+			printf("wm-client: window-state error %d type %u\n",
+				(int32_t)get32(frame + 8), get16(frame + 12));
+			fflush(stdout);
+			_exit(2);
+		}
+		assert(header.type == GUI_PROTOCOL_WINDOW_FOCUS ||
+			header.type == GUI_PROTOCOL_INPUT_RESET ||
+			header.type == GUI_PROTOCOL_INPUT_EVENT);
+	}
+}
+
+static void test_window_state(void)
+{
+	int minimized_seen = 0;
+	int fd = connect_client();
+	uint32_t window_id = create_window(fd, 900, 200, 150);
+
+	commit_color_surface(fd, window_id, 200, 150, 0x00ff0000);
+	puts("wm-client: window-state ready");
+	fflush(stdout);
+	budget_wait("/tmp/gui-state.initial-checked");
+
+	send_window_state_request(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_MINIMIZED);
+	window_state_expect(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_MINIMIZED,
+		&minimized_seen);
+	budget_marker("/tmp/gui-state.minimized");
+	budget_wait("/tmp/gui-state.minimized-checked");
+
+	send_window_state_request(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_NORMAL);
+	window_state_expect(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_NORMAL,
+		&minimized_seen);
+	budget_marker("/tmp/gui-state.restored");
+	budget_wait("/tmp/gui-state.restored-checked");
+
+	send_window_state_request(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_MAXIMIZED);
+	window_state_expect(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_MAXIMIZED,
+		&minimized_seen);
+	budget_marker("/tmp/gui-state.maximized");
+	budget_wait("/tmp/gui-state.maximized-checked");
+
+	send_window_state_request(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_NORMAL);
+	window_state_expect(fd, window_id, GUI_PROTOCOL_WINDOW_STATE_NORMAL,
+		&minimized_seen);
+	budget_marker("/tmp/gui-state.unmaximized");
+	budget_wait("/tmp/gui-state.done");
+
+	destroy_window(fd, window_id);
+	close(fd);
+	puts("wm-client: window-state requests pass");
+}
+
 int main(int argc, char **argv)
 {
 	uint8_t frame[64];
@@ -1842,7 +1969,8 @@ int main(int argc, char **argv)
 		!strcmp(argv[1], "--public-shell-only") || !strcmp(argv[1], "--stack-only") ||
 		!strcmp(argv[1], "--taskbar-only") || !strcmp(argv[1], "--shortcuts-only") ||
 		!strcmp(argv[1], "--interact-only") || !strcmp(argv[1], "--launch-only") ||
-		!strcmp(argv[1], "--launch-cleanup-only"))));
+		!strcmp(argv[1], "--launch-cleanup-only") ||
+		!strcmp(argv[1], "--window-state-only"))));
 	if (argc == 2) {
 		if (!strcmp(argv[1], "--patch-only")) {
 			test_rectangular_upload();
@@ -1884,6 +2012,8 @@ int main(int argc, char **argv)
 			puts("wm-client: launch requests handled safely");
 		} else if (!strcmp(argv[1], "--launch-cleanup-only")) {
 			test_launch_cleanup();
+		} else if (!strcmp(argv[1], "--window-state-only")) {
+			test_window_state();
 		} else {
 			test_public_shell();
 			puts("wm-client: public shell denied");

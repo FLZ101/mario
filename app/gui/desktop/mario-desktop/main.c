@@ -462,6 +462,19 @@ static int send_message(int fd, gui_protocol_type type, const void *payload,
 	return 0;
 }
 
+static int desktop_send_work_area(const desktop_state *state)
+{
+	uint8_t payload[sizeof(gui_protocol_wire_shell_work_area)];
+	uint32_t work_height = state->height > DESKTOP_PANEL_HEIGHT ?
+		state->height - DESKTOP_PANEL_HEIGHT : 0;
+
+	put32(payload, 0);
+	put32(payload + 4, 0);
+	put32(payload + 8, state->width);
+	put32(payload + 12, work_height);
+	return send_message(WM_FD, GUI_PROTOCOL_SHELL_WORK_AREA, payload, sizeof(payload));
+}
+
 static int desktop_handle_window_list(desktop_state *state,
 				      gui_protocol_type type, const uint8_t *payload,
 				      size_t payload_bytes)
@@ -991,6 +1004,8 @@ int main(int argc, char **argv)
 	state.width = get32(payload + 16);
 	state.height = get32(payload + 20);
 	if (state.window_id == 0 || state.configure_serial == 0)
+		return 1;
+	if (desktop_send_work_area(&state) < 0)
 		return 1;
 	if (send_desktop(&state) < 0)
 		return 1;
