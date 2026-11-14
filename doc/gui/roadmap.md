@@ -72,6 +72,7 @@ while an earlier checkpoint is red.
 | M8 — Window-system hardening | protocol quotas, disconnect recovery, and server restart | window-system recovery regression |
 | M9 — Window capacity and fullscreen | dynamic resource-bounded windows, multiwindow clients, taskbar overflow, and fullscreen/restore | growth, quota, fullscreen, and real tmux application regressions |
 | M10 — Incremental GUI drawing | cached-window reuse, dirty-region composition, responsive motion, batched scanout, and incremental terminal uploads | exact drawing-work bounds, visual/transaction regressions, and reproducible latency/throughput measurements |
+| M11 — Window management and launcher | mouse-resize affordances, title-bar minimize/maximize/close icons, useful desktop menu, and desktop-only app startup | window-state/chrome/resize/launcher regressions and full desktop startup suite |
 
 ## Commit-Sized Execution Plan
 
@@ -2104,6 +2105,101 @@ unaccelerated QEMU remain the comparison configuration if that is the measured
 baseline. Optimized builds, verified optional KVM, hardware cursors, shared
 memory, and screen-to-screen blits are separate measured follow-ups, not ways
 to conceal inefficient drawing or cursor-alignment defects.
+
+## M11: Window Management and Launcher
+
+Prerequisite: the completed M10 checkpoint. The target design is recorded in
+[Window management and launcher plan](window-management.md). Keep window state
+owned by `mario-wm`; clients receive authoritative state notifications but do
+not select their own minimized state. Maximize fills the shell-reported work
+area, not the full framebuffer; fullscreen remains separate and hides panel and
+chrome. The menu is part of the shell surface and uses the existing
+`LAUNCH_REQUEST` implementation rather than a new toolkit.
+
+Run `make test SMP=16` on the preceding commit before starting each item, its
+focused gate during development, and `make test SMP=16` plus `git diff --check`
+before each commit. One commit per numbered item. New GUI test names use the
+lowercase hyphenated convention.
+
+- [ ] **M11.1 — add window states and shell work area.**
+  Prerequisite: M10. Owns `app/gui/libmario-ui/include/gui/protocol.h`,
+  `app/gui/libmario-ui/src/protocol.c`, `app/gui/desktop/mario-wm/main.c`,
+  `app/gui/desktop/mario-desktop/main.c`, `app/test/gui-wm-client/`,
+  `tests/shell/gui-wm-busy.test`, `tests/gui/wm-window-state.test`, and this
+  roadmap. Add `GUI_PROTOCOL_WINDOW_STATE` and `GUI_PROTOCOL_SHELL_WORK_AREA`
+  after `GUI_PROTOCOL_SURFACE_CANCEL` and extend the protocol validator.
+  Track `minimized` and `maximized` separately from `fullscreen`. Minimize
+  hides without configuring/redrawing; restore reveals the committed surface.
+  Maximize saves normal geometry, uses the existing configure/reservation
+  transaction to reach the shell work area, and reports the state after commit.
+  Fullscreen remains exclusive. The shell sends its panel-excluding work area
+  after `DESKTOP_CREATE`; `mario-wm` accepts it only from the shell capability.
+  Focused gates:
+  `.venv/bin/python tests/lit_shell_test.py --smp 16 --test gui-wm-busy.test tests/shell`
+  and
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-window-state.test tests/gui`.
+  Commit: `gui: add window states and shell work area`.
+
+- [ ] **M11.2 — draw title-bar controls and hit targets.**
+  Prerequisite: M11.1. Owns `app/gui/desktop/mario-wm/main.c`,
+  `tests/gui/wm-chrome.test`, reviewed assets under `tests/gui/assets/`, and
+  this roadmap. Replace the solid close rectangle with three deterministic
+  16x24 controls packed from the right: minimize, maximize/restore, and close.
+  Render active/inactive/hover/pressed states from the existing theme palette;
+  keep the remaining title area a drag-only strip. Hit-test the visible control
+  rectangles exactly. Close sends `WINDOW_CLOSE_REQUEST`; the other buttons use
+  M11.1 transitions. Disable/hide minimize/maximize while fullscreen. Focused
+  gate:
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-chrome.test tests/gui`.
+  Commit: `gui: draw title-bar controls and hit targets`.
+
+- [ ] **M11.3 — harden pointer resize affordances.**
+  Prerequisite: M11.2. Owns `app/gui/desktop/mario-wm/main.c`,
+  `tests/gui/wm-interact.test`, `tests/gui/wm-resize.test`, reviewed assets,
+  and this roadmap. Replace exact one-pixel boundary hit testing with a shared
+  `WM_RESIZE_GRIP` band (for example 4 px) and draw the matching edge/corner
+  affordance in that band or during resize capture. Keep hit and draw geometry
+  in one helper. Preserve clamping, configure serials, input resets, and
+  allocation/flush rollback; never deliver resize-drag input to client content.
+  Add exact tests for all eight directions, immediate release, zero-motion
+  click, and minimum-size saturation; adjust `wm-interact.test` coordinates if
+  the larger band changes starting points. Focused gates:
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-interact.test tests/gui`
+  and
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-resize.test tests/gui`.
+  Commit: `gui: harden pointer resize affordances`.
+
+- [ ] **M11.4 — add the desktop application menu.**
+  Prerequisite: M11.1. Owns `app/gui/desktop/mario-desktop/main.c`,
+  `app/gui/desktop/mario-wm/main.c` only for launch validation,
+  `tests/gui/gui-launcher.test`, reviewed assets, and this roadmap. Replace the
+  diagnostic launcher with a shell-owned popup menu opened from the existing
+  panel slot. Entries are `Terminal` (`LAUNCH_TERMINAL`), `Files`
+  (`LAUNCH_FILE_MANAGER`, path `/`), and `Images` (`LAUNCH_FILE_MANAGER`, path
+  `/usr/share/mario-tests/gui`). The menu opens/closes with mouse and Escape,
+  restores focus, and closes on launch. Request IDs are monotonic and
+  per-shell; the shell consumes `LAUNCH_RESULT` and reports errors without
+  disconnecting. `mario-wm` validates role/path/type before forking and passes
+  no seat descriptors to children. Focused gate:
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test gui-launcher.test tests/gui`.
+  Commit: `desktop: add application menu and launcher`.
+
+- [ ] **M11.5 — start applications through the launcher.**
+  Prerequisite: M11.4. Owns `app/gui/desktop/mario-wm/main.c`,
+  `app/gui/desktop/mario-desktop/main.c`, `tests/gui/wm-autostart.test`,
+  `tests/gui/wm-startup.test`, `tests/gui/wm-launch.test`, and this roadmap.
+  Make the desktop the normal application entry point. Remove diagnostic
+  `Welcome`/`Display` windows from normal startup, retaining them only behind
+  an explicit diagnostics mode if needed. The shell starts with the desktop,
+  panel, taskbar, and menu ready. Exercise `terminal`, `filemanager`, and
+  `imageviewer` through the menu/file-manager path. Preserve shell
+  replacement/recovery and keep TTY fallback only for diagnostics. Focused
+  gates:
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-autostart.test tests/gui`,
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-startup.test tests/gui`,
+  and
+  `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-launch.test tests/gui`.
+  Commit: `desktop: start applications through the launcher`.
 
 ## Validation
 
