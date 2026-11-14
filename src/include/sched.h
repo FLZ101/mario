@@ -16,18 +16,23 @@
  */
 extern spinlock_t tasklist_lock;
 
+static inline void remove_task_links_locked(struct task_struct *task)
+{
+	task->next_task->prev_task = task->prev_task;
+	task->prev_task->next_task = task->next_task;
+	if (task->p_osptr)
+		task->p_osptr->p_ysptr = task->p_ysptr;
+	if (task->p_ysptr)
+		task->p_ysptr->p_osptr = task->p_osptr;
+	else
+		task->p_pptr->p_cptr = task->p_osptr;
+}
+
 #define REMOVE_LINKS(p) \
 do { \
 	unsigned long __tasklist_flags; \
 	spin_lock_irqsave(&tasklist_lock, __tasklist_flags); \
-	(p)->next_task->prev_task = (p)->prev_task; \
-	(p)->prev_task->next_task = (p)->next_task; \
-	if ((p)->p_osptr) \
-		(p)->p_osptr->p_ysptr = (p)->p_ysptr; \
-	if ((p)->p_ysptr) \
-		(p)->p_ysptr->p_osptr = (p)->p_osptr; \
-	else \
-		(p)->p_pptr->p_cptr = (p)->p_osptr; \
+	remove_task_links_locked(p); \
 	spin_unlock_irqrestore(&tasklist_lock, __tasklist_flags); \
 } while (0)
 

@@ -1,0 +1,2 @@
+RUN: /usr/bin/test/ahci-completion.exe
+CHECK: ahci-completion: concurrent BSP/AP reads preserve exact sector bytes and bounded completion

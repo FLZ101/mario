@@ -16,3 +16,4 @@ CHECK: gui-wm-busy: upload window caps encoded bytes and survives short, delayed
 CHECK: gui-wm-busy: live uploads service PTY, keys and resize with bounded single-cell traffic
 CHECK: gui-wm-busy: rejected negotiation reconnects to legacy full-frame uploads
 CHECK: gui-wm-busy: sixteen windows preserve bounded drawing, motion and reclaimed capacity
+CHECK: gui-wm-busy: sixteen multiwindow fullscreen cycles reclaim exact metadata and surface charges

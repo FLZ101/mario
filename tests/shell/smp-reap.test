@@ -1,0 +1,2 @@
+RUN: /usr/bin/test/smp-reap.exe
+CHECK: smp-reap: cross-CPU polling reaps only parked children with exact statuses

@@ -412,6 +412,8 @@ int sys_waitpid(int pid, int *stat_addr, int option)
 {
 	int res, flag;
 	struct task_struct *p;
+	struct task_struct *reaped = NULL;
+	unsigned long flags;
 	wait_queue_node_t node;
 	init_wait_queue_node(&node, current);
 
@@ -423,6 +425,7 @@ int sys_waitpid(int pid, int *stat_addr, int option)
 	in_wait_queue(&current->wait_chldexit, &node);
 repeat:
 	flag = 0;
+	spin_lock_irqsave(&tasklist_lock, flags);
  	for (p = current->p_cptr; p; p = p->p_osptr) {
  		if (pid > 0) {
  			if (p->pid != pid)
@@ -443,24 +446,25 @@ repeat:
  				put_fs_long(p->exit_code, stat_addr);
  			p->exit_code = 0;
  			res = p->pid;
- 			goto tail;
- 		} else if (p->state == TASK_ZOMBIE) {
+			goto unlock;
+		} else if (p->state == TASK_ZOMBIE && p->parked) {
 			current->stime_children += p->stime + p->stime_children;
 			current->utime_children += p->utime + p->utime_children;
 
  			if (stat_addr)
  				put_fs_long(p->exit_code, stat_addr);
  			res = p->pid;
- 			REMOVE_LINKS(p);
- 			free_task_struct(p);
- 			goto tail;
+			remove_task_links_locked(p);
+			reaped = p;
+			goto unlock;
  		}
 	}
 	if (flag) {
 		res = 0;
 		if (option & WNOHANG)
-			goto tail;
+			goto unlock;
 		current->state = TASK_INTERRUPTIBLE;
+		spin_unlock_irqrestore(&tasklist_lock, flags);
 		schedule();
 		current->signal &= ~(1<<(SIGCHLD-1));
 		res = -ERESTARTSYS;
@@ -469,6 +473,10 @@ repeat:
 		goto repeat;
 	}
 	res = -ECHILD;
+unlock:
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	if (reaped != NULL)
+		free_task_struct(reaped);
 tail:
 	out_wait_queue(&current->wait_chldexit, &node);
 	return res;

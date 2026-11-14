@@ -168,6 +168,7 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	struct thread_struct *prev = &p->thread;
 	struct thread_struct *next = &n->thread;
 	struct tss_struct *tss;
+	int exited = p->state == TASK_ZOMBIE;
 
 	/*
 	 * The inline switch already changed the kernel stack.  Publish the new
@@ -215,9 +216,13 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	 * and may reap/free the task immediately, so wake the parent only now
 	 * that the old task is safely parked and no longer executing.
 	 */
-	if (p->state == TASK_ZOMBIE) {
-		p->parked = 1;
+	if (exited) {
+		unsigned long flags;
+
+		spin_lock_irqsave(&tasklist_lock, flags);
 		notify_parent(p);
+		p->parked = 1;
+		spin_unlock_irqrestore(&tasklist_lock, flags);
 	}
 }
 
@@ -346,8 +351,10 @@ void schedule(void)
 	}
 
 	if (!c)
-		for_each_task(p)
+		list_for_each(tmp, rq) {
+			p = list_entry(tmp, struct task_struct, run_list);
 			p->counter = DEF_COUNTER;
+		}
 
 	spin_unlock(&tasklist_lock);
 

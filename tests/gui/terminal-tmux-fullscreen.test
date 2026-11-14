@@ -1,0 +1,239 @@
+INIT-WM: keep
+GUI-VISUAL-TEST:
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: <<TMFULLWMREADY
+set -e
+while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+pgrep mario-wm >/tmp/fullscreen-wm.pid
+pgrep mario-desktop >/tmp/fullscreen-shell.pid
+ls /proc/$(cat /tmp/fullscreen-wm.pid)/fd | wc -l >/tmp/fullscreen-wm-fds
+ls /proc/$(cat /tmp/fullscreen-shell.pid)/fd | wc -l >/tmp/fullscreen-shell-fds
+/usr/bin/test/gui-cleanup.exe --pty-pool >/tmp/fullscreen-ptys
+TMFULLWMREADY
+SERIAL: <<FIXTURES
+export TERM=screen
+{
+    printf '\033[2J\033[H\033[8;20HVT6-MARKER'
+    for row in 1 2 3; do
+        printf "\033[${row};1H\033[46m                    \033[${row};60H\033[42m                    "
+    done
+    for row in 23 24 25; do
+        printf "\033[${row};1H\033[45m                    \033[${row};60H\033[43m                    "
+    done
+    printf '\033[0m\033[8;20HVT6-MARKER'
+} >/dev/tty6
+printf 'vim pane base\n' >/tmp/tmuxvim
+printf 'nano pane base\n' >/tmp/tmuxnano
+cat >/tmp/tmuxconfig <<'CONFIG'
+set -g default-terminal screen
+set -g status-left '[gui]'
+set -g status-right ''
+set -g status-interval 0
+set -g remain-on-exit on
+set -sg escape-time 0
+CONFIG
+cat >/tmp/tmuxvimrun <<'SCRIPT'
+vim -Nu NONE -n -c 'call writefile(["ready"],"/tmp/tmuxvimready")' /tmp/tmuxvim
+test "$?" -eq 0 && touch /tmp/tmuxvimdone
+SCRIPT
+cat >/tmp/tmuxtoprun <<'SCRIPT'
+top
+test "$?" -eq 0 && touch /tmp/tmuxtopdone
+SCRIPT
+cat >/tmp/tmuxnanorun <<'SCRIPT'
+nano -I /tmp/tmuxnano
+test "$?" -eq 0 && touch /tmp/tmuxnanodone
+SCRIPT
+cat >/tmp/runtmux <<'SCRIPT'
+tmux -u -L guifullscreen -f /tmp/tmuxconfig new-session -s gui /bin/oksh /tmp/tmuxvimrun
+test "$?" -eq 0 && touch /tmp/tmuxdone
+SCRIPT
+cat >/tmp/fullscreen-helpers <<'FUNCTIONS'
+fullscreen_ready() {
+    while ! tmux -L guifullscreen capture-pane -pt gui:0.0 | grep -q 'vim pane base'; do sleep 1; done
+    while ! tmux -L guifullscreen capture-pane -pt gui:0.1 | grep -q 'PID USER'; do sleep 1; done
+    while ! tmux -L guifullscreen capture-pane -pt gui:0.2 | grep -q 'nano pane base'; do sleep 1; done
+    pgrep -x vim && pgrep -x top && pgrep -x nano
+}
+fullscreen_geometry() {
+    expected_rows=$1
+    expected_columns=$2
+    while test "$(tmux -L guifullscreen list-clients -t gui -F '#{client_height} #{client_width}')" != "$expected_rows $expected_columns"; do sleep 1; done
+    client_tty=/dev/pts/0
+    test "$(stty size <"$client_tty")" = "$expected_rows $expected_columns" || return 1
+    tmux -L guifullscreen list-panes -t gui:0 -F '#{pane_index}:#{pane_width}x#{pane_height}@#{pane_left},#{pane_top}' >/tmp/fullscreen-panes
+    test "$(wc -l </tmp/fullscreen-panes)" -eq 3 || return 1
+    if test "$expected_rows" -eq 46; then
+        grep -qx '0:62x45@0,0' /tmp/fullscreen-panes &&
+            grep -qx '1:61x22@63,0' /tmp/fullscreen-panes &&
+            grep -qx '2:61x22@63,23' /tmp/fullscreen-panes
+    else
+        grep -qx '0:22x17@0,0' /tmp/fullscreen-panes &&
+            grep -qx '1:21x8@23,0' /tmp/fullscreen-panes &&
+            grep -qx '2:21x8@23,9' /tmp/fullscreen-panes
+    fi
+}
+FUNCTIONS
+FIXTURES
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: <<TMFULLTERMINAL
+set -e
+( /usr/bin/terminal >/tmp/terminal-tmux-fullscreen.log 2>&1; result=$?; echo "$result" >/tmp/fullscreen-terminal.status; while test ! -e /tmp/fullscreen-terminal.release; do sleep 1; done; exit "$result" ) &
+echo $! >/tmp/fullscreen-terminal.pid
+TMFULLTERMINAL
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/terminal-tmux-fullscreen.log; do sleep 1; done
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,18
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 51,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 64,64
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 0,64
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 496 400 8 8 17 24 39
+GUI-SEND-KEYS: meta_l,f
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 16 600 8 8 17 24 39
+SERIAL: while test "$(stty size </dev/pts/0)" != "46 124"; do sleep 1; done
+GUI-TYPE: . /tmp/runtmux
+SERIAL: while test ! -e /tmp/tmuxvimready; do sleep 1; done; echo TMFULL_VIM_READY
+SERIAL-CHECK: TMFULL_VIM_READY
+SERIAL: <<TMFULLSPLIT
+set -e
+tmux -L guifullscreen split-window -h -t gui:0.0 /bin/oksh /tmp/tmuxtoprun
+tmux -L guifullscreen split-window -v -t gui:0.1 /bin/oksh /tmp/tmuxnanorun
+tmux -L guifullscreen select-pane -t gui:0.0
+TMFULLSPLIT
+SERIAL: <<TMFULLREADY
+set -e
+. /tmp/fullscreen-helpers
+if fullscreen_geometry 46 124 && fullscreen_ready; then
+    printf 'terminal-tmux-fullscreen: fullscreen geometry and three live applications\n'
+else
+    exit 1
+fi
+TMFULLREADY
+SERIAL-CHECK: terminal-tmux-fullscreen: fullscreen geometry and three live applications
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,16,16,104,16
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,520,400,112,16
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,512,32,8,16
+GUI-SEND-KEYS: meta_l,f
+GUI-WAIT-FRAME:
+SERIAL: <<TMFULLRESTORED
+set -e
+. /tmp/fullscreen-helpers
+if fullscreen_geometry 18 44 && fullscreen_ready; then
+    printf 'terminal-tmux-fullscreen: exact restored client and pane geometry\n'
+else
+    exit 1
+fi
+TMFULLRESTORED
+SERIAL-CHECK: terminal-tmux-fullscreen: exact restored client and pane geometry
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,144,112,176,272
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,320,240,176,96
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,320,352,176,32
+GUI-SEND-KEYS: meta_l,f
+GUI-WAIT-FRAME:
+SERIAL: <<TMFULLREENTER
+set -e
+. /tmp/fullscreen-helpers
+if fullscreen_geometry 46 124 && fullscreen_ready; then
+    printf 'terminal-tmux-fullscreen: reentered fullscreen preserves all applications\n'
+else
+    exit 1
+fi
+TMFULLREENTER
+SERIAL-CHECK: terminal-tmux-fullscreen: reentered fullscreen preserves all applications
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,16,16,104,16
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,520,400,112,16
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,512,32,8,16
+GUI-SEND-KEY: i
+GUI-TYPE: vim pane edit
+GUI-SEND-KEY: esc
+GUI-TYPE: :wq
+SERIAL-WAIT-FILE: /tmp/tmuxvimdone
+SERIAL: <<TMFULLVIMEXIT
+set -e
+grep -qx 'vim pane edit' /tmp/tmuxvim
+grep -qx 'vim pane base' /tmp/tmuxvim
+printf 'terminal-tmux-fullscreen: Vim saved edit and exited cleanly\n'
+TMFULLVIMEXIT
+SERIAL-CHECK: terminal-tmux-fullscreen: Vim saved edit and exited cleanly
+GUI-SEND-KEYS: ctrl,b
+SERIAL: while test "$(tmux -L guifullscreen list-clients -t gui -F '#{client_prefix}')" != 1; do sleep 1; done
+GUI-SEND-KEY: o
+SERIAL: while test "$(tmux -L guifullscreen display-message -pt gui:0 '#{pane_index}')" != 1; do sleep 1; done
+GUI-SEND-KEY: q
+SERIAL-WAIT-FILE: /tmp/tmuxtopdone
+GUI-SEND-KEYS: ctrl,b
+SERIAL: while test "$(tmux -L guifullscreen list-clients -t gui -F '#{client_prefix}')" != 1; do sleep 1; done
+GUI-SEND-KEY: o
+SERIAL: while test "$(tmux -L guifullscreen display-message -pt gui:0 '#{pane_index}')" != 2; do sleep 1; done
+GUI-TYPE: nano pane edit
+GUI-SEND-KEYS: ctrl,o
+GUI-SEND-KEY: ret
+SERIAL: <<TMFULLNANOEXIT
+set -e
+while ! grep -qx 'nano pane edit' /tmp/tmuxnano; do sleep 1; done
+grep -qx 'nano pane base' /tmp/tmuxnano
+printf 'terminal-tmux-fullscreen: nano saved edit\n'
+TMFULLNANOEXIT
+SERIAL-CHECK: terminal-tmux-fullscreen: nano saved edit
+GUI-SEND-KEYS: ctrl,x
+SERIAL-WAIT-FILE: /tmp/tmuxnanodone
+SERIAL: <<TMFULLPANEDEAD
+set -e
+tmux -L guifullscreen list-panes -t gui:0 -F '#{pane_dead}' >/tmp/fullscreen-dead
+test "$(grep -cx 1 /tmp/fullscreen-dead)" -eq 3
+tmux -L guifullscreen kill-session -t gui
+printf 'terminal-tmux-fullscreen: three clean pane exits\n'
+TMFULLPANEDEAD
+SERIAL-CHECK: terminal-tmux-fullscreen: three clean pane exits
+SERIAL-WAIT-FILE: /tmp/tmuxdone
+GUI-TYPE: exit
+SERIAL: <<TMFULLTERMINALEXIT
+set -e
+fullscreen_terminal=$(cat /tmp/fullscreen-terminal.pid)
+while test ! -e /tmp/fullscreen-terminal.status; do sleep 1; done
+touch /tmp/fullscreen-terminal.release
+while kill -0 "$fullscreen_terminal" 2>/dev/null; do sleep 1; done
+test "$(cat /tmp/fullscreen-terminal.status)" -eq 0
+grep -q 'terminal: child exit 0' /tmp/terminal-tmux-fullscreen.log
+printf 'terminal-tmux-fullscreen: terminal exited cleanly\n'
+TMFULLTERMINALEXIT
+SERIAL-CHECK: terminal-tmux-fullscreen: terminal exited cleanly
+SERIAL: <<TMFULLRECLAIM
+set -e
+fullscreen_wm=$(cat /tmp/fullscreen-wm.pid)
+fullscreen_shell=$(cat /tmp/fullscreen-shell.pid)
+fullscreen_wm_fds=$(cat /tmp/fullscreen-wm-fds)
+fullscreen_shell_fds=$(cat /tmp/fullscreen-shell-fds)
+fullscreen_ptys=$(cat /tmp/fullscreen-ptys)
+while test -d "/proc/$fullscreen_wm" && test "$(ls /proc/$fullscreen_wm/fd | wc -l)" -ne "$fullscreen_wm_fds"; do sleep 1; done
+test "$(pgrep mario-wm)" = "$fullscreen_wm"
+test "$(pgrep mario-desktop)" = "$fullscreen_shell"
+test "$(ls /proc/$fullscreen_shell/fd | wc -l)" -eq "$fullscreen_shell_fds"
+test "$(/usr/bin/test/gui-cleanup.exe --pty-pool)" -eq "$fullscreen_ptys"
+test -z "$(pgrep tmux)"
+test -z "$(pgrep -x vim)"
+test -z "$(pgrep -x top)"
+test -z "$(pgrep -x nano)"
+test -z "$(pgrep terminal)"
+printf 'terminal-tmux-fullscreen: original session and capacity reclaimed\n'
+TMFULLRECLAIM
+SERIAL-CHECK: terminal-tmux-fullscreen: original session and capacity reclaimed
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+SERIAL: if test -e /tmp/mario-wm.started; then fullscreen_wm=$(cat /tmp/fullscreen-wm.pid); kill -TERM "$fullscreen_wm"; while test -e /tmp/mario-wm.started; do sleep 1; done; fi
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+EXIT:

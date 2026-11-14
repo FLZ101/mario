@@ -119,9 +119,9 @@ static void test_cases(void)
 	};
 	static const uint32_t malformed_cells[] = { 0xfffd, 'A', 0xfffd, 'B', 0 };
 	static const terminal_vt_case cases[] = {
-		{ "ASCII", 2, 3, ascii_inputs, 1, ascii_cells, 1, 0 },
+		{ "ASCII", 2, 3, ascii_inputs, 1, ascii_cells, 0, 2 },
 		{ "controls", 2, 3, controls_inputs, 1, controls_cells, 1, 1 },
-		{ "wrap", 2, 3, wrap_inputs, 1, wrap_cells, 1, 0 },
+		{ "wrap", 2, 3, wrap_inputs, 1, wrap_cells, 0, 2 },
 		{ "scroll", 2, 4, scroll_inputs, 1, scroll_cells, 1, 3 },
 		{ "UTF-8", 1, 4, utf8_inputs, 2, utf8_cells, 0, 3 },
 		{ "malformed UTF-8", 1, 5, malformed_inputs, 1, malformed_cells, 0, 4 },
@@ -285,6 +285,84 @@ static void test_scroll_region(void)
 		assert(cells[cell].codepoint == expected[cell]);
 	assert(terminal.scroll_top == 1 && terminal.scroll_bottom == 2);
 	assert(terminal.cursor_row == 2 && terminal.cursor_column == 3);
+}
+
+static void test_delayed_wrap(void)
+{
+	static const uint8_t edge[] = "abc\x1b[31m";
+	static const uint8_t next[] = "d";
+	static const uint8_t repaint[] = "\x1b[1;2r\x1b[2;1HXYZ\x1b[1;1HQ";
+	static const uint8_t newline[] = "\x1b[1;1H123\r\nR";
+	static const uint8_t saved[] = "\x1b[1;1Habc\x1b" "7\rQ\x1b" "8Z";
+	terminal_vt_cell cells[9];
+	terminal_vt_cell alternate_cells[9];
+	terminal_vt terminal;
+
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 3, 3) == 0);
+	terminal_vt_feed(&terminal, edge, sizeof(edge) - 1);
+	assert(terminal.cursor_row == 0 && terminal.cursor_column == 2);
+	assert(terminal.wrap_pending && cells[3].codepoint == 0);
+	terminal_vt_feed(&terminal, next, sizeof(next) - 1);
+	assert(!terminal.wrap_pending && terminal.cursor_row == 1 && terminal.cursor_column == 1);
+	assert(cells[0].codepoint == 'a' && cells[3].codepoint == 'd');
+	terminal_vt_feed(&terminal, repaint, sizeof(repaint) - 1);
+	assert(cells[0].codepoint == 'Q' && cells[1].codepoint == 'b');
+	assert(cells[3].codepoint == 'X' && cells[5].codepoint == 'Z');
+	assert(cells[6].codepoint == 0);
+	terminal_vt_feed(&terminal, newline, sizeof(newline) - 1);
+	assert(cells[0].codepoint == '1' && cells[3].codepoint == 'R');
+	assert(terminal.cursor_row == 1 && terminal.cursor_column == 1);
+	terminal_vt_feed(&terminal, saved, sizeof(saved) - 1);
+	assert(cells[0].codepoint == 'Q' && cells[3].codepoint == 'Z');
+	assert(terminal.cursor_row == 1 && terminal.cursor_column == 1);
+	puts("terminal-vt: delayed right-margin wrap preserves tmux peers ok");
+}
+
+static void test_tmux_resize_controls(void)
+{
+	static const uint8_t cursor_prefix[] = "\x1b[";
+	static const uint8_t cursor_row[] = "1d";
+	static const uint8_t cursor_clamp[] = "\x1b[0d\x1b[999999999d";
+	static const uint8_t erase[] = "\x1b[2d\x1b[0X";
+	static const uint8_t erase_clamp[] = "\x1b[999999999X";
+	static const uint8_t margin[] = "\x1b[2;3r\x1b[4;3H\x1b[S";
+	static const uint8_t scroll_clamp[] = "\x1b[0S\x1b[999999999S";
+	terminal_vt_cell cells[20];
+	terminal_vt_cell alternate_cells[20];
+	terminal_vt terminal;
+
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 4, 5) == 0);
+	for (uint32_t row = 0; row < 4; row++)
+		for (uint32_t column = 0; column < 5; column++)
+			cells[row * 5 + column].codepoint = 'A' + row;
+	terminal.cursor_row = 3;
+	terminal.cursor_column = 3;
+	terminal_vt_feed(&terminal, cursor_prefix, sizeof(cursor_prefix) - 1);
+	terminal_vt_feed(&terminal, cursor_row, sizeof(cursor_row) - 1);
+	assert(terminal.cursor_row == 0 && terminal.cursor_column == 3);
+	terminal_vt_feed(&terminal, cursor_clamp, sizeof(cursor_clamp) - 1);
+	assert(terminal.cursor_row == 3 && terminal.cursor_column == 3);
+	terminal_vt_feed(&terminal, erase, sizeof(erase) - 1);
+	assert(terminal.cursor_row == 1 && terminal.cursor_column == 3);
+	assert(cells[7].codepoint == 'B' && cells[8].codepoint == 0 && cells[9].codepoint == 'B');
+	terminal_vt_feed(&terminal, erase_clamp, sizeof(erase_clamp) - 1);
+	assert(terminal.cursor_row == 1 && terminal.cursor_column == 3);
+	assert(cells[7].codepoint == 'B' && cells[8].codepoint == 0 && cells[9].codepoint == 0);
+	terminal_vt_feed(&terminal, margin, sizeof(margin) - 1);
+	assert(terminal.cursor_row == 3 && terminal.cursor_column == 2);
+	for (uint32_t column = 0; column < 5; column++) {
+		assert(cells[column].codepoint == 'A');
+		assert(cells[5 + column].codepoint == 'C');
+		assert(cells[10 + column].codepoint == 0);
+		assert(cells[15 + column].codepoint == 'D');
+	}
+	terminal_vt_feed(&terminal, scroll_clamp, sizeof(scroll_clamp) - 1);
+	assert(terminal.cursor_row == 3 && terminal.cursor_column == 2);
+	for (uint32_t column = 0; column < 5; column++) {
+		assert(cells[column].codepoint == 'A' && cells[15 + column].codepoint == 'D');
+		assert(cells[5 + column].codepoint == 0 && cells[10 + column].codepoint == 0);
+	}
+	puts("terminal-vt: tmux resize cursor, erase and scroll controls ok");
 }
 
 static void test_attributes_and_saved_cursor(void)
@@ -615,6 +693,8 @@ int main(void)
 	test_csi_cursor();
 	test_csi_erase();
 	test_scroll_region();
+	test_delayed_wrap();
+	test_tmux_resize_controls();
 	test_attributes_and_saved_cursor();
 	test_alternate_screen_and_reset();
 	test_resize();

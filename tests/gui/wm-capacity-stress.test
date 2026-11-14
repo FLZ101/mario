@@ -1,0 +1,490 @@
+GUI-VISUAL-TEST:
+SERIAL: /usr/bin/test/gui-wm-busy.exe >/tmp/gui-capacity-native.log 2>&1; cat /tmp/gui-capacity-native.log
+SERIAL-CHECK: gui-wm-busy: sixteen multiwindow fullscreen cycles reclaim exact metadata and surface charges
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & wm_pid=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+SERIAL: <<TTY6
+{
+    printf '\033[2J\033[H\033[8;20HVT6-MARKER'
+    for row in 1 2 3; do
+        printf "\033[${row};1H\033[46m                    \033[${row};60H\033[42m                    "
+    done
+    for row in 23 24 25; do
+        printf "\033[${row};1H\033[45m                    \033[${row};60H\033[43m                    "
+    done
+    printf '\033[0m\033[8;20HVT6-MARKER'
+} > /dev/tty6
+TTY6
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+# Close the two diagnostic windows through their server-owned decorations.
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,65
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 10,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 484 224 8 8 31 41 51
+GUI-MOUSE-MOVE: -127,-124
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -90,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 100 100 8 8 31 41 51
+GUI-MOUSE-MOVE: -127,-68
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -127,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: -47,0
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+SERIAL: shell_pid=$(pgrep mario-desktop); wm_descriptors=$(ls /proc/$wm_pid/fd | wc -l); shell_descriptors=$(ls /proc/$shell_pid/fd | wc -l); pty_capacity=$(/usr/bin/test/gui-cleanup.exe --pty-pool)
+SERIAL: <<HELPERS
+cat >/tmp/wm-capacity-stress-helpers <<'FUNCTIONS'
+capacity_reclaimed() {
+    attempt=0
+    while test "$(ls /proc/$wm_pid/fd | wc -l)" -ne "$wm_descriptors" ||
+          test "$(ls /proc/$shell_pid/fd | wc -l)" -ne "$shell_descriptors"; do
+        attempt=$((attempt + 1))
+        if test "$attempt" -ge 10; then
+            echo "wm-capacity-stress: descriptor baseline not restored"
+            ls /proc/$wm_pid/fd /proc/$shell_pid/fd
+            return 1
+        fi
+        sleep 1
+    done
+    test "$(pgrep mario-wm)" = "$wm_pid" &&
+        test "$(pgrep mario-desktop)" = "$shell_pid" &&
+        test -z "$(pgrep terminal)" &&
+        test "$(/usr/bin/test/gui-cleanup.exe --pty-pool)" -eq "$pty_capacity"
+}
+FUNCTIONS
+HELPERS
+SERIAL: . /tmp/wm-capacity-stress-helpers; capacity_reclaimed && printf 'wm-capacity-stress: %s ready\n' baseline
+SERIAL-CHECK: wm-capacity-stress: baseline ready
+
+
+SERIAL: <<PEER
+cat >/tmp/gui-capacity-peer <<'CHILD'
+index=$1
+printf '\033[?25l\033[48;2;19;83;137m\033[2J'
+stty size >/tmp/cap-term.ready.$index
+while read line; do
+    printf '%s\n' "$line" >>/tmp/cap-term.input.$index
+done
+CHILD
+PEER
+SERIAL: ( /usr/bin/test/gui-wm-client.exe --capacity-stress; result=$?; echo "$result" >/tmp/gui-capacity.status; while test ! -e /tmp/gui-capacity.release; do sleep 1; done; exit "$result" ) >/tmp/gui-capacity.log 2>&1 & capacity_client=$!
+
+SERIAL: for peer in 1 2; do index=$((1 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-1
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-1
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-1
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-1
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-1
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-1
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((1 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-1
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-1
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((1 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 1 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 1 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((2 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-2
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-2
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-2
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-2
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-2
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-2
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((2 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-2
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-2
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((2 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 2 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 2 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((3 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-3
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-3
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-3
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-3
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-3
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-3
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((3 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-3
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-3
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((3 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 3 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 3 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((4 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-4
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-4
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-4
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-4
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-4
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-4
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((4 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-4
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-4
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((4 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 4 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 4 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((5 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-5
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-5
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-5
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-5
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-5
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-5
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((5 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-5
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-5
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((5 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 5 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 5 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((6 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-6
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-6
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-6
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-6
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-6
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-6
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((6 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-6
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-6
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((6 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 6 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 6 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((7 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-7
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-7
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-7
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-7
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-7
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-7
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((7 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-7
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-7
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((7 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 7 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 7 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((8 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-8
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-8
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-8
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-8
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-8
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-8
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((8 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-8
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-8
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((8 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 8 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 8 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((9 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-9
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-9
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-9
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-9
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-9
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-9
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((9 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-9
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-9
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((9 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 9 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 9 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((10 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-10
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-10
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-10
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-10
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-10
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-10
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((10 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-10
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-10
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((10 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 10 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 10 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((11 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-11
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-11
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-11
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-11
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-11
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-11
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((11 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-11
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-11
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((11 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 11 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 11 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((12 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-12
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-12
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-12
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-12
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-12
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-12
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((12 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-12
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-12
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((12 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 12 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 12 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((13 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-13
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-13
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-13
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-13
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-13
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-13
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((13 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-13
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-13
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((13 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 13 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 13 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((14 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-14
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-14
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-14
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-14
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-14
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-14
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((14 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-14
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-14
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((14 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 14 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 14 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((15 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-15
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-15
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-15
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-15
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-15
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-15
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((15 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-15
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-15
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((15 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 15 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 15 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: for peer in 1 2; do index=$((16 * 2 + peer)); ( /usr/bin/terminal --command ". /tmp/gui-capacity-peer $index" >/tmp/cap-term.log.$index 2>&1; result=$?; echo "$result" >/tmp/cap-term.status.$index; while test ! -e /tmp/cap-term.release.$index; do sleep 1; done; exit "$result" ) & echo $! >/tmp/cap-term.pid.$index; while test ! -e /tmp/cap-term.ready.$index; do sleep 1; done; done; test "$(pgrep terminal | wc -l)" -eq 2 && touch /tmp/gui-capacity.start-16
+SERIAL-WAIT-FILE: /tmp/gui-capacity.ready-16
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEY: a
+SERIAL-WAIT-FILE: /tmp/gui-capacity.input-16
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.fullscreen-16
+GUI-CHECK-RECT: 128 96 768 384 68 136 102
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-capacity.restored-16
+GUI-CHECK-RECT: 144 112 32 32 34 86 136
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/gui-capacity.healthy-16
+GUI-CHECK-RECT: 680 80 128 96 221 136 68
+SERIAL: for peer in 1 2; do index=$((16 * 2 + peer)); test ! -e /tmp/cap-term.input.$index || exit 1; done; touch /tmp/gui-capacity.finish-16
+SERIAL-WAIT-FILE: /tmp/gui-capacity.done-16
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: meta_l,w
+GUI-WAIT-FRAME:
+SERIAL: capacity_closed=1; for peer in 1 2; do index=$((16 * 2 + peer)); while test ! -e /tmp/cap-term.status.$index; do sleep 1; done; touch /tmp/cap-term.release.$index; wait $(cat /tmp/cap-term.pid.$index) || capacity_closed=0; test "$(cat /tmp/cap-term.status.$index)" -eq 0 || capacity_closed=0; done; test "$capacity_closed" -eq 1 && capacity_reclaimed && printf 'wm-capacity-stress: cycle 16 clean exits and original capacity restored\n'
+SERIAL-CHECK: wm-capacity-stress: cycle 16 clean exits and original capacity restored
+GUI-CHECK-SCREEN: assets/desktop-idle.png
+
+SERIAL: while test ! -e /tmp/gui-capacity.status; do sleep 1; done; touch /tmp/gui-capacity.release; wait "$capacity_client" && test "$(cat /tmp/gui-capacity.status)" -eq 0 && cat /tmp/gui-capacity.log
+SERIAL-CHECK: wm-client: sixteen multiwindow capacity cycles pass
+GUI-SEND-KEY: f6
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+SERIAL: kill -TERM "$wm_pid"; wait "$wm_pid"; while kill -0 "$shell_pid" 2>/dev/null; do sleep 1; done; test ! -e /tmp/mario-wm.sock && test ! -e /tmp/mario-wm.started && test ! -e /tmp/mario-wm.frame && test "$(/usr/bin/test/gui-cleanup.exe --pty-pool)" -eq "$pty_capacity" && printf 'wm-capacity-stress: complete session reclaimed\n'
+SERIAL-CHECK: wm-capacity-stress: complete session reclaimed
+GUI-CHECK-SCREEN: assets/fb-tty.ppm
+EXIT:

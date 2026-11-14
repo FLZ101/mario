@@ -46,6 +46,7 @@ void percpu_init(void);
 void smp_init(void);
 void smp_ap_entry(void);
 void smp_send_reschedule(int cpu);
+void smp_send_scheduler_ticks(void);
 void smp_send_tlb_flush(int cpu);
 struct task_struct *smp_idle_task(int cpu);
 struct desc_struct *cpu_gdt(int cpu);

@@ -189,6 +189,7 @@ void time_init(void)
 void irq_PIT(struct trap_frame tr)
 {
 	jiffies++;
+	smp_send_scheduler_ticks();
 
 	if userland(&tr)
 		++current->utime;

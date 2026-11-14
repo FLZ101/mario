@@ -338,6 +338,12 @@ ENTRY(ipi_reschedule_entry)
 	call do_reschedule_ipi
 	jmp ret_from_intr
 
+ENTRY(ipi_scheduler_tick_entry)
+	pushl $-1
+	SAVE_ALL
+	call do_scheduler_tick_ipi
+	jmp ret_from_intr
+
 ENTRY(ipi_tlb_flush_entry)
 	pushl $-1
 	SAVE_ALL

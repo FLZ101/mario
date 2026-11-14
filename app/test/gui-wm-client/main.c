@@ -1105,6 +1105,180 @@ static void fullscreen_fill(int fd, fullscreen_fixture *fixture, uint32_t window
 	fullscreen_error(fd, fixture, GUI_PROTOCOL_SURFACE_COMMIT, -EINVAL);
 }
 
+typedef struct {
+	uint32_t windows[14];
+	uint32_t focused;
+	unsigned int cycle;
+	unsigned int keys;
+} capacity_fixture;
+
+static void capacity_marker(unsigned int cycle, const char *phase, int wait)
+{
+	char path[64];
+
+	assert(snprintf(path, sizeof(path), "/tmp/gui-capacity.%s-%u", phase, cycle) > 0);
+	if (wait)
+		budget_wait(path);
+	else
+		budget_marker(path);
+}
+
+static void capacity_reply(int fd, capacity_fixture *fixture, uint8_t *frame,
+		gui_protocol_type expected)
+{
+	for (;;) {
+		gui_protocol_header header;
+		unsigned int index;
+
+		read_full(fd, frame, GUI_PROTOCOL_HEADER_SIZE);
+		assert(gui_protocol_decode_header(frame, GUI_PROTOCOL_HEADER_SIZE, &header) == 0);
+		assert(header.length <= 64);
+		read_full(fd, frame + GUI_PROTOCOL_HEADER_SIZE, header.length - GUI_PROTOCOL_HEADER_SIZE);
+		if (header.type == expected)
+			return;
+		if (header.type == GUI_PROTOCOL_INPUT_RESET)
+			continue;
+		for (index = 0; index < 14 && fixture->windows[index] != get32(frame + 8); index++)
+			;
+		assert(index < 14);
+		if (header.type == GUI_PROTOCOL_WINDOW_FOCUS) {
+			if (get32(frame + 12))
+				fixture->focused = fixture->windows[index];
+			else if (fixture->focused == fixture->windows[index])
+				fixture->focused = 0;
+			continue;
+		}
+		assert(header.type == GUI_PROTOCOL_INPUT_EVENT);
+		if (get32(frame + 12) == GUI_INPUT_EVENT_KEY && get32(frame + 16) < GUI_KEYSYM_SPECIAL_BASE) {
+			assert(index == 13 && get32(frame + 16) == 'a' && fixture->keys++ == 0);
+			fixture->focused = fixture->windows[index];
+			capacity_marker(fixture->cycle, "input", 0);
+		}
+	}
+}
+
+static void capacity_healthy(int fd, uint32_t window)
+{
+	struct pollfd descriptor = { .fd = fd, .events = POLLIN };
+
+	while (poll(&descriptor, 1, 0) == 1) {
+		uint8_t frame[64];
+		gui_protocol_header header;
+
+		assert(descriptor.revents == POLLIN);
+		read_full(fd, frame, GUI_PROTOCOL_HEADER_SIZE);
+		assert(gui_protocol_decode_header(frame, GUI_PROTOCOL_HEADER_SIZE, &header) == 0);
+		assert(header.length <= sizeof(frame));
+		read_full(fd, frame + GUI_PROTOCOL_HEADER_SIZE, header.length - GUI_PROTOCOL_HEADER_SIZE);
+		assert(get32(frame + 8) == window);
+		assert(header.type == GUI_PROTOCOL_WINDOW_FOCUS || header.type == GUI_PROTOCOL_INPUT_RESET ||
+			header.type == GUI_PROTOCOL_INPUT_EVENT);
+		if (header.type == GUI_PROTOCOL_INPUT_EVENT && get32(frame + 12) == GUI_INPUT_EVENT_KEY)
+			assert(get32(frame + 16) >= GUI_KEYSYM_SPECIAL_BASE);
+	}
+}
+
+static void capacity_fill(int fd, capacity_fixture *fixture, uint32_t window,
+		uint32_t width, uint32_t height, uint64_t serial, gui_color color)
+{
+	uint32_t total = width * height;
+	uint8_t reply[64];
+
+	for (uint32_t offset = 0; offset < total;) {
+		uint32_t completed = offset;
+
+		for (unsigned int message = 0; message < 4 && offset < total; message++) {
+			uint32_t count = total - offset;
+
+			if (count > SURFACE_PIXELS_PER_MESSAGE)
+				count = SURFACE_PIXELS_PER_MESSAGE;
+			send_surface_data_configured(fd, window, offset, count, serial, serial, color);
+			offset += count;
+		}
+		while (completed < offset) {
+			uint32_t count = offset - completed;
+
+			if (count > SURFACE_PIXELS_PER_MESSAGE)
+				count = SURFACE_PIXELS_PER_MESSAGE;
+			capacity_reply(fd, fixture, reply, GUI_PROTOCOL_SURFACE_DATA_REPLY);
+			assert(get32(reply + 8) == window && get64(reply + 12) == serial &&
+				get64(reply + 20) == serial && get32(reply + 28) == completed &&
+				get32(reply + 32) == count);
+			completed += count;
+		}
+	}
+	commit_surface_configured(fd, window, serial, serial);
+}
+
+static void test_capacity_stress(void)
+{
+	uint32_t previous_identity = 0;
+
+	for (unsigned int cycle = 1; cycle <= 16; cycle++) {
+		capacity_fixture fixture = { .cycle = cycle };
+		uint8_t reply[64];
+		uint32_t healthy_window;
+		uint32_t target;
+		int fd;
+		int healthy;
+
+		capacity_marker(cycle, "start", 1);
+		healthy = connect_client();
+		hello(healthy);
+		healthy_window = lifecycle_create(healthy, 10000 + cycle, 128, 96);
+		assert(healthy_window > previous_identity);
+		lifecycle_move(healthy, healthy_window, 680, 80);
+		begin_surface(healthy, healthy_window, 128, 96, 1);
+		budget_fill(healthy, healthy_window, 128, 96, 1, 1, 0x00dd8844);
+		fd = connect_client();
+		hello(fd);
+		for (unsigned int index = 0; index < 14; index++) {
+			fixture.windows[index] = lifecycle_create(fd, 11000 + cycle * 14 + index, 320, 192);
+			assert(fixture.windows[index] > (index == 0 ? healthy_window : fixture.windows[index - 1]));
+			lifecycle_move(fd, fixture.windows[index], 128, 96);
+			begin_surface(fd, fixture.windows[index], 320, 192, 1);
+			budget_fill(fd, fixture.windows[index], 320, 192, 1, 1,
+				index == 13 ? 0x00225688 : 0x00200000 + index);
+		}
+		target = fixture.windows[13];
+		previous_identity = target;
+		capacity_marker(cycle, "ready", 0);
+		for (uint64_t serial = 2; serial <= 3; serial++) {
+			uint32_t width = serial == 2 ? 1024 : 320;
+			uint32_t height = serial == 2 ? 768 : 192;
+
+			capacity_reply(fd, &fixture, reply, GUI_PROTOCOL_WINDOW_CONFIGURE);
+			assert(fixture.keys == 1 && fixture.focused == target);
+			assert(get32(reply + 8) == target && get64(reply + 12) == serial);
+			assert(get32(reply + 20) == width && get32(reply + 24) == height);
+			begin_surface_configured(fd, target, width, height, serial, serial);
+			capacity_fill(fd, &fixture, target, width, height, serial,
+				serial == 2 ? 0x00448866 : 0x00225688);
+			capacity_marker(cycle, serial == 2 ? "fullscreen" : "restored", 0);
+		}
+		capacity_reply(fd, &fixture, reply, GUI_PROTOCOL_WINDOW_CLOSE_REQUEST);
+		assert(get32(reply + 8) == target && fixture.keys == 1);
+		for (unsigned int index = 0; index < 14; index++)
+			destroy_window(fd, fixture.windows[index]);
+		lifecycle_invalid_window(fd, target, GUI_PROTOCOL_WINDOW_MOVE);
+		assert(close(fd) == 0);
+		capacity_healthy(healthy, healthy_window);
+		begin_surface(healthy, healthy_window, 128, 96, 2);
+		budget_fill(healthy, healthy_window, 128, 96, 1, 2, 0x00dd8844);
+		capacity_marker(cycle, "healthy", 0);
+		capacity_marker(cycle, "finish", 1);
+		capacity_healthy(healthy, healthy_window);
+		destroy_window(healthy, healthy_window);
+		lifecycle_invalid_window(healthy, healthy_window, GUI_PROTOCOL_WINDOW_MOVE);
+		assert(close(healthy) == 0);
+		printf("wm-client: capacity cycle %u preserves identities, configure, input and healthy peer\n", cycle);
+		fflush(stdout);
+		capacity_marker(cycle, "done", 0);
+	}
+	puts("wm-client: sixteen multiwindow capacity cycles pass");
+	fflush(stdout);
+}
+
 static void test_fullscreen(void)
 {
 	fullscreen_fixture fixture = { .width = 320, .height = 192 };
@@ -1660,6 +1834,7 @@ int main(int argc, char **argv)
 		!strcmp(argv[1], "--many-windows") ||
 		!strcmp(argv[1], "--occlusion") ||
 		!strcmp(argv[1], "--fullscreen") ||
+		!strcmp(argv[1], "--capacity-stress") ||
 		!strcmp(argv[1], "--patch-only") ||
 		!strcmp(argv[1], "--partial-only") ||
 		!strcmp(argv[1], "--commit-only") ||
@@ -1682,6 +1857,8 @@ int main(int argc, char **argv)
 			test_many_windows();
 		} else if (!strcmp(argv[1], "--occlusion")) {
 			test_occlusion();
+		} else if (!strcmp(argv[1], "--capacity-stress")) {
+			test_capacity_stress();
 		} else if (!strcmp(argv[1], "--fullscreen")) {
 			test_fullscreen();
 		} else if (!strcmp(argv[1], "--quota-only")) {

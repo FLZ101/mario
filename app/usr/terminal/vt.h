@@ -67,6 +67,9 @@ typedef struct {
 	uint8_t using_alternate;
 	uint8_t application_cursor;
 	uint8_t cursor_visible;
+	uint8_t wrap_pending;
+	uint8_t saved_wrap_pending;
+	uint8_t primary_wrap_pending;
 	uint8_t tab_stops[256];
 	uint8_t title[TERMINAL_VT_TITLE_BYTES];
 	uint8_t osc_title[TERMINAL_VT_TITLE_BYTES];

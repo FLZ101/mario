@@ -2,6 +2,8 @@ RUN: /usr/bin/test/terminal-vt.exe
 CHECK: terminal-vt: basic controls ok
 CHECK: terminal-vt: UTF-8 ok
 CHECK: terminal-vt: CSI ok
+CHECK: terminal-vt: delayed right-margin wrap preserves tmux peers ok
+CHECK: terminal-vt: tmux resize cursor, erase and scroll controls ok
 CHECK: terminal-vt: attributes ok
 CHECK: terminal-vt: resize ok
 CHECK: terminal-vt: scrollback and tabs ok

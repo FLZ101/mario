@@ -44,6 +44,7 @@
 
 /* Vectors used for SMP IPIs.  Keep them above the PIC IRQ vector range. */
 #define IPI_RESCHEDULE_VECTOR	0xfb
+#define IPI_SCHEDULER_TICK_VECTOR	0xfa
 #define IPI_TLB_FLUSH_VECTOR	0xfc
 
 #define APIC_DEST_PHYSICAL	(0 << 11)
@@ -83,6 +84,7 @@ extern char smp_trampoline_end[];
 
 /* entry.S IPI trampolines. */
 extern void ipi_reschedule_entry(void);
+extern void ipi_scheduler_tick_entry(void);
 extern void ipi_tlb_flush_entry(void);
 extern void ap_reload_cs(void);
 
@@ -387,6 +389,22 @@ void smp_send_reschedule(int cpu)
 	send_ipi(cpu, IPI_RESCHEDULE_VECTOR);
 }
 
+void smp_send_scheduler_ticks(void)
+{
+	for (int cpu = 1; cpu < nr_cpu_ids; cpu++)
+		if (cpu_info[cpu].online && cpu_info[cpu].current_task != &idle_tasks[cpu])
+			send_ipi(cpu, IPI_SCHEDULER_TICK_VECTOR);
+}
+
+void do_scheduler_tick_ipi(void)
+{
+	apic_eoi();
+	if (current == smp_idle_task(current->cpu))
+		return;
+	if (current->counter > 0 && !--current->counter)
+		current->need_resched = 1;
+}
+
 void smp_send_tlb_flush(int cpu)
 {
 	send_ipi(cpu, IPI_TLB_FLUSH_VECTOR);
@@ -660,6 +678,7 @@ void smp_init(void)
 	/* Enable the local APIC with the lowest-priority spurious vector. */
 	apic_write(APIC_SPURIOUS, apic_read(APIC_SPURIOUS) | 0x1ff);
 	set_intr_gate(IPI_RESCHEDULE_VECTOR, ipi_reschedule_entry);
+	set_intr_gate(IPI_SCHEDULER_TICK_VECTOR, ipi_scheduler_tick_entry);
 	set_intr_gate(IPI_TLB_FLUSH_VECTOR, ipi_tlb_flush_entry);
 	trampoline_map();
 	copy_trampoline_and_patch();

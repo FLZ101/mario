@@ -129,28 +129,33 @@ item that cannot state this contract is planning work, not implementation work.
   transition, and architectural phases—is defined in [the overview](README.md).
   Work items must preserve those meanings rather than create local variants.
 
-### User-Approved Validation Deferrals (2026-11-13)
+### Resolved Validation Deferrals (2026-11-13)
 
 The user explicitly authorized skipping failed regressions and
 prioritizing GUI drawing performance on November 13, 2026. This is a narrow
-exception to the normal milestone order and unqualified green-gate rule:
+exception to the normal milestone order and unqualified green-gate rule. All
+three deferrals below were restored on November 14, 2026:
 
 - `GUI-TMUX-STARTUP`: `tests/gui/terminal-tmux-apps.test` retains all actions,
   deadlines, and visual assertions, but has `SKIP: <reason>` metadata for the
   intermittent Vim SIGTRAP / tmux `strlen(0xcccccccc)` startup failure. The
-  root cause is unconfirmed; this is not established as graphics slowness.
+  root cause was SMP scheduler starvation; the `SKIP` line is removed after the
+  scheduler-tick forwarding fix and repeated focused/full-suite passes.
 - `GUI-STRESS-CLEANUP`: the November 13, 2026 full-suite run additionally
   failed `tests/gui/gui-stress.test` at cycle 6, reporting
   `/usr/bin/test/gui-cleanup.exe: not found` during reclamation. Keep its
   sixteen-cycle workload/assertions and record a separate explicit skip under
   the user's failed-test deferral request. The cause of this execution failure
   is unconfirmed; smaller lifecycle, quota, recovery, and fullscreen coverage
-  remain enabled.
+  remain enabled. The `SKIP` line is removed and the full sixteen-cycle fixture
+  passes again.
 - `GUI-CAPACITY-FRAME`: a subsequent full-suite run failed
   `tests/gui/wm-many-windows.test` with a `GUI-WAIT-FRAME` serial frame-probe
   timeout. Preserve its full multiwindow workload and teardown assertions,
   record the observed failure as a separate explicit deferral, and restore it
   after the cause is demonstrated. This is not proof of a WM rendering bug.
+  The `SKIP` line is removed with the original disabled-control pixel checks
+  retained instead of a frame-probe wait.
 - Shell, TTY, and GUI runners validate the entire fixture, report `SKIP` with
   its reason, and do not launch QEMU or rebuild artifacts for explicit skips.
   Empty/duplicate reasons are invalid. `--run-skipped` enables diagnostic runs
@@ -161,19 +166,17 @@ exception to the normal milestone order and unqualified green-gate rule:
   not proof that skipped regressions passed. Any additional deferral must
   identify an observed failure and preserve its evidence and assertions;
   never silently skip unknown failures or weaken checks to obtain a green result.
-- M9.5 may be committed after its focused coverage and the runnable-suite
-  gate pass. M9.6 and the full M9 integration checkpoint remain incomplete;
-  M10 implementation may proceed first under this recorded exception.
-- Restore the deferred regression after a demonstrated root-cause fix and
-  focused repeated validation, then remove its `SKIP` line and run the full
-  suite without that exclusion. Finish M9.6 before claiming the complete
-  fullscreen/tmux integration gate. The separately requested GTK cursor fix
-  remains outstanding and is not silently considered complete.
+- M9.6 and the full M9 integration checkpoint are complete. M10 implementation
+  proceeded first under this recorded exception, but no M9 deferral remains.
+- The formerly deferred regressions were restored after demonstrated root-cause
+  fixes and focused repeated validation; their `SKIP` lines are removed. The
+  separately requested GTK cursor fix remains outstanding and is not silently
+  considered complete.
 
-Run the deferred fixture explicitly with:
+Run the formerly deferred fixture explicitly with:
 
 ```sh
-.venv/bin/python tests/lit_gui_test.py --smp 16 --run-skipped --test terminal-tmux-apps.test tests/gui
+.venv/bin/python tests/lit_gui_test.py --smp 16 --test terminal-tmux-apps.test tests/gui
 ```
 
 ### Ownership and Dependency Map
@@ -1502,8 +1505,8 @@ multiple windows may share an application connection. Literally unlimited
 windows are not a deliverable. The target contracts are in
 [Desktop and applications](desktop.md#expanded-capacity-and-fullscreen-m9-target)
 and [UI toolkit](ui-toolkit.md#surface-memory-and-failure-handling). M9.1 through
-M9.5 are implemented; M9.6 and the complete integration checkpoint remain
-deferred under the user-approved exceptions above. Run `make test SMP=16` before
+M9.6 are implemented and the complete integration checkpoint is green; the
+user-approved deferrals above were resolved on November 14, 2026. Run `make test SMP=16` before
 starting each item and before each commit, with `git diff --check` after the
 focused gate.
 
@@ -1651,7 +1654,7 @@ focused gate.
   checks across asynchronously delivered fallback-focus updates. Focused gate:
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-fullscreen.test tests/gui`,
   then `make test SMP=16`. Commit: `gui: add fullscreen window toggle and restore`.
-- [ ] **M9.6 — validate fullscreen tmux and repeated capacity recovery.**
+- [x] **M9.6 — validate fullscreen tmux and repeated capacity recovery.**
   Prerequisite: M9.5. Owns `app/usr/terminal/` only for demonstrated configure
   or PTY-resize defects, `tests/gui/terminal-tmux-fullscreen.test`,
   `tests/gui/wm-capacity-stress.test`, their reviewed assets under
@@ -1674,6 +1677,23 @@ focused gate.
   and
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-capacity-stress.test tests/gui`,
   then `make test SMP=16`. Commit: `test: cover fullscreen tmux and window capacity recovery`.
+  Resumed on November 14, 2026 after M10.8. Demonstrated startup starvation
+  extends prerequisite ownership to `src/kernel/{smp.c,sched.c,time.c,entry.S,exit.c}`,
+  `src/include/{smp.h,sched.h}`, `app/test/{smp-preempt,smp-reap}/` and their
+  shell fixtures. Captured fullscreen redraws additionally own the production
+  VT parser and `app/test/terminal-vt/`, `tests/shell/terminal-vt.test` for
+  tmux's vertical positioning, erase-character, scroll-up controls and delayed
+  right-margin wrapping. The
+  deferred capacity fixture's disabled-control frame wait is also audited;
+  original actions, pixels, focus checks and deadlines remain required.
+  Read-only concurrent AHCI completion coverage additionally owns
+  `app/test/ahci-completion/` and `tests/shell/ahci-completion.test`; any controller
+  change under `src/fs/block/ahci.c` requires demonstrated premature-completion
+  evidence, not an application retry or a relaxed readiness deadline.
+  Exact multiwindow resource-cycle assertions additionally own
+  `app/test/gui-wm-busy/` and `tests/shell/gui-wm-busy.test`. The diagnosis,
+  focused contracts and development failures are recorded in
+  [M9 integration audit](m9-integration.md); integration gates are green.
 
 ### Detailed Specification
 
@@ -1757,9 +1777,10 @@ test: cover fullscreen tmux and window capacity recovery
 
 Normal prerequisite: M9.6 and the complete M9 checkpoint, including the original
 and fullscreen tmux application tests. The recorded November 13, 2026 exception
-allows implementation after M9.5 and the runnable-suite gate with
+allowed implementation after M9.5 and the runnable-suite gate with
 `GUI-TMUX-STARTUP`, `GUI-STRESS-CLEANUP`, and `GUI-CAPACITY-FRAME` explicitly
-skipped, leaving M9.6/integration deferred.
+skipped. Those three GUI deferrals were restored on November 14, 2026 when M9.6
+completed.
 M10.1 has a test-only implementation and a recorded baseline in
 [GUI drawing baseline](drawing-baseline.md); M10.2 implements bounded composition
 and scanout, M10.3 adds bounded motion pacing, and M10.4 batches layout-safe
@@ -1767,12 +1788,12 @@ scanout spans. M10.5 reuses terminal pixels for unchanged cells;
 M10.6 adds negotiated atomic surface patches and M10.7 implements bounded
 terminal pipelining. M10.8 validates drawing bounds and recovery with one and
 sixteen windows and records the same-configuration before/after comparison.
-M10.1–M10.8 deliver the drawing checkpoint under the recorded exceptions;
-unqualified M9/M10 integration remains deferred.
+M10.1–M10.8 delivered the drawing checkpoint under the recorded exceptions;
+M9/M10 integration is now complete with the restored M9.6 fixtures.
 On November 14, 2026 the final focused gates, 48-sample after timing capture,
 and `make test SMP=16` runnable-suite gate pass: 151 guest cases and 49 host
-tests pass, with the three recorded GUI deferrals and two SMP-4-only shell
-cases explicitly skipped.
+tests pass, with the three former GUI deferrals later restored and two
+SMP-4-only shell cases explicitly skipped.
 The target contracts are
 [Desktop and applications](desktop.md#incremental-drawing-m10-target) and
 [UI toolkit](ui-toolkit.md#incremental-presentation-and-uploads-m10-target).
@@ -2053,8 +2074,8 @@ item, its focused gates during development, and `make test SMP=16` plus
   default-four-worker `make test SMP=16` gate exits zero with 77 shell, six TTY
   and 68 GUI cases (151 guests), plus 49 host tests. `git diff --check` passes.
   `GUI-TMUX-STARTUP`, `GUI-STRESS-CLEANUP`, `GUI-CAPACITY-FRAME` and the two
-  SMP-4-only skips remain unchanged. This completes M10 drawing validation
-  and its runnable gate, not M9.6 or the deferred fullscreen tmux/Vim/top/nano
+  SMP-4-only skips were the recorded M10 runnable gate. The three GUI skips are
+  subsequently restored by M9.6, completing the fullscreen tmux/Vim/top/nano
   integration audit; independent terminals do not replace those contracts.
 
 ### Checkpoint and Non-Goals
@@ -2072,9 +2093,9 @@ item, its focused gates during development, and `make test SMP=16` plus
   bounded kernel/socket queues.
 - Deterministic work assertions, original/fullscreen tmux coverage, M8/M9
   recovery coverage, recorded same-configuration benchmarks, and the full
-  `make test SMP=16` gate are the unqualified completion target. Until the
-  user-approved deferrals are restored, report the runnable gate and deferred
-  integration coverage separately rather than claiming all of these passed.
+  `make test SMP=16` gate are the unqualified completion target. The
+  user-approved deferrals have now been restored, so runnable and integration
+  coverage are reported together rather than as separate deferred gates.
 
 No GPU dependency, framebuffer mmap, new kernel blit ioctl, physical-device
 VMA work, display-mode changes, unbounded window/cache/buffer growth, new glyph

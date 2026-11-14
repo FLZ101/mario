@@ -1,0 +1,2 @@
+RUN: /usr/bin/test/smp-preempt.exe
+CHECK: smp-preempt: same-CPU busy peers make bounded progress without sleeping

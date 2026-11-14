@@ -1754,6 +1754,89 @@ static void test_sixteen_window_drawing(void)
 	puts("gui-wm-busy: sixteen windows preserve bounded drawing, motion and reclaimed capacity");
 }
 
+static void test_multiwindow_capacity_cycles(void)
+{
+	static wm_server server;
+	wm_window *healthy;
+	size_t base_surfaces;
+	size_t base_records;
+	uint32_t previous_identity = 0;
+
+	init_server(&server, 1024, 768);
+	server.state.graphics = 1;
+	server.state.framebuffer = 123;
+	server.state.scanout_stride = 4096;
+	server.state.composite = gui_surface_create(1024, 768);
+	server.desktop_snapshot = gui_surface_create(1024, 768);
+	assert(server.state.composite != NULL && server.desktop_snapshot != NULL);
+	server.desktop_snapshot_bytes = server.state.frame_bytes;
+	server.state.surface_bytes = server.desktop_snapshot_bytes;
+	gui_fill_rect(server.desktop_snapshot, (gui_rect) { 0, 0, 1024, 768 }, 0x00112233);
+	healthy = drawing_window(&server, server.next_window_id);
+	healthy->x = 680;
+	healthy->y = 80;
+	assert(wm_poll_resize(&server, 2) == 0);
+	assert(wm_load_cursor(&server.state) == 0);
+	scanout_result = GUI_FLUSH_COMPLETE;
+	base_surfaces = server.state.surface_bytes;
+	base_records = server.record_bytes;
+	for (unsigned int cycle = 0; cycle < 16; cycle++) {
+		wm_client *peer = wm_add_client(&server, dup(STDOUT_FILENO), GUI_PROTOCOL_ENDPOINT_ORDINARY);
+		wm_window *windows[14];
+		int descriptor;
+
+		assert(peer != NULL);
+		peer->hello = 1;
+		for (unsigned int index = 0; index < 14; index++) {
+			create_record(peer, 1000 + cycle * 14 + index, 96, 64);
+			windows[index] = peer->windows;
+			assert(windows[index] != NULL && windows[index]->window_id > previous_identity);
+			previous_identity = windows[index]->window_id;
+			windows[index]->x = 128;
+			windows[index]->y = 96;
+			fullscreen_stage(windows[index], 0x00200000 + index);
+			commit_staged(windows[index]);
+			drain_peer(peer);
+		}
+		assert(server.client_count == 2 && peer->surface_bytes == 14 * 96 * 64 * 4);
+		assert(server.state.surface_bytes == base_surfaces + peer->surface_bytes);
+		assert(peer->record_bytes == sizeof(wm_client) + sizeof(struct pollfd) +
+			sizeof(wm_client *) + 14 * sizeof(wm_window));
+		assert(server.record_bytes == base_records + sizeof(wm_client) + 14 * sizeof(wm_window));
+		wm_set_input_owner(&server, windows[13]);
+		assert(wm_toggle_fullscreen(&server, windows[13]) == 1);
+		fullscreen_stage(windows[13], 0x00448866);
+		commit_staged(windows[13]);
+		assert(server.fullscreen_window == windows[13] && !windows[13]->mode_pending);
+		assert(server.state.surface_bytes == base_surfaces + 13 * 96 * 64 * 4 + 1024 * 768 * 4);
+		assert_full_scene(&server);
+		drain_peer(peer);
+		assert(wm_toggle_fullscreen(&server, windows[13]) == 1);
+		fullscreen_stage(windows[13], 0x0020000d);
+		commit_staged(windows[13]);
+		assert(server.fullscreen_window == NULL && !windows[13]->mode_pending);
+		assert(windows[13]->x == 128 && windows[13]->y == 96);
+		assert(windows[13]->width == 96 && windows[13]->height == 64);
+		assert(server.state.surface_bytes == base_surfaces + 14 * 96 * 64 * 4);
+		for (unsigned int index = 0; index < 14; index++) {
+			for (unsigned int pixel = 0; pixel < 96 * 64; pixel++)
+				assert(windows[index]->committed->pixels[pixel] == 0x00200000 + index);
+		}
+		for (unsigned int pixel = 0; pixel < 320 * 192; pixel++)
+			assert(healthy->committed->pixels[pixel] == 0x00200000);
+		assert_full_scene(&server);
+		descriptor = peer->fd;
+		wm_disconnect_client(&server, peer);
+		assert(fcntl(descriptor, F_GETFD) < 0 && errno == EBADF);
+		assert(server.client_count == 1 && server.record_bytes == base_records);
+		assert(server.state.surface_bytes == base_surfaces);
+		assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+		assert_full_scene(&server);
+	}
+	cleanup_server(&server);
+	puts("gui-wm-busy: sixteen multiwindow fullscreen cycles reclaim exact metadata and surface charges");
+}
+
 static void test_motion_batch(void)
 {
 	static wm_server server;
@@ -2598,6 +2681,7 @@ int main(void)
 	test_drawing_counter_clipping();
 	test_drawing_work();
 	test_sixteen_window_drawing();
+	test_multiwindow_capacity_cycles();
 	test_motion_batch();
 	test_atomic_patches();
 	test_upload_window();

@@ -426,9 +426,10 @@ The terminal client:
 
 First version supports:
 
-- cursor movement (`CUU`, `CUD`, `CUF`, `CUB`, `CUP`, `CHA`);
-- erase operations (`ED`, `EL`);
-- scroll regions (`CSR`) and screen scrolling;
+- cursor movement (`CUU`, `CUD`, `CUF`, `CUB`, `CUP`, `CHA`, `VPA`);
+- erase operations (`ED`, `EL`, `ECH`);
+- scroll regions (`CSR`) and screen scrolling, including explicit scroll-up (`SU`);
+- delayed right-margin wrapping, canceled by cursor movement;
 - SGR colors, bold, inverse, and underline;
 - save/restore cursor (`DECSC`/`DECRC`);
 - alternate screen buffer;

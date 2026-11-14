@@ -57,6 +57,11 @@ static void terminal_vt_line_feed(terminal_vt *terminal)
 
 static void terminal_vt_put(terminal_vt *terminal, uint32_t codepoint)
 {
+	if (terminal->wrap_pending) {
+		terminal->wrap_pending = 0;
+		terminal->cursor_column = 0;
+		terminal_vt_line_feed(terminal);
+	}
 	terminal->cells[(size_t)terminal->cursor_row * terminal->columns +
 		terminal->cursor_column] = (terminal_vt_cell) {
 			.codepoint = codepoint,
@@ -64,24 +69,26 @@ static void terminal_vt_put(terminal_vt *terminal, uint32_t codepoint)
 			.background = terminal->background,
 			.attributes = terminal->attributes,
 		};
-	terminal->cursor_column++;
-	if (terminal->cursor_column == terminal->columns) {
-		terminal->cursor_column = 0;
-		terminal_vt_line_feed(terminal);
-	}
+	if (terminal->cursor_column + 1 == terminal->columns)
+		terminal->wrap_pending = 1;
+	else
+		terminal->cursor_column++;
 }
 
 static void terminal_vt_control(terminal_vt *terminal, uint8_t byte)
 {
 	if (byte == '\r') {
+		terminal->wrap_pending = 0;
 		terminal->cursor_column = 0;
 		return;
 	}
 	if (byte == '\n') {
+		terminal->wrap_pending = 0;
 		terminal_vt_line_feed(terminal);
 		return;
 	}
 	if (byte == '\t') {
+		terminal->wrap_pending = 0;
 		for (uint32_t column = terminal->cursor_column + 1;
 		     column < terminal->columns; column++) {
 			if (column < sizeof(terminal->tab_stops) && terminal->tab_stops[column]) {
@@ -92,8 +99,11 @@ static void terminal_vt_control(terminal_vt *terminal, uint8_t byte)
 		terminal->cursor_column = terminal->columns - 1;
 		return;
 	}
-	if (byte == '\b' && terminal->cursor_column != 0)
-		terminal->cursor_column--;
+	if (byte == '\b') {
+		terminal->wrap_pending = 0;
+		if (terminal->cursor_column != 0)
+			terminal->cursor_column--;
+	}
 }
 
 static void terminal_vt_reset_utf8(terminal_vt *terminal)
@@ -139,6 +149,7 @@ static void terminal_vt_save_cursor(terminal_vt *terminal)
 {
 	terminal->saved_cursor_row = terminal->cursor_row;
 	terminal->saved_cursor_column = terminal->cursor_column;
+	terminal->saved_wrap_pending = terminal->wrap_pending;
 	terminal->saved_foreground = terminal->foreground;
 	terminal->saved_background = terminal->background;
 	terminal->saved_attributes = terminal->attributes;
@@ -148,6 +159,7 @@ static void terminal_vt_restore_cursor(terminal_vt *terminal)
 {
 	terminal_vt_set_cursor(terminal, terminal->saved_cursor_row,
 			       terminal->saved_cursor_column);
+	terminal->wrap_pending = terminal->saved_wrap_pending;
 	terminal->foreground = terminal->saved_foreground;
 	terminal->background = terminal->saved_background;
 	terminal->attributes = terminal->saved_attributes;
@@ -208,6 +220,7 @@ static void terminal_vt_clear_line(terminal_vt *terminal, uint32_t mode)
 static void terminal_vt_set_cursor(terminal_vt *terminal, uint32_t row,
 				   uint32_t column)
 {
+	terminal->wrap_pending = 0;
 	terminal->cursor_row = row >= terminal->rows ? terminal->rows - 1 : row;
 	terminal->cursor_column = column >= terminal->columns ?
 		terminal->columns - 1 : column;
@@ -227,6 +240,7 @@ static void terminal_vt_enter_alternate(terminal_vt *terminal)
 	/* DEC 1049 preserves the visible primary state before clearing the alt grid. */
 	terminal->primary_cursor_row = terminal->cursor_row;
 	terminal->primary_cursor_column = terminal->cursor_column;
+	terminal->primary_wrap_pending = terminal->wrap_pending;
 	terminal->primary_scroll_top = terminal->scroll_top;
 	terminal->primary_scroll_bottom = terminal->scroll_bottom;
 	terminal->primary_foreground = terminal->foreground;
@@ -236,6 +250,7 @@ static void terminal_vt_enter_alternate(terminal_vt *terminal)
 	terminal->using_alternate = 1;
 	terminal->cursor_row = 0;
 	terminal->cursor_column = 0;
+	terminal->wrap_pending = 0;
 	terminal->scroll_top = 0;
 	terminal->scroll_bottom = terminal->rows - 1;
 	terminal_vt_reset_rendition(terminal);
@@ -250,6 +265,7 @@ static void terminal_vt_leave_alternate(terminal_vt *terminal)
 	terminal->using_alternate = 0;
 	terminal->cursor_row = terminal->primary_cursor_row;
 	terminal->cursor_column = terminal->primary_cursor_column;
+	terminal->wrap_pending = terminal->primary_wrap_pending;
 	terminal->scroll_top = terminal->primary_scroll_top;
 	terminal->scroll_bottom = terminal->primary_scroll_bottom;
 	terminal->foreground = terminal->primary_foreground;
@@ -269,6 +285,7 @@ static void terminal_vt_reset(terminal_vt *terminal)
 	terminal->scroll_top = 0;
 	terminal->scroll_bottom = terminal->rows - 1;
 	terminal->application_cursor = 0;
+	terminal->wrap_pending = 0;
 	terminal->cursor_visible = 1;
 	terminal_vt_reset_rendition(terminal);
 	terminal_vt_save_cursor(terminal);
@@ -390,22 +407,26 @@ static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
 	}
 	switch (final) {
 	case 'A':
+		terminal->wrap_pending = 0;
 		amount = terminal_vt_csi_count(terminal, 0, 1);
 		terminal->cursor_row = amount > terminal->cursor_row ? 0 :
 			terminal->cursor_row - amount;
 		break;
 	case 'B':
+		terminal->wrap_pending = 0;
 		amount = terminal_vt_csi_count(terminal, 0, 1);
 		terminal->cursor_row = amount >= terminal->rows - terminal->cursor_row ?
 			terminal->rows - 1 : terminal->cursor_row + amount;
 		break;
 	case 'C':
+		terminal->wrap_pending = 0;
 		amount = terminal_vt_csi_count(terminal, 0, 1);
 		terminal->cursor_column = amount >=
 			terminal->columns - terminal->cursor_column ?
 			terminal->columns - 1 : terminal->cursor_column + amount;
 		break;
 	case 'D':
+		terminal->wrap_pending = 0;
 		amount = terminal_vt_csi_count(terminal, 0, 1);
 		terminal->cursor_column = amount > terminal->cursor_column ? 0 :
 			terminal->cursor_column - amount;
@@ -414,6 +435,11 @@ static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
 		terminal_vt_set_cursor(terminal, terminal->cursor_row,
 			terminal_vt_csi_count(terminal, 0, 1) - 1);
 		break;
+	case 'd':
+		terminal_vt_set_cursor(terminal,
+			terminal_vt_csi_count(terminal, 0, 1) - 1,
+			terminal->cursor_column);
+		break;
 	case 'H':
 	case 'f':
 		terminal_vt_set_cursor(terminal,
@@ -421,10 +447,27 @@ static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
 			terminal_vt_csi_count(terminal, 1, 1) - 1);
 		break;
 	case 'J':
+		terminal->wrap_pending = 0;
 		terminal_vt_clear_screen(terminal, terminal_vt_csi_value(terminal, 0));
 		break;
 	case 'K':
+		terminal->wrap_pending = 0;
 		terminal_vt_clear_line(terminal, terminal_vt_csi_value(terminal, 0));
+		break;
+	case 'S':
+		amount = terminal_vt_csi_count(terminal, 0, 1);
+		if (amount > terminal->scroll_bottom - terminal->scroll_top + 1)
+			amount = terminal->scroll_bottom - terminal->scroll_top + 1;
+		for (uint32_t line = 0; line < amount; line++)
+			terminal_vt_scroll_region(terminal);
+		break;
+	case 'X':
+		terminal->wrap_pending = 0;
+		amount = terminal_vt_csi_count(terminal, 0, 1);
+		if (amount > terminal->columns - terminal->cursor_column)
+			amount = terminal->columns - terminal->cursor_column;
+		memset(terminal->cells + (size_t)terminal->cursor_row * terminal->columns +
+			terminal->cursor_column, 0, amount * sizeof(*terminal->cells));
 		break;
 	case 'g':
 		if (terminal_vt_csi_value(terminal, 0) == 0 &&
@@ -727,6 +770,9 @@ int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 			columns);
 	}
 	resized = *terminal;
+	resized.wrap_pending = 0;
+	resized.saved_wrap_pending = 0;
+	resized.primary_wrap_pending = 0;
 	resized.cells = terminal->using_alternate ? alternate_cells : primary_cells;
 	resized.primary_cells = primary_cells;
 	resized.alternate_cells = alternate_cells;
