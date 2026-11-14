@@ -580,6 +580,22 @@ static void assert_renderer_oracle(terminal_state *state)
 				background = color;
 			}
 			gui_fill_rect(oracle, (gui_rect) { cell_x, cell_y, TERMINAL_CELL_WIDTH, TERMINAL_CELL_HEIGHT }, background);
+		}
+	for (uint32_t row = 0; row < state->vt.rows; row++)
+		for (uint32_t column = 0; column < state->vt.columns; column++) {
+			const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
+			gui_color foreground = terminal_color(cell->foreground, TERMINAL_CURSOR);
+			gui_color background = terminal_color(cell->background, TERMINAL_BACKGROUND);
+			int cell_x = TERMINAL_MARGIN + column * TERMINAL_CELL_WIDTH;
+			int cell_y = TERMINAL_MARGIN + row * TERMINAL_CELL_HEIGHT;
+
+			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_INVERSE) {
+				gui_color color = foreground;
+
+				foreground = background;
+				background = color;
+			}
+			(void)background;
 			if (cell->codepoint != 0) {
 				char bytes[5] = { 0 };
 

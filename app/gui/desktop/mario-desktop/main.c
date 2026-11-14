@@ -234,12 +234,11 @@ static int glyph_pixel(char character, unsigned int column, unsigned int row)
 	switch (character) {
 	case '-': glyph = glyphs[0]; break;
 	case ':': glyph = glyphs[1]; break;
-	case 'E': glyph = glyphs[2]; break;
-	case 'M': glyph = glyphs[3]; break;
-	case 'N': glyph = glyphs[4]; break;
 	case 'U': glyph = glyphs[5]; break;
 	case 'a':
 	case 'A': glyph = glyphs[16]; break;
+	case 'e':
+	case 'E': glyph = glyphs[2]; break;
 	case 'f':
 	case 'F': glyph = glyphs[17]; break;
 	case 'g':
@@ -248,6 +247,10 @@ static int glyph_pixel(char character, unsigned int column, unsigned int row)
 	case 'I': glyph = glyphs[19]; break;
 	case 'l':
 	case 'L': glyph = glyphs[20]; break;
+	case 'm':
+	case 'M': glyph = glyphs[3]; break;
+	case 'n':
+	case 'N': glyph = glyphs[4]; break;
 	case 'r':
 	case 'R': glyph = glyphs[21]; break;
 	case 's':

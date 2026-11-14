@@ -371,23 +371,48 @@ static int terminal_same_cell(const terminal_vt_cell *first, const terminal_vt_c
 		first->background == second->background && first->attributes == second->attributes;
 }
 
-static void terminal_draw_cell(terminal_state *state, gui_surface *surface,
-			       uint32_t row, uint32_t column, int offset_x, int offset_y)
+static void terminal_cell_colors(const terminal_vt_cell *cell,
+				 gui_color *foreground, gui_color *background)
+{
+	*foreground = terminal_color(cell->foreground, TERMINAL_CURSOR);
+	*background = terminal_color(cell->background, TERMINAL_BACKGROUND);
+	if (cell->attributes & TERMINAL_VT_ATTRIBUTE_INVERSE) {
+		gui_color color = *foreground;
+
+		*foreground = *background;
+		*background = color;
+	}
+}
+
+static void terminal_draw_cell_background(const terminal_state *state,
+					  gui_surface *surface, uint32_t row,
+					  uint32_t column, int offset_x, int offset_y)
 {
 	const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
 	gui_rect bounds = terminal_cell_bounds(row, column);
-	gui_color foreground = terminal_color(cell->foreground, TERMINAL_CURSOR);
-	gui_color background = terminal_color(cell->background, TERMINAL_BACKGROUND);
+	gui_color foreground;
+	gui_color background;
 
 	bounds.x -= offset_x;
 	bounds.y -= offset_y;
-	if (cell->attributes & TERMINAL_VT_ATTRIBUTE_INVERSE) {
-		gui_color color = foreground;
-
-		foreground = background;
-		background = color;
-	}
+	terminal_cell_colors(cell, &foreground, &background);
+	(void)foreground;
 	gui_fill_rect(surface, bounds, background);
+}
+
+static void terminal_draw_cell_foreground(const terminal_state *state,
+					  gui_surface *surface, uint32_t row,
+					  uint32_t column, int offset_x, int offset_y)
+{
+	const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
+	gui_rect bounds = terminal_cell_bounds(row, column);
+	gui_color foreground;
+	gui_color background;
+
+	bounds.x -= offset_x;
+	bounds.y -= offset_y;
+	terminal_cell_colors(cell, &foreground, &background);
+	(void)background;
 	if (cell->codepoint != 0) {
 		char bytes[5] = { 0 };
 
@@ -447,7 +472,17 @@ static int terminal_render(terminal_state *state)
 
 			if (terminal_rect_intersects(damage, terminal_cell_bounds(row, column)) ||
 			    terminal_rect_intersects(damage, terminal_glyph_bounds(state, row, column, cell->codepoint)))
-				terminal_draw_cell(state, &clipped, row, column, damage.x, damage.y);
+				terminal_draw_cell_background(state, &clipped, row, column,
+					damage.x, damage.y);
+		}
+	for (uint32_t row = 0; row < state->vt.rows; row++)
+		for (uint32_t column = 0; column < state->vt.columns; column++) {
+			const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
+
+			if (terminal_rect_intersects(damage, terminal_cell_bounds(row, column)) ||
+			    terminal_rect_intersects(damage, terminal_glyph_bounds(state, row, column, cell->codepoint)))
+				terminal_draw_cell_foreground(state, &clipped, row, column,
+					damage.x, damage.y);
 		}
 	if (cursor_visible) {
 		gui_rect cursor = terminal_cell_bounds(state->vt.cursor_row, state->vt.cursor_column);
