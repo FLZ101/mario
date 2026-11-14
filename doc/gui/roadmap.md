@@ -2153,7 +2153,7 @@ lowercase hyphenated convention.
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-chrome.test tests/gui`.
   Commit: `gui: draw title-bar controls and hit targets`.
 
-- [ ] **M11.3 — harden pointer resize affordances.**
+- [x] **M11.3 — harden pointer resize affordances.**
   Prerequisite: M11.2. Owns `app/gui/desktop/mario-wm/main.c`,
   `tests/gui/wm-interact.test`, `tests/gui/wm-resize.test`, reviewed assets,
   and this roadmap. Replace exact one-pixel boundary hit testing with a shared

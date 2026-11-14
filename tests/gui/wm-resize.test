@@ -1,0 +1,105 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-resize.* /tmp/wm-resize.log /tmp/wm-resize.pid; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/gui-wm-client.exe --resize-only >/tmp/wm-resize.log 2>&1 & echo $! >/tmp/wm-resize.pid
+SERIAL: while ! grep -q 'wm-client: resize ready' /tmp/wm-resize.log; do sleep 1; done
+GUI-CHECK-RECT: 64 100 1 1 255 0 0
+SERIAL: touch /tmp/gui-resize.initial-checked
+
+GUI-MOUSE-MOVE: 46,124
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: -20,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/gui-resize.left
+GUI-CHECK-RECT: 44 100 1 1 255 0 0
+
+GUI-MOUSE-MOVE: 184,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 20,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/gui-resize.right
+GUI-CHECK-RECT: 44 100 1 1 255 0 0
+
+GUI-MOUSE-MOVE: -126,-66
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 0,-10
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/gui-resize.top
+GUI-CHECK-RECT: 44 90 1 1 255 0 0
+
+GUI-MOUSE-MOVE: 0,138
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 0,10
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/gui-resize.bottom
+GUI-CHECK-RECT: 44 90 1 1 255 0 0
+
+GUI-MOUSE-MOVE: -78,-148
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: -10,-10
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/gui-resize.top-left
+GUI-CHECK-RECT: 34 80 1 1 255 0 0
+
+GUI-MOUSE-MOVE: 214,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 10,-10
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/gui-resize.top-right
+GUI-CHECK-RECT: 34 70 1 1 255 0 0
+
+GUI-MOUSE-MOVE: -224,168
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: -10,10
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/gui-resize.bottom-left
+GUI-CHECK-RECT: 24 70 1 1 255 0 0
+
+GUI-MOUSE-MOVE: 234,0
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 10,10
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/gui-resize.bottom-right
+GUI-CHECK-RECT: 24 70 1 1 255 0 0
+
+GUI-MOUSE-MOVE: -244,-188
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-MOVE: 127,127
+GUI-WAIT-FRAME:
+GUI-MOUSE-MOVE: 73,33
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/gui-resize.minimum
+GUI-CHECK-RECT: 200 182 1 1 255 0 0
+SERIAL: touch /tmp/gui-resize.min-checked
+
+GUI-MOUSE-MOVE: -24,2
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+SERIAL: touch /tmp/gui-resize.click-done
+SERIAL: while ! grep -q 'wm-client: resize no-configure pass' /tmp/wm-resize.log; do sleep 1; done
+SERIAL-CHECK: wm-client: resize no-configure pass
+
+SERIAL: kill $(cat /tmp/wm-resize.pid) 2>/dev/null; kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

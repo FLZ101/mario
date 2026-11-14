@@ -326,8 +326,17 @@ static void read_configure(int fd, uint32_t window_id, uint64_t serial,
 		read_full(fd, frame + GUI_PROTOCOL_HEADER_SIZE,
 			header.length - GUI_PROTOCOL_HEADER_SIZE);
 		if (header.type == GUI_PROTOCOL_WINDOW_CONFIGURE) {
-			assert(get32(frame + 8) == window_id && get64(frame + 12) == serial &&
-			       get32(frame + 20) == width && get32(frame + 24) == height);
+			if (get32(frame + 8) != window_id ||
+			    get64(frame + 12) != serial ||
+			    get32(frame + 20) != width ||
+			    get32(frame + 24) != height) {
+				printf("wm-client: configure mismatch: expected %u/%llu/%u/%u got %u/%llu/%u/%u\n",
+					window_id, (unsigned long long)serial, width, height,
+					get32(frame + 8), (unsigned long long)get64(frame + 12),
+					get32(frame + 20), get32(frame + 24));
+				fflush(stdout);
+				_exit(2);
+			}
 			return;
 		}
 		/* Pointer motion before a border press still follows ordinary focus routing. */
@@ -1983,6 +1992,91 @@ static void test_chrome(void)
 	puts("wm-client: chrome requests pass");
 }
 
+static void expect_no_configure(int fd, int timeout_ms)
+{
+	struct pollfd descriptor = { .fd = fd, .events = POLLIN };
+	gui_protocol_header header;
+	uint8_t frame[64];
+	int ready;
+
+	do {
+		ready = poll(&descriptor, 1, timeout_ms);
+		if (ready <= 0)
+			break;
+		assert(descriptor.revents == POLLIN);
+		read_full(fd, frame, GUI_PROTOCOL_HEADER_SIZE);
+		assert(gui_protocol_decode_header(frame, GUI_PROTOCOL_HEADER_SIZE,
+			&header) == 0);
+		assert(header.length <= sizeof(frame));
+		read_full(fd, frame + GUI_PROTOCOL_HEADER_SIZE,
+			header.length - GUI_PROTOCOL_HEADER_SIZE);
+		if (header.type == GUI_PROTOCOL_INPUT_EVENT ||
+		    header.type == GUI_PROTOCOL_INPUT_RESET)
+			continue;
+		printf("wm-client: no-configure saw type %u\n", header.type);
+		fflush(stdout);
+		_exit(2);
+	} while (ready > 0);
+	assert(ready == 0);
+}
+
+static void test_resize(void)
+{
+	int fd = connect_client();
+	uint32_t window_id = create_window(fd, 902, 160, 100);
+
+	lifecycle_move(fd, window_id, 64, 100);
+	commit_color_surface(fd, window_id, 160, 100, 0x00ff0000);
+	puts("wm-client: resize ready");
+	fflush(stdout);
+	budget_wait("/tmp/gui-resize.initial-checked");
+
+	read_configure(fd, window_id, 2, 180, 100);
+	puts("wm-client: left resize ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-resize.left");
+	read_configure(fd, window_id, 3, 200, 100);
+	puts("wm-client: right resize ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-resize.right");
+	read_configure(fd, window_id, 4, 200, 110);
+	puts("wm-client: top resize ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-resize.top");
+	read_configure(fd, window_id, 5, 200, 120);
+	puts("wm-client: bottom resize ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-resize.bottom");
+	read_configure(fd, window_id, 6, 210, 130);
+	puts("wm-client: top-left resize ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-resize.top-left");
+	read_configure(fd, window_id, 7, 220, 140);
+	puts("wm-client: top-right resize ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-resize.top-right");
+	read_configure(fd, window_id, 8, 230, 150);
+	puts("wm-client: bottom-left resize ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-resize.bottom-left");
+	read_configure(fd, window_id, 9, 240, 160);
+	puts("wm-client: bottom-right resize ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-resize.bottom-right");
+	read_configure(fd, window_id, 10, 113, 48);
+	puts("wm-client: minimum drag intermediate ready");
+	fflush(stdout);
+	read_configure(fd, window_id, 11, 64, 48);
+	puts("wm-client: minimum resize ready");
+	fflush(stdout);
+	budget_marker("/tmp/gui-resize.minimum");
+
+	budget_wait("/tmp/gui-resize.min-checked");
+	budget_wait("/tmp/gui-resize.click-done");
+	expect_no_configure(fd, 1000);
+	puts("wm-client: resize no-configure pass");
+}
+
 int main(int argc, char **argv)
 {
 	uint8_t frame[64];
@@ -2006,7 +2100,8 @@ int main(int argc, char **argv)
 		!strcmp(argv[1], "--interact-only") || !strcmp(argv[1], "--launch-only") ||
 		!strcmp(argv[1], "--launch-cleanup-only") ||
 		!strcmp(argv[1], "--window-state-only") ||
-		!strcmp(argv[1], "--chrome-only"))));
+		!strcmp(argv[1], "--chrome-only") ||
+		!strcmp(argv[1], "--resize-only"))));
 	if (argc == 2) {
 		if (!strcmp(argv[1], "--patch-only")) {
 			test_rectangular_upload();
@@ -2052,6 +2147,8 @@ int main(int argc, char **argv)
 			test_window_state();
 		} else if (!strcmp(argv[1], "--chrome-only")) {
 			test_chrome();
+		} else if (!strcmp(argv[1], "--resize-only")) {
+			test_resize();
 		} else {
 			test_public_shell();
 			puts("wm-client: public shell denied");

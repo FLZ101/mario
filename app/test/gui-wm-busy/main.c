@@ -404,7 +404,7 @@ static void test_occlusion(void)
 	right->stack_order = 3;
 	assert(wm_window_obscured(&server, target));
 	assert(!wm_window_obscured(&server, left) && !wm_window_obscured(&server, right));
-	right->x += 3;
+	right->x += 2 * WM_RESIZE_GRIP + 1;
 	assert(!wm_window_obscured(&server, target));
 	right->x -= 3;
 	right->y++;
@@ -1478,8 +1478,8 @@ static void report_drawing_work(const char *name, const wm_server *server,
 		assert(measured_work.filled_pixels == 512 && measured_work.blitted_pixels == 512);
 		assert(measured_work.flush_requests == 2 && measured_work.writer_calls == 32 && measured_work.written_bytes == 2048);
 	} else if (!strcmp(name, "small-window-move")) {
-		assert(measured_work.filled_pixels == 211832 && measured_work.blitted_pixels == 133380);
-		assert(measured_work.flush_requests == 1 && measured_work.writer_calls == 218 && measured_work.written_bytes == 287760);
+		assert(measured_work.filled_pixels == 219072 && measured_work.blitted_pixels == 136704);
+		assert(measured_work.flush_requests == 1 && measured_work.writer_calls == 224 && measured_work.written_bytes == 301056);
 	} else if (!strcmp(name, "visible-commit")) {
 		assert(measured_work.filled_pixels == 184320 && measured_work.blitted_pixels == 122880);
 		assert(measured_work.flush_requests == 1 && measured_work.writer_calls == 192 && measured_work.written_bytes == 245760);
@@ -1675,8 +1675,8 @@ static void test_sixteen_window_drawing(void)
 	uint64_t previous_frame;
 	size_t surface_bytes_before;
 	size_t record_bytes_before;
-	uint64_t damage_pixels = (320 + 2 * WM_WINDOW_BORDER + 8) *
-		(192 + WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER);
+	uint64_t damage_pixels = (320 + 2 * WM_RESIZE_GRIP + 8) *
+		(192 + WM_TITLE_HEIGHT + 2 * WM_RESIZE_GRIP);
 
 	init_server(&server, 1024, 768);
 	server.state.graphics = 1;
@@ -1729,7 +1729,7 @@ static void test_sixteen_window_drawing(void)
 	measure_drawing = 0;
 	assert(server.state.frame_number == previous_frame + 1 && measured_work.written_bytes <= damage_pixels * 4);
 	assert(measured_work.filled_pixels <= damage_pixels * 9 && measured_work.blitted_pixels <= damage_pixels * 3);
-	assert(measured_work.flush_requests == 1 && measured_work.writer_calls <= 192 + WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER);
+	assert(measured_work.flush_requests == 1 && measured_work.writer_calls <= 192 + WM_TITLE_HEIGHT + 2 * WM_RESIZE_GRIP);
 	assert_full_scene(&server);
 	surface_bytes_before = server.state.surface_bytes;
 	record_bytes_before = server.record_bytes;

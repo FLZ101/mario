@@ -36,7 +36,7 @@
 #define WM_CURSOR_PATH "/usr/share/mario/cursor-arrow-16.rgba"
 #define WM_CURSOR_WIDTH 16U
 #define WM_CURSOR_HEIGHT 16U
-#define WM_WINDOW_BORDER 1U
+#define WM_RESIZE_GRIP 4U
 #define WM_TITLE_HEIGHT 24U
 #define WM_TITLE_BUTTON_WIDTH 16U
 #define WM_MIN_CONTENT_WIDTH 64U
@@ -745,14 +745,14 @@ static void wm_draw_window(wm_state *state, const wm_window *client)
 	uint32_t committed_height = 0;
 
 	client = wm_presented_window(client, &presented);
-	int outer_x = client->x - (int)WM_WINDOW_BORDER;
-	int outer_y = client->y - (int)WM_TITLE_HEIGHT - (int)WM_WINDOW_BORDER;
+	int outer_x = client->x - (int)WM_RESIZE_GRIP;
+	int outer_y = client->y - (int)WM_TITLE_HEIGHT - (int)WM_RESIZE_GRIP;
 
 	/* Content coordinates remain client-visible; only the server owns chrome. */
 	if (!client->fullscreen) {
 		gui_fill_rect(state->composite, (gui_rect) { .x = outer_x, .y = outer_y,
-			.w = (int)client->width + 2 * WM_WINDOW_BORDER,
-			.h = (int)client->height + WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER },
+			.w = (int)client->width + 2 * WM_RESIZE_GRIP,
+			.h = (int)client->height + WM_TITLE_HEIGHT + 2 * WM_RESIZE_GRIP },
 			WM_WINDOW_BORDER_COLOR);
 		gui_fill_rect(state->composite, (gui_rect) { .x = client->x,
 			.y = client->y - WM_TITLE_HEIGHT, .w = (int)client->width,
@@ -795,10 +795,10 @@ static gui_rect wm_window_bounds(const wm_server *server, const wm_window *windo
 		window = wm_presented_window(window, &presented);
 	if (window != NULL && window->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
 	    !window->fullscreen) {
-		left = (int64_t)window->x - WM_WINDOW_BORDER;
-		top = (int64_t)window->y - WM_TITLE_HEIGHT - WM_WINDOW_BORDER;
-		right = (int64_t)window->x + window->width + WM_WINDOW_BORDER;
-		bottom = (int64_t)window->y + window->height + WM_WINDOW_BORDER;
+		left = (int64_t)window->x - WM_RESIZE_GRIP;
+		top = (int64_t)window->y - WM_TITLE_HEIGHT - WM_RESIZE_GRIP;
+		right = (int64_t)window->x + window->width + WM_RESIZE_GRIP;
+		bottom = (int64_t)window->y + window->height + WM_RESIZE_GRIP;
 	}
 	if (left < 0)
 		left = 0;
@@ -1154,15 +1154,15 @@ static void wm_place_window(wm_server *server, wm_window *client)
 
 static uint32_t wm_minimum_width(const wm_server *server)
 {
-	uint32_t maximum = server->state.width > 2 * WM_WINDOW_BORDER ?
-		server->state.width - 2 * WM_WINDOW_BORDER : 1;
+	uint32_t maximum = server->state.width > 2 * WM_RESIZE_GRIP ?
+		server->state.width - 2 * WM_RESIZE_GRIP : 1;
 
 	return maximum < WM_MIN_CONTENT_WIDTH ? maximum : WM_MIN_CONTENT_WIDTH;
 }
 
 static uint32_t wm_minimum_height(const wm_server *server)
 {
-	uint32_t chrome_height = WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER;
+	uint32_t chrome_height = WM_TITLE_HEIGHT + 2 * WM_RESIZE_GRIP;
 	uint32_t maximum = server->state.height > chrome_height ?
 		server->state.height - chrome_height : 1;
 
@@ -1173,8 +1173,8 @@ static int32_t wm_clamp_position(int64_t value, uint32_t size, uint32_t screen_s
 				 uint32_t leading_chrome)
 {
 	int64_t minimum = leading_chrome;
-	int64_t maximum = screen_size > size + WM_WINDOW_BORDER ?
-		(int64_t)screen_size - size - WM_WINDOW_BORDER : minimum;
+	int64_t maximum = screen_size > size + WM_RESIZE_GRIP ?
+		(int64_t)screen_size - size - WM_RESIZE_GRIP : minimum;
 
 	if (value < minimum)
 		return (int32_t)minimum;
@@ -1186,9 +1186,9 @@ static int32_t wm_clamp_position(int64_t value, uint32_t size, uint32_t screen_s
 static void wm_clamp_window_position(wm_server *server, wm_window *client)
 {
 	client->x = wm_clamp_position(client->x, client->width, server->state.width,
-		WM_WINDOW_BORDER);
+		WM_RESIZE_GRIP);
 	client->y = wm_clamp_position(client->y, client->height, server->state.height,
-		WM_TITLE_HEIGHT + WM_WINDOW_BORDER);
+		WM_TITLE_HEIGHT + WM_RESIZE_GRIP);
 }
 
 static uint32_t wm_clamp_dimension(int64_t value, uint32_t minimum,
@@ -1999,11 +1999,11 @@ static int wm_resize_window(wm_server *server, wm_window *client, int32_t x,
 	uint32_t previous_height = client->height;
 	uint32_t minimum_width = wm_minimum_width(server);
 	uint32_t minimum_height = wm_minimum_height(server);
-	uint32_t maximum_width = server->state.width > 2 * WM_WINDOW_BORDER ?
-		server->state.width - 2 * WM_WINDOW_BORDER : minimum_width;
+	uint32_t maximum_width = server->state.width > 2 * WM_RESIZE_GRIP ?
+		server->state.width - 2 * WM_RESIZE_GRIP : minimum_width;
 	uint32_t maximum_height = server->state.height >
-		WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER ? server->state.height -
-		(WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER) : minimum_height;
+		WM_TITLE_HEIGHT + 2 * WM_RESIZE_GRIP ? server->state.height -
+		(WM_TITLE_HEIGHT + 2 * WM_RESIZE_GRIP) : minimum_height;
 	uint32_t position_width_limit;
 	uint32_t position_height_limit;
 	size_t bytes_needed;
@@ -2019,10 +2019,10 @@ static int wm_resize_window(wm_server *server, wm_window *client, int32_t x,
 	proposed.height = height;
 	wm_clamp_window_position(server, &proposed);
 	position_width_limit = server->state.width > (uint32_t)proposed.x +
-		WM_WINDOW_BORDER ? server->state.width - proposed.x - WM_WINDOW_BORDER :
+		WM_RESIZE_GRIP ? server->state.width - proposed.x - WM_RESIZE_GRIP :
 		minimum_width;
 	position_height_limit = server->state.height > (uint32_t)proposed.y +
-		WM_WINDOW_BORDER ? server->state.height - proposed.y - WM_WINDOW_BORDER :
+		WM_RESIZE_GRIP ? server->state.height - proposed.y - WM_RESIZE_GRIP :
 		minimum_height;
 	proposed.width = wm_clamp_dimension(proposed.width, minimum_width,
 		position_width_limit);
@@ -2067,16 +2067,16 @@ static int wm_maximize_geometry(wm_server *server, int32_t *x, int32_t *y,
 {
 	uint32_t minimum_width = wm_minimum_width(server);
 	uint32_t minimum_height = wm_minimum_height(server);
-	uint32_t chrome_height = WM_TITLE_HEIGHT + 2 * WM_WINDOW_BORDER;
+	uint32_t chrome_height = WM_TITLE_HEIGHT + 2 * WM_RESIZE_GRIP;
 
 	if (!server->work_area_valid)
 		return -EAGAIN;
-	*width = server->work_width > 2 * WM_WINDOW_BORDER ?
-		server->work_width - 2 * WM_WINDOW_BORDER : minimum_width;
+	*width = server->work_width > 2 * WM_RESIZE_GRIP ?
+		server->work_width - 2 * WM_RESIZE_GRIP : minimum_width;
 	*height = server->work_height > chrome_height ?
 		server->work_height - chrome_height : minimum_height;
-	*x = server->work_x + WM_WINDOW_BORDER;
-	*y = server->work_y + WM_TITLE_HEIGHT + WM_WINDOW_BORDER;
+	*x = server->work_x + WM_RESIZE_GRIP;
+	*y = server->work_y + WM_TITLE_HEIGHT + WM_RESIZE_GRIP;
 	return 0;
 }
 
@@ -2251,23 +2251,34 @@ static wm_hit_region wm_hit_region_for_client(const wm_window *client, uint32_t 
 	wm_window presented;
 
 	client = wm_presented_window(client, &presented);
-	int64_t left = (int64_t)client->x - WM_WINDOW_BORDER;
-	int64_t top = (int64_t)client->y - WM_TITLE_HEIGHT - WM_WINDOW_BORDER;
-	int64_t right = (int64_t)client->x + client->width;
-	int64_t bottom = (int64_t)client->y + client->height;
+	int64_t left = (int64_t)client->x - WM_RESIZE_GRIP;
+	int64_t top = (int64_t)client->y - WM_TITLE_HEIGHT - WM_RESIZE_GRIP;
+	int64_t right = (int64_t)client->x + client->width + WM_RESIZE_GRIP;
+	int64_t bottom = (int64_t)client->y + client->height + WM_RESIZE_GRIP;
+	int64_t title_top = (int64_t)client->y - WM_TITLE_HEIGHT;
+	int left_band = (int64_t)x < (int64_t)client->x;
+	int right_band = (int64_t)x >= (int64_t)client->x + client->width;
+	int top_band = (int64_t)y < title_top;
+	int bottom_band = (int64_t)y >= (int64_t)client->y + client->height;
 
 	if ((int64_t)x < left || (int64_t)x > right || (int64_t)y < top ||
 	    (int64_t)y > bottom)
 		return WM_HIT_NONE;
-	if ((int64_t)x == left)
-		return (int64_t)y == top ? WM_HIT_RESIZE_TOP_LEFT :
-			(int64_t)y == bottom ? WM_HIT_RESIZE_BOTTOM_LEFT : WM_HIT_RESIZE_LEFT;
-	if ((int64_t)x == right)
-		return (int64_t)y == top ? WM_HIT_RESIZE_TOP_RIGHT :
-			(int64_t)y == bottom ? WM_HIT_RESIZE_BOTTOM_RIGHT : WM_HIT_RESIZE_RIGHT;
-	if ((int64_t)y == top)
+	if (left_band && top_band)
+		return WM_HIT_RESIZE_TOP_LEFT;
+	if (right_band && top_band)
+		return WM_HIT_RESIZE_TOP_RIGHT;
+	if (left_band && bottom_band)
+		return WM_HIT_RESIZE_BOTTOM_LEFT;
+	if (right_band && bottom_band)
+		return WM_HIT_RESIZE_BOTTOM_RIGHT;
+	if (left_band)
+		return WM_HIT_RESIZE_LEFT;
+	if (right_band)
+		return WM_HIT_RESIZE_RIGHT;
+	if (top_band)
 		return WM_HIT_RESIZE_TOP;
-	if ((int64_t)y == bottom)
+	if (bottom_band)
 		return WM_HIT_RESIZE_BOTTOM;
 	if ((int64_t)y < client->y) {
 		if ((int64_t)x >= (int64_t)client->x + client->width -
@@ -2683,8 +2694,8 @@ static int wm_update_capture(wm_server *server)
 		int64_t maximum_x = right - wm_minimum_width(server);
 		int64_t proposed_x = (int64_t)x + dx;
 
-		if (proposed_x < WM_WINDOW_BORDER)
-			proposed_x = WM_WINDOW_BORDER;
+		if (proposed_x < WM_RESIZE_GRIP)
+			proposed_x = WM_RESIZE_GRIP;
 		if (proposed_x > maximum_x)
 			proposed_x = maximum_x;
 		x = (int32_t)proposed_x;
@@ -2695,8 +2706,8 @@ static int wm_update_capture(wm_server *server)
 	    server->capture_operation == WM_CAPTURE_RESIZE_TOP_RIGHT ||
 	    server->capture_operation == WM_CAPTURE_RESIZE_BOTTOM_RIGHT) {
 		width = wm_clamp_dimension((int64_t)width + dx, wm_minimum_width(server),
-			server->state.width > (uint32_t)x + WM_WINDOW_BORDER ?
-			server->state.width - x - WM_WINDOW_BORDER : wm_minimum_width(server));
+			server->state.width > (uint32_t)x + WM_RESIZE_GRIP ?
+			server->state.width - x - WM_RESIZE_GRIP : wm_minimum_width(server));
 		resize = 1;
 	}
 	if (server->capture_operation == WM_CAPTURE_RESIZE_TOP ||
@@ -2706,8 +2717,8 @@ static int wm_update_capture(wm_server *server)
 		int64_t maximum_y = bottom - wm_minimum_height(server);
 		int64_t proposed_y = (int64_t)y + dy;
 
-		if (proposed_y < WM_TITLE_HEIGHT + WM_WINDOW_BORDER)
-			proposed_y = WM_TITLE_HEIGHT + WM_WINDOW_BORDER;
+		if (proposed_y < WM_TITLE_HEIGHT + WM_RESIZE_GRIP)
+			proposed_y = WM_TITLE_HEIGHT + WM_RESIZE_GRIP;
 		if (proposed_y > maximum_y)
 			proposed_y = maximum_y;
 		y = (int32_t)proposed_y;
@@ -2718,8 +2729,8 @@ static int wm_update_capture(wm_server *server)
 	    server->capture_operation == WM_CAPTURE_RESIZE_BOTTOM_LEFT ||
 	    server->capture_operation == WM_CAPTURE_RESIZE_BOTTOM_RIGHT) {
 		height = wm_clamp_dimension((int64_t)height + dy, wm_minimum_height(server),
-			server->state.height > (uint32_t)y + WM_WINDOW_BORDER ?
-			server->state.height - y - WM_WINDOW_BORDER : wm_minimum_height(server));
+			server->state.height > (uint32_t)y + WM_RESIZE_GRIP ?
+			server->state.height - y - WM_RESIZE_GRIP : wm_minimum_height(server));
 		resize = 1;
 	}
 	if (!resize || (x == client->x && y == client->y && width == client->width &&
