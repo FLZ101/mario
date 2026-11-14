@@ -402,24 +402,21 @@ static int ahci_wait_for_completion(struct ahci_port *port)
 
 	for (;;) {
 		spin_lock_irqsave(&port->wait_lock, flags);
-		if (port->complete || port->error) {
-			spin_unlock_irqrestore(&port->wait_lock, flags);
-			return port->error ? -EIO : 0;
-		}
-
 		/*
 		 * cmd_lock serializes this port's single command table, so when
 		 * PxCI falls back to zero the command just issued has finished.
-		 * Check PxTFD/PxIS for an error that was missed with the IRQ.
+		 * Do not trust an early DHRS/TFES interrupt before PxCI is clear:
+		 * the device can raise the register FIS before the DMA transfer has
+		 * reached memory, and returning early would let the next command
+		 * overwrite the still-in-flight table.
 		 */
 		if (!(port_read(port, AHCI_PxCI) & 1)) {
 			uint32_t pis = port_read(port, AHCI_PxIS);
 			uint32_t tfd = port_read(port, AHCI_PxTFD);
 
 			spin_unlock_irqrestore(&port->wait_lock, flags);
-			if (pis & AHCI_PxIS_TFES)
-				return -EIO;
-			if (tfd & (AHCI_PxTFD_ERR | AHCI_PxTFD_DF))
+			if (port->error || (pis & AHCI_PxIS_TFES) ||
+			    (tfd & (AHCI_PxTFD_ERR | AHCI_PxTFD_DF)))
 				return -EIO;
 			return 0;
 		}
