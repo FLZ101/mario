@@ -731,6 +731,48 @@ static void terminal_vt_copy_resize_cells(terminal_vt_cell *destination,
 		       (size_t)copied_columns * sizeof(*source));
 }
 
+static uint32_t terminal_vt_row_used_columns(const terminal_vt_cell *row,
+					     uint32_t columns)
+{
+	while (columns != 0 && row[columns - 1].codepoint == 0)
+		columns--;
+	return columns;
+}
+
+static void terminal_vt_reflow_cells(terminal_vt_cell *destination,
+				     uint32_t destination_rows,
+				     uint32_t destination_columns,
+				     const terminal_vt_cell *source,
+				     uint32_t source_rows,
+				     uint32_t source_columns)
+{
+	uint32_t output_row = 0;
+	uint32_t output_column = 0;
+
+	for (uint32_t source_row = 0; source_row < source_rows; source_row++) {
+		const terminal_vt_cell *row = source +
+			(size_t)source_row * source_columns;
+		uint32_t used_columns = terminal_vt_row_used_columns(row,
+			source_columns);
+
+		for (uint32_t column = 0; column < used_columns; column++) {
+			if (output_row >= destination_rows)
+				return;
+			destination[(size_t)output_row * destination_columns +
+				output_column] = row[column];
+			output_column++;
+			if (output_column == destination_columns) {
+				output_column = 0;
+				output_row++;
+			}
+		}
+		if (output_column != 0 || used_columns == 0) {
+			output_row++;
+			output_column = 0;
+		}
+	}
+}
+
 int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 		       terminal_vt_cell *alternate_cells,
 		       terminal_vt_cell *scrollback_cells,
@@ -750,8 +792,14 @@ int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 	cell_count = (size_t)rows * columns;
 	memset(primary_cells, 0, cell_count * sizeof(*primary_cells));
 	memset(alternate_cells, 0, cell_count * sizeof(*alternate_cells));
-	terminal_vt_copy_resize_cells(primary_cells, columns, terminal->primary_cells,
-		terminal->rows, terminal->columns, rows, columns);
+	if (terminal->columns == columns)
+		terminal_vt_copy_resize_cells(primary_cells, columns,
+			terminal->primary_cells, terminal->rows,
+			terminal->columns, rows, columns);
+	else
+		terminal_vt_reflow_cells(primary_cells, rows, columns,
+			terminal->primary_cells, terminal->rows,
+			terminal->columns);
 	terminal_vt_copy_resize_cells(alternate_cells, columns, terminal->alternate_cells,
 		terminal->rows, terminal->columns, rows, columns);
 	if (scrollback_lines != 0)

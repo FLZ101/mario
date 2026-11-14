@@ -469,8 +469,8 @@ Terminal behavior details:
   should ignore or store the mode rather than corrupt the terminal grid.
 - Resize behavior: the terminal computes the largest grid that fits the window
   minus scrollbar/chrome, then calls `TIOCSWINSZ` on the retained master with
-  row/column counts. The grid is reflowed only for full-screen width changes;
-  soft reflow is deferred.
+  row/column counts. The primary grid is hard-reflowed when the column count
+  changes; alternate-screen and soft-wrap reflow are deferred.
 - Set the shell environment before exec: `TERM=xterm-direct`,
   `COLORTERM=truecolor`, `COLUMNS` and `LINES` equal to the initial grid size,
   `HOME=/root`, and `SHELL=/bin/oksh`. Update `COLUMNS`/`LINES` through

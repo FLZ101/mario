@@ -470,6 +470,43 @@ static void test_resize(void)
 	       resized_cells[5].codepoint == 'e');
 }
 
+static void test_primary_reflow(void)
+{
+	terminal_vt_cell source_cells[6];
+	terminal_vt_cell source_alternate_cells[6];
+	terminal_vt_cell resized_cells[6];
+	terminal_vt_cell resized_alternate_cells[6];
+	terminal_vt terminal;
+
+	assert(terminal_vt_init(&terminal, source_cells,
+		source_alternate_cells, 2, 3) == 0);
+	terminal_vt_feed(&terminal, (const uint8_t *)"abc\r\nde",
+		sizeof("abc\r\nde") - 1);
+	assert(terminal_vt_resize(&terminal, resized_cells,
+		resized_alternate_cells, NULL, 0, 3, 2) == 0);
+	assert(terminal.rows == 3 && terminal.columns == 2);
+	assert(terminal.cells == resized_cells);
+	assert(resized_cells[0].codepoint == 'a' &&
+	       resized_cells[1].codepoint == 'b');
+	assert(resized_cells[2].codepoint == 'c' &&
+	       resized_cells[3].codepoint == 0);
+	assert(resized_cells[4].codepoint == 'd' &&
+	       resized_cells[5].codepoint == 'e');
+
+	assert(terminal_vt_init(&terminal, source_cells,
+		source_alternate_cells, 2, 3) == 0);
+	terminal_vt_feed(&terminal, (const uint8_t *)"ab\r\n ",
+		sizeof("ab\r\n ") - 1);
+	assert(terminal_vt_resize(&terminal, resized_cells,
+		resized_alternate_cells, NULL, 0, 3, 2) == 0);
+	assert(resized_cells[0].codepoint == 'a' &&
+	       resized_cells[1].codepoint == 'b');
+	assert(resized_cells[2].codepoint == ' ' &&
+	       resized_cells[3].codepoint == 0);
+	assert(resized_cells[4].codepoint == 0 &&
+	       resized_cells[5].codepoint == 0);
+}
+
 static void test_scrollback_and_tabs(void)
 {
 	static const uint8_t lines[] = "one\r\ntwo\r\nthr\r\nfor\r\nfiv\r\nsix\r\nsev";
@@ -714,6 +751,7 @@ int main(void)
 	test_attributes_and_saved_cursor();
 	test_alternate_screen_and_reset();
 	test_resize();
+	test_primary_reflow();
 	test_scrollback_and_tabs();
 	test_titles_and_direct_color();
 	test_dec_private_modes();
