@@ -804,6 +804,7 @@ static int terminal_spawn_pty(const char *command, const terminal_state *state,
 		if ((state->fd > STDERR_FILENO && close(state->fd) < 0) ||
 		    signal(SIGHUP, SIG_DFL) == SIG_ERR || signal(SIGPIPE, SIG_DFL) == SIG_ERR)
 			_exit(127);
+		setenv("PATH", "/bin:/usr/bin:/bin/toybox", 1);
 		setenv("TERM", "xterm-direct", 1);
 		setenv("COLORTERM", "truecolor", 1);
 		if (command != NULL)

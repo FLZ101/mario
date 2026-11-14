@@ -3,8 +3,9 @@ SERIAL: rm -f /tmp/mario-wm.* /tmp/terminal-pty.log; /usr/bin/mario-wm --diagnos
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8
-SERIAL: /usr/bin/terminal --command 'printf TERMINAL-PTY-OK' >/tmp/terminal-pty.log 2>&1 &
+SERIAL: /usr/bin/terminal --command 'printf "PATH:%s\nTERMINAL-PTY-OK\n" "$PATH"' >/tmp/terminal-pty.log 2>&1 &
 SERIAL: while ! grep -q 'terminal: child exit 0' /tmp/terminal-pty.log; do sleep 1; done; cat /tmp/terminal-pty.log
+SERIAL-CHECK: PATH:/bin:/usr/bin:/bin/toybox
 SERIAL-CHECK: TERMINAL-PTY-OK
 SERIAL-CHECK: terminal: child exit 0
 GUI-CHECK-RECT: 130 130 8 8 29 78 216
