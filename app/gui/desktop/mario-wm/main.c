@@ -2576,6 +2576,7 @@ static uint32_t wm_keysym(uint16_t scancode, uint32_t modifiers)
 	case 0x1c: return '\n';
 	case 0x39: return ' ';
 	case 0x147: return GUI_KEYSYM_HOME;
+	case 0x148: return GUI_KEYSYM_UP;
 	case 0x149: return GUI_KEYSYM_PAGE_UP;
 	case 0x14b: return GUI_KEYSYM_LEFT;
 	case 0x14d: return GUI_KEYSYM_RIGHT;

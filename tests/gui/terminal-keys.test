@@ -1,0 +1,13 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/terminal-keys.log /tmp/terminal-keys.pid /tmp/terminal-keys.hex; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL: /usr/bin/terminal --command 'stty raw -echo; dd bs=1 count=3 2>/dev/null | xxd -p >/tmp/terminal-keys.hex' >/tmp/terminal-keys.log 2>&1 & echo $! >/tmp/terminal-keys.pid
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/terminal-keys.log; do sleep 1; done
+GUI-CHECK-RECT: 130 130 8 8 17 24 39
+GUI-SEND-KEY: up
+SERIAL: while ! grep -q 'terminal: child exit 0' /tmp/terminal-keys.log; do sleep 1; done; sleep 1; if grep -q '1b5b41' /tmp/terminal-keys.hex; then printf 'terminal-keys: %s\n' 'up arrow ok'; else printf 'terminal-keys: %s\n' 'up arrow failed'; cat /tmp/terminal-keys.hex; cat /tmp/terminal-keys.log; fi
+SERIAL-CHECK: terminal-keys: up arrow ok
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:
