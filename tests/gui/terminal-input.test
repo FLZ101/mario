@@ -8,7 +8,7 @@ SERIAL: while ! grep -q 'terminal: window ready' /tmp/terminal-input.log; do sle
 GUI-CHECK-RECT: 130 130 8 8 17 24 39
 GUI-TYPE: go
 SERIAL: sleep 2; cat /tmp/terminal-input.log
-SERIAL-CHECK: TERM:xterm-direct COLOR:truecolor INPUT:go
+SERIAL-CHECK: TERM:xterm-256color COLOR:truecolor INPUT:go
 GUI-SEND-KEYS: meta_l,w
 SERIAL: while pgrep terminal >/dev/null; do sleep 1; done
 SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done

@@ -438,8 +438,8 @@ First version supports:
 - tab stops;
 - `OSC` title updates.
 
-The terminal advertises `TERM=xterm-direct` and `COLORTERM=truecolor`.
-`xterm-direct` is the ncurses direct-color profile derived from xterm and is
+The terminal advertises `TERM=xterm-256color` and `COLORTERM=truecolor`.
+`xterm-256color` is the ncurses 256-color profile derived from xterm and is
 installed with its terminfo entry. It supports ANSI 16-color SGR, indexed
 `38;5;n`/`48;5;n` colors, and direct RGB `38;2;r;g;b`/`48;2;r;g;b` plus the
 colon-separated form used by the terminfo profile (`38:2::r:g:b` and
@@ -471,7 +471,7 @@ Terminal behavior details:
   minus scrollbar/chrome, then calls `TIOCSWINSZ` on the retained master with
   row/column counts. The primary grid is hard-reflowed when the column count
   changes; alternate-screen and soft-wrap reflow are deferred.
-- Set the shell environment before exec: `TERM=xterm-direct`,
+- Set the shell environment before exec: `TERM=xterm-256color`,
   `COLORTERM=truecolor`, `COLUMNS` and `LINES` equal to the initial grid size,
   `HOME=/root`, and `SHELL=/bin/oksh`. Update `COLUMNS`/`LINES` through
   `TIOCSWINSZ` on resize; `oksh` reads the tty size for `stty size`.

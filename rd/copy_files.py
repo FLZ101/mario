@@ -210,6 +210,7 @@ def copy_rootfs_files(
         "app/usr/ncurses-6.6-install/share/terminfo/v/vt100": "usr/share/terminfo/v/vt100",
         "app/usr/ncurses-6.6-install/share/terminfo/v/vt102": "usr/share/terminfo/v/vt102",
         "app/usr/ncurses-6.6-install/share/terminfo/x/xterm": "usr/share/terminfo/x/xterm",
+        "app/usr/ncurses-6.6-install/share/terminfo/x/xterm-256color": "usr/share/terminfo/x/xterm-256color",
         "app/usr/ncurses-6.6-install/share/terminfo/x/xterm-direct": "usr/share/terminfo/x/xterm-direct",
         "app/usr/ncurses-6.6-install/share/terminfo/s/screen": "usr/share/terminfo/s/screen",
         "app/usr/ncurses-6.6-install/bin/*": "usr/bin",

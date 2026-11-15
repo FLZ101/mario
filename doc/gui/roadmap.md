@@ -1003,7 +1003,7 @@ Change:
 - `app/usr/terminal/term.c`: terminal grid, scrollback, resize.
 - `app/usr/Makefile`: add the terminal binary.
 - `app/usr/build-ncurses.sh`: enable ncurses extended and direct RGB colors.
-- `rd/copy_files.py`: include the ncurses `xterm-direct` terminfo entry.
+- `rd/copy_files.py`: include the ncurses `xterm-256color` terminfo entry.
 - `tests/gui/gui-terminal.test`: a `GUI-VISUAL-TEST:` fixture that opens a
   terminal, runs commands, resizes it, and checks the screen.
 
@@ -1024,7 +1024,7 @@ Checkpoint:
 - Ctrl-C interrupts the foreground process.
 - `printf '\033[48;2;1;2;3m \033[0m'` and the colon-form equivalent render
   the exact direct-RGB background in the terminal screenshot; `echo $TERM`
-  and `echo $COLORTERM` print `xterm-direct` and `truecolor`.
+  and `echo $COLORTERM` print `xterm-256color` and `truecolor`.
 - `tmux new-session`, a split-pane command, and a detached session render and
   exit cleanly inside the GUI terminal.
 - Scrollback survives beyond the visible screen.
