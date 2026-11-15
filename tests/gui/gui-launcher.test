@@ -14,13 +14,15 @@ GUI-MOUSE-MOVE: 0,111
 GUI-MOUSE-BUTTON: left,down
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-# The popup occupies y=680..740 above the bottom panel.
-GUI-CHECK-RECT: 100 690 1 1 37 99 235
-# Terminal is the only entry at y=680..700.
-GUI-MOUSE-MOVE: 16,-64
+# The one-entry popup occupies y=720..740 above the bottom panel.
+GUI-CHECK-RECT: 100 690 1 1 31 41 51
+GUI-CHECK-RECT: 100 720 1 1 37 99 235
+# Terminal is the only entry at y=720..740.
+GUI-MOUSE-MOVE: 0,-32
 GUI-MOUSE-BUTTON: left,down
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 100 720 1 1 31 41 51
 SERIAL: while ! pgrep terminal >/dev/null; do sleep 1; done; echo launcher: terminal started
 SERIAL-CHECK: launcher: terminal started
 GUI-CHECK-RECT: 100 690 1 1 31 41 51
