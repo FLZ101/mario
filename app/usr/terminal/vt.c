@@ -78,6 +78,14 @@ static void terminal_vt_put(terminal_vt *terminal, uint32_t codepoint)
 
 static void terminal_vt_control(terminal_vt *terminal, uint8_t byte)
 {
+	if (byte == 0x0e) {
+		terminal->charset_g1_selected = 1;
+		return;
+	}
+	if (byte == 0x0f) {
+		terminal->charset_g1_selected = 0;
+		return;
+	}
 	if (byte == '\r') {
 		terminal->wrap_pending = 0;
 		terminal->cursor_column = 0;
@@ -112,6 +120,72 @@ static void terminal_vt_reset_utf8(terminal_vt *terminal)
 	terminal->utf8_codepoint = 0;
 	terminal->utf8_minimum = 0;
 	terminal->utf8_remaining = 0;
+}
+
+static uint32_t terminal_vt_charset_codepoint(const terminal_vt *terminal,
+					      uint8_t byte)
+{
+	uint8_t charset = terminal->charset_g1_selected ?
+		terminal->charset_g1 : terminal->charset_g0;
+
+	if (charset != '0')
+		return byte;
+	switch (byte) {
+	case 'q':
+		return 0x2500;
+	case 'x':
+		return 0x2502;
+	case 'l':
+		return 0x250c;
+	case 'k':
+		return 0x2510;
+	case 'm':
+		return 0x2514;
+	case 'j':
+		return 0x2518;
+	case 't':
+		return 0x251c;
+	case 'u':
+		return 0x2524;
+	case 'v':
+		return 0x2534;
+	case 'w':
+		return 0x252c;
+	case 'n':
+		return 0x253c;
+	case 'a':
+		return 0x2592;
+	case '`':
+		return 0x2666;
+	case 'f':
+		return 0x00b0;
+	case 'g':
+		return 0x00b1;
+	case 'h':
+		return '#';
+	case 'i':
+		return 0x00b7;
+	case 'o':
+	case 'p':
+		return '-';
+	case 'r':
+	case 's':
+		return '_';
+	case 'y':
+		return '<';
+	case 'z':
+		return '>';
+	case '{':
+		return 0x03c0;
+	case '|':
+		return 0x2261;
+	case '}':
+		return 0x00a3;
+	case '~':
+		return 0x00b7;
+	default:
+		return byte;
+	}
 }
 
 static void terminal_vt_reset_escape(terminal_vt *terminal)
@@ -290,6 +364,10 @@ static void terminal_vt_reset(terminal_vt *terminal)
 	terminal->application_cursor = 0;
 	terminal->wrap_pending = 0;
 	terminal->cursor_visible = 1;
+	terminal->charset_g0 = 'B';
+	terminal->charset_g1 = 'B';
+	terminal->charset_target = 0;
+	terminal->charset_g1_selected = 0;
 	terminal_vt_reset_rendition(terminal);
 	terminal_vt_save_cursor(terminal);
 	terminal_vt_reset_utf8(terminal);
@@ -645,9 +723,10 @@ static void terminal_vt_feed_escape(terminal_vt *terminal, uint8_t byte)
 		terminal_vt_begin_csi(terminal);
 	else if (byte == ']')
 		terminal_vt_begin_osc(terminal);
-	else if (byte == '(' || byte == ')')
+	else if (byte == '(' || byte == ')') {
+		terminal->charset_target = byte == ')';
 		terminal->parser_state = TERMINAL_VT_STATE_CHARSET;
-	else if (byte == 'H') {
+	} else if (byte == 'H') {
 		terminal_vt_reset_escape(terminal);
 		if (terminal->cursor_column < sizeof(terminal->tab_stops))
 			terminal->tab_stops[terminal->cursor_column] = 1;
@@ -714,6 +793,12 @@ again:
 		return;
 	}
 	if (terminal->parser_state == TERMINAL_VT_STATE_CHARSET) {
+		if (byte >= 0x20 && byte <= 0x7e) {
+			if (terminal->charset_target)
+				terminal->charset_g1 = byte;
+			else
+				terminal->charset_g0 = byte;
+		}
 		terminal_vt_reset_escape(terminal);
 		return;
 	}
@@ -727,7 +812,7 @@ again:
 		return;
 	}
 	if (byte < 0x80) {
-		terminal_vt_put(terminal, byte);
+		terminal_vt_put(terminal, terminal_vt_charset_codepoint(terminal, byte));
 		return;
 	}
 	if (byte >= 0xc2 && byte <= 0xdf) {

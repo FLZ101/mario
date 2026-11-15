@@ -56,6 +56,10 @@ typedef struct {
 	uint16_t csi_colon_parameters;
 	uint8_t utf8_remaining;
 	uint8_t parser_state;
+	uint8_t charset_g0;
+	uint8_t charset_g1;
+	uint8_t charset_target;
+	uint8_t charset_g1_selected;
 	uint8_t csi_parameter_count;
 	uint8_t csi_ignored;
 	uint8_t csi_private;

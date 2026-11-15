@@ -585,15 +585,18 @@ static void test_dec_private_modes(void)
 
 static void test_charset_designation(void)
 {
-	static const uint8_t text[] = "A\x1b(BZ";
-	terminal_vt_cell cells[3];
-	terminal_vt_cell alternate_cells[3];
+	static const uint8_t text[] = "A\x1b(0qx\x1b(BZ";
+	terminal_vt_cell cells[6];
+	terminal_vt_cell alternate_cells[6];
 	terminal_vt terminal;
 
-	assert(terminal_vt_init(&terminal, cells, alternate_cells, 1, 3) == 0);
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 1, 6) == 0);
 	terminal_vt_feed(&terminal, text, sizeof(text) - 1);
-	assert(cells[0].codepoint == 'A' && cells[1].codepoint == 'Z' &&
-	       cells[2].codepoint == 0);
+	assert(cells[0].codepoint == 'A');
+	assert(cells[1].codepoint == 0x2500);
+	assert(cells[2].codepoint == 0x2502);
+	assert(cells[3].codepoint == 'Z');
+	assert(cells[4].codepoint == 0 && cells[5].codepoint == 0);
 }
 
 static void assert_renderer_oracle(terminal_state *state)
