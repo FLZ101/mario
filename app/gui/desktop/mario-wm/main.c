@@ -31,8 +31,6 @@
 #define WM_SHELL_PATH "/usr/bin/mario-desktop"
 #define WM_SHELL_FD 3
 #define WM_TERMINAL_PATH "/usr/bin/terminal"
-#define WM_IMAGE_VIEWER_PATH "/usr/bin/imageviewer"
-#define WM_FILE_MANAGER_PATH "/usr/bin/filemanager"
 #define WM_CURSOR_PATH "/usr/share/mario/cursor-arrow-16.rgba"
 #define WM_CURSOR_WIDTH 16U
 #define WM_CURSOR_HEIGHT 16U
@@ -250,8 +248,6 @@ static int wm_start_terminal(void);
 static int wm_start_terminal_command(const uint8_t *path, size_t path_bytes);
 static int wm_start_terminal_executable(wm_server *server, const uint8_t *path,
 					size_t path_bytes, uint32_t origin_window_id);
-static int wm_start_image_viewer(const uint8_t *path, size_t path_bytes);
-static int wm_start_file_manager(const uint8_t *path, size_t path_bytes);
 static int client_enqueue_configure(wm_window *client);
 static int window_enqueue(wm_window *window, gui_protocol_type type,
 			  const void *payload, size_t payload_bytes);
@@ -1382,7 +1378,6 @@ static void client_handle_launch_request(wm_client *client, const uint8_t *bytes
 	}
 	if (client->role != GUI_PROTOCOL_ENDPOINT_SHELL &&
 	    (launch_type == GUI_PROTOCOL_LAUNCH_TERMINAL ||
-	     launch_type == GUI_PROTOCOL_LAUNCH_FILE_MANAGER ||
 	     client->windows == NULL)) {
 		client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EPERM);
 		return;
@@ -1394,48 +1389,6 @@ static void client_handle_launch_request(wm_client *client, const uint8_t *bytes
 			return;
 		}
 		if (wm_start_terminal() < 0) {
-			put_u32(result, request_id);
-			put_u32(result + 4, (uint32_t)-errno);
-			if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
-				   sizeof(result)) < 0)
-				client->hello = -1;
-			return;
-		}
-		put_u32(result, request_id);
-		put_u32(result + 4, 0);
-		if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
-			   sizeof(result)) < 0)
-			client->hello = -1;
-		return;
-	case GUI_PROTOCOL_LAUNCH_IMAGE_VIEWER:
-		if (path_bytes == 0 || bytes[sizeof(gui_protocol_wire_launch_request)] != '/' ||
-		    memchr(bytes + sizeof(gui_protocol_wire_launch_request), '\0', path_bytes) != NULL) {
-			client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
-			return;
-		}
-		if (wm_start_image_viewer(bytes + sizeof(gui_protocol_wire_launch_request),
-			path_bytes) < 0) {
-			put_u32(result, request_id);
-			put_u32(result + 4, (uint32_t)-errno);
-			if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
-				   sizeof(result)) < 0)
-				client->hello = -1;
-			return;
-		}
-		put_u32(result, request_id);
-		put_u32(result + 4, 0);
-		if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
-		   sizeof(result)) < 0)
-			client->hello = -1;
-		return;
-	case GUI_PROTOCOL_LAUNCH_FILE_MANAGER:
-		if (path_bytes == 0 || bytes[sizeof(gui_protocol_wire_launch_request)] != '/' ||
-		    memchr(bytes + sizeof(gui_protocol_wire_launch_request), '\0', path_bytes) != NULL) {
-			client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
-			return;
-		}
-		if (wm_start_file_manager(bytes + sizeof(gui_protocol_wire_launch_request),
-			path_bytes) < 0) {
 			put_u32(result, request_id);
 			put_u32(result + 4, (uint32_t)-errno);
 			if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
@@ -3536,49 +3489,6 @@ static int wm_start_terminal_executable(wm_server *server, const uint8_t *path,
 	launch->client = origin->client;
 	launch->next = server->launches;
 	server->launches = launch;
-	return 0;
-}
-
-static int wm_start_image_viewer(const uint8_t *path, size_t path_bytes)
-{
-	char argument[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
-	pid_t pid;
-
-	if (path_bytes == 0 || path_bytes > GUI_PROTOCOL_MAX_PATH_BYTES)
-		return -1;
-	memcpy(argument, path, path_bytes);
-	argument[path_bytes] = '\0';
-	pid = fork();
-	if (pid < 0)
-		return -1;
-	if (pid == 0) {
-		/* The server owns the launch and passes only the validated pathname. */
-		execl(WM_IMAGE_VIEWER_PATH, WM_IMAGE_VIEWER_PATH, argument, NULL);
-		_exit(127);
-	}
-	return 0;
-}
-
-static int wm_start_file_manager(const uint8_t *path, size_t path_bytes)
-{
-	char argument[GUI_PROTOCOL_MAX_PATH_BYTES + 1];
-	pid_t pid;
-
-	if (path_bytes == 0 || path_bytes > GUI_PROTOCOL_MAX_PATH_BYTES) {
-		errno = EINVAL;
-		return -1;
-	}
-	memcpy(argument, path, path_bytes);
-	argument[path_bytes] = '\0';
-	pid = fork();
-	if (pid < 0)
-		return -1;
-	if (pid == 0) {
-		/* The server owns the launch and passes only the validated pathname. */
-		execl(WM_FILE_MANAGER_PATH, WM_FILE_MANAGER_PATH, argument, NULL);
-		perror("mario-wm: exec filemanager");
-		_exit(127);
-	}
 	return 0;
 }
 

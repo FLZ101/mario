@@ -33,15 +33,13 @@
 #define DESKTOP_MENU_X 8U
 #define DESKTOP_MENU_WIDTH 120U
 #define DESKTOP_MENU_ITEM_HEIGHT 20U
-#define DESKTOP_MENU_ITEM_COUNT 3U
+#define DESKTOP_MENU_ITEM_COUNT 1U
 #define DIAGNOSTIC_WELCOME 0U
 #define DIAGNOSTIC_DISPLAY 1U
 #define DIAGNOSTIC_COUNT 2U
 
 typedef enum {
 	DESKTOP_MENU_TERMINAL,
-	DESKTOP_MENU_FILES,
-	DESKTOP_MENU_IMAGES,
 } desktop_menu_entry;
 
 typedef struct {
@@ -437,8 +435,6 @@ static const char *desktop_menu_label(desktop_menu_entry entry)
 {
 	switch (entry) {
 	case DESKTOP_MENU_TERMINAL: return "Terminal";
-	case DESKTOP_MENU_FILES: return "Files";
-	case DESKTOP_MENU_IMAGES: return "Images";
 	default: return "";
 	}
 }
@@ -798,15 +794,6 @@ static int desktop_handle_message(desktop_state *state,
 				case DESKTOP_MENU_TERMINAL:
 					result = desktop_send_launch(state,
 						GUI_PROTOCOL_LAUNCH_TERMINAL, NULL);
-					break;
-				case DESKTOP_MENU_FILES:
-					result = desktop_send_launch(state,
-						GUI_PROTOCOL_LAUNCH_FILE_MANAGER, "/");
-					break;
-				case DESKTOP_MENU_IMAGES:
-					result = desktop_send_launch(state,
-						GUI_PROTOCOL_LAUNCH_FILE_MANAGER,
-						"/usr/share/mario-tests/gui");
 					break;
 				default:
 					result = -1;

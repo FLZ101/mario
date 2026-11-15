@@ -21,8 +21,7 @@ SERIAL: /usr/bin/terminal >/tmp/mp-terminal.log 2>&1 & terminal_pid=$!
 SERIAL: while ! grep -q 'terminal: window ready' /tmp/mp-terminal.log; do sleep 1; done
 SERIAL: /usr/bin/imageviewer /usr/share/mario-tests/gui/alpha-128.png >/tmp/mp-imageviewer.log 2>&1 & viewer_pid=$!
 SERIAL: while ! grep -q 'imageviewer: window ready' /tmp/mp-imageviewer.log; do sleep 1; done
-SERIAL: /usr/bin/filemanager /tmp >/tmp/mp-filemanager.log 2>&1 & manager_pid=$!
-SERIAL: while ! grep -q 'terminal: window ready' /tmp/mp-terminal.log || ! grep -q 'imageviewer: window ready' /tmp/mp-imageviewer.log || ! grep -q 'filemanager: window ready' /tmp/mp-filemanager.log; do sleep 1; done; printf 'gui-mp: %s\n' 'clients ready'
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/mp-terminal.log || ! grep -q 'imageviewer: window ready' /tmp/mp-imageviewer.log; do sleep 1; done; printf 'gui-mp: %s\n' 'clients ready'
 SERIAL-CHECK: gui-mp: clients ready
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
@@ -31,7 +30,7 @@ GUI-CHECK-RECT: 32 32 1 1 31 41 51
 # a replacement reaching main(), binding a socket, or acquiring the raw seat.
 SERIAL: old_wm=$(pgrep mario-wm); old_shell=$(pgrep mario-desktop); mv /usr/bin/mario-wm /usr/bin/mario-wm.saved && touch /tmp/mario-wm.ready.new /tmp/mario-wm.frame.new && kill -KILL "$old_wm"
 TIMEOUT: 20
-SERIAL: while test -e /tmp/mario-wm.started; do sleep 1; done; while kill -0 "$old_shell" 2>/dev/null; do sleep 1; done; wait "$terminal_pid" "$viewer_pid" "$manager_pid"; printf 'gui-mp: %s\n' 'disconnected'
+SERIAL: while test -e /tmp/mario-wm.started; do sleep 1; done; while kill -0 "$old_shell" 2>/dev/null; do sleep 1; done; wait "$terminal_pid" "$viewer_pid"; printf 'gui-mp: %s\n' 'disconnected'
 SERIAL-CHECK: gui-mp: disconnected
 SERIAL: test ! -e /tmp/mario-wm.sock && test ! -e /tmp/mario-wm.ready && test ! -e /tmp/mario-wm.frame && test ! -e /tmp/mario-wm.ready.new && test ! -e /tmp/mario-wm.frame.new && printf 'gui-mp: %s\n' 'stale paths removed'
 SERIAL-CHECK: gui-mp: stale paths removed
@@ -53,13 +52,12 @@ SERIAL: /usr/bin/terminal >/tmp/mp-terminal.log 2>&1 & terminal_pid=$!
 SERIAL: while ! grep -q 'terminal: window ready' /tmp/mp-terminal.log; do sleep 1; done
 SERIAL: /usr/bin/imageviewer /usr/share/mario-tests/gui/alpha-128.png >/tmp/mp-imageviewer.log 2>&1 & viewer_pid=$!
 SERIAL: while ! grep -q 'imageviewer: window ready' /tmp/mp-imageviewer.log; do sleep 1; done
-SERIAL: /usr/bin/filemanager /tmp >/tmp/mp-filemanager.log 2>&1 & manager_pid=$!
-SERIAL: while ! grep -q 'terminal: window ready' /tmp/mp-terminal.log || ! grep -q 'imageviewer: window ready' /tmp/mp-imageviewer.log || ! grep -q 'filemanager: window ready' /tmp/mp-filemanager.log; do sleep 1; done; printf 'gui-mp: %s\n' 'clients relaunched'
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/mp-terminal.log || ! grep -q 'imageviewer: window ready' /tmp/mp-imageviewer.log; do sleep 1; done; printf 'gui-mp: %s\n' 'clients relaunched'
 SERIAL-CHECK: gui-mp: clients relaunched
 GUI-WAIT-FRAME:
 GUI-CHECK-RECT: 128 96 1 1 17 24 39
 # A clean supervised exit must not restart or leave live shell/app endpoints.
-SERIAL: kill -TERM "$new_wm"; while test -e /tmp/mario-wm.started || kill -0 "$new_wm" 2>/dev/null || kill -0 "$new_shell" 2>/dev/null; do sleep 1; done; wait "$terminal_pid" "$viewer_pid" "$manager_pid"; printf 'gui-mp: %s\n' 'clean shutdown'
+SERIAL: kill -TERM "$new_wm"; while test -e /tmp/mario-wm.started || kill -0 "$new_wm" 2>/dev/null || kill -0 "$new_shell" 2>/dev/null; do sleep 1; done; wait "$terminal_pid" "$viewer_pid"; printf 'gui-mp: %s\n' 'clean shutdown'
 SERIAL-CHECK: gui-mp: clean shutdown
 SERIAL: test ! -e /tmp/mario-wm.sock && test ! -e /tmp/mario-wm.ready && test ! -e /tmp/mario-wm.frame && test ! -e /tmp/mario-wm.ready.new && test ! -e /tmp/mario-wm.frame.new && printf 'gui-mp: %s\n' 'clean paths removed'
 SERIAL-CHECK: gui-mp: clean paths removed

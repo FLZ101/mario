@@ -1,2 +1,0 @@
-RUN: /usr/bin/test/filemanager-model.exe
-CHECK: filemanager-model: sorted, empty, bounded, and unknown entries ok
