@@ -604,6 +604,13 @@ static int terminal_handle_message(terminal_state *state,
 		state->close_requested = 1;
 		return 0;
 	}
+	if (header->type == GUI_PROTOCOL_WINDOW_STATE) {
+		if (payload_bytes != sizeof(gui_protocol_wire_window_state) ||
+		    get32(payload) != state->window_id ||
+		    get32(payload + 4) > GUI_PROTOCOL_WINDOW_STATE_MAXIMIZED)
+			return -1;
+		return 0;
+	}
 	if (header->type == GUI_PROTOCOL_WINDOW_FOCUS)
 		return payload_bytes == sizeof(gui_protocol_wire_window_focus) &&
 			get32(payload) == state->window_id ? 0 : -1;

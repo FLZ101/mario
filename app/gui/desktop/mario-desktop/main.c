@@ -995,6 +995,13 @@ static int diagnostic_handle_message(diagnostic_client *client,
 		diagnostic_reset(client);
 		return 0;
 	}
+	if (header->type == GUI_PROTOCOL_WINDOW_STATE) {
+		if (payload_bytes != sizeof(gui_protocol_wire_window_state) ||
+		    get32(payload) != client->window_id ||
+		    get32(payload + 4) > GUI_PROTOCOL_WINDOW_STATE_MAXIMIZED)
+			return -1;
+		return 0;
+	}
 	if (header->type == GUI_PROTOCOL_WINDOW_FOCUS) {
 		if (payload_bytes != sizeof(gui_protocol_wire_window_focus) ||
 		    get32(payload) != client->window_id || get32(payload + 4) > 1)

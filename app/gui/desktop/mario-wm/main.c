@@ -3242,6 +3242,8 @@ static void client_message(void *context, const gui_protocol_header *header,
 		return;
 	}
 	if (header->type == GUI_PROTOCOL_SHELL_ACTIVATE_WINDOW && payload_bytes == 4) {
+		int result;
+
 		if (client->role != GUI_PROTOCOL_ENDPOINT_SHELL) {
 			client_reject(client, header->type, -EPERM);
 			return;
@@ -3251,6 +3253,13 @@ static void client_message(void *context, const gui_protocol_header *header,
 		    window->client->hello <= 0) {
 			client_reject(client, header->type, -ENOENT);
 			return;
+		}
+		if (window->minimized) {
+			result = wm_request_minimize(client->server, window);
+			if (result < 0) {
+				client_reject(client, header->type, result);
+				return;
+			}
 		}
 		wm_set_input_owner(client->server, window);
 		if (wm_compose(client->server) == GUI_FLUSH_ERROR)
