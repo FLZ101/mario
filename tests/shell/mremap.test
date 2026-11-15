@@ -1,0 +1,13 @@
+RUN: python <<'PY'
+import mmap
+m = mmap.mmap(-1, 4096, flags=mmap.MAP_PRIVATE)
+try:
+    m.resize(8192)
+    print('mremap-unexpected-success')
+except OSError as exc:
+    print('mremap-enosys', exc.errno)
+PY
+CHECK: mremap-enosys 38
+RUN: dmesg | grep 'Not implemented: 163'; echo mremap-warning:$?
+CHECK: mremap-warning:1
+EXIT:

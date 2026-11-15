@@ -577,6 +577,8 @@ int sys_not_exist(struct trap_frame tr)
 	case SYS_setfsuid32:
 	case SYS_setfsgid32:
 		return 0;
+	case SYS_mremap:
+		return -ENOSYS;
 	default:
 		pr_warn("Not implemented: %d\n", tr.eax);
 		break;
