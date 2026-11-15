@@ -1,0 +1,24 @@
+INIT-WM: keep
+GUI-VISUAL-TEST:
+TIMEOUT: 120
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-CHECK-RECT: 32 32 8 8 31 41 51
+SERIAL: <<FIXTURES
+printf 'vbe vim base\n' >/tmp/vbe-vimfile
+cat >/tmp/vberunvim <<'SCRIPT'
+vim -Nu NONE -n -c 'call writefile(["ready"],"/tmp/vbe-vim.ready")' -c 'qa!' /tmp/vbe-vimfile
+test "$?" -eq 0 && touch /tmp/vbe-vim.done
+SCRIPT
+FIXTURES
+SERIAL: test "$(cat /tmp/vbe-vimfile)" = 'vbe vim base' && echo VBE_FIXTURE_OK
+SERIAL-CHECK: VBE_FIXTURE_OK
+SERIAL: /usr/bin/terminal >/tmp/vbe-vim.log 2>&1 & echo $! >/tmp/vbe-vim.pid
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/vbe-vim.log; do sleep 1; done
+GUI-TYPE: . /tmp/vberunvim
+SERIAL-WAIT-FILE: /tmp/vbe-vim.ready
+SERIAL: while ! test -e /tmp/vbe-vim.done; do sleep 1; done; cat /tmp/vbe-vim.log; echo VBE_VIM_OK
+SERIAL-CHECK: VBE_VIM_OK
+SERIAL: kill -TERM $(pgrep mario-wm); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

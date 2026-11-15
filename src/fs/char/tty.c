@@ -642,13 +642,6 @@ int tty_ioctl_tty(struct tty_struct *tty, unsigned int cmd, unsigned long arg)
 	if (!tty)
 		return -EIO;
 
-	if (current->tty == tty) {
-		if (cmd != TIOCSPGRP && current->pgrp != tty->pgrp) {
-			kill_pg(current->pgrp, SIGTTOU, 1);
-			return -ERESTARTSYS;
-		}
-	}
-
 	switch (cmd) {
 		case TCGETS:
 		{
@@ -667,6 +660,10 @@ int tty_ioctl_tty(struct tty_struct *tty, unsigned int cmd, unsigned long arg)
 		case TCSETSF: // Allow the output buffer to drain, discard pending input
 		case TCSETSW: // Allow the output buffer to drain
 		case TCSETS:
+			if (current->tty == tty && current->pgrp != tty->pgrp) {
+				kill_pg(current->pgrp, SIGTTOU, 1);
+				return -ERESTARTSYS;
+			}
 			return set_termios(tty, arg, opt);
 		case TIOCGWINSZ:
 		{
@@ -707,6 +704,10 @@ int tty_ioctl_tty(struct tty_struct *tty, unsigned int cmd, unsigned long arg)
 		case TIOCSTI:
 			if (current->tty != tty)
 				return -EPERM;
+			if (current->pgrp != tty->pgrp) {
+				kill_pg(current->pgrp, SIGTTOU, 1);
+				return -ERESTARTSYS;
+			}
 			err = verify_area(VERIFY_READ, (void *) arg, 1);
 			if (err)
 				return err;

@@ -129,6 +129,18 @@ void wake_up_process(struct task_struct *p)
 		 * (for example a task that set TASK_INTERRUPTIBLE but has not yet
 		 * reached schedule), leave it there; its CPU will continue it. */
 		p->state = TASK_RUNNING;
+		/*
+		 * A task that exhausted its slice before blocking would otherwise
+		 * re-enter the runqueue with little or no counter and can be
+		 * starved behind every task that is still holding a full slice.
+		 * This is especially visible for demand-paged executables in GUI
+		 * boots: each disk read wakes the loader, but it only gets another
+		 * turn after an entire scheduler epoch.  Give freshly woken tasks a
+		 * full boost so interactive and I/O-bound waiters become eligible
+		 * immediately.
+		 */
+		if (p->counter < MAX_COUNTER)
+			p->counter = MAX_COUNTER;
 		if (!task_on_runqueue(p)) {
 			/*
 			 * Enqueue on the CPU the task last ran on.  At this point
