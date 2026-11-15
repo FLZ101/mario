@@ -67,8 +67,8 @@ while an earlier checkpoint is red.
 | M3 — Window manager and shell | `mario-wm`, protocol, shell client, and desktop interaction | desktop and window screenshots |
 | M4 — PTY prerequisite gate | existing Unix98 PTY/tmux contract | PTY and tmux regressions |
 | M5 — GUI terminal | VT emulator, truecolor, PTY shell, tmux panes | terminal screenshot regression |
-| M6 — Image viewer | BMP/PNG decode, fit, zoom, pan | image-viewer screenshot regression |
-| M7 — File manager | browse, mutate `/tmp`, and launch apps | file-manager end-to-end regression |
+| M6 — Image viewer | BMP/PNG decode and fit-to-window display | image-viewer screenshot regression |
+| M7 — File manager | removed in simplification; no file-manager application | deleted file-manager regression suite |
 | M8 — Window-system hardening | protocol quotas, disconnect recovery, and server restart | window-system recovery regression |
 | M9 — Window capacity and fullscreen | dynamic resource-bounded windows, multiwindow clients, taskbar overflow, and fullscreen/restore | growth, quota, fullscreen, and real tmux application regressions |
 | M10 — Incremental GUI drawing | cached-window reuse, dirty-region composition, responsive motion, batched scanout, and incremental terminal uploads | exact drawing-work bounds, visual/transaction regressions, and reproducible latency/throughput measurements |
@@ -190,10 +190,10 @@ Run the formerly deferred fixture explicitly with:
 | M4 | M3.6.2 only | `app/test/pty/`, `tests/shell/`, `tests/tty/` | PTY/tmux regression |
 | M5 | M3.6.2 and all M4 gates | `app/usr/terminal/`, `app/gui/libmario-ui/`, `tests/gui/` | parser unit tests plus terminal golden |
 | M6 | M3.6.2 and M2.2.2 | `app/usr/imageviewer/`, `app/usr/libpng/`, `tests/gui/assets/` | decoder unit test plus image golden |
-| M7 | M3.6.2, M5.1.2, and M6.1.3 | `app/usr/filemanager/`, `tests/gui/assets/files/`, `tests/gui/` | `/tmp` end-to-end fixture |
+| M7 | M3.6.2, M5.1.2, and M6.1.3 | removed | deleted file-manager regression suite |
 | M8 | M3.6.2 and M5–M7 complete | `src/fs/inode.c`, `src/mm/kmalloc.c`, `src/include/mm/kmalloc.h`, `src/kernel/runtime_selftest.c`, `app/gui/libmario-ui/`, `app/gui/desktop/`, `app/include/app/`, `app/system/init/`, `app/usr/`, `app/test/`, `tests/gui/`, `tests/shell/` | server-recovery and quota regressions |
 | Integration smoke | M8.3.1 | `app/usr/toybox/.config`, `app/usr/toybox.patch`, `tests/gui/terminal-apps.test`, `tests/gui/assets/terminal-vim.png`, `tests/shell/fb-no-vbe.test` | real terminal applications and no-VBE boot |
-| M9 | M8.3.1 and all Final Integration Checklist gates, including tmux panes | `app/include/app/`, `app/gui/desktop/`, `app/usr/terminal/`, `app/usr/imageviewer/`, `app/usr/filemanager/`, `app/test/gui-wm-client/`, `app/test/gui-wm-busy/`, `tests/gui/`, `tests/shell/gui-wm-busy.test`, `doc/gui/` | dynamic multiwindow lifecycles, resource quotas, taskbar paging, occlusion, fullscreen/restore, and real tmux applications |
+| M9 | M8.3.1 and all Final Integration Checklist gates, including tmux panes | `app/include/app/`, `app/gui/desktop/`, `app/usr/terminal/`, `app/usr/imageviewer/`, `app/test/gui-wm-client/`, `app/test/gui-wm-busy/`, `tests/gui/`, `tests/shell/gui-wm-busy.test`, `doc/gui/` | dynamic multiwindow lifecycles, resource quotas, taskbar paging, occlusion, fullscreen/restore, and real tmux applications |
 | M10 | Normally M9.6 and the complete M9 checkpoint; user-approved deferral allows M9.5 plus the runnable-suite gate first | `app/gui/libmario-ui/`, `app/gui/desktop/`, `app/usr/terminal/`, `app/test/`, `app/usr/Makefile`, `rd/copy_files.py`, `tests/gui/`, `tests/shell/`, `tests/bench_gui_drawing.py`, `doc/gui/` | bounded composition/scanout work, ordered input, atomic incremental uploads, and before/after drawing benchmarks |
 
 M4 is allowed to begin after M3 has a reliable graphics-seat lifecycle so PTY
@@ -1063,26 +1063,20 @@ terminal: run oksh in a GUI terminal over a PTY
 - [x] **M6.2.2 — decode bounded PNG frames.** Enforce dimensions, row bytes,
   and allocation limits; leave the prior frame untouched on a decode error.
   Unit test corrupt/truncated PNGs. Commit: `imageviewer: validate PNG input`.
-- [x] **M6.2.3 — render PNG and bound the cache.** Add PNG display plus exactly
-  current/next decoded-frame caching and deterministic eviction. Test PNG
-  golden and cache replacement. Commit: `imageviewer: display PNG images`.
-- [x] **M6.3.1 — add view transforms.** Implement fit, 1:1, bounded zoom, and
-  viewport clipping with no navigation. Test transform math and zoom golden.
-  Commit: `imageviewer: add zoom modes`.
-- [x] **M6.3.2 — add pan input.** Implement mouse-drag and arrow-key pan with
-  clamped bounds. Test each input path and edge clamping. Commit: `imageviewer:
-  pan scaled images`.
-- [x] **M6.3.3 — add sibling navigation.** Traverse same-directory image files
-  in `readdir()` order, skip unsupported inputs, and keep the old image on
-  error. Test next/previous and a corrupt sibling. Commit: `imageviewer:
-  navigate sibling images`.
+- [x] **M6.2.3 — render PNG in the minimal viewer.** Display PNG with the same
+  aspect-preserving fit-to-window path. Test PNG golden. Commit:
+  `imageviewer: display PNG images`.
+- [x] **M6.3.1 — simplify the viewer to CLI-only display.** Remove zoom, pan,
+  navigation, and the image cache; retain BMP/PNG decoding, window resize, and
+  fit-to-window rendering. Commit: `imageviewer: simplify to a CLI viewer`.
 
 ### Detailed Specification
 
 Goal:
 
 - Vendor and build libpng as a static Mario library.
-- Decode BMP/PNG and implement fit/zoom/pan/next/previous.
+- Decode BMP/PNG and open one image from the command line with a
+  fit-to-window display.
 
 Change:
 
@@ -1094,11 +1088,13 @@ Change:
 - `rd/copy_files.py`: install `tests/gui/assets/` under
   `/usr/share/mario-tests/gui`, so guest tests can copy its
   immutable fixture tree to `/tmp/gui-fixtures/` before every mutation.
-- `app/usr/imageviewer/`: a `mario-wm` protocol client, viewer application,
-  and image cache; it never opens raw seat or framebuffer devices.
+- `app/usr/imageviewer/`: a small `mario-wm` protocol client that decodes one
+  BMP/PNG path from `argv` and renders it fit-to-window; it never opens raw
+  seat or framebuffer devices.
 - `app/usr/Makefile`: add the image viewer binary.
-- `tests/gui/gui-imageviewer.test`: a `GUI-VISUAL-TEST:` fixture that opens a
-  known BMP and PNG, zooms/pans, and checks the screen.
+- `tests/gui/imageviewer-bmp.test` and `tests/gui/imageviewer-png.test`:
+  `GUI-VISUAL-TEST:` fixtures that open a known BMP/PNG from the command line
+  and check the rendered screen.
 
 Build and run:
 
@@ -1106,7 +1102,8 @@ Build and run:
 make app
 make disk-image
 make quick-run-gtk
-.venv/bin/python tests/lit_gui_test.py --test gui-imageviewer.test tests/gui
+.venv/bin/python tests/lit_gui_test.py --test imageviewer-bmp.test tests/gui
+.venv/bin/python tests/lit_gui_test.py --test imageviewer-png.test tests/gui
 ```
 
 Checkpoint:
@@ -1115,7 +1112,7 @@ Checkpoint:
 - Malformed headers, truncated rows, oversized BMP dimensions, unsupported PNG
   layout, and libpng decode errors fail visibly without leaking a surface or
   evicting the currently displayed image.
-- Fit, 1:1, zoom, pan, and next/previous work.
+- BMP and PNG open from the command line and display fit-to-window.
 
 Debug:
 
@@ -1123,97 +1120,12 @@ Debug:
   of Mario.
 - If colors are inverted, check row order and channel order in the decoder
   conversion.
-- If large images exhaust heap, downscale during decode or cap the cache to
-  two frames as designed.
+- If large images exhaust heap, downscale during decode.
 
 Suggested commit:
 
 ```text
-imageviewer: decode BMP/PNG and add zoom/pan
-```
-
-## M7: File Manager
-
-- [x] **M7.1.1 — create a file-manager protocol client and bounded directory
-  model.** Connect to `mario-wm`, create a client window, and build typed
-  entries from `readdir()` with explicit name/count limits and sorted display
-  data. Enable the bounded `LAUNCH_FILE_MANAGER` path form. Unit test long
-  names, unknown types, and empty directories. Commit: `filemanager: read
-  directory entries`.
-- [x] **M7.1.2 — render a directory listing.** Add name/type/size/time columns,
-  selection, and deterministic clipping. Test one listing golden in a
-  `GUI-VISUAL-TEST:` fixture. Commit: `filemanager: render directory listing`.
-- [x] **M7.1.3 — navigate paths.** Add parent, selected-directory, and absolute
-  path entry navigation; retain the previous listing after an error. Test
-  MarioFS, ext2, and vfat without mutating images. Commit: `filemanager:
-  navigate filesystem paths`.
-- [x] **M7.2.1 — create and rename in `/tmp`.** Implement mkdir and same-filesystem
-  rename with input validation and post-operation refresh. Test success and
-  duplicate-name errors. Commit: `filemanager: create and rename files`.
-- [x] **M7.2.2 — copy and move in `/tmp`.** Add bounded streaming copy and
-  cross-filesystem move fallback; do not overwrite without confirmation. Test
-  contents, error cleanup, and confirmation cancellation. Commit: `filemanager:
-  copy and move files`.
-- [x] **M7.2.3 — delete safely in `/tmp`.** Add file delete and explicit
-  recursive-directory confirmation without following symlinks. Test nested
-  trees, cancellation, and refresh. Commit: `filemanager: delete scratch
-  files`.
-- [x] **M7.3.1 — dispatch text and images.** Quote arguments, choose terminal
-  versus image viewer, send a bounded server launch request, and retain the
-  manager after a launch error. Enable `LAUNCH_OPEN_TEXT` and test both paths.
-  Commit: `filemanager: open text and image files`.
-- [x] **M7.3.2 — dispatch executables and refresh.** Launch an executable in a
-  terminal through the server, observe client exit, and refresh the originating
-  listing. Enable `LAUNCH_EXECUTABLE` and test the complete path in a `/tmp`
-  fixture. Commit: `filemanager: launch executables`.
-
-### Detailed Specification
-
-Goal:
-
-- List and navigate directories.
-- Open, copy, move, rename, delete, and create directory entries.
-- Launch the terminal and image viewer from the file manager.
-
-Change:
-
-- `app/usr/filemanager/`: a `mario-wm` protocol client for directory listing,
-  navigation, file operations, and launch logic; it never opens raw seat or
-  framebuffer devices.
-- `app/usr/Makefile`: add the file manager binary.
-- `tests/gui/gui-filemanager.test`: a `GUI-VISUAL-TEST:` fixture that navigates
-  `/tmp`, creates files, renames, copies, deletes, and launches an image.
-
-Build and run:
-
-```sh
-make app
-make disk-image
-make quick-run-gtk
-.venv/bin/python tests/lit_gui_test.py --test gui-filemanager.test tests/gui
-```
-
-Checkpoint:
-
-- Listing works on mariofs and mounted ext2/vfat filesystems.
-- Copy/move/rename/delete/mkdir behave as specified, including confirmation
-  before overwrite/recursive delete.
-- A text file opens in a terminal, an image opens in the image viewer, and an
-  executable runs in a new terminal.
-- The view refreshes after every mutation and after child-app exit.
-
-Debug:
-
-- Keep destructive tests in a scratch directory. If a host shared image is
-  accidentally changed, restore it from `qemu/make_image.sh` or the image
-  build before continuing.
-- If launches fail, verify the command line is quoted for `oksh` and that the
-  child inherits a valid PTY for terminal launches.
-
-Suggested commit:
-
-```text
-filemanager: browse and manage local files from the desktop
+imageviewer: simplify to a CLI BMP/PNG viewer
 ```
 
 ## M8: Window-System Hardening
@@ -1329,9 +1241,8 @@ Change:
   on focus/grab/seat transitions before accepting untrusted apps.
 - `app/gui/desktop/`: retain one server and shell-client implementation while
   adding restart/cleanup instrumentation only in unit-test links.
-- `app/usr/terminal/`, `app/usr/imageviewer/`, `app/usr/filemanager/`: retain
-  their existing protocol-client paths while adding disconnect and relaunch
-  fixtures.
+- `app/usr/terminal/` and `app/usr/imageviewer/`: retain their existing
+  protocol-client paths while adding disconnect and relaunch fixtures.
 - `app/test/gui-cleanup/main.c`, `app/test/gui-wm-client/main.c`, and
   `tests/gui/gui-cleanup.test`: launch a descriptor-auditing child through the
   real WM terminal path and compare available PTY capacity before, during,
@@ -1514,7 +1425,7 @@ focused gate.
 - [x] **M9.1 — admit larger workloads without losing bounded surface safety.**
   Prerequisite: the integration gates above. Owns
   `app/include/app/gui-limits.h`, `app/gui/desktop/`, `app/usr/terminal/main.c`,
-  `app/usr/imageviewer/main.c`, `app/usr/filemanager/main.c`, `app/usr/Makefile`,
+  `app/usr/imageviewer/main.c`, `app/usr/Makefile`,
   `app/test/gui-wm-client/`, `app/test/gui-wm-busy/`,
   `tests/shell/gui-wm-busy.test`, `tests/gui/wm-surface-budget.test`,
   `tests/gui/wm-quota.test`, and `doc/gui/`. Implement the checked session cap
@@ -1724,7 +1635,7 @@ Change:
 - `app/gui/desktop/`: bounded admission/accounting, fullscreen state and
   composition, dynamic connections and per-connection windows, stable window
   identities, streamed shell snapshots, taskbar overflow pages, and occlusion.
-- `app/usr/terminal/`, `app/usr/imageviewer/`, and `app/usr/filemanager/`:
+- `app/usr/terminal/` and `app/usr/imageviewer/`:
   recoverable admission/transition error handling without weakening protocol
   validation; the terminal also honors fullscreen/restored configure dimensions
   and existing PTY resize signaling. Retain the full-surface wire protocol.
@@ -2174,10 +2085,9 @@ lowercase hyphenated convention.
   `app/gui/desktop/mario-wm/main.c` only for launch validation,
   `tests/gui/gui-launcher.test`, reviewed assets, and this roadmap. Replace the
   diagnostic launcher with a shell-owned popup menu opened from the existing
-  panel slot. Entries are `Terminal` (`LAUNCH_TERMINAL`), `Files`
-  (`LAUNCH_FILE_MANAGER`, path `/`), and `Images` (`LAUNCH_FILE_MANAGER`, path
-  `/usr/share/mario-tests/gui`). The menu opens/closes with mouse and Escape,
-  restores focus, and closes on launch. Request IDs are monotonic and
+  panel slot. The only entry is `Terminal` (`LAUNCH_TERMINAL`); the minimal
+  image viewer is launched from a terminal command line. The menu opens/closes
+  with mouse and Escape, restores focus, and closes on launch. Request IDs are monotonic and
   per-shell; the shell consumes `LAUNCH_RESULT` and reports errors without
   disconnecting. `mario-wm` validates role/path/type before forking and passes
   no seat descriptors to children. Focused gate:
@@ -2191,8 +2101,8 @@ lowercase hyphenated convention.
   Make the desktop the normal application entry point. Remove diagnostic
   `Welcome`/`Display` windows from normal startup, retaining them only behind
   an explicit diagnostics mode if needed. The shell starts with the desktop,
-  panel, taskbar, and menu ready. Exercise `terminal`, `filemanager`, and
-  `imageviewer` through the menu/file-manager path. Preserve shell
+  panel, taskbar, and menu ready. Exercise `terminal` through the menu and
+  `imageviewer` from a command line. Preserve shell
   replacement/recovery and keep TTY fallback only for diagnostics. Focused
   gates:
   `.venv/bin/python tests/lit_gui_test.py --smp 16 --test wm-autostart.test tests/gui`,
@@ -2227,8 +2137,8 @@ Targeted tests:
 .venv/bin/python tests/lit_gui_test.py --test fb.test tests/gui
 .venv/bin/python tests/lit_gui_test.py --test gui-desktop.test tests/gui
 .venv/bin/python tests/lit_gui_test.py --test gui-terminal.test tests/gui
-.venv/bin/python tests/lit_gui_test.py --test gui-imageviewer.test tests/gui
-.venv/bin/python tests/lit_gui_test.py --test gui-filemanager.test tests/gui
+.venv/bin/python tests/lit_gui_test.py --test imageviewer-bmp.test tests/gui
+.venv/bin/python tests/lit_gui_test.py --test imageviewer-png.test tests/gui
 .venv/bin/python tests/lit_gui_test.py --test gui-font.test tests/gui
 .venv/bin/python tests/lit_shell_test.py tests/shell/pty.test
 ```
@@ -2292,8 +2202,8 @@ GUI-runner and input-harness details:
 - Keep one focused visual golden per behavior: `gui-desktop.test` covers mode
   switching and retained desktop state; `gui-window.test` covers focus, move,
   resize, and close; `gui-terminal.test` covers PTY resize, direct RGB, and
-  tmux panes; `gui-imageviewer.test` covers BMP/PNG zoom and pan; and
-  `gui-filemanager.test` covers real `/tmp` mutations plus launch behavior.
+  tmux panes; and `imageviewer-bmp.test`/`imageviewer-png.test` cover the
+  minimal command-line viewer.
 - On failure, retain the actual screendump and serial tail. If
   `/tmp/mario-wm.debug` exists, also append its serial output; if it is
   absent, record that fact without masking the original failure. M3's debug

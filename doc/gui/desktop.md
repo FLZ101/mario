@@ -487,103 +487,34 @@ Add `app/usr/imageviewer/`.
 
 Features:
 
-- open an image from a path or from a file-manager launch;
+- run as a command-line application: `imageviewer /path/to/image`;
 - decode BMP and PNG;
-- fit-to-window, 1:1, and zoom modes;
-- pan by mouse drag or keyboard arrows;
-- next/previous file in the same directory;
-- status line with image dimensions, file size, and zoom factor.
+- fit the decoded frame to the window while preserving aspect ratio;
+- receive normal window resize, minimize, maximize, focus, and close messages;
+- ignore input events so this minimal viewer has no internal interaction.
 
-View state and image cache:
-
-- `fit-to-window` preserves aspect ratio and centers the image. `1:1` maps one
-  source pixel to one framebuffer pixel and allows panning when larger than
-  the window. Zoom uses a geometric scale list (`0.25x`, `0.5x`, `1x`, `2x`,
-  `4x`) initially rather than arbitrary fractional zoom.
-- Keyboard controls follow common terminal-viewer conventions: `f` returns to
-  fit, `1` selects actual size, and `+`/`=` and `-` move through the bounded
-  zoom levels. Arrow keys and Vim-style `h`, `j`, `k`, and `l` pan the clipped
-  viewport; a left-button drag moves the image directly. `n`/Page Down and
-  `p`/Page Up select the next and previous supported sibling in `readdir()`
-  order.
-- Pan is clipped to the intersection of the scaled image and the viewport; the
-  cursor changes or a status hint indicates when panning is possible.
-- Next/previous iterate the same directory in `readdir` order, skipping
-  non-image files. The decoder is determined by extension first and by magic
-  bytes second; a mismatch falls back to magic-byte detection.
-- Cache at most two decoded frames: the current image and the next image
-  preloaded in the background. Discard and re-decode older images. Decoded
-  images larger than the framebuffer are downscaled with simple area
-  averaging; no high-quality resampling is required.
-- A decoder failure keeps the previous frame on screen and puts the error in
-  the status line rather than closing the window.
+The decoder is selected by extension first and by magic bytes second; a
+mismatch falls back to magic-byte detection. Decode failures print an error
+and exit before opening a window.
 
 Validation:
 
 - A GUI test opens a known PNG/BMP, dumps the screen, and checks that the
-  image is visible and the status line is correct.
-
-### File Manager
-
-Add `app/usr/filemanager/`.
-
-Features:
-
-- navigate `/`, `/root`, `/mnt`, and mounted ext2/vfat directories;
-- display entries with name, type, size, and modification time;
-- change directory, parent directory, and absolute path entry;
-- open files with the matching application:
-  - directories: navigate;
-  - text files: a terminal running `less`;
-  - images: image viewer;
-  - executables: execute in a terminal window;
-- copy, move, rename, delete, and create directory;
-- refresh after filesystem changes.
-
-The file manager uses existing filesystem syscalls (`open`, `read`, `write`,
-`mkdir`, `unlink`, `rename`, `stat`) and the GUI list widgets.
-
-File-operation policy:
-
-- Use `rename()` for move within the same filesystem. Copy across filesystems
-  reads/writes blocks with a fixed 64 KiB buffer and preserves the mode bits
-  that Mario supports.
-- Before overwriting an existing destination, show a simple confirmation
-  dialog in the GUI, or fail with `-EEXIST` in shell-mode tests. There is no
-  trash/recycle bin in the first version.
-- Directory delete is recursive only after an explicit confirmation; symlinks
-  are deleted with `unlink()`, never followed during delete.
-- Refresh the directory listing after every create, rename, delete, and
-  successful copy. Refresh also after a child app exits and after the manual
-  Refresh command.
-- Text files request a terminal app with `less` by default; image files request
-  the image viewer; executables request a new terminal with a shell command
-  line quoted for `oksh`. `mario-wm` validates the bounded request, forks the
-  approved client binary, and reaps it; the file manager never directly forks
-  another GUI client.
-- When a launch target cannot be executed, keep the file manager open and show
-  the failure in a status line/message rather than silently closing.
-
-Validation:
-
-- Shell/GUI tests exercise file-manager actions on both mariofs and an
-  ext2/vfat mount. Do not use destructive operations on the host-mounted
-  shared test images outside the test harness.
+  image is visible.
 
 ### App Launcher and System Panel
 
 Add a simple launcher to the desktop panel:
 
 - terminal;
-- file manager;
-- image viewer;
 - about box;
 - reboot/halt if the kernel exposes the existing reboot path to userspace.
 
 The launcher is a grid of buttons above the panel. It sends typed launch
 requests to `mario-wm`; the server starts only the approved initial client
 binaries and reaps them. A shell child never inherits raw-seat, listener, or
-shell-capability fds. File-manager launches use the same server request path.
+shell-capability fds. The image viewer is launched directly from a terminal
+prompt, not from the panel.
 
 Session lifecycle and configuration:
 
@@ -662,7 +593,6 @@ app/gui/desktop/shell_*.c
 app/gui/libmario-ui/include/gui/protocol.h
 app/usr/terminal/
 app/usr/imageviewer/
-app/usr/filemanager/
 app/usr/launcher/
 app/usr/Makefile
 app/usr/freetype/
@@ -678,8 +608,8 @@ Test:
 tests/gui/fb.test
 tests/gui/gui-desktop.test
 tests/gui/gui-terminal.test
-tests/gui/gui-imageviewer.test
-tests/gui/gui-filemanager.test
+tests/gui/imageviewer-bmp.test
+tests/gui/imageviewer-png.test
 tests/gui/gui-font.test
 tests/shell/pty.test
 tests/shell/mouse.test     # read-only packet smoke test if device present

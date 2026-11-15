@@ -35,7 +35,7 @@ What is missing or unfinished:
   `Welcome` and `Display` windows, not real applications;
 - real applications are normally launched from tests or from a TTY shell,
   even though `mario-wm` already implements `LAUNCH_REQUEST` and can fork
-  `terminal`, `filemanager`, and `imageviewer`.
+  `terminal`.
 
 ## Design Decisions
 
@@ -231,11 +231,8 @@ Replace the diagnostic launcher with a real shell-owned popup menu:
 - `MENU` in the existing panel slot opens the menu above the panel.
 - Menu entries use the existing protocol and WM launch implementation:
   - `Terminal`: `LAUNCH_REQUEST` type `LAUNCH_TERMINAL`;
-  - `Files`: `LAUNCH_REQUEST` type `LAUNCH_FILE_MANAGER`, path `/`;
-  - `Images`: `LAUNCH_REQUEST` type `LAUNCH_FILE_MANAGER`, path
-    `/usr/share/mario-tests/gui` until a file-open dialog exists; selecting an
-    image from that directory launches the image viewer through the file
-    manager.
+  - The minimal image viewer is intentionally launched from a terminal:
+    `imageviewer /path/to/image`.
 - Menu opens/closes with mouse and Escape, restores focus after activation,
   and closes when a launch is accepted.
 - Request IDs are monotonic and per-shell.  The shell consumes
@@ -244,8 +241,8 @@ Replace the diagnostic launcher with a real shell-owned popup menu:
 - The WM continues to validate path bytes, launch type, and shell role before
   forking; no application inherits the WM seat descriptors.
 
-Success: clicking `Terminal` and `Files` starts real GUI windows; the menu
-closes; taskbar buttons appear; error results are reported.
+Success: clicking `Terminal` starts a real GUI window; the menu closes; the
+taskbar button appears; error results are reported.
 Failure: launch from a non-shell peer remains rejected; malformed paths do
 not fork; no app is started on a text VT.
 
@@ -271,8 +268,8 @@ Make the desktop the normal application entry point:
   them only behind an explicit `--diagnostics` shell test mode if still needed.
 - The shell starts with the desktop, panel, taskbar, and application menu
   ready; it does not rely on a TTY-launched application.
-- Update launch tests so `terminal`, `filemanager`, and `imageviewer` are
-  exercised through the desktop menu and file-manager launch path.
+- Update launch tests so `terminal` is exercised through the desktop menu and
+  `imageviewer` is exercised from a command line.
 - Preserve shell replacement/recovery: a new shell sends its work area and
   rebuilds the menu/taskbar from a fresh snapshot.
 - Keep `mario-wm --` and TTY fallback behavior for diagnostics, but no normal
