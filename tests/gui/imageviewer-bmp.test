@@ -7,6 +7,12 @@ SERIAL: /usr/bin/imageviewer /usr/share/mario-tests/gui/checker-64.bmp >/tmp/ima
 SERIAL: while ! grep -q 'imageviewer: window ready' /tmp/imageviewer.log; do sleep 1; done
 GUI-CHECK-RECT: 160 96 8 8 239 68 68
 GUI-CHECK-RECT: 224 96 8 8 34 197 94
+GUI-SEND-KEY: right
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 160 104 1 1 25 0 64
+GUI-SEND-KEY: left
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 160 96 8 8 239 68 68
 GUI-SEND-KEYS: meta_l,w
 SERIAL: while pgrep imageviewer >/dev/null; do sleep 1; done
 SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done

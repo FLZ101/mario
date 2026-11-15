@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
@@ -13,6 +14,7 @@
 
 #include <gui/image.h>
 #include <gui/image_view.h>
+#include <gui/input.h>
 #include <gui/protocol.h>
 #include <gui/surface.h>
 #include <app/gui-limits.h>
@@ -37,7 +39,12 @@ typedef struct {
 	gui_image_view view;
 	gui_surface *image;
 	gui_surface *surface;
+	char **paths;
+	size_t path_count;
+	size_t path_index;
 } imageviewer_state;
+
+static int imageviewer_select_path(imageviewer_state *state, int direction);
 
 /* Keep the largest outbound frame out of Mario's intentionally small initial stack. */
 static uint8_t imageviewer_frame[GUI_PROTOCOL_HEADER_SIZE +
@@ -222,9 +229,18 @@ static int imageviewer_handle_message(imageviewer_state *state,
 		return 0;
 	}
 	if (header->type == GUI_PROTOCOL_INPUT_EVENT) {
+		uint32_t keysym;
+
 		if (payload_bytes != sizeof(gui_protocol_wire_input_event) ||
 		    get32(payload) != state->window_id)
 			return -1;
+		if (get32(payload + 4) != GUI_INPUT_EVENT_KEY)
+			return 0;
+		keysym = get32(payload + 8);
+		if (keysym == GUI_KEYSYM_LEFT || keysym == GUI_KEYSYM_UP)
+			return imageviewer_select_path(state, -1);
+		if (keysym == GUI_KEYSYM_RIGHT || keysym == GUI_KEYSYM_DOWN)
+			return imageviewer_select_path(state, 1);
 		return 0;
 	}
 	return -1;
@@ -490,18 +506,236 @@ static int imageviewer_load(const char *path, gui_surface **image)
 	return result;
 }
 
+static int imageviewer_path_compare(const void *first, const void *second)
+{
+	const char *const *first_path = first;
+	const char *const *second_path = second;
+
+	return strcmp(*first_path, *second_path);
+}
+
+static void imageviewer_free_paths(char **paths, size_t path_count)
+{
+	for (size_t index = 0; index < path_count; index++)
+		free(paths[index]);
+	free(paths);
+}
+
+static char *imageviewer_parent_directory(const char *path, const char **name)
+{
+	const char *slash = strrchr(path, '/');
+	char *directory;
+	size_t length;
+
+	if (slash == NULL) {
+		*name = path;
+		return strdup(".");
+	}
+	if (slash == path) {
+		*name = slash + 1;
+		return strdup("/");
+	}
+	length = (size_t)(slash - path);
+	directory = malloc(length + 1);
+	if (directory != NULL) {
+		memcpy(directory, path, length);
+		directory[length] = '\0';
+	}
+	*name = slash + 1;
+	return directory;
+}
+
+static char *imageviewer_join_path(const char *directory, const char *name)
+{
+	size_t directory_length = strlen(directory);
+	size_t name_length = strlen(name);
+	size_t separator = directory_length == 0 || directory[directory_length - 1] != '/';
+	char *path = malloc(directory_length + separator + name_length + 1);
+
+	if (path == NULL)
+		return NULL;
+	memcpy(path, directory, directory_length);
+	if (separator)
+		path[directory_length++] = '/';
+	memcpy(path + directory_length, name, name_length + 1);
+	return path;
+}
+
+static int imageviewer_append_path(char ***paths, size_t *path_count,
+				   size_t *path_capacity, char *path)
+{
+	if (*path_count == *path_capacity) {
+		size_t capacity = *path_capacity == 0 ? 8 : *path_capacity * 2;
+		char **resized = realloc(*paths, capacity * sizeof(**paths));
+
+		if (resized == NULL)
+			return -1;
+		*paths = resized;
+		*path_capacity = capacity;
+	}
+	(*paths)[(*path_count)++] = path;
+	return 0;
+}
+
+static int imageviewer_build_argv_paths(int argc, char **argv, char ***paths_out,
+					size_t *path_count_out)
+{
+	size_t path_count = (size_t)argc - 1;
+	char **paths = malloc(path_count * sizeof(*paths));
+
+	if (paths == NULL)
+		return -1;
+	for (size_t index = 0; index < path_count; index++) {
+		paths[index] = strdup(argv[index + 1]);
+		if (paths[index] == NULL) {
+			imageviewer_free_paths(paths, index);
+			return -1;
+		}
+	}
+	*paths_out = paths;
+	*path_count_out = path_count;
+	return 0;
+}
+
+static int imageviewer_build_directory_paths(const char *opened_path,
+					     char ***paths_out, size_t *path_count_out,
+					     size_t *path_index_out)
+{
+	const char *opened_name;
+	char *directory = imageviewer_parent_directory(opened_path, &opened_name);
+	DIR *dir;
+	struct dirent *entry;
+	char **paths = NULL;
+	char *opened_path_copy = NULL;
+	size_t path_count = 0;
+	size_t path_capacity = 0;
+	size_t path_index = SIZE_MAX;
+
+	if (directory == NULL)
+		return -1;
+	dir = opendir(directory);
+	if (dir == NULL) {
+		free(directory);
+		return -1;
+	}
+	while ((entry = readdir(dir)) != NULL) {
+		char *path;
+
+		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0 ||
+		    (!imageviewer_extension_matches(entry->d_name, ".png") &&
+		     !imageviewer_extension_matches(entry->d_name, ".bmp")))
+			continue;
+		path = imageviewer_join_path(directory, entry->d_name);
+		if (path == NULL || imageviewer_append_path(&paths, &path_count,
+				&path_capacity, path) < 0) {
+			free(path);
+			closedir(dir);
+			free(directory);
+			imageviewer_free_paths(paths, path_count);
+			return -1;
+		}
+		if (strcmp(entry->d_name, opened_name) == 0)
+			path_index = path_count - 1;
+	}
+	closedir(dir);
+	free(directory);
+	if (path_count == 0) {
+		imageviewer_free_paths(paths, path_count);
+		return -1;
+	}
+	if (path_index != SIZE_MAX)
+		opened_path_copy = paths[path_index];
+	qsort(paths, path_count, sizeof(*paths), imageviewer_path_compare);
+	if (opened_path_copy != NULL) {
+		path_index = SIZE_MAX;
+		for (size_t index = 0; index < path_count; index++) {
+			if (paths[index] == opened_path_copy) {
+				path_index = index;
+				break;
+			}
+		}
+	}
+	if (path_index == SIZE_MAX) {
+		char *opened_copy = strdup(opened_path);
+		char **resized;
+
+		if (opened_copy == NULL) {
+			imageviewer_free_paths(paths, path_count);
+			return -1;
+		}
+		resized = realloc(paths, (path_count + 1) * sizeof(*paths));
+		if (resized == NULL) {
+			free(opened_copy);
+			imageviewer_free_paths(paths, path_count);
+			return -1;
+		}
+		paths = resized;
+		memmove(paths + 1, paths, path_count * sizeof(*paths));
+		paths[0] = opened_copy;
+		path_index = 0;
+		path_count++;
+	}
+	*paths_out = paths;
+	*path_count_out = path_count;
+	*path_index_out = path_index;
+	return 0;
+}
+
+static int imageviewer_build_paths(int argc, char **argv, char ***paths_out,
+				   size_t *path_count_out, size_t *path_index_out)
+{
+	if (argc < 2)
+		return -1;
+	if (argc == 2 && imageviewer_build_directory_paths(argv[1], paths_out,
+			path_count_out, path_index_out) == 0)
+		return 0;
+	if (imageviewer_build_argv_paths(argc, argv, paths_out, path_count_out) < 0)
+		return -1;
+	*path_index_out = 0;
+	return 0;
+}
+
+static int imageviewer_select_path(imageviewer_state *state, int direction)
+{
+	gui_surface *image;
+	size_t path_index;
+
+	if (state->path_count < 2)
+		return 0;
+	if (direction < 0) {
+		path_index = state->path_index == 0 ? state->path_count - 1 :
+			state->path_index - 1;
+	} else {
+		path_index = state->path_index + 1;
+		if (path_index >= state->path_count)
+			path_index = 0;
+	}
+	if (imageviewer_load(state->paths[path_index], &image) < 0)
+		return 0;
+	gui_surface_destroy(state->image);
+	state->image = image;
+	state->path_index = path_index;
+	return 1;
+}
+
 int main(int argc, char **argv)
 {
 	imageviewer_state state = { .fd = -1 };
 	gui_surface *image = NULL;
+	char **paths = NULL;
+	size_t path_count = 0;
+	size_t path_index = 0;
 	int status = 1;
 
-	if (argc != 2) {
-		fprintf(stderr, "usage: imageviewer <image.bmp|image.png>\n");
+	if (imageviewer_build_paths(argc, argv, &paths, &path_count, &path_index) < 0) {
+		fprintf(stderr, "usage: imageviewer <image.bmp|image.png> [more images...]\n");
 		return 1;
 	}
+	state.paths = paths;
+	state.path_count = path_count;
+	state.path_index = path_index;
 	gui_image_view_init(&state.view);
-	if (imageviewer_load(argv[1], &image) < 0) {
+	if (imageviewer_load(state.paths[state.path_index], &image) < 0) {
 		fprintf(stderr, "imageviewer: load failed: %d\n", errno);
 		goto out;
 	}
@@ -558,6 +792,7 @@ out:
 	gui_surface_destroy(image);
 	gui_surface_destroy(state.surface);
 	gui_surface_destroy(state.image);
+	imageviewer_free_paths(paths, path_count);
 	if (state.fd >= 0)
 		close(state.fd);
 	return status;

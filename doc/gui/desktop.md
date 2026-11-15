@@ -491,7 +491,8 @@ Features:
 - decode BMP and PNG;
 - fit the decoded frame to the window while preserving aspect ratio;
 - receive normal window resize, minimize, maximize, focus, and close messages;
-- ignore input events so this minimal viewer has no internal interaction.
+- use left/up and right/down arrow keys to switch to the previous or next
+  BMP/PNG file in the same directory.
 
 The decoder is selected by extension first and by magic bytes second; a
 mismatch falls back to magic-byte detection. Decode failures print an error
