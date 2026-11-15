@@ -1,5 +1,6 @@
 #include "vt.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define TERMINAL_VT_REPLACEMENT 0xfffdu
@@ -119,6 +120,7 @@ static void terminal_vt_reset_escape(terminal_vt *terminal)
 	terminal->csi_parameter_count = 0;
 	terminal->csi_ignored = 0;
 	terminal->csi_private = 0;
+	terminal->csi_secondary = 0;
 	terminal->csi_colon_parameters = 0;
 	terminal->osc_command = 0;
 	terminal->osc_title_bytes = 0;
@@ -132,6 +134,7 @@ static void terminal_vt_begin_csi(terminal_vt *terminal)
 	terminal->csi_parameter_count = 1;
 	terminal->csi_ignored = 0;
 	terminal->csi_private = 0;
+	terminal->csi_secondary = 0;
 	terminal->csi_colon_parameters = 0;
 	terminal->csi_parameters[0] = 0;
 }
@@ -291,8 +294,60 @@ static void terminal_vt_reset(terminal_vt *terminal)
 	terminal_vt_save_cursor(terminal);
 	terminal_vt_reset_utf8(terminal);
 	terminal_vt_reset_escape(terminal);
+	terminal->response_bytes = 0;
 	for (uint32_t column = 0; column < sizeof(terminal->tab_stops); column++)
 		terminal->tab_stops[column] = column != 0 && column % 8 == 0;
+}
+
+static void terminal_vt_queue_response(terminal_vt *terminal, const void *bytes,
+				       size_t byte_count)
+{
+	if (byte_count > TERMINAL_VT_RESPONSE_BYTES - terminal->response_bytes)
+		byte_count = TERMINAL_VT_RESPONSE_BYTES - terminal->response_bytes;
+	memcpy(terminal->response + terminal->response_bytes, bytes, byte_count);
+	terminal->response_bytes += byte_count;
+}
+
+static void terminal_vt_queue_device_attributes(terminal_vt *terminal,
+						uint8_t secondary)
+{
+	static const uint8_t primary[] = "\x1b[?6c";
+	static const uint8_t secondary_response[] = "\x1b[>0;0;0c";
+
+	terminal_vt_queue_response(terminal, secondary ? secondary_response : primary,
+		secondary ? sizeof(secondary_response) - 1 : sizeof(primary) - 1);
+}
+
+static void terminal_vt_queue_device_status(terminal_vt *terminal, uint32_t status)
+{
+	char response[16];
+	int byte_count;
+
+	if (status == 5) {
+		terminal_vt_queue_response(terminal, "\x1b[0n", 4);
+		return;
+	}
+	if (status != 6)
+		return;
+	byte_count = snprintf(response, sizeof(response), "\x1b[%u;%uR",
+		terminal->cursor_row + 1, terminal->cursor_column + 1);
+	if (byte_count > 0 && (size_t)byte_count < sizeof(response))
+		terminal_vt_queue_response(terminal, response, byte_count);
+}
+
+size_t terminal_vt_take_response(terminal_vt *terminal, uint8_t *bytes,
+				 size_t byte_count)
+{
+	size_t count = terminal->response_bytes < byte_count ?
+		terminal->response_bytes : byte_count;
+
+	if (count != 0) {
+		memcpy(bytes, terminal->response, count);
+		memmove(terminal->response, terminal->response + count,
+			terminal->response_bytes - count);
+		terminal->response_bytes -= count;
+	}
+	return count;
 }
 
 static void terminal_vt_set_scroll_region(terminal_vt *terminal)
@@ -401,6 +456,11 @@ static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
 {
 	uint32_t amount;
 
+	if (terminal->csi_secondary) {
+		if (final == 'c')
+			terminal_vt_queue_device_attributes(terminal, 1);
+		return;
+	}
 	if (terminal->csi_private) {
 		terminal_vt_execute_private_csi(terminal, final);
 		return;
@@ -479,6 +539,13 @@ static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
 	case 'm':
 		terminal_vt_set_sgr(terminal);
 		break;
+	case 'c':
+		terminal_vt_queue_device_attributes(terminal, 0);
+		break;
+	case 'n':
+		terminal_vt_queue_device_status(terminal,
+			terminal_vt_csi_value(terminal, 0));
+		break;
 	case 'r':
 		terminal_vt_set_scroll_region(terminal);
 		break;
@@ -496,6 +563,11 @@ static void terminal_vt_feed_csi(terminal_vt *terminal, uint8_t byte)
 	if (byte == '?' && terminal->csi_parameter_count == 1 &&
 	    terminal->csi_parameters[0] == 0 && !terminal->csi_private) {
 		terminal->csi_private = 1;
+		return;
+	}
+	if (byte == '>' && terminal->csi_parameter_count == 1 &&
+	    terminal->csi_parameters[0] == 0 && !terminal->csi_secondary) {
+		terminal->csi_secondary = 1;
 		return;
 	}
 	if (byte >= '0' && byte <= '9') {

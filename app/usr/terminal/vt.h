@@ -6,6 +6,7 @@
 
 #define TERMINAL_VT_CSI_PARAMETERS 16U
 #define TERMINAL_VT_TITLE_BYTES 256U
+#define TERMINAL_VT_RESPONSE_BYTES 512U
 #define TERMINAL_VT_COLOR_DEFAULT UINT32_MAX
 #define TERMINAL_VT_COLOR_RGB_TAG 0x01000000U
 #define TERMINAL_VT_COLOR_RGB_MASK 0x00ffffffU
@@ -58,6 +59,7 @@ typedef struct {
 	uint8_t csi_parameter_count;
 	uint8_t csi_ignored;
 	uint8_t csi_private;
+	uint8_t csi_secondary;
 	uint8_t osc_separator_seen;
 	uint8_t osc_ignored;
 	uint8_t title_changed;
@@ -73,6 +75,8 @@ typedef struct {
 	uint8_t tab_stops[256];
 	uint8_t title[TERMINAL_VT_TITLE_BYTES];
 	uint8_t osc_title[TERMINAL_VT_TITLE_BYTES];
+	uint8_t response[TERMINAL_VT_RESPONSE_BYTES];
+	uint16_t response_bytes;
 } terminal_vt;
 
 /* Cells with codepoint zero are empty and render as the terminal background. */
@@ -90,6 +94,8 @@ const terminal_vt_cell *terminal_vt_scrollback_line(const terminal_vt *terminal,
 					     uint32_t line);
 int terminal_vt_take_title(terminal_vt *terminal, const uint8_t **title,
 				   uint16_t *title_bytes);
+size_t terminal_vt_take_response(terminal_vt *terminal, uint8_t *bytes,
+				 size_t byte_count);
 void terminal_vt_feed(terminal_vt *terminal, const uint8_t *bytes,
 		      size_t byte_count);
 

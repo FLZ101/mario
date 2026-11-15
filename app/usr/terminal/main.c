@@ -510,6 +510,23 @@ static int terminal_enqueue_input(terminal_state *state, const void *bytes, size
 	return 0;
 }
 
+static int terminal_enqueue_vt_response(terminal_state *state)
+{
+	if (state->master < 0)
+		return 0;
+	while (state->vt.response_bytes != 0 &&
+	       state->pty_input_bytes < sizeof(state->pty_input)) {
+		size_t available = sizeof(state->pty_input) - state->pty_input_bytes;
+		size_t count = terminal_vt_take_response(&state->vt,
+			state->pty_input + state->pty_input_bytes, available);
+
+		if (count == 0)
+			break;
+		state->pty_input_bytes += count;
+	}
+	return 0;
+}
+
 static int terminal_flush_input(terminal_state *state)
 {
 	ssize_t count;
@@ -1007,6 +1024,8 @@ int main(int argc, char **argv)
 		int timeout;
 
 		if (buffered < 0)
+			break;
+		if (terminal_enqueue_vt_response(&state) < 0)
 			break;
 		if (state.upload.completed) {
 			if (state.upload.completed_configure == state.configure_serial && !state.surface_flow.retry_pending)
