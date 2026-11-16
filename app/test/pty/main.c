@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/uio.h>
+#include <time.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
@@ -87,6 +89,229 @@ static void test_resize(int master, int slave)
 	assert(close(ready[0]) == 0);
 }
 
+static void test_readv_nonblocking(void)
+{
+	int master;
+	int slave;
+	struct termios attributes;
+	char input[32];
+	char first[8];
+	char second[16];
+	char third[8];
+	struct iovec vectors[] = {
+		{ .iov_base = first, .iov_len = sizeof(first) },
+		{ .iov_base = second, .iov_len = sizeof(second) },
+		{ .iov_base = third, .iov_len = sizeof(third) },
+	};
+
+	assert(openpty(&master, &slave, NULL, NULL, NULL) == 0);
+	assert(tcgetattr(slave, &attributes) == 0);
+	cfmakeraw(&attributes);
+	assert(tcsetattr(slave, TCSANOW, &attributes) == 0);
+	assert(fcntl(slave, F_SETFL, O_NONBLOCK) == 0);
+	memset(input, 'r', sizeof(input));
+	memset(first, 'a', sizeof(first));
+	memset(second, 'b', sizeof(second));
+	memset(third, 'c', sizeof(third));
+	assert(readv(slave, vectors, 3) == -1);
+	assert(errno == EAGAIN);
+	assert(write(master, input, 4) == 4);
+	assert(readv(slave, vectors, 3) == 4);
+	assert(!memcmp(first, input, 4));
+	assert(first[4] == 'a' && second[0] == 'b' && third[0] == 'c');
+	assert(write(master, input, sizeof(first)) == sizeof(first));
+	assert(readv(slave, vectors, 3) == sizeof(first));
+	assert(!memcmp(first, input, sizeof(first)));
+	assert(second[0] == 'b' && third[0] == 'c');
+	assert(write(master, input, 12) == 12);
+	assert(readv(slave, vectors, 3) == 12);
+	assert(!memcmp(first, input, sizeof(first)));
+	assert(!memcmp(second, input + sizeof(first), 4));
+	assert(second[4] == 'b' && third[0] == 'c');
+	assert(write(master, input, sizeof(input)) == sizeof(input));
+	assert(readv(slave, vectors, 3) == sizeof(input));
+	assert(!memcmp(first, input, sizeof(first)));
+	assert(!memcmp(second, input + sizeof(first), sizeof(second)));
+	assert(!memcmp(third, input + sizeof(first) + sizeof(second), sizeof(third)));
+	assert(readv(slave, vectors, 3) == -1);
+	assert(errno == EAGAIN);
+	assert(close(slave) == 0);
+	assert(close(master) == 0);
+	puts("pty-readv-nonblocking-ok");
+}
+
+static void test_writev_backpressure(void)
+{
+	int master;
+	int slave;
+	struct termios attributes;
+	char padding[4096];
+	char output[4096];
+	char first[8];
+	char second[32];
+	char third[8];
+	struct iovec vectors[] = {
+		{ .iov_base = first, .iov_len = sizeof(first) },
+		{ .iov_base = second, .iov_len = sizeof(second) },
+		{ .iov_base = third, .iov_len = sizeof(third) },
+	};
+	struct pollfd writable;
+	ssize_t capacity;
+
+	assert(openpty(&master, &slave, NULL, NULL, NULL) == 0);
+	assert(tcgetattr(slave, &attributes) == 0);
+	cfmakeraw(&attributes);
+	assert(tcsetattr(slave, TCSANOW, &attributes) == 0);
+	assert(fcntl(slave, F_SETFL, O_NONBLOCK) == 0);
+	memset(padding, 'p', sizeof(padding));
+	memset(first, 'a', sizeof(first));
+	memset(second, 'b', sizeof(second));
+	memset(third, 'c', sizeof(third));
+	capacity = write(slave, padding, sizeof(padding));
+	assert(capacity >= 24);
+	writable = (struct pollfd) { .fd = slave, .events = POLLOUT };
+	assert(poll(&writable, 1, 0) == 0);
+	assert(writev(slave, vectors, 3) == -1);
+	assert(errno == EAGAIN);
+	assert(read(master, output, 24) == 24);
+	assert(poll(&writable, 1, 0) == 1);
+	assert(writable.revents & POLLOUT);
+	assert(writev(slave, vectors, 3) == 24);
+	assert(poll(&writable, 1, 0) == 0);
+	assert(read(master, output, sizeof(output)) == capacity);
+	assert(!memcmp(output, padding, capacity - 24));
+	assert(!memcmp(output + capacity - 24, first, sizeof(first)));
+	assert(!memcmp(output + capacity - 16, second, 16));
+
+	assert(write(slave, padding, capacity) == capacity);
+	assert(read(master, output, sizeof(first)) == sizeof(first));
+	assert(writev(slave, vectors, 2) == sizeof(first));
+	assert(read(master, output, sizeof(output)) == capacity);
+	assert(!memcmp(output, padding, capacity - sizeof(first)));
+	assert(!memcmp(output + capacity - sizeof(first), first, sizeof(first)));
+	assert(writev(slave, vectors, 3) ==
+	       sizeof(first) + sizeof(second) + sizeof(third));
+	assert(read(master, output, sizeof(output)) ==
+	       sizeof(first) + sizeof(second) + sizeof(third));
+	assert(!memcmp(output, first, sizeof(first)));
+	assert(!memcmp(output + sizeof(first), second, sizeof(second)));
+	assert(!memcmp(output + sizeof(first) + sizeof(second), third, sizeof(third)));
+	assert(close(slave) == 0);
+	assert(close(master) == 0);
+	puts("pty-writev-backpressure-ok");
+}
+
+static void test_slave_poll_read_timeout(void)
+{
+	int master;
+	int slave;
+	int start[2];
+	int release[2];
+	int status;
+	pid_t child;
+	struct termios attributes;
+	struct pollfd readable;
+	struct timespec started;
+	struct timespec finished;
+	char padding[4096];
+	char signal_byte;
+	long elapsed_ms;
+
+	assert(openpty(&master, &slave, NULL, NULL, NULL) == 0);
+	assert(tcgetattr(slave, &attributes) == 0);
+	cfmakeraw(&attributes);
+	assert(tcsetattr(slave, TCSANOW, &attributes) == 0);
+	assert(fcntl(slave, F_SETFL, O_NONBLOCK) == 0);
+	memset(padding, 'p', sizeof(padding));
+	assert(write(slave, padding, sizeof(padding)) >= 24);
+	assert(pipe(start) == 0);
+	assert(pipe(release) == 0);
+	child = fork();
+	assert(child >= 0);
+	if (!child) {
+		assert(close(slave) == 0);
+		assert(close(start[1]) == 0);
+		assert(close(release[1]) == 0);
+		assert(read(start[0], &signal_byte, 1) == 1);
+		assert(usleep(50000) == 0);
+		assert(read(master, padding, 24) == 24);
+		assert(read(release[0], &signal_byte, 1) == 1);
+		_exit(0);
+	}
+	assert(close(start[0]) == 0);
+	assert(close(release[0]) == 0);
+	readable = (struct pollfd) { .fd = slave, .events = POLLIN };
+	assert(clock_gettime(CLOCK_MONOTONIC, &started) == 0);
+	assert(write(start[1], "s", 1) == 1);
+	assert(poll(&readable, 1, 200) == 0);
+	assert(clock_gettime(CLOCK_MONOTONIC, &finished) == 0);
+	elapsed_ms = (finished.tv_sec - started.tv_sec) * 1000 +
+		(finished.tv_nsec - started.tv_nsec) / 1000000;
+	assert(elapsed_ms >= 150);
+	assert(readable.revents == 0);
+	assert(write(release[1], "r", 1) == 1);
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	assert(close(start[1]) == 0);
+	assert(close(release[1]) == 0);
+	assert(close(slave) == 0);
+	assert(close(master) == 0);
+	puts("pty-slave-poll-timeout-ok");
+}
+
+static void test_slave_poll_wakeup(void)
+{
+	int master;
+	int slave;
+	int start[2];
+	int release[2];
+	int status;
+	pid_t child;
+	struct termios attributes;
+	struct pollfd writable;
+	char padding[4096];
+	char signal_byte;
+	ssize_t capacity;
+
+	assert(openpty(&master, &slave, NULL, NULL, NULL) == 0);
+	assert(tcgetattr(slave, &attributes) == 0);
+	cfmakeraw(&attributes);
+	assert(tcsetattr(slave, TCSANOW, &attributes) == 0);
+	assert(fcntl(slave, F_SETFL, O_NONBLOCK) == 0);
+	memset(padding, 'p', sizeof(padding));
+	capacity = write(slave, padding, sizeof(padding));
+	assert(capacity >= 24);
+	writable = (struct pollfd) { .fd = slave, .events = POLLOUT };
+	assert(poll(&writable, 1, 0) == 0);
+	assert(pipe(start) == 0);
+	assert(pipe(release) == 0);
+	child = fork();
+	assert(child >= 0);
+	if (!child) {
+		assert(close(slave) == 0);
+		assert(close(start[1]) == 0);
+		assert(close(release[1]) == 0);
+		assert(read(start[0], &signal_byte, 1) == 1);
+		assert(usleep(50000) == 0);
+		assert(read(master, padding, 24) == 24);
+		assert(read(release[0], &signal_byte, 1) == 1);
+		_exit(0);
+	}
+	assert(close(start[0]) == 0);
+	assert(close(release[0]) == 0);
+	assert(write(start[1], "s", 1) == 1);
+	assert(poll(&writable, 1, 1000) == 1);
+	assert(writable.revents & POLLOUT);
+	assert(write(release[1], "r", 1) == 1);
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	assert(close(start[1]) == 0);
+	assert(close(release[1]) == 0);
+	assert(close(slave) == 0);
+	assert(close(master) == 0);
+	puts("pty-slave-poll-ok");
+}
+
 int main(void)
 {
 	char path[32];
@@ -98,6 +323,10 @@ int main(void)
 	int master;
 	int slave;
 
+	test_readv_nonblocking();
+	test_writev_backpressure();
+	test_slave_poll_read_timeout();
+	test_slave_poll_wakeup();
 	master = open("/dev/ptmx", O_RDWR);
 	assert(master >= 0);
 	assert(ioctl(master, TIOCGPTN, &number) == 0);

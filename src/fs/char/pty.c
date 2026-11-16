@@ -317,9 +317,22 @@ static int pty_ioctl(struct inode *i, struct file *f, unsigned int cmd,
 
 static int pty_poll(struct file *f, struct poll_context *ctx)
 {
+	struct pty_pair *pty;
+	unsigned long flags;
+	int mask;
+
 	if (f->f_mode & FMODE_PTY_MASTER)
 		return pty_master_poll(f, ctx);
-	return tty_poll(f, ctx);
+	pty = tty_to_pty(f->private_data);
+	mask = tty_poll(f, ctx);
+	if (!pty)
+		return mask;
+	poll_wait(f, &pty->tty.wait_write, ctx);
+	spin_lock_irqsave(&pty->lock, flags);
+	if (!pty->master_open || ring_buffer_space(&pty->output) < 2)
+		mask &= ~POLLOUT;
+	spin_unlock_irqrestore(&pty->lock, flags);
+	return mask;
 }
 
 static void pty_release(struct inode *i, struct file *f)

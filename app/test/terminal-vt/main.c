@@ -267,6 +267,44 @@ static void test_csi_erase(void)
 	}
 }
 
+static void test_unsupported_csi(void)
+{
+	static const uint8_t text[] = "gui smoke base\r";
+	static const uint8_t recovery[] = "\x1b[1;15H!";
+	static const char *sequences[] = {
+		"\x1b[?2026$p\x1b[?2048$p",
+		"\x1b[0%m",
+		"\x1b[31 m",
+		"\x1b[?2026$ p",
+		"\x1b[=1p",
+		"\x1b[999999999999999999$p",
+	};
+
+	for (size_t index = 0; index < sizeof(sequences) / sizeof(sequences[0]); index++) {
+		size_t length = strlen(sequences[index]);
+
+		for (size_t split = 0; split <= length; split++) {
+			terminal_vt_cell cells[20];
+			terminal_vt_cell alternate_cells[20];
+			terminal_vt_cell expected[20];
+			terminal_vt terminal;
+			const uint8_t *sequence = (const uint8_t *)sequences[index];
+
+			assert(terminal_vt_init(&terminal, cells, alternate_cells, 1, 20) == 0);
+			terminal_vt_feed(&terminal, text, sizeof(text) - 1);
+			memcpy(expected, cells, sizeof(expected));
+			terminal_vt_feed(&terminal, sequence, split);
+			terminal_vt_feed(&terminal, sequence + split, length - split);
+			assert(memcmp(cells, expected, sizeof(expected)) == 0);
+			assert(terminal.cursor_row == 0 && terminal.cursor_column == 0);
+			assert(terminal.foreground == TERMINAL_VT_COLOR_DEFAULT);
+			terminal_vt_feed(&terminal, recovery, sizeof(recovery) - 1);
+			assert(cells[14].codepoint == '!');
+			assert(terminal.cursor_row == 0 && terminal.cursor_column == 15);
+		}
+	}
+}
+
 static void test_scroll_region(void)
 {
 	static const uint8_t input[] =
@@ -748,6 +786,7 @@ int main(void)
 	test_cases();
 	test_csi_cursor();
 	test_csi_erase();
+	test_unsupported_csi();
 	test_scroll_region();
 	test_delayed_wrap();
 	test_tmux_resize_controls();
@@ -762,6 +801,7 @@ int main(void)
 	puts("terminal-vt: basic controls ok");
 	puts("terminal-vt: UTF-8 ok");
 	puts("terminal-vt: CSI ok");
+	puts("terminal-vt: unsupported CSI stays invisible across split reads");
 	puts("terminal-vt: attributes ok");
 	puts("terminal-vt: resize ok");
 	puts("terminal-vt: scrollback and tabs ok");

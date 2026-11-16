@@ -1,20 +1,25 @@
-"""Host-only unit tests for GUI fixture directive parsing."""
+"""Host-only unit tests for GUI fixture directives and execution."""
 
 from __future__ import annotations
 
 import json
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
+from unittest.mock import call, patch
 
 from PIL import Image
 
 from lit_gui_test import (
+    DEFAULT_TIMEOUT,
     FRAME_MISSING,
     FRAME_PRESENT_BEGIN,
     FRAME_PRESENT_END,
     GuiTest,
     GuiTestError,
+    VISUAL_CHECK_TIMEOUT,
+    _run_test_locked,
     parse_frame_probe,
     retain_visual_failure_diagnostics,
     wait_for_frame_advance,
@@ -216,6 +221,95 @@ class GuiDirectiveParserTests(unittest.TestCase):
         state = json.loads((diagnostics / "qmp.json").read_text(encoding="utf-8"))
         self.assertEqual(state["query-status"], {"status": "running"})
         self.assertEqual(state["mouse-buttons"], 3)
+
+    def test_caps_all_visual_check_timeouts_without_shortening_serial_waits(self) -> None:
+        cases = (
+            (None, VISUAL_CHECK_TIMEOUT),
+            (120.0, VISUAL_CHECK_TIMEOUT),
+            (1.0, 1.0),
+        )
+        for fixture_timeout, expected_timeout in cases:
+            for matched in (True, False):
+                with self.subTest(timeout=fixture_timeout, matched=matched):
+                    directives = ["INIT-WM: keep", "GUI-VISUAL-TEST:"]
+                    if fixture_timeout is not None:
+                        directives.append(f"TIMEOUT: {fixture_timeout}")
+                    directives.extend(
+                        (
+                            "SERIAL: true",
+                            "SERIAL-WAIT-FILE: /tmp/gui.ready",
+                            "GUI-CHECK-SCREEN: golden.ppm",
+                            "GUI-CHECK-RECT: 0 0 1 1 1 2 3",
+                            "GUI-CHECK-SCREEN-RECT: golden.ppm,1,1,2,2",
+                            "GUI-CHECK-DIFFERENT: golden.ppm",
+                            "GUI-CHECK-MATCH: golden.ppm",
+                        )
+                    )
+                    fixture = self.parse("\n".join(directives))
+                    with ExitStack() as stack:
+                        mocked = {}
+                        for name in (
+                            "pexpect.spawn",
+                            "make_pexpect_raw",
+                            "send_line",
+                            "expect_prompt",
+                            "wait_for_guest_file",
+                            "Qmp",
+                            "time.sleep",
+                            "os.unlink",
+                            "retain_visual_failure_diagnostics",
+                        ):
+                            mocked[name] = stack.enter_context(
+                                patch(f"lit_gui_test.{name}")
+                            )
+                        checks = {}
+                        for name in (
+                            "wait_for_screen",
+                            "wait_for_solid_rect",
+                            "wait_for_screen_rect",
+                            "wait_for_screen_match",
+                        ):
+                            checks[name] = stack.enter_context(
+                                patch(f"lit_gui_test.{name}", return_value=matched)
+                            )
+                        child = mocked["pexpect.spawn"].return_value
+                        child.before = ""
+                        mocked["wait_for_guest_file"].return_value = "ready"
+                        failures = _run_test_locked(fixture, "qemu", 0, 1)
+                    qmp = mocked["Qmp"].return_value
+                    for helper, action_index in (
+                        ("wait_for_screen", -5),
+                        ("wait_for_solid_rect", -4),
+                        ("wait_for_screen_rect", -3),
+                    ):
+                        checks[helper].assert_called_once_with(
+                            qmp, fixture.actions[action_index][1], expected_timeout
+                        )
+                    checks["wait_for_screen_match"].assert_has_calls(
+                        (
+                            call(qmp, fixture.actions[-2][1], expected_timeout, False),
+                            call(qmp, fixture.actions[-1][1], expected_timeout, True),
+                        )
+                    )
+                    serial_timeout = (
+                        DEFAULT_TIMEOUT if fixture_timeout is None else fixture_timeout
+                    )
+                    mocked["expect_prompt"].assert_any_call(
+                        child, serial_timeout, "SERIAL 'true'"
+                    )
+                    mocked["wait_for_guest_file"].assert_called_once_with(
+                        child, "/tmp/gui.ready", serial_timeout
+                    )
+                    if matched:
+                        self.assertEqual(failures, [])
+                        mocked["retain_visual_failure_diagnostics"].assert_not_called()
+                    else:
+                        self.assertEqual(len(failures), 6)
+                        for failure in failures[:-1]:
+                            self.assertIn(f"after {expected_timeout:.1f}s", failure)
+                        mocked["retain_visual_failure_diagnostics"].assert_called_once()
+                    child.close.assert_called_once_with(force=True)
+                    qmp.close.assert_called_once_with()
 
 
 if __name__ == "__main__":

@@ -25,10 +25,14 @@ struct futex_queue {
 struct futex_waiter {
 	wait_queue_node_t node;
 	int *uaddr;
+	struct list_head timeout_list;
+	unsigned long expires;
+	int timed_out;
 };
 
 static struct futex_queue futex_queues[FUTEX_HASH_SIZE];
 static spinlock_t futex_lock = SPINLOCK_UNLOCKED;
+static LIST_HEAD(futex_timeouts);
 
 void futex_init(void)
 {
@@ -39,6 +43,25 @@ void futex_init(void)
 static struct futex_queue *futex_queue(unsigned long addr)
 {
 	return &futex_queues[(addr >> 2) & (FUTEX_HASH_SIZE - 1)];
+}
+
+void futex_run_timeouts(void)
+{
+	struct list_head *entry;
+	unsigned long flags;
+
+	spin_lock_irqsave(&wait_queue_lock, flags);
+	list_for_each(entry, &futex_timeouts) {
+		struct futex_waiter *waiter =
+			list_entry(entry, struct futex_waiter, timeout_list);
+
+		if ((long)((unsigned long)jiffies - waiter->expires) >= 0 &&
+		    waiter->node.p->state == TASK_INTERRUPTIBLE) {
+			waiter->timed_out = 1;
+			wake_up_process(waiter->node.p);
+		}
+	}
+	spin_unlock_irqrestore(&wait_queue_lock, flags);
 }
 
 /*
@@ -100,12 +123,29 @@ static int futex_wait(int *uaddr, int op, int val,
 {
 	struct futex_waiter waiter;
 	struct futex_queue *q;
+	unsigned long ticks = 0;
+	unsigned long flags;
 	int current_val;
 
 	(void)op;
-	/* Timed waits are not required by the initial pthread smoke test. */
-	if (timeout)
-		return -ENOSYS;
+	if (timeout) {
+		struct timespec duration;
+		unsigned long max_ticks = (~0UL >> 1) - 1;
+
+		if (verify_area(VERIFY_READ, timeout, sizeof(duration)))
+			return -EFAULT;
+		memcpy_fromfs(&duration, timeout, sizeof(duration));
+		if (duration.tv_sec < 0 || duration.tv_nsec < 0 ||
+		    duration.tv_nsec >= 1000000000L)
+			return -EINVAL;
+
+		if ((unsigned long)duration.tv_sec >= max_ticks / HZ)
+			ticks = max_ticks;
+		else
+			ticks = duration.tv_sec * HZ +
+				(duration.tv_nsec + 1000000000L / HZ - 1) /
+				(1000000000L / HZ);
+	}
 
 	if (verify_area(VERIFY_READ, uaddr, sizeof(int)))
 		return -EFAULT;
@@ -116,10 +156,16 @@ static int futex_wait(int *uaddr, int op, int val,
 		spin_unlock(&futex_lock);
 		return -EAGAIN;
 	}
+	if (timeout && !ticks) {
+		spin_unlock(&futex_lock);
+		return -ETIMEDOUT;
+	}
 
 	q = futex_queue((unsigned long)uaddr);
 	init_wait_queue_node(&waiter.node, current);
 	waiter.uaddr = uaddr;
+	INIT_LIST_HEAD(&waiter.timeout_list);
+	waiter.timed_out = 0;
 
 	/*
 	 * Enqueue while futex_lock is still held, then drop it before
@@ -129,11 +175,22 @@ static int futex_wait(int *uaddr, int op, int val,
 	irq_save();
 	current->state = TASK_INTERRUPTIBLE;
 	in_wait_queue(&q->wait, &waiter.node);
+	if (timeout) {
+		spin_lock_irqsave(&wait_queue_lock, flags);
+		waiter.expires = (unsigned long)jiffies + ticks;
+		list_add_tail(&waiter.timeout_list, &futex_timeouts);
+		spin_unlock_irqrestore(&wait_queue_lock, flags);
+	}
 	spin_unlock(&futex_lock);
 	irq_restore();
 	schedule();
 	out_wait_queue(&q->wait, &waiter.node);
+	spin_lock_irqsave(&wait_queue_lock, flags);
+	list_del_init(&waiter.timeout_list);
+	spin_unlock_irqrestore(&wait_queue_lock, flags);
 
+	if (waiter.timed_out)
+		return -ETIMEDOUT;
 	if (signal_pending(current))
 		return -EINTR;
 	return 0;

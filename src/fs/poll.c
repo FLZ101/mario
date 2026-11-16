@@ -1,8 +1,14 @@
 #include <fs/fs.h>
 #include <mm/kmalloc.h>
 #include <signal.h>
+#include <timer.h>
 
 #define PPOLL_SIGSET_SIZE 8
+
+static void poll_timeout_wakeup(unsigned long data)
+{
+    wake_up_process((struct task_struct *)data);
+}
 
 static void count_qproc(struct file *f, wait_queue_t *q, struct poll_context *ctx)
 {
@@ -101,6 +107,8 @@ int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
     struct poll_context ctx = { .qproc = count_qproc };
     struct file **files;
     struct poll_entry *entries = NULL;
+    struct timer_list timeout_timer;
+    int timeout_started = 0;
     int n_done;
 
     // NOLINTNEXTLINE(bugprone-sizeof-expression)
@@ -152,20 +160,33 @@ int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
     }
 
     ctx.qproc = NULL;
-    n_done = poll_fds(&ctx, fds, files, nfds);
-    if (n_done > 0 || current->state != TASK_INTERRUPTIBLE)
-        goto detach;
-
-    if (timeout < 0) {
-        schedule();
-    } else {
-        schedule_timeout((timeout * HZ + 999) / 1000);
+    if (timeout > 0) {
+        init_timer(&timeout_timer);
+        timeout_timer.expires = timeout / 1000 * HZ +
+            (timeout % 1000 * HZ + 999) / 1000;
+        timeout_timer.data = (unsigned long)current;
+        timeout_timer.fun = poll_timeout_wakeup;
+        add_timer(&timeout_timer);
+        timeout_started = 1;
+    }
+    for (;;) {
+        current->state = TASK_INTERRUPTIBLE;
+        n_done = poll_fds(&ctx, fds, files, nfds);
+        if (n_done > 0)
+            break;
+        if (current->signal & ~current->blocked) {
+            n_done = -EINTR;
+            break;
+        }
+        if (timeout_started && timeout_timer.expires <= jiffies)
+            break;
+        if (current->state == TASK_INTERRUPTIBLE)
+            schedule();
     }
 
-    n_done = poll_fds(&ctx, fds, files, nfds);
-
-detach:
     current->state = TASK_RUNNING;
+    if (timeout_started)
+        del_timer(&timeout_timer);
     for (unsigned int i = 0; i < ctx.n; ++i) {
         out_wait_queue(ctx.entries[i].q, &ctx.entries[i].node);
     }

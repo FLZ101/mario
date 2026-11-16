@@ -671,6 +671,10 @@ static void terminal_vt_feed_csi(terminal_vt *terminal, uint8_t byte)
 		}
 		return;
 	}
+	if (byte >= 0x20 && byte <= 0x3f) {
+		terminal->csi_ignored = 1;
+		return;
+	}
 	if (byte >= 0x40 && byte <= 0x7e && !terminal->csi_ignored)
 		terminal_vt_execute_csi(terminal, byte);
 	terminal_vt_reset_escape(terminal);

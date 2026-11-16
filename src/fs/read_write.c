@@ -146,9 +146,11 @@ int sys_readv(unsigned int fd, struct iovec *vec, int vlen)
 
 		error = f->f_op->read(i, f, buf, count);
 		if (error < 0)
-			return error;
+			return total ? total : error;
 
 		total += error;
+		if ((size_t)error < count)
+			break;
 	}
 	return total;
 }
@@ -231,9 +233,11 @@ int sys_writev(unsigned int fd, struct iovec *vec, unsigned int vlen)
 
 		error = f->f_op->write(i, f, buf, count);
 		if (error < 0)
-			return error;
+			return total ? total : error;
 
 		total += error;
+		if ((size_t)error < count)
+			break;
 	}
 	return total;
 }

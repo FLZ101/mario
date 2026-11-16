@@ -76,3 +76,32 @@ print("python-stress-cond-ok")
 PYEOF
 CHECK: stress-cond-match: True
 CHECK: python-stress-cond-ok
+
+RUN: python <<'PYEOF'
+import threading
+import time
+
+lock = threading.Lock()
+lock.acquire()
+started = time.monotonic_ns()
+expired = not lock.acquire(timeout=0.03)
+elapsed = time.monotonic_ns() - started
+print("stress-timed-expired:", expired and elapsed >= 30000000)
+
+def release_lock():
+    threading.Event().wait(0.03)
+    lock.release()
+
+thread = threading.Thread(target=release_lock)
+thread.start()
+acquired = lock.acquire(timeout=5)
+if acquired:
+    lock.release()
+thread.join()
+
+print("stress-timed-woken:", acquired)
+print("python-stress-timed-ok")
+PYEOF
+CHECK: stress-timed-expired: True
+CHECK: stress-timed-woken: True
+CHECK: python-stress-timed-ok

@@ -124,8 +124,10 @@ else
 fi
 TMFULLREADY
 SERIAL-CHECK: terminal-tmux-fullscreen: fullscreen geometry and three live applications
+GUI-MOUSE-MOVE: 0,0
 GUI-WAIT-FRAME:
-GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,16,16,104,16
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,16,16,104,14
 GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,520,400,112,16
 GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,512,32,8,16
 GUI-SEND-KEYS: meta_l,f
@@ -140,6 +142,9 @@ else
 fi
 TMFULLRESTORED
 SERIAL-CHECK: terminal-tmux-fullscreen: exact restored client and pane geometry
+GUI-MOUSE-MOVE: 0,0
+GUI-WAIT-FRAME:
+GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,144,112,176,272
 GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,320,240,176,96
 GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,320,352,176,32
@@ -155,7 +160,10 @@ else
 fi
 TMFULLREENTER
 SERIAL-CHECK: terminal-tmux-fullscreen: reentered fullscreen preserves all applications
-GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,16,16,104,16
+GUI-MOUSE-MOVE: 0,0
+GUI-WAIT-FRAME:
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,16,16,104,14
 GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,520,400,112,16
 GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,512,32,8,16
 GUI-SEND-KEY: i

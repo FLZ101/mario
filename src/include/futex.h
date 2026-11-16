@@ -22,6 +22,7 @@
 #define FUTEX_CLOCK_REALTIME	256
 
 void futex_init(void);
+void futex_run_timeouts(void);
 int futex_wake(int *uaddr, int nr_wake);
 
 #endif /* _FUTEX_H */

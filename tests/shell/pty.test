@@ -1,4 +1,8 @@
 RUN: /usr/bin/test/pty.exe
+CHECK: pty-readv-nonblocking-ok
+CHECK: pty-writev-backpressure-ok
+CHECK: pty-slave-poll-timeout-ok
+CHECK: pty-slave-poll-ok
 CHECK: pty-setup-ok
 CHECK: pty-resize-hangup-ok
 CHECK: pty-ok

@@ -37,6 +37,10 @@ the graphics seat.  INIT-WM: keep opts into the production boot baseline.
 
 SKIP requires a nonempty reason and reports the fixture as skipped without
 booting QEMU or rebuilding artifacts. Use --run-skipped to run it explicitly.
+
+GUI-CHECK-* comparisons retry for at most five seconds after the screen-settle
+delay, even when TIMEOUT is longer. Shorter TIMEOUT values also shorten these
+checks; serial commands and application/frame readiness waits retain TIMEOUT.
 """
 
 from __future__ import annotations
@@ -70,6 +74,7 @@ DEFAULT_TIMEOUT = 60.0
 BOOT_MENU_DELAY = 3.0
 KEY_DELAY = 0.05
 SCREEN_SETTLE_DELAY = 1.0
+VISUAL_CHECK_TIMEOUT = 5.0
 FRAME_COUNTER_PATH = "/tmp/mario-wm.frame"
 FRAME_PRESENT_BEGIN = "__MARIO_GUI_FRAME_BEGIN__"
 FRAME_PRESENT_END = "__MARIO_GUI_FRAME_END__"
@@ -820,6 +825,7 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
         for action_index, (action, value) in enumerate(test.actions, 1):
             if action == "visual-test":
                 continue
+            visual_timeout = min(timeout, VISUAL_CHECK_TIMEOUT)
             if action == "serial":
                 send_line(child, value)
                 last_serial = expect_prompt(child, timeout, f"SERIAL {value!r}")
@@ -870,39 +876,40 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                     ) from exc
             elif action == "screen":
                 time.sleep(SCREEN_SETTLE_DELAY)
-                if not wait_for_screen(qmp, value, timeout):
+                if not wait_for_screen(qmp, value, visual_timeout):
                     visual_failure = True
                     failures.append(
-                        f"GUI-CHECK-SCREEN timed out after {timeout:.1f}s: {value}"
+                        f"GUI-CHECK-SCREEN timed out after {visual_timeout:.1f}s: {value}"
                     )
             elif action == "rect":
                 time.sleep(SCREEN_SETTLE_DELAY)
-                if not wait_for_solid_rect(qmp, value, timeout):
+                if not wait_for_solid_rect(qmp, value, visual_timeout):
                     visual_failure = True
                     failures.append(
-                        f"GUI-CHECK-RECT timed out after {timeout:.1f}s: {value}"
+                        f"GUI-CHECK-RECT timed out after {visual_timeout:.1f}s: {value}"
                     )
             elif action == "screen-rect":
                 time.sleep(SCREEN_SETTLE_DELAY)
-                if not wait_for_screen_rect(qmp, value, timeout):
+                if not wait_for_screen_rect(qmp, value, visual_timeout):
                     visual_failure = True
                     failures.append(
-                        f"GUI-CHECK-SCREEN-RECT timed out after {timeout:.1f}s: "
+                        f"GUI-CHECK-SCREEN-RECT timed out after {visual_timeout:.1f}s: "
                         f"{value}"
                     )
             elif action == "different":
                 time.sleep(SCREEN_SETTLE_DELAY)
-                if not wait_for_screen_match(qmp, value, timeout, False):
+                if not wait_for_screen_match(qmp, value, visual_timeout, False):
                     visual_failure = True
                     failures.append(
-                        f"GUI-CHECK-DIFFERENT timed out after {timeout:.1f}s: {value}"
+                        f"GUI-CHECK-DIFFERENT timed out after {visual_timeout:.1f}s: "
+                        f"{value}"
                     )
             elif action == "match":
                 time.sleep(SCREEN_SETTLE_DELAY)
-                if not wait_for_screen_match(qmp, value, timeout, True):
+                if not wait_for_screen_match(qmp, value, visual_timeout, True):
                     visual_failure = True
                     failures.append(
-                        f"GUI-CHECK-MATCH timed out after {timeout:.1f}s: {value}"
+                        f"GUI-CHECK-MATCH timed out after {visual_timeout:.1f}s: {value}"
                     )
             elif action == "timeout":
                 timeout = value
