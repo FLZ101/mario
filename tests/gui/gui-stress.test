@@ -62,19 +62,23 @@ cat >/tmp/gui-stress-helpers <<'FUNCTIONS'
 stress_reclaimed() {
     attempt=0
     while test "$(ls /proc/$wm_pid/fd | wc -l)" -ne "$wm_descriptors" ||
-          test "$(ls /proc/$shell_pid/fd | wc -l)" -ne "$shell_descriptors"; do
+          test "$(ls /proc/$shell_pid/fd | wc -l)" -ne "$shell_descriptors" ||
+          test "$(pgrep mario-wm)" != "$wm_pid" ||
+          test "$(pgrep mario-desktop)" != "$shell_pid" ||
+          test -n "$(pgrep terminal)" ||
+          ! test "$(/usr/bin/test/gui-cleanup.exe --pty-pool)" -eq "$pty_capacity"; do
         attempt=$((attempt + 1))
         if test "$attempt" -ge 10; then
-            echo "gui-stress: descriptor baseline not restored"
+            echo "gui-stress: resource baseline not restored"
+            printf 'gui-stress: wm %s (expected %s), desktop %s (expected %s)\n' "$(pgrep mario-wm)" "$wm_pid" "$(pgrep mario-desktop)" "$shell_pid"
+            printf 'gui-stress: terminal processes: %s\n' "$(pgrep terminal)"
+            printf 'gui-stress: available PTYs %s (expected %s)\n' "$(/usr/bin/test/gui-cleanup.exe --pty-pool)" "$pty_capacity"
             ls /proc/$wm_pid/fd /proc/$shell_pid/fd
             return 1
         fi
         sleep 1
     done
-    test "$(pgrep mario-wm)" = "$wm_pid" &&
-        test "$(pgrep mario-desktop)" = "$shell_pid" &&
-        test -z "$(pgrep terminal)" &&
-        test "$(/usr/bin/test/gui-cleanup.exe --pty-pool)" -eq "$pty_capacity"
+    return 0
 }
 FUNCTIONS
 HELPERS
