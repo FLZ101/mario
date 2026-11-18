@@ -1511,6 +1511,338 @@ static void assert_full_scene(wm_server *server)
 	gui_surface_destroy(oracle);
 }
 
+static void emit_pointer(wm_server *server, uint16_t cursor_x, uint16_t cursor_y,
+			 uint8_t buttons)
+{
+	gui_input_event pointer = { .type = GUI_INPUT_EVENT_MOUSE,
+		.mouse = { .x = (uint32_t)cursor_x * PSAUX_ABSOLUTE_MAX / server->state.width,
+			.y = (uint32_t)cursor_y * PSAUX_ABSOLUTE_MAX / server->state.height,
+			.buttons = buttons, .absolute = 1 } };
+
+	wm_emit_input(server, &pointer);
+}
+
+static wm_window *init_title_click_test(wm_server *server)
+{
+	wm_window *target;
+
+	init_server(server, 320, 240);
+	server->state.graphics = 1;
+	server->state.framebuffer = 123;
+	server->state.scanout_stride = 320 * 4;
+	server->state.composite = gui_surface_create(320, 240);
+	assert(server->state.composite != NULL);
+	server->work_area_valid = 1;
+	server->work_width = 320;
+	server->work_height = 216;
+	target = init_client(server, 0, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	target->x = 64;
+	target->y = 100;
+	target->width = 160;
+	target->height = 100;
+	scanout_result = GUI_FLUSH_COMPLETE;
+	fullscreen_stage(target, 0x00225688);
+	commit_staged(target);
+	test_clock_ms = 1000;
+	return target;
+}
+
+static void test_title_double_click(void)
+{
+	static wm_server server;
+	enum {
+		EXPIRED, POINTER_EXCURSION, TITLE_DRAG, RIGHT_CLICK, MIDDLE_CLICK,
+		MOUSE_RESET, KEY_RESET, KEY_PRESS, CONTENT_CLICK, BORDER_CLICK,
+		OTHER_WINDOW, DESTROYED_WINDOW, LONG_PRESS, MINIMIZED_WINDOW,
+		FOCUS_TRANSFER, TITLE_CLICK_CASE_COUNT,
+	};
+	wm_window *target;
+
+	use_test_clock = 1;
+	target = init_title_click_test(&server);
+	emit_pointer(&server, 80, 88, 1);
+	assert(server.capture_client == target && !target->state_pending);
+	emit_pointer(&server, 80, 88, 1);
+	assert(server.capture_client == target && !target->state_pending);
+	emit_pointer(&server, 80, 88, 0);
+	assert(server.capture_client == NULL && server.title_click_window_id == target->window_id);
+	assert(target->x == 64 && target->y == 100 && !target->maximized);
+	test_clock_ms += WM_TITLE_DOUBLE_CLICK_MS;
+	emit_pointer(&server, 84, 92, 1);
+	assert(server.capture_client == NULL && server.title_click_window_id == 0);
+	assert(target->state_pending && target->pending_state == GUI_PROTOCOL_WINDOW_STATE_MAXIMIZED);
+	assert(target->normal_x == 64 && target->normal_y == 100);
+	assert(target->normal_width == 160 && target->normal_height == 100);
+	assert(target->x == 4 && target->y == 28 && target->width == 312 && target->height == 184);
+	fullscreen_stage(target, 0x00225688);
+	commit_staged(target);
+	assert(target->maximized && !target->state_pending);
+	assert_full_scene(&server);
+	emit_pointer(&server, 84, 92, 0);
+	test_clock_ms += 100;
+	emit_pointer(&server, 80, 16, 1);
+	emit_pointer(&server, 80, 16, 0);
+	test_clock_ms += 100;
+	emit_pointer(&server, 80, 16, 1);
+	assert(server.capture_client == NULL && server.title_click_window_id == 0);
+	assert(target->state_pending && target->pending_state == GUI_PROTOCOL_WINDOW_STATE_NORMAL);
+	fullscreen_stage(target, 0x00225688);
+	commit_staged(target);
+	assert(!target->maximized && !target->state_pending);
+	assert(target->x == 64 && target->y == 100 && target->width == 160 && target->height == 100);
+	emit_pointer(&server, 80, 16, 0);
+	assert_full_scene(&server);
+	cleanup_server(&server);
+
+	for (unsigned int scenario = 0; scenario < TITLE_CLICK_CASE_COUNT; scenario++) {
+		target = init_title_click_test(&server);
+		emit_pointer(&server, 80, 88, 1);
+		if (scenario == TITLE_DRAG) {
+			emit_pointer(&server, 100, 88, 1);
+			assert(target->x == 84 && target->y == 100);
+			emit_pointer(&server, 80, 88, 1);
+			assert(target->x == 64);
+		}
+		if (scenario == LONG_PRESS)
+			test_clock_ms += WM_TITLE_DOUBLE_CLICK_MS + 1;
+		emit_pointer(&server, 80, 88, 0);
+		test_clock_ms += 100;
+		switch (scenario) {
+		case EXPIRED:
+			test_clock_ms = 1000 + WM_TITLE_DOUBLE_CLICK_MS + 1;
+			break;
+		case POINTER_EXCURSION:
+			emit_pointer(&server, 85, 88, 0);
+			emit_pointer(&server, 80, 88, 0);
+			break;
+		case RIGHT_CLICK:
+		case MIDDLE_CLICK:
+			emit_pointer(&server, 80, 88, scenario == RIGHT_CLICK ? 4 : 2);
+			emit_pointer(&server, 80, 88, 0);
+			break;
+		case MOUSE_RESET:
+		case KEY_RESET:
+		case KEY_PRESS: {
+			gui_input_event reset = { .type = scenario == MOUSE_RESET ?
+				GUI_INPUT_EVENT_MOUSE_RESET : scenario == KEY_RESET ?
+				GUI_INPUT_EVENT_KEY_RESET : GUI_INPUT_EVENT_KEY,
+				.key = { .scancode = 0x1e, .pressed = 1 } };
+
+			wm_emit_input(&server, &reset);
+			break;
+		}
+		case CONTENT_CLICK:
+			emit_pointer(&server, 80, 108, 1);
+			emit_pointer(&server, 80, 108, 0);
+			break;
+		case BORDER_CLICK:
+			emit_pointer(&server, 62, 88, 1);
+			emit_pointer(&server, 62, 88, 0);
+			break;
+		case OTHER_WINDOW: {
+			wm_window *other = init_client(&server, server.next_window_id,
+				GUI_PROTOCOL_ENDPOINT_ORDINARY);
+
+			other->width = 160;
+			other->height = 100;
+			other->y = 100;
+			other->stack_order = ++server.next_stack_order;
+			break;
+		}
+		case DESTROYED_WINDOW: {
+			wm_client *owner = target->client;
+
+			assert(server.title_click_window_id == target->window_id);
+			server.input_owner = NULL;
+			window_destroy(target);
+			client_destroy(owner);
+			assert(server.title_click_window_id == 0);
+			target = init_client(&server, server.next_window_id, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+			target->width = 160;
+			target->height = 100;
+			target->y = 100;
+			break;
+		}
+		case MINIMIZED_WINDOW:
+			assert(wm_request_minimize(&server, target) == 1);
+			assert(server.title_click_window_id == 0);
+			assert(wm_request_minimize(&server, target) == 1);
+			break;
+		case FOCUS_TRANSFER:
+			wm_set_input_owner(&server, NULL);
+			break;
+		default:
+			break;
+		}
+		emit_pointer(&server, 80, 88, 1);
+		assert(!target->state_pending && !target->maximized);
+		for (wm_window *window = server.windows; window != NULL; window = window->next)
+			assert(!window->state_pending && !window->maximized);
+		emit_pointer(&server, 80, 88, 0);
+		cleanup_server(&server);
+	}
+	use_test_clock = 0;
+	puts("gui-wm-busy: title double clicks toggle maximize without mistaking drags or unrelated input");
+}
+
+static void test_cursor_shapes(void)
+{
+	static wm_server server;
+	const struct {
+		uint32_t x;
+		uint32_t y;
+		wm_cursor_shape shape;
+	} hover_cases[] = {
+		{ 62, 140, WM_CURSOR_RESIZE_HORIZONTAL },
+		{ 226, 140, WM_CURSOR_RESIZE_HORIZONTAL },
+		{ 144, 74, WM_CURSOR_RESIZE_VERTICAL },
+		{ 144, 202, WM_CURSOR_RESIZE_VERTICAL },
+		{ 62, 74, WM_CURSOR_RESIZE_NW_SE },
+		{ 226, 74, WM_CURSOR_RESIZE_NE_SW },
+		{ 62, 202, WM_CURSOR_RESIZE_NE_SW },
+		{ 226, 202, WM_CURSOR_RESIZE_NW_SE },
+		{ 80, 88, WM_CURSOR_ARROW },
+		{ 215, 88, WM_CURSOR_ARROW },
+		{ 100, 140, WM_CURSOR_ARROW },
+		{ 12, 12, WM_CURSOR_ARROW },
+	};
+	const struct {
+		wm_capture_operation operation;
+		wm_cursor_shape shape;
+	} capture_cases[] = {
+		{ WM_CAPTURE_MOVE, WM_CURSOR_MOVE },
+		{ WM_CAPTURE_RESIZE_LEFT, WM_CURSOR_RESIZE_HORIZONTAL },
+		{ WM_CAPTURE_RESIZE_RIGHT, WM_CURSOR_RESIZE_HORIZONTAL },
+		{ WM_CAPTURE_RESIZE_TOP, WM_CURSOR_RESIZE_VERTICAL },
+		{ WM_CAPTURE_RESIZE_BOTTOM, WM_CURSOR_RESIZE_VERTICAL },
+		{ WM_CAPTURE_RESIZE_TOP_LEFT, WM_CURSOR_RESIZE_NW_SE },
+		{ WM_CAPTURE_RESIZE_TOP_RIGHT, WM_CURSOR_RESIZE_NE_SW },
+		{ WM_CAPTURE_RESIZE_BOTTOM_LEFT, WM_CURSOR_RESIZE_NE_SW },
+		{ WM_CAPTURE_RESIZE_BOTTOM_RIGHT, WM_CURSOR_RESIZE_NW_SE },
+	};
+	const gui_input_event release = { .type = GUI_INPUT_EVENT_MOUSE };
+	const gui_input_event mouse_reset = { .type = GUI_INPUT_EVENT_MOUSE_RESET };
+	const gui_input_event key_reset = { .type = GUI_INPUT_EVENT_KEY_RESET };
+	wm_window *target;
+	uint64_t previous_frame;
+
+	init_server(&server, 320, 240);
+	server.state.graphics = 1;
+	server.state.framebuffer = 123;
+	server.state.scanout_stride = 320 * 4;
+	server.state.composite = gui_surface_create(320, 240);
+	assert(server.state.composite != NULL);
+	target = init_client(&server, 0, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	target->x = 64;
+	target->y = 100;
+	target->width = 160;
+	target->height = 100;
+	scanout_result = GUI_FLUSH_COMPLETE;
+	server.state.cursor_x = 100;
+	server.state.cursor_y = 140;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert(!server.state.cursor_loaded && server.state.cursor_shape == WM_CURSOR_ARROW);
+	assert(wm_load_cursor(&server.state) == 0 && server.state.cursor_loaded);
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert(server.state.composite->pixels[140 * server.state.composite->stride + 100] ==
+		WM_WINDOW_BORDER_COLOR);
+	assert_full_scene(&server);
+	for (size_t index = 0; index < sizeof(hover_cases) / sizeof(hover_cases[0]); index++) {
+		server.state.cursor_x = hover_cases[index].x;
+		server.state.cursor_y = hover_cases[index].y;
+		assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+		assert(server.state.cursor_shape == hover_cases[index].shape);
+		assert(server.state.painted_cursor_shape == hover_cases[index].shape);
+		assert_full_scene(&server);
+	}
+	for (size_t index = 0; index < sizeof(capture_cases) / sizeof(capture_cases[0]); index++) {
+		wm_begin_capture(&server, target, capture_cases[index].operation);
+		server.state.mouse_buttons = 1;
+		wm_present_input(&server, 0, 0);
+		assert(server.state.cursor_shape == capture_cases[index].shape);
+		assert_full_scene(&server);
+		previous_frame = server.state.frame_number;
+		wm_emit_input(&server, &release);
+		assert(server.capture_client == NULL && server.state.cursor_shape == WM_CURSOR_ARROW);
+		assert(server.state.frame_number == previous_frame + 1);
+		assert_full_scene(&server);
+	}
+	wm_begin_capture(&server, target, WM_CAPTURE_MOVE);
+	wm_present_input(&server, 0, 0);
+	wm_emit_input(&server, &mouse_reset);
+	assert(server.capture_client == NULL && server.state.cursor_shape == WM_CURSOR_ARROW);
+	wm_begin_capture(&server, target, WM_CAPTURE_MOVE);
+	wm_present_input(&server, 0, 0);
+	wm_emit_input(&server, &key_reset);
+	assert(server.capture_client == NULL && server.state.cursor_shape == WM_CURSOR_ARROW);
+	server.state.cursor_x = 62;
+	server.state.cursor_y = 140;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert(server.state.cursor_shape == WM_CURSOR_RESIZE_HORIZONTAL);
+	target->x = 128;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert(server.state.cursor_shape == WM_CURSOR_ARROW);
+	assert_full_scene(&server);
+	target->x = 64;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	target->minimized = 1;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert(server.state.cursor_shape == WM_CURSOR_ARROW);
+	target->minimized = 0;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert(server.state.cursor_shape == WM_CURSOR_RESIZE_HORIZONTAL);
+	previous_frame = begin_drawing_measurement(&server);
+	wm_begin_capture(&server, target, WM_CAPTURE_MOVE);
+	server.state.mouse_buttons = 1;
+	wm_present_input(&server, 0, 0);
+	assert(server.state.frame_number == previous_frame + 1);
+	assert(measured_work.written_bytes <= WM_CURSOR_WIDTH * WM_CURSOR_HEIGHT * 4);
+	measure_drawing = 0;
+	assert_full_scene(&server);
+	wm_emit_input(&server, &release);
+	scanout_result = GUI_FLUSH_BUSY;
+	wm_begin_capture(&server, target, WM_CAPTURE_MOVE);
+	server.state.mouse_buttons = 1;
+	wm_present_input(&server, 0, 0);
+	assert(server.state.cursor_shape == WM_CURSOR_MOVE);
+	assert(server.state.painted_cursor_shape == WM_CURSOR_RESIZE_HORIZONTAL);
+	server.state.cursor_x = server.state.cursor_y = 12;
+	wm_present_input(&server, 1, 0);
+	scanout_result = GUI_FLUSH_COMPLETE;
+	wm_emit_input(&server, &release);
+	assert(server.state.cursor_shape == WM_CURSOR_ARROW);
+	assert_full_scene(&server);
+	for (size_t index = 0; index < sizeof(capture_cases) / sizeof(capture_cases[0]); index++) {
+		wm_begin_capture(&server, target, capture_cases[index].operation);
+		for (unsigned int corner = 0; corner < 4; corner++) {
+			server.state.cursor_x = corner & 1 ? 319 : 0;
+			server.state.cursor_y = corner & 2 ? 239 : 0;
+			assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+			assert(server.state.cursor_shape == capture_cases[index].shape);
+			assert(server.state.composite->pixels[(size_t)server.state.cursor_y *
+				server.state.composite->stride + server.state.cursor_x] == WM_WINDOW_CONTENT_COLOR);
+			assert_full_scene(&server);
+		}
+	}
+	wm_cancel_capture(&server);
+	server.fullscreen_window = target;
+	target->fullscreen = 1;
+	server.state.cursor_x = 62;
+	server.state.cursor_y = 140;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert(server.state.cursor_shape == WM_CURSOR_ARROW);
+	server.fullscreen_window = NULL;
+	target->fullscreen = 0;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert(server.state.cursor_shape == WM_CURSOR_RESIZE_HORIZONTAL);
+	client_destroy(target->client);
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert(server.state.cursor_shape == WM_CURSOR_ARROW);
+	assert_full_scene(&server);
+	cleanup_server(&server);
+	puts("gui-wm-busy: cursor shapes track hover and capture with clipped incremental redraws");
+}
+
 static void test_drawing_work(void)
 {
 	static wm_server server;
@@ -2679,6 +3011,8 @@ int main(void)
 	test_shell_keyboard_input();
 	test_terminal_recovery();
 	test_drawing_counter_clipping();
+	test_title_double_click();
+	test_cursor_shapes();
 	test_drawing_work();
 	test_sixteen_window_drawing();
 	test_multiwindow_capacity_cycles();

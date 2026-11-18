@@ -5,6 +5,11 @@ is pixel `(0, 0)`. The build converts the source pixels to Mario's internal
 premultiplied ARGB representation; the desktop does not require a runtime PNG
 decoder to display it.
 
+The window manager also draws built-in 16 by 16 horizontal, vertical, diagonal,
+and move cursors from monochrome masks. These use a centered `(7, 7)` hot spot
+and the same dark outline/light fill palette; they require no additional image
+files. Pointer coordinates remain unchanged when switching shapes.
+
 SHA-256:
 
 ```text

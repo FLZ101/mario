@@ -1,0 +1,24 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/title-dbl.log; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & wm_pid=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL-WAIT-FILE: /tmp/mario-wm.ready
+SERIAL: /usr/bin/terminal --command 'sleep 70' >/tmp/title-dbl.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/title-dbl.log; do sleep 1; done
+GUI-CHECK-RECT: 160 84 1 1 37 99 235
+GUI-MOUSE-POSITION: 200,84
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 512 16 1 1 37 99 235
+GUI-MOUSE-POSITION: 512,16
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 160 84 1 1 37 99 235
+SERIAL: kill "$terminal_pid"; wait "$terminal_pid"; kill -TERM "$wm_pid"; wait "$wm_pid"; test ! -e /tmp/mario-wm.started && printf 'wm-title-double-click: clean teardown\n'
+SERIAL-CHECK: wm-title-double-click: clean teardown
+EXIT:

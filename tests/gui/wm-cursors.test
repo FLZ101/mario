@@ -1,0 +1,60 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-resize.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & wm_pid=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/gui-wm-client.exe --resize-only >/tmp/wm-cursors.log 2>&1 & client_pid=$!
+SERIAL: while ! grep -q 'wm-client: resize ready' /tmp/wm-cursors.log; do sleep 1; done
+GUI-MOUSE-POSITION: 62,140
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 67 140 1 1 248 250 252
+GUI-MOUSE-POSITION: 226,140
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 231 140 1 1 248 250 252
+GUI-MOUSE-POSITION: 144,74
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 144 69 1 1 248 250 252
+GUI-MOUSE-POSITION: 144,202
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 144 207 1 1 248 250 252
+GUI-MOUSE-POSITION: 62,74
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 57 69 1 1 248 250 252
+GUI-MOUSE-POSITION: 226,74
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 231 69 1 1 248 250 252
+GUI-MOUSE-POSITION: 62,202
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 67 197 1 1 248 250 252
+GUI-MOUSE-POSITION: 226,202
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 221 197 1 1 248 250 252
+GUI-MOUSE-POSITION: 80,88
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 80 88 1 1 15 23 42
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 80 83 1 1 248 250 252
+GUI-CHECK-RECT: 85 88 1 1 248 250 252
+GUI-MOUSE-BUTTON: left,up
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 80 88 1 1 15 23 42
+GUI-MOUSE-POSITION: 100,140
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 100 140 1 1 15 23 42
+SERIAL: touch /tmp/gui-resize.initial-checked
+GUI-MOUSE-POSITION: 62,140
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-POSITION: 42,230
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 47 230 1 1 248 250 252
+GUI-MOUSE-BUTTON: left,up
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 42 230 1 1 15 23 42
+SERIAL-WAIT-FILE: /tmp/gui-resize.left
+GUI-CHECK-RECT: 44 100 1 1 255 0 0
+SERIAL: kill "$client_pid"; wait "$client_pid"; kill -TERM "$wm_pid"; wait "$wm_pid"; test ! -e /tmp/mario-wm.started && printf 'wm-cursors: clean teardown\n'
+SERIAL-CHECK: wm-cursors: clean teardown
+EXIT:

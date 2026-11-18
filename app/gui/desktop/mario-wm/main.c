@@ -38,6 +38,8 @@
 #define WM_RESIZE_GRIP 4U
 #define WM_TITLE_HEIGHT 24U
 #define WM_TITLE_BUTTON_WIDTH 16U
+#define WM_TITLE_DOUBLE_CLICK_MS 500U
+#define WM_TITLE_CLICK_SLOP 4
 #define WM_MIN_CONTENT_WIDTH 64U
 #define WM_MIN_CONTENT_HEIGHT 48U
 #define WM_WINDOW_BORDER_COLOR 0x000f172aU
@@ -60,6 +62,16 @@ static void request_child_reap(int signal_number)
 	child_reap_requested = 1;
 }
 
+typedef enum {
+	WM_CURSOR_ARROW,
+	WM_CURSOR_RESIZE_HORIZONTAL,
+	WM_CURSOR_RESIZE_VERTICAL,
+	WM_CURSOR_RESIZE_NW_SE,
+	WM_CURSOR_RESIZE_NE_SW,
+	WM_CURSOR_MOVE,
+	WM_CURSOR_SHAPE_COUNT,
+} wm_cursor_shape;
+
 typedef struct {
 	int framebuffer;
 	int gui;
@@ -76,16 +88,20 @@ typedef struct {
 	uint64_t frame_number;
 	uint32_t cursor_x;
 	uint32_t cursor_y;
+	wm_cursor_shape cursor_shape;
 	uint32_t modifiers;
 	uint8_t mouse_buttons;
 	uint8_t key_down[512];
 	uint8_t cursor_rgba[WM_CURSOR_WIDTH * WM_CURSOR_HEIGHT * 4];
+	int cursor_loaded;
 	gui_surface *composite;
 	gui_region damage;
 	gui_region_rect damage_rects[GUI_REGION_MAX_RECTS];
 	int painted;
 	uint32_t painted_cursor_x;
 	uint32_t painted_cursor_y;
+	wm_cursor_shape painted_cursor_shape;
+	int painted_cursor_loaded;
 	uint32_t painted_fullscreen;
 	const void *painted_desktop;
 	int motion_pending;
@@ -236,6 +252,11 @@ struct wm_server {
 	int32_t capture_window_y;
 	uint32_t capture_width;
 	uint32_t capture_height;
+	uint32_t title_click_window_id;
+	uint32_t title_click_x;
+	uint32_t title_click_y;
+	uint64_t title_click_ms;
+	int title_click_released;
 	/* The private shell is server-owned and must not outlive the server. */
 	pid_t shell_pid;
 	int shell_ready;
@@ -253,6 +274,7 @@ static int window_enqueue(wm_window *window, gui_protocol_type type,
 			  const void *payload, size_t payload_bytes);
 static void window_reject(wm_window *window, gui_protocol_type type, int status);
 static void wm_cancel_capture(wm_server *server);
+static int wm_update_cursor(wm_server *server);
 static void wm_reset_input_owner(wm_server *server);
 static void wm_set_input_owner(wm_server *server, wm_window *client);
 static wm_window *wm_next_focus(wm_server *server);
@@ -516,6 +538,9 @@ static void window_destroy(wm_window *window)
 	wm_client *client = window->client;
 	wm_window **link = &server->windows;
 
+	if (server->capture_client == window ||
+	    server->title_click_window_id == window->window_id)
+		wm_cancel_capture(server);
 	if (window->painted)
 		wm_damage_rect(&server->state, window->painted_bounds);
 
@@ -598,6 +623,7 @@ static int wm_load_cursor(wm_state *state)
 	size_t remaining = sizeof(state->cursor_rgba);
 	int fd = open(WM_CURSOR_PATH, O_RDONLY);
 
+	state->cursor_loaded = 0;
 	if (fd < 0)
 		return -1;
 	while (remaining != 0) {
@@ -630,32 +656,94 @@ static int wm_load_cursor(wm_state *state)
 			return -1;
 		}
 	}
+	state->cursor_loaded = 1;
 	return 0;
+}
+
+static const uint16_t wm_cursor_masks[WM_CURSOR_SHAPE_COUNT][WM_CURSOR_HEIGHT] = {
+	[WM_CURSOR_RESIZE_HORIZONTAL] = {
+		0x0000, 0x0000, 0x0000, 0x0000,
+		0x0220, 0x0630, 0x0e38, 0x1ffc,
+		0x0e38, 0x0630, 0x0220, 0x0000,
+		0x0000, 0x0000, 0x0000, 0x0000,
+	},
+	[WM_CURSOR_RESIZE_VERTICAL] = {
+		0x0000, 0x0000, 0x0080, 0x01c0,
+		0x03e0, 0x07f0, 0x0080, 0x0080,
+		0x0080, 0x07f0, 0x03e0, 0x01c0,
+		0x0080, 0x0000, 0x0000, 0x0000,
+	},
+	[WM_CURSOR_RESIZE_NW_SE] = {
+		0x0000, 0x0000, 0x007c, 0x003c,
+		0x001c, 0x002c, 0x0044, 0x0080,
+		0x1100, 0x1a00, 0x1c00, 0x1e00,
+		0x1f00, 0x0000, 0x0000, 0x0000,
+	},
+	[WM_CURSOR_RESIZE_NE_SW] = {
+		0x0000, 0x0000, 0x1f00, 0x1e00,
+		0x1c00, 0x1a00, 0x1100, 0x0080,
+		0x0044, 0x002c, 0x001c, 0x003c,
+		0x007c, 0x0000, 0x0000, 0x0000,
+	},
+	[WM_CURSOR_MOVE] = {
+		0x0000, 0x0000, 0x0080, 0x01c0,
+		0x0080, 0x0080, 0x0888, 0x1ffc,
+		0x0888, 0x0080, 0x0080, 0x01c0,
+		0x0080, 0x0000, 0x0000, 0x0000,
+	},
+};
+
+static gui_rect wm_cursor_bounds(wm_cursor_shape shape, uint32_t x, uint32_t y)
+{
+	int32_t hotspot = shape == WM_CURSOR_ARROW ? 0 : 7;
+
+	return (gui_rect) { (int32_t)x - hotspot, (int32_t)y - hotspot,
+		WM_CURSOR_WIDTH, WM_CURSOR_HEIGHT };
 }
 
 static void wm_draw_cursor(wm_state *state, gui_rect clip)
 {
+	gui_rect bounds = wm_cursor_bounds(state->cursor_shape, state->cursor_x, state->cursor_y);
+	const uint16_t *masks = wm_cursor_masks[state->cursor_shape];
+
+	if (!state->cursor_loaded)
+		return;
 	for (uint32_t row = 0; row < WM_CURSOR_HEIGHT; row++) {
-		uint32_t y = state->cursor_y + row;
+		int32_t y = bounds.y + (int32_t)row;
+		uint16_t foreground = masks[row];
+		uint16_t outline = foreground;
 
-		if (y >= state->height)
+		if (y >= (int64_t)state->height)
 			break;
-		if (y < (uint32_t)clip.y || y >= (uint32_t)(clip.y + clip.h))
+		if (y < 0 || y < clip.y || y >= clip.y + clip.h)
 			continue;
+		if (row > 0)
+			outline |= masks[row - 1];
+		if (row + 1 < WM_CURSOR_HEIGHT)
+			outline |= masks[row + 1];
+		outline |= (outline << 1) | (outline >> 1);
 		for (uint32_t column = 0; column < WM_CURSOR_WIDTH; column++) {
-			uint32_t x = state->cursor_x + column;
+			int32_t x = bounds.x + (int32_t)column;
 			size_t source = ((size_t)row * WM_CURSOR_WIDTH + column) * 4;
+			uint32_t color;
 
-			if (x >= state->width)
+			if (x >= (int64_t)state->width)
 				break;
-			if (x < (uint32_t)clip.x || x >= (uint32_t)(clip.x + clip.w))
+			if (x < 0 || x < clip.x || x >= clip.x + clip.w)
 				continue;
-			if (state->cursor_rgba[source + 3] != 0) {
-				state->composite->pixels[(size_t)y * state->composite->stride + x] =
-					(uint32_t)state->cursor_rgba[source] << 16 |
+			if (state->cursor_shape == WM_CURSOR_ARROW) {
+				if (state->cursor_rgba[source + 3] == 0)
+					continue;
+				color = (uint32_t)state->cursor_rgba[source] << 16 |
 					(uint32_t)state->cursor_rgba[source + 1] << 8 |
 					state->cursor_rgba[source + 2];
+			} else {
+				if (!(outline & (1U << column)))
+					continue;
+				color = foreground & (1U << column) ?
+					WM_WINDOW_CONTENT_COLOR : WM_WINDOW_BORDER_COLOR;
 			}
+			state->composite->pixels[(size_t)y * state->composite->stride + x] = color;
 		}
 	}
 }
@@ -920,16 +1008,19 @@ static void wm_collect_damage(wm_server *server)
 	wm_window *fullscreen = wm_presented_fullscreen(server);
 	uint32_t fullscreen_id = fullscreen != NULL ? fullscreen->window_id : 0;
 
+	wm_update_cursor(server);
 	wm_damage_init(state);
 	if (!state->painted || state->painted_fullscreen != fullscreen_id ||
 	    (state->painted_desktop != wm_desktop_identity(server) && !wm_window_obscured(server, NULL)))
 		gui_region_mark_full(&state->damage);
 	if (state->painted && (state->cursor_x != state->painted_cursor_x ||
-	    state->cursor_y != state->painted_cursor_y)) {
-		wm_damage_rect(state, (gui_rect) { state->painted_cursor_x,
-			state->painted_cursor_y, WM_CURSOR_WIDTH, WM_CURSOR_HEIGHT });
-		wm_damage_rect(state, (gui_rect) { state->cursor_x, state->cursor_y,
-			WM_CURSOR_WIDTH, WM_CURSOR_HEIGHT });
+	    state->cursor_y != state->painted_cursor_y ||
+	    state->cursor_shape != state->painted_cursor_shape ||
+	    state->cursor_loaded != state->painted_cursor_loaded)) {
+		wm_damage_rect(state, wm_cursor_bounds(state->painted_cursor_shape,
+			state->painted_cursor_x, state->painted_cursor_y));
+		wm_damage_rect(state, wm_cursor_bounds(state->cursor_shape,
+			state->cursor_x, state->cursor_y));
 	}
 	for (wm_window *window = server->windows; window != NULL; window = window->next) {
 		int visible = wm_window_visible(server, window);
@@ -958,6 +1049,8 @@ static void wm_record_presented(wm_server *server)
 	state->painted = 1;
 	state->painted_cursor_x = state->cursor_x;
 	state->painted_cursor_y = state->cursor_y;
+	state->painted_cursor_shape = state->cursor_shape;
+	state->painted_cursor_loaded = state->cursor_loaded;
 	state->painted_fullscreen = fullscreen != NULL ? fullscreen->window_id : 0;
 	state->painted_desktop = wm_desktop_identity(server);
 	for (wm_window *window = server->windows; window != NULL; window = window->next) {
@@ -1094,6 +1187,7 @@ static void wm_present_input(wm_server *server, int changed, int motion_only)
 {
 	wm_state *state = &server->state;
 
+	changed |= wm_update_cursor(server);
 	if (motion_only) {
 		if (changed && !state->motion_pending) {
 			state->motion_pending = 1;
@@ -2059,7 +2153,8 @@ static int wm_request_minimize(wm_server *server, wm_window *window)
 			stop_requested = 1;
 		return 1;
 	}
-	if (server->capture_client == window)
+	if (server->capture_client == window ||
+	    server->title_click_window_id == window->window_id)
 		wm_cancel_capture(server);
 	if (server->input_owner == window)
 		wm_set_input_owner(server, NULL);
@@ -2318,10 +2413,17 @@ static int wm_update_title_buttons(wm_server *server, wm_window *hit,
 	return changed;
 }
 
-static void wm_cancel_capture(wm_server *server)
+static void wm_release_capture(wm_server *server)
 {
 	server->capture_client = NULL;
 	server->capture_operation = WM_CAPTURE_NONE;
+	server->title_click_released = 1;
+}
+
+static void wm_cancel_capture(wm_server *server)
+{
+	wm_release_capture(server);
+	server->title_click_window_id = 0;
 }
 
 static void wm_begin_capture(wm_server *server, wm_window *client,
@@ -2368,6 +2470,7 @@ static void wm_set_input_owner(wm_server *server, wm_window *client)
 
 	if (previous == client)
 		return;
+	server->title_click_window_id = 0;
 	if (fullscreen != NULL && client != NULL && client != fullscreen) {
 		if (fullscreen->mode_pending || wm_toggle_fullscreen(server, fullscreen) > 0)
 			server->deferred_focus_id = client->window_id;
@@ -2635,6 +2738,55 @@ static wm_capture_operation wm_capture_operation_for_region(wm_hit_region region
 	}
 }
 
+static int wm_update_cursor(wm_server *server)
+{
+	wm_cursor_shape shape = WM_CURSOR_ARROW;
+	wm_capture_operation operation = WM_CAPTURE_NONE;
+
+	if (server->state.graphics && server->state.cursor_loaded) {
+		if (server->capture_client != NULL) {
+			operation = server->capture_operation;
+		} else {
+			wm_hit_region region;
+			wm_window *hit = wm_hit_test(server, server->state.cursor_x,
+				server->state.cursor_y, &region);
+
+			if (hit != NULL && !hit->mode_pending && !hit->fullscreen) {
+				operation = wm_capture_operation_for_region(region);
+				if (operation == WM_CAPTURE_MOVE)
+					operation = WM_CAPTURE_NONE;
+			}
+		}
+	}
+	switch (operation) {
+	case WM_CAPTURE_MOVE:
+		shape = WM_CURSOR_MOVE;
+		break;
+	case WM_CAPTURE_RESIZE_LEFT:
+	case WM_CAPTURE_RESIZE_RIGHT:
+		shape = WM_CURSOR_RESIZE_HORIZONTAL;
+		break;
+	case WM_CAPTURE_RESIZE_TOP:
+	case WM_CAPTURE_RESIZE_BOTTOM:
+		shape = WM_CURSOR_RESIZE_VERTICAL;
+		break;
+	case WM_CAPTURE_RESIZE_TOP_LEFT:
+	case WM_CAPTURE_RESIZE_BOTTOM_RIGHT:
+		shape = WM_CURSOR_RESIZE_NW_SE;
+		break;
+	case WM_CAPTURE_RESIZE_TOP_RIGHT:
+	case WM_CAPTURE_RESIZE_BOTTOM_LEFT:
+		shape = WM_CURSOR_RESIZE_NE_SW;
+		break;
+	case WM_CAPTURE_NONE:
+		break;
+	}
+	if (server->state.cursor_shape == shape)
+		return 0;
+	server->state.cursor_shape = shape;
+	return 1;
+}
+
 static int wm_update_capture(wm_server *server)
 {
 	wm_window *client = server->capture_client;
@@ -2738,6 +2890,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 		wm_update_modifiers(state, event->key.scancode, event->key.pressed);
 		if (!event->key.pressed)
 			return;
+		server->title_click_window_id = 0;
 		keysym = wm_keysym(event->key.scancode, state->modifiers);
 		if (keysym == '\t' && (state->modifiers & GUI_MOD_ALT)) {
 			wm_window *target = wm_alt_tab_target(server);
@@ -2778,12 +2931,22 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 			compose = 1;
 		}
 		state->mouse_buttons = event->mouse.buttons;
+		if (server->title_click_window_id != 0) {
+			int64_t dx = (int64_t)state->cursor_x - server->title_click_x;
+			int64_t dy = (int64_t)state->cursor_y - server->title_click_y;
+
+			if (wm_now_ms() - server->title_click_ms > WM_TITLE_DOUBLE_CLICK_MS ||
+			    dx < -WM_TITLE_CLICK_SLOP || dx > WM_TITLE_CLICK_SLOP ||
+			    dy < -WM_TITLE_CLICK_SLOP || dy > WM_TITLE_CLICK_SLOP ||
+			    ((previous_buttons | state->mouse_buttons) & ~1U))
+				server->title_click_window_id = 0;
+		}
 		if (server->capture_client != NULL) {
 			compose |= wm_update_title_buttons(server, NULL, WM_HIT_NONE, 0);
 			if (state->mouse_buttons & 1)
 				compose |= wm_update_capture(server);
 			else
-				wm_cancel_capture(server);
+				wm_release_capture(server);
 			wm_present_input(server, compose, motion_only);
 			return;
 		}
@@ -2796,6 +2959,11 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 			if (!(previous_buttons & 1) && (state->mouse_buttons & 1)) {
 				wm_capture_operation operation =
 					wm_capture_operation_for_region(region);
+				int double_click = region == WM_HIT_TITLE && hit != NULL &&
+					server->title_click_window_id == hit->window_id &&
+					server->title_click_released;
+
+				server->title_click_window_id = 0;
 
 				if (hit == NULL)
 					hit = wm_shell_client(server);
@@ -2806,8 +2974,25 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 				if (hit != NULL &&
 				    hit->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY &&
 				    !hit->mode_pending) {
+					if (double_click) {
+						int result = wm_request_maximize(server, hit, !hit->maximized);
+
+						if (result < 0)
+							window_reject(hit,
+								GUI_PROTOCOL_WINDOW_STATE_REQUEST, result);
+						wm_present_input(server, compose, 0);
+						return;
+					}
 					if (operation != WM_CAPTURE_NONE) {
 						wm_begin_capture(server, hit, operation);
+						if (operation == WM_CAPTURE_MOVE && state->mouse_buttons == 1 &&
+						    !hit->transition_pending) {
+							server->title_click_window_id = hit->window_id;
+							server->title_click_x = state->cursor_x;
+							server->title_click_y = state->cursor_y;
+							server->title_click_ms = wm_now_ms();
+							server->title_click_released = 0;
+						}
 						wm_present_input(server, compose, 0);
 						return;
 					}

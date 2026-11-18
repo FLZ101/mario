@@ -89,6 +89,16 @@ Focus, raising, and input routing:
   without changing its geometry. The desktop is always the bottom layer.
 - Title-bar dragging moves a window; border/corner dragging resizes it. The
   resize is clipped to the minimum size and the screen bounds.
+- Double-clicking a window's title bar toggles maximize/restore using the same
+  saved geometry as its maximize button. Left clicks must be on the same window
+  within 500 ms and four pixels; drags beyond that tolerance, other clicks,
+  keyboard input, and input resets cancel the sequence.
+- Hovering resize grips selects horizontal, vertical, or matching diagonal
+  cursors. Title drags use a move cursor. A captured drag keeps its cursor even
+  outside the original grip, then returns to the current hover cursor on release
+  or input reset. Resize/move hot spots stay centered on the logical pointer;
+  the normal arrow retains its top-left hot spot. Shape changes redraw both old
+  and new cursor bounds, including when the pointer itself does not move.
 - If a window is moved/resized by the application, the WM treats that as a
   request, clamps it, and sends back the actual geometry in the event or
   protocol reply.
@@ -251,7 +261,8 @@ atomic frame-marker replacement does not falsely exhaust the root ramdisk.
 The first desktop uses a fixed testable theme: background `#1f2933`, 28-pixel
 bottom panel `#111827`, 24-pixel title bars, 1-pixel borders `#0f172a`, active
 title bars `#2563eb`, and inactive title bars `#475569`. `mario-wm` owns the
-bundled 16x16 arrow cursor as the topmost layer. The static `--:--` panel clock avoids
+bundled 16x16 arrow or a state-specific built-in cursor as the topmost layer.
+The static `--:--` panel clock avoids
 depending on an RTC or test-only environment setup; real time is deferred.
 
 On every fresh desktop start, the `mario-desktop` shell client creates two real
