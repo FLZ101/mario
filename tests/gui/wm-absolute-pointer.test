@@ -1,0 +1,53 @@
+GUI-VISUAL-TEST:
+TIMEOUT: 20
+GUI-MOUSE-POSITION: 37,53
+SERIAL: rm -f /tmp/mario-wm.* /tmp/gui-fullscreen.*; /usr/bin/mario-wm --diagnostics >>/tmp/mario-wm.log 2>&1 & wm_pid=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/gui-wm-client.exe --fullscreen >/tmp/gui-fullscreen.log 2>&1 & client_pid=$!
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.ready
+GUI-MOUSE-POSITION: 200,160
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.focus-target
+GUI-SEND-KEYS: meta_l,f
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.pending-2
+SERIAL: touch /tmp/gui-fullscreen.commit-2
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.frame-2
+GUI-CHECK-RECT: 0 0 1000 128 68 136 102
+GUI-MOUSE-POSITION: 713,509
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 713 509 1 1 15 23 42
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q 'wm-client: fullscreen click 713,509' /tmp/gui-fullscreen.log; do sleep 1; done; cat /tmp/gui-fullscreen.log
+SERIAL-CHECK: wm-client: fullscreen click 713,509
+GUI-MOUSE-POSITION: 0,0
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 0 0 1 1 15 23 42
+GUI-MOUSE-BUTTON: left,down
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.edge-top-left
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-POSITION: 1023,767
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 1023 767 1 1 15 23 42
+GUI-MOUSE-BUTTON: left,down
+SERIAL-WAIT-FILE: /tmp/gui-fullscreen.edge-bottom
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-POSITION: 1023,3
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-POSITION: 0,767
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! grep -q 'wm-client: fullscreen click 0,767' /tmp/gui-fullscreen.log; do sleep 1; done; cat /tmp/gui-fullscreen.log
+SERIAL-CHECK: wm-client: fullscreen click 1023,3
+SERIAL-CHECK: wm-client: fullscreen click 0,767
+SERIAL: kill -TERM "$client_pid"; wait "$client_pid"; kill -TERM "$wm_pid"; wait "$wm_pid"; test ! -e /tmp/mario-wm.started && printf 'absolute-pointer: clean teardown\n'
+SERIAL-CHECK: absolute-pointer: clean teardown
+EXIT:

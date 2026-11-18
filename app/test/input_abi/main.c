@@ -17,5 +17,11 @@ int main(void)
 	printf("input-abi: key=%u mouse=%u flags=%u/%u\n",
 	       (unsigned int)sizeof(key), (unsigned int)sizeof(mouse),
 	       key.flags, mouse.flags);
+	mouse.flags = PSAUX_EVENT_ABSOLUTE;
+	mouse.x = PSAUX_ABSOLUTE_MAX;
+	mouse.y = 32768;
+	assert(mouse.flags == 2);
+	assert(mouse.dx == -1 && mouse.dy == -32768);
+	puts("input-abi: absolute mouse shares 12-byte record");
 	return 0;
 }

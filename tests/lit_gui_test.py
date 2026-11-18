@@ -15,6 +15,7 @@ Directives:
   GUI-SEND-KEY: f1
   GUI-TYPE: command
   GUI-MOUSE-MOVE: dx,dy
+  GUI-MOUSE-POSITION: x,y
   GUI-MOUSE-BUTTON: left,down
   GUI-CHECK-SCREEN: golden.ppm
   GUI-CHECK-RECT: x y width height red green blue
@@ -45,6 +46,10 @@ checks; serial commands and application/frame readiness waits retain TIMEOUT.
 Boot-prompt timeouts retain the screen, serial output, QMP status and per-CPU
 registers under tmp/gui-failures before QEMU is terminated. Diagnostic capture
 has a separate five-second total budget; the boot-prompt limit remains 30s.
+
+GUI-MOUSE-POSITION enables the same absolute virtual mouse used by run-gtk;
+coordinates are guest pixels. It cannot be mixed with GUI-MOUSE-MOVE. Other
+fixtures retain relative PS/2 input with VMPort disabled.
 """
 
 from __future__ import annotations
@@ -249,6 +254,19 @@ class GuiTest:
                         f"{self.path}: invalid GUI-MOUSE-MOVE"
                     ) from exc
                 self.actions.append(("mouse-move", move))
+            elif line.startswith("GUI-MOUSE-POSITION:"):
+                values = line.split(":", 1)[1].strip().split(",")
+                try:
+                    if len(values) != 2:
+                        raise ValueError
+                    position = tuple(int(value) for value in values)
+                    if any(value < 0 for value in position):
+                        raise ValueError
+                except ValueError as exc:
+                    raise GuiTestError(
+                        f"{self.path}: invalid GUI-MOUSE-POSITION"
+                    ) from exc
+                self.actions.append(("mouse-position", position))
             elif line.startswith("GUI-MOUSE-BUTTON:"):
                 values = line.split(":", 1)[1].strip().split(",")
                 if (
@@ -356,6 +374,7 @@ class GuiTest:
                 "send-keys",
                 "type",
                 "mouse-move",
+                "mouse-position",
                 "mouse-button",
                 "wait-frame",
                 "screen",
@@ -369,6 +388,11 @@ class GuiTest:
                 raise GuiTestError(
                     f"{self.path}: EXPECT-HALT tests may only use SERIAL-CHECK"
                 )
+        mouse_actions = {action for action, _ in self.actions}
+        if {"mouse-move", "mouse-position"} <= mouse_actions:
+            raise GuiTestError(
+                f"{self.path}: GUI-MOUSE-MOVE cannot be mixed with GUI-MOUSE-POSITION"
+            )
         return self
 
 
@@ -460,13 +484,17 @@ def expect_prompt(child: pexpect.spawn, timeout: float, description: str) -> str
     return child.before
 
 
-def qemu_command(qemu: str, qmp_path: str, smp: int) -> list[str]:
+def qemu_command(
+    qemu: str, qmp_path: str, smp: int, *, absolute_mouse: bool = False
+) -> list[str]:
     command = [
         qemu,
         "-m",
         "256M",
         "-smp",
         str(smp),
+        "-machine",
+        f"vmport={'on' if absolute_mouse else 'off'}",
         "-boot",
         "c",
         "-vga",
@@ -717,6 +745,29 @@ def send_mouse_move(qmp: Qmp, dx: int, dy: int) -> None:
     )
 
 
+def send_mouse_position(qmp: Qmp, x: int, y: int) -> None:
+    screen = dump_screen(qmp)
+    if not (0 <= x < screen.width and 0 <= y < screen.height):
+        raise GuiTestError(
+            f"GUI-MOUSE-POSITION {x},{y} is outside {screen.width}x{screen.height}"
+        )
+    qmp.command(
+        "input-send-event",
+        {
+            "events": [
+                {
+                    "type": "abs",
+                    "data": {"axis": "x", "value": x * 32767 // screen.width},
+                },
+                {
+                    "type": "abs",
+                    "data": {"axis": "y", "value": y * 32767 // screen.height},
+                },
+            ]
+        },
+    )
+
+
 def send_mouse_button(qmp: Qmp, button: str, down: bool) -> None:
     masks = {"left": 1, "middle": 2, "right": 4}
 
@@ -868,9 +919,15 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
         os.unlink(qmp_path)
     except FileNotFoundError:
         pass
+    command = qemu_command(
+        qemu,
+        qmp_path,
+        smp,
+        absolute_mouse=any(action == "mouse-position" for action, _ in test.actions),
+    )
     child = pexpect.spawn(
-        qemu_command(qemu, qmp_path, smp)[0],
-        qemu_command(qemu, qmp_path, smp)[1:],
+        command[0],
+        command[1:],
         encoding="latin-1",
         timeout=DEFAULT_TIMEOUT,
     )
@@ -948,6 +1005,10 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                 if track_frames:
                     frame_baseline = snapshot_guest_frame_counter(child, timeout)
                 send_mouse_move(qmp, *value)
+            elif action == "mouse-position":
+                if track_frames:
+                    frame_baseline = snapshot_guest_frame_counter(child, timeout)
+                send_mouse_position(qmp, *value)
             elif action == "mouse-button":
                 if track_frames:
                     frame_baseline = snapshot_guest_frame_counter(child, timeout)

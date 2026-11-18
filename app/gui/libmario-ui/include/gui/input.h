@@ -47,10 +47,17 @@ typedef struct {
 			uint8_t pressed;
 		} key;
 		struct {
-			int16_t dx;
-			int16_t dy;
+			union {
+				int16_t dx;
+				uint16_t x;
+			};
+			union {
+				int16_t dy;
+				uint16_t y;
+			};
 			int8_t dz;
 			uint8_t buttons;
+			uint8_t absolute;
 		} mouse;
 	};
 } gui_input_event;
@@ -63,5 +70,8 @@ void gui_input_normalize_key_records(const struct mario_gui_key_event *records,
 void gui_input_normalize_mouse_records(const struct mario_psaux_event *records,
 				       size_t count, gui_input_emit_fn emit,
 				       void *context);
+void gui_input_apply_mouse_motion(const gui_input_event *event, uint32_t width,
+				  uint32_t height, uint32_t *cursor_x,
+				  uint32_t *cursor_y);
 
 #endif

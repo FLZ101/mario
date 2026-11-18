@@ -1,6 +1,7 @@
 #include <fs/chrdev.h>
 #include <fs/fs.h>
 #include <fs/psaux.h>
+#include <fs/vmmouse.h>
 #include <io.h>
 #include <lib/spinlock.h>
 #include <time.h>
@@ -14,6 +15,7 @@ static spinlock_t psaux_lock = SPINLOCK_UNLOCKED;
 static wait_queue_t psaux_wait;
 static unsigned int psaux_owner_refs;
 static int psaux_available;
+static int psaux_absolute;
 static struct mario_psaux_event psaux_events[PSAUX_EVENT_COUNT];
 static unsigned int psaux_event_head;
 static unsigned int psaux_event_tail;
@@ -147,6 +149,7 @@ void psaux_controller_ready(void)
 	unsigned long flags;
 
 	spin_lock_irqsave(&psaux_lock, flags);
+	psaux_absolute = vmmouse_init();
 	psaux_available = 1;
 	psaux_reset_locked();
 	spin_unlock_irqrestore(&psaux_lock, flags);
@@ -164,6 +167,25 @@ void psaux_controller_failed(void)
 	wake_up_all(&psaux_wait);
 }
 
+static int psaux_enqueue_locked(struct mario_psaux_event event)
+{
+	if (!psaux_owner_refs)
+		return 0;
+	event.ticks = jiffies;
+	if (psaux_packet_lost)
+		event.flags |= PSAUX_EVENT_OVERFLOW;
+	psaux_packet_lost = 0;
+	if (psaux_event_count == PSAUX_EVENT_COUNT) {
+		psaux_event_tail = (psaux_event_tail + 1) % PSAUX_EVENT_COUNT;
+		psaux_event_count--;
+		event.flags |= PSAUX_EVENT_OVERFLOW;
+	}
+	psaux_events[psaux_event_head] = event;
+	psaux_event_head = (psaux_event_head + 1) % PSAUX_EVENT_COUNT;
+	psaux_event_count++;
+	return 1;
+}
+
 void psaux_receive_byte(uint8_t byte)
 {
 	struct mario_psaux_event event;
@@ -171,7 +193,7 @@ void psaux_receive_byte(uint8_t byte)
 	int wake = 0;
 
 	spin_lock_irqsave(&psaux_lock, flags);
-	if (!psaux_available || !psaux_owner_refs) {
+	if (!psaux_available || (!psaux_owner_refs && !psaux_absolute)) {
 		psaux_packet_count = 0;
 		spin_unlock_irqrestore(&psaux_lock, flags);
 		return;
@@ -188,6 +210,21 @@ void psaux_receive_byte(uint8_t byte)
 		return;
 	}
 	psaux_packet_count = 0;
+	if (psaux_absolute) {
+		for (unsigned int index = 0; index < PSAUX_EVENT_COUNT; index++) {
+			int result = vmmouse_read_event(&event);
+
+			if (result < 0) {
+				psaux_absolute = 0;
+				psaux_packet_lost = 1;
+				break;
+			}
+			if (!result)
+				break;
+			wake |= psaux_enqueue_locked(event);
+		}
+		goto done;
+	}
 	/* Overflowed deltas are wrapped by hardware and cannot be recovered. */
 	if (psaux_packet[0] & 0xc0) {
 		psaux_packet_lost = 1;
@@ -198,20 +235,10 @@ void psaux_receive_byte(uint8_t byte)
 		.dx = (int8_t)psaux_packet[1],
 		.dy = (int8_t)psaux_packet[2],
 		.buttons = psaux_packet[0] & 0x07,
-		.flags = psaux_packet_lost ? PSAUX_EVENT_OVERFLOW : 0,
-		.ticks = jiffies,
 	};
-	psaux_packet_lost = 0;
 	/* Retain recent input and mark the record after a FIFO overrun. */
-	if (psaux_event_count == PSAUX_EVENT_COUNT) {
-		psaux_event_tail = (psaux_event_tail + 1) % PSAUX_EVENT_COUNT;
-		psaux_event_count--;
-		event.flags |= PSAUX_EVENT_OVERFLOW;
-	}
-	psaux_events[psaux_event_head] = event;
-	psaux_event_head = (psaux_event_head + 1) % PSAUX_EVENT_COUNT;
-	psaux_event_count++;
-	wake = 1;
+	wake = psaux_enqueue_locked(event);
+done:
 	spin_unlock_irqrestore(&psaux_lock, flags);
 	if (wake)
 		wake_up_interruptible(&psaux_wait);

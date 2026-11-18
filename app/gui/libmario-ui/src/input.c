@@ -60,6 +60,7 @@ void gui_input_normalize_mouse_records(const struct mario_psaux_event *records,
 				.dy = records[index].dy,
 				.dz = records[index].dz,
 				.buttons = records[index].buttons,
+				.absolute = !!(records[index].flags & PSAUX_EVENT_ABSOLUTE),
 			},
 		};
 
@@ -68,4 +69,34 @@ void gui_input_normalize_mouse_records(const struct mario_psaux_event *records,
 			gui_input_emit_mouse_reset(emit, context, event.ticks);
 		emit(context, &event);
 	}
+}
+
+void gui_input_apply_mouse_motion(const gui_input_event *event, uint32_t width,
+				  uint32_t height, uint32_t *cursor_x,
+				  uint32_t *cursor_y)
+{
+	int64_t next_x;
+	int64_t next_y;
+
+	if (event == NULL || cursor_x == NULL || cursor_y == NULL || !width || !height)
+		return;
+	if (event->mouse.absolute) {
+		next_x = ((uint64_t)event->mouse.x * width + PSAUX_ABSOLUTE_MAX / 2) /
+			PSAUX_ABSOLUTE_MAX;
+		next_y = ((uint64_t)event->mouse.y * height + PSAUX_ABSOLUTE_MAX / 2) /
+			PSAUX_ABSOLUTE_MAX;
+	} else {
+		next_x = (int64_t)*cursor_x + event->mouse.dx;
+		next_y = (int64_t)*cursor_y - event->mouse.dy;
+	}
+	if (next_x < 0)
+		next_x = 0;
+	else if ((uint64_t)next_x >= width)
+		next_x = width - 1;
+	if (next_y < 0)
+		next_y = 0;
+	else if ((uint64_t)next_y >= height)
+		next_y = height - 1;
+	*cursor_x = next_x;
+	*cursor_y = next_y;
 }

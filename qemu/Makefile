@@ -59,6 +59,9 @@ clean:
 
 ifneq ($(QEMU_DISPLAY),gtk)
 QEMU_DISPLAY	:=curses
+QEMU_VMPORT := off
+else
+QEMU_VMPORT := on
 endif
 
 HD_FLAGS := \
@@ -76,6 +79,7 @@ QEMU_FLAGS := \
 	-m 256M \
 	-smp $(SMP) \
 	-display $(QEMU_DISPLAY) \
+	-machine vmport=$(QEMU_VMPORT) \
 	$(HD_FLAGS) \
 	-no-reboot -no-shutdown
 
@@ -94,6 +98,7 @@ QUICK_QEMU_FLAGS := \
 	-kernel $(KERNEL_EXE) \
 	-initrd $(RDX) \
 	-display $(QEMU_DISPLAY) \
+	-machine vmport=$(QEMU_VMPORT) \
 	$(HD_FLAGS) \
 	-no-reboot -no-shutdown
 

@@ -1,2 +1,3 @@
 RUN: /usr/bin/test/input_abi.exe
 CHECK: input-abi: key=8 mouse=12 flags=1/1
+CHECK: input-abi: absolute mouse shares 12-byte record

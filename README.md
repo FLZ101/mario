@@ -165,6 +165,12 @@ $ make quick-run
 $ make quick-run-gtk
 ```
 
+`make run-gtk` uses QEMU's virtual absolute mouse on framebuffer boots, so
+Mario's cursor follows the host pointer at the corresponding guest pixel,
+including when the GTK display is scaled. Curses and existing headless GUI
+tests retain relative PS/2 input. `GUI-MOUSE-POSITION: x,y` opts a GUI fixture
+into GTK-style absolute positioning; do not mix it with `GUI-MOUSE-MOVE`.
+
 ## Debug
 
 ```

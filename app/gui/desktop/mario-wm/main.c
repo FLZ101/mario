@@ -2767,18 +2767,12 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	if (event->type == GUI_INPUT_EVENT_MOUSE) {
 		uint8_t previous_buttons = state->mouse_buttons;
 		int motion_only = previous_buttons == event->mouse.buttons;
-		int64_t cursor_x = (int64_t)state->cursor_x + event->mouse.dx;
-		int64_t cursor_y = (int64_t)state->cursor_y - event->mouse.dy;
+		uint32_t cursor_x = state->cursor_x;
+		uint32_t cursor_y = state->cursor_y;
 
-		if (cursor_x < 0)
-			cursor_x = 0;
-		else if ((uint64_t)cursor_x >= state->width)
-			cursor_x = state->width - 1;
-		if (cursor_y < 0)
-			cursor_y = 0;
-		else if ((uint64_t)cursor_y >= state->height)
-			cursor_y = state->height - 1;
-		if (state->cursor_x != (uint32_t)cursor_x || state->cursor_y != (uint32_t)cursor_y) {
+		gui_input_apply_mouse_motion(event, state->width, state->height,
+			&cursor_x, &cursor_y);
+		if (state->cursor_x != cursor_x || state->cursor_y != cursor_y) {
 			state->cursor_x = cursor_x;
 			state->cursor_y = cursor_y;
 			compose = 1;
