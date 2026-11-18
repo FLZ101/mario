@@ -41,6 +41,10 @@ booting QEMU or rebuilding artifacts. Use --run-skipped to run it explicitly.
 GUI-CHECK-* comparisons retry for at most five seconds after the screen-settle
 delay, even when TIMEOUT is longer. Shorter TIMEOUT values also shorten these
 checks; serial commands and application/frame readiness waits retain TIMEOUT.
+
+Boot-prompt timeouts retain the screen, serial output, QMP status and per-CPU
+registers under tmp/gui-failures before QEMU is terminated. Diagnostic capture
+has a separate five-second total budget; the boot-prompt limit remains 30s.
 """
 
 from __future__ import annotations
@@ -72,6 +76,8 @@ BOOT_PROMPT = "/ # "
 PROMPT_PATTERN = re.compile(r"(?m)^\r*MARIO_GUI_PROMPT> ")
 DEFAULT_TIMEOUT = 60.0
 BOOT_MENU_DELAY = 3.0
+BOOT_TIMEOUT = 30.0
+BOOT_DIAGNOSTIC_TIMEOUT = 5.0
 KEY_DELAY = 0.05
 SCREEN_SETTLE_DELAY = 1.0
 VISUAL_CHECK_TIMEOUT = 5.0
@@ -373,22 +379,25 @@ class Qmp:
         self.buffer = b""
         self.mouse_buttons = 0
 
-    def connect(self) -> None:
-        deadline = time.monotonic() + DEFAULT_TIMEOUT
-        while time.monotonic() < deadline:
+    def connect(self, timeout: float = DEFAULT_TIMEOUT) -> None:
+        deadline = time.monotonic() + timeout
+        while (remaining := deadline - time.monotonic()) > 0:
             try:
                 self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                self.socket.settimeout(remaining)
                 self.socket.connect(self.path)
                 break
             except OSError:
                 if self.socket is not None:
                     self.socket.close()
                     self.socket = None
-                time.sleep(0.05)
+                time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
         if self.socket is None:
             raise GuiTestError(f"QMP socket was not created: {self.path}")
-        self._read_message(DEFAULT_TIMEOUT)
-        self.command("qmp_capabilities")
+        self._read_message(max(0.0, deadline - time.monotonic()))
+        self.command(
+            "qmp_capabilities", timeout=max(0.0, deadline - time.monotonic())
+        )
 
     def _read_message(self, timeout: float) -> dict:
         if self.socket is None:
@@ -409,20 +418,31 @@ class Qmp:
             self.buffer += data
         raise GuiTestError("timed out waiting for QMP response")
 
-    def command(self, execute: str, arguments: dict | None = None) -> dict:
+    def command(
+        self,
+        execute: str,
+        arguments: dict | None = None,
+        *,
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> dict:
         if self.socket is None:
             raise GuiTestError("QMP is not connected")
+        if timeout <= 0:
+            raise GuiTestError(f"timed out waiting for QMP {execute} response")
+        deadline = time.monotonic() + timeout
         request = {"execute": execute}
         if arguments is not None:
             request["arguments"] = arguments
+        self.socket.settimeout(timeout)
         self.socket.sendall(json.dumps(request).encode() + b"\n")
-        while True:
-            response = self._read_message(DEFAULT_TIMEOUT)
+        while (remaining := deadline - time.monotonic()) > 0:
+            response = self._read_message(remaining)
             if "event" in response:
                 continue
             if "error" in response:
                 raise GuiTestError(f"QMP {execute}: {response['error']}")
             return response.get("return", {})
+        raise GuiTestError(f"timed out waiting for QMP {execute} response")
 
     def close(self) -> None:
         if self.socket is not None:
@@ -512,6 +532,67 @@ def retain_visual_failure_diagnostics(
         )
     except Exception as exc:
         errors.append(f"query-status: {exc}")
+    (directory / "serial-tail.txt").write_text(serial_tail[-4000:], encoding="latin-1")
+    if errors:
+        (directory / "diagnostic-errors.txt").write_text(
+            "\n".join(errors) + "\n", encoding="utf-8"
+        )
+    return directory
+
+
+def retain_boot_failure_diagnostics(
+    test: GuiTest,
+    qmp: Qmp,
+    serial_tail: str,
+    index: int,
+    failure_root: Path | None = None,
+) -> Path:
+    if failure_root is None:
+        failure_root = ROOT / "tmp" / "gui-failures"
+    name = re.sub(r"[^A-Za-z0-9_.-]", "-", test.path.stem)
+    directory = failure_root / f"{name}-boot-{os.getpid()}-{index}"
+    directory.mkdir(parents=True, exist_ok=False)
+    deadline = time.monotonic() + BOOT_DIAGNOSTIC_TIMEOUT
+    state: dict = {}
+    errors: list[str] = []
+
+    def remaining() -> float:
+        timeout = deadline - time.monotonic()
+        if timeout <= 0:
+            raise GuiTestError("boot diagnostic deadline exceeded")
+        return timeout
+
+    def command(execute: str, arguments: dict | None = None):
+        return qmp.command(execute, arguments, timeout=remaining())
+
+    try:
+        qmp.connect(timeout=remaining())
+    except Exception as exc:
+        errors.append(f"QMP connect: {exc}")
+    else:
+        for execute, arguments in (
+            ("query-status", None),
+            ("stop", None),
+            ("screendump", {"filename": str(directory / "actual.ppm")}),
+            ("query-cpus-fast", None),
+        ):
+            try:
+                state[execute] = command(execute, arguments)
+            except Exception as exc:
+                errors.append(f"{execute}: {exc}")
+        state["registers"] = {}
+        for cpu in state.get("query-cpus-fast", []):
+            cpu_index = cpu["cpu-index"]
+            try:
+                command("human-monitor-command", {"command-line": f"cpu {cpu_index}"})
+                state["registers"][str(cpu_index)] = command(
+                    "human-monitor-command", {"command-line": "info registers"}
+                )
+            except Exception as exc:
+                errors.append(f"CPU {cpu_index} registers: {exc}")
+    (directory / "qmp.json").write_text(
+        json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     (directory / "serial-tail.txt").write_text(serial_tail[-4000:], encoding="latin-1")
     if errors:
         (directory / "diagnostic-errors.txt").write_text(
@@ -799,6 +880,7 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
     timeout = DEFAULT_TIMEOUT
     frame_baseline: int | None = None
     visual_failure = False
+    boot_ready = False
     try:
         time.sleep(BOOT_MENU_DELAY)
         if test.expect_halt is not None:
@@ -811,7 +893,18 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
             output.append(child.before + child.after)
             last_serial = "".join(output)
         else:
-            child.expect(BOOT_PROMPT, timeout=30)
+            try:
+                child.expect(BOOT_PROMPT, timeout=BOOT_TIMEOUT)
+            except pexpect.exceptions.TIMEOUT as exc:
+                diagnostics = retain_boot_failure_diagnostics(
+                    test, qmp, child.before, index
+                )
+                raise GuiTestError(
+                    f"boot prompt timed out after {BOOT_TIMEOUT:.1f}s before fixture "
+                    f"actions; last serial output: {child.before[-500:]!r}; "
+                    f"boot diagnostics retained: {diagnostics}"
+                ) from exc
+            boot_ready = True
             send_line(child, f"PS1='{PROMPT}'")
             expect_prompt(child, 10, "set GUI prompt")
             qmp.connect()
@@ -920,7 +1013,7 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                     test, qmp, last_serial + child.before, index
                 )
                 failures.append(f"GUI diagnostics retained: {diagnostics}")
-            if test.expect_halt is None:
+            if boot_ready:
                 send_line(child, "halt")
         finally:
             child.close(force=True)
