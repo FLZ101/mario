@@ -205,6 +205,7 @@ def copy_rootfs_files(
         "tests/gui/assets/checker-64.bmp": "usr/share/mario-tests/gui/checker-64.bmp",
         "tests/gui/assets/alpha-128.png": "usr/share/mario-tests/gui/alpha-128.png",
         "tests/gui/assets/large-1600x1200.png": "usr/share/mario-tests/gui/large-1600x1200.png",
+        "tests/gui/assets/wallpaper-blue-marble-1920x1200.png": "usr/share/mario-tests/gui/wallpaper-blue-marble-1920x1200.png",
         "app/usr/ncurses-6.6-install/share/terminfo/a/ansi": "usr/share/terminfo/a/ansi",
         "app/usr/ncurses-6.6-install/share/terminfo/l/linux": "usr/share/terminfo/l/linux",
         "app/usr/ncurses-6.6-install/share/terminfo/v/vt100": "usr/share/terminfo/v/vt100",

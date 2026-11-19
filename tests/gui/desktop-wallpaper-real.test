@@ -1,0 +1,33 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.*; ln -s /usr/share/mario-tests/gui/wallpaper-blue-marble-1920x1200.png /tmp/wallpaper-real.png; MARIO_WALLPAPER=/tmp/wallpaper-real.png /usr/bin/mario-wm >/tmp/mario-wm.log 2>/tmp/wallpaper-real.log & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done; grep 'wallpaper loaded' /tmp/wallpaper-real.log
+SERIAL-CHECK: wallpaper loaded: /tmp/wallpaper-real.png (1920x1200)
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-MOUSE-POSITION: 16,752
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-wallpaper-blue-marble.png
+SERIAL: rm /tmp/wallpaper-real.png
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-WAIT-FRAME:
+GUI-CHECK-DIFFERENT: assets/desktop-wallpaper-blue-marble.png
+GUI-CHECK-RECT: 100 722 1 1 37 99 235
+GUI-SEND-KEY: esc
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-wallpaper-blue-marble.png
+SERIAL: /usr/bin/terminal >/tmp/wallpaper-real-terminal.log 2>&1 &
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/wallpaper-real-terminal.log; do sleep 1; done
+GUI-CHECK-DIFFERENT: assets/desktop-wallpaper-blue-marble.png
+GUI-CHECK-RECT: 130 130 1 1 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while pgrep terminal >/dev/null; do sleep 1; done
+GUI-CHECK-SCREEN: assets/desktop-wallpaper-blue-marble.png
+GUI-SEND-KEY: f1
+SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-wallpaper-blue-marble.png
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:
