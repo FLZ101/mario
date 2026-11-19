@@ -11,6 +11,8 @@
 #include <unistd.h>
 
 #include <gui/image.h>
+#include <gui/appearance.h>
+#include <gui/font.h>
 #include <gui/input.h>
 #include <gui/protocol.h>
 #include <app/gui-limits.h>
@@ -19,7 +21,7 @@
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
 #define DESKTOP_BACKGROUND 0x001f2933U
-#define DESKTOP_WALLPAPER_PATH "/usr/share/mario/wallpaper.png"
+#define DESKTOP_WALLPAPER_PATH GUI_APPEARANCE_WALLPAPER_DEFAULT
 #define DESKTOP_PANEL 0x00111827U
 #define DESKTOP_LAUNCHER 0x002563ebU
 #define DESKTOP_TASK_ACTIVE 0x002563ebU
@@ -128,6 +130,16 @@ typedef struct {
 	uint32_t *wallpaper_map;
 	uint32_t wallpaper_width;
 	uint32_t wallpaper_height;
+	gui_appearance appearance;
+	gui_font *font;
+	gui_font_metrics font_metrics;
+	gui_surface *text_surface;
+	uint32_t panel_height;
+	uint32_t button_height;
+	uint32_t launcher_width;
+	uint32_t clock_width;
+	uint32_t menu_width;
+	uint32_t taskbar_width;
 } desktop_state;
 
 /* Keep the largest wire frame out of the small initial userspace stack. */
@@ -294,15 +306,106 @@ static desktop_window *desktop_window_by_id(desktop_state *state,
 	return NULL;
 }
 
+static uint32_t desktop_panel_height(const desktop_state *state)
+{
+	return state->panel_height ? state->panel_height : DESKTOP_PANEL_HEIGHT;
+}
+
+static uint32_t desktop_button_height(const desktop_state *state)
+{
+	return state->button_height ? state->button_height : DESKTOP_TASKBAR_BUTTON_HEIGHT;
+}
+
+static uint32_t desktop_launcher_width(const desktop_state *state)
+{
+	return state->launcher_width ? state->launcher_width : 48;
+}
+
+static uint32_t desktop_clock_width(const desktop_state *state)
+{
+	return state->clock_width ? state->clock_width : 40;
+}
+
+static uint32_t desktop_menu_width(const desktop_state *state)
+{
+	return state->menu_width ? state->menu_width : DESKTOP_MENU_WIDTH;
+}
+
+static uint32_t desktop_taskbar_width(const desktop_state *state)
+{
+	return state->taskbar_width ? state->taskbar_width : DESKTOP_TASKBAR_BUTTON_WIDTH;
+}
+
+static uint32_t desktop_taskbar_first_x(const desktop_state *state)
+{
+	return desktop_launcher_width(state) + 16;
+}
+
+static uint32_t desktop_taskbar_stride(const desktop_state *state)
+{
+	return desktop_taskbar_width(state) + 4;
+}
+
+static uint32_t desktop_panel_y(const desktop_state *state)
+{
+	return state->height > desktop_panel_height(state) ?
+		state->height - desktop_panel_height(state) : 0;
+}
+
+static uint32_t desktop_text_width(desktop_state *state, const char *text, uint32_t minimum)
+{
+	gui_text_layout layout;
+
+	if (!gui_text_measure(text, &state->font_metrics, gui_font_lookup, state->font, &layout) ||
+	    layout.width < 0 || layout.width > 512 || (uint32_t)layout.width + 16 < minimum)
+		return minimum;
+	return (uint32_t)layout.width + 16;
+}
+
+static void desktop_setup_font(desktop_state *state)
+{
+	gui_font_metrics *metrics = &state->font_metrics;
+	uint32_t height;
+
+	if (state->appearance.font_path[0] == '\0')
+		return;
+	state->font = gui_font_load(state->appearance.font_path, state->appearance.font_size);
+	if (state->font == NULL || !gui_font_get_metrics(state->font, metrics) ||
+	    metrics->ascent <= 0 || metrics->ascent > 128 || metrics->descent > 0 ||
+	    metrics->descent < -128 || metrics->line_gap < 0 || metrics->line_gap > 128) {
+		fprintf(stderr, "mario-desktop: font unavailable: %s; using bitmap font\n",
+			state->appearance.font_path);
+		gui_font_destroy(state->font);
+		state->font = NULL;
+		return;
+	}
+	height = metrics->ascent - metrics->descent + metrics->line_gap;
+	state->button_height = height + 4 > DESKTOP_TASKBAR_BUTTON_HEIGHT ?
+		height + 4 : DESKTOP_TASKBAR_BUTTON_HEIGHT;
+	state->panel_height = state->button_height + 8;
+	state->launcher_width = desktop_text_width(state, "MENU", 48);
+	state->clock_width = desktop_text_width(state, "--:--", 40);
+	state->menu_width = desktop_text_width(state, "Terminal", DESKTOP_MENU_WIDTH);
+	state->taskbar_width = desktop_text_width(state, "4294967295", DESKTOP_TASKBAR_BUTTON_WIDTH);
+}
+
+static int desktop_bitmap_text(const desktop_state *state, const char *text,
+		uint32_t x, uint32_t y, uint32_t origin_x, uint32_t origin_y)
+{
+	return (state->font == NULL || state->text_surface == NULL) &&
+		text_pixel(text, x, y, origin_x, origin_y);
+}
+
 static size_t desktop_taskbar_capacity(const desktop_state *state, int paged)
 {
-	uint32_t clock_x = state->width > 40 ? state->width - 40 : 0;
-	uint32_t reserved = DESKTOP_TASKBAR_FIRST_X +
+	uint32_t clock_x = state->width > desktop_clock_width(state) ?
+		state->width - desktop_clock_width(state) : 0;
+	uint32_t reserved = desktop_taskbar_first_x(state) +
 		(paged ? 2 * DESKTOP_TASKBAR_CONTROL_STRIDE : 0);
 
-	return clock_x < reserved + DESKTOP_TASKBAR_BUTTON_WIDTH ? 0 :
-		(clock_x - reserved - DESKTOP_TASKBAR_BUTTON_WIDTH) /
-		DESKTOP_TASKBAR_BUTTON_STRIDE + 1;
+	return clock_x < reserved + desktop_taskbar_width(state) ? 0 :
+		(clock_x - reserved - desktop_taskbar_width(state)) /
+		desktop_taskbar_stride(state) + 1;
 }
 
 static int desktop_prepare_taskbar(desktop_state *state)
@@ -333,7 +436,7 @@ static int desktop_prepare_taskbar(desktop_state *state)
 	if (state->taskbar_page >= taskbar->pages)
 		state->taskbar_page = taskbar->pages - 1;
 	taskbar->page = state->taskbar_page;
-	taskbar->first_x = DESKTOP_TASKBAR_FIRST_X +
+	taskbar->first_x = desktop_taskbar_first_x(state) +
 		(taskbar->paged ? DESKTOP_TASKBAR_CONTROL_STRIDE : 0);
 	taskbar->count = 0;
 	offset = taskbar->page * taskbar->capacity;
@@ -366,17 +469,16 @@ static void desktop_commit_taskbar(desktop_state *state)
 static const desktop_button *desktop_taskbar_button(const desktop_state *state,
 		const desktop_taskbar *taskbar, uint32_t pointer_x, uint32_t pointer_y)
 {
-	uint32_t panel_y = state->height > DESKTOP_PANEL_HEIGHT ?
-		state->height - DESKTOP_PANEL_HEIGHT : 0;
+	uint32_t panel_y = desktop_panel_y(state);
 	size_t slot;
 
-	if (pointer_y < panel_y + 4 || pointer_y >= panel_y + 4 + DESKTOP_TASKBAR_BUTTON_HEIGHT ||
+	if (pointer_y < panel_y + 4 || pointer_y >= panel_y + 4 + desktop_button_height(state) ||
 	    pointer_x < taskbar->first_x)
 		return NULL;
-	slot = (pointer_x - taskbar->first_x) / DESKTOP_TASKBAR_BUTTON_STRIDE;
+	slot = (pointer_x - taskbar->first_x) / desktop_taskbar_stride(state);
 	if (slot >= taskbar->count ||
-	    (pointer_x - taskbar->first_x) % DESKTOP_TASKBAR_BUTTON_STRIDE >=
-	    DESKTOP_TASKBAR_BUTTON_WIDTH)
+	    (pointer_x - taskbar->first_x) % desktop_taskbar_stride(state) >=
+	    desktop_taskbar_width(state))
 		return NULL;
 	return &taskbar->buttons[slot];
 }
@@ -393,16 +495,15 @@ static const desktop_window *desktop_taskbar_window(desktop_state *state,
 static int desktop_taskbar_control(const desktop_state *state,
 		const desktop_taskbar *taskbar, uint32_t pointer_x, uint32_t pointer_y)
 {
-	uint32_t panel_y = state->height > DESKTOP_PANEL_HEIGHT ?
-		state->height - DESKTOP_PANEL_HEIGHT : 0;
-	uint32_t next_x = state->width > 40 + DESKTOP_TASKBAR_CONTROL_STRIDE ?
-		state->width - 40 - DESKTOP_TASKBAR_CONTROL_STRIDE : 0;
+	uint32_t panel_y = desktop_panel_y(state);
+	uint32_t next_x = state->width > desktop_clock_width(state) + DESKTOP_TASKBAR_CONTROL_STRIDE ?
+		state->width - desktop_clock_width(state) - DESKTOP_TASKBAR_CONTROL_STRIDE : 0;
 
 	if (!taskbar->paged || taskbar->capacity == 0 || pointer_y < panel_y + 4 ||
-	    pointer_y >= panel_y + 4 + DESKTOP_TASKBAR_BUTTON_HEIGHT)
+	    pointer_y >= panel_y + 4 + desktop_button_height(state))
 		return 0;
-	if (pointer_x >= DESKTOP_TASKBAR_FIRST_X &&
-	    pointer_x < DESKTOP_TASKBAR_FIRST_X + DESKTOP_TASKBAR_CONTROL_WIDTH)
+	if (pointer_x >= desktop_taskbar_first_x(state) &&
+	    pointer_x < desktop_taskbar_first_x(state) + DESKTOP_TASKBAR_CONTROL_WIDTH)
 		return -1;
 	if (pointer_x >= next_x && pointer_x < next_x + DESKTOP_TASKBAR_CONTROL_WIDTH)
 		return 1;
@@ -422,12 +523,6 @@ static void desktop_reveal_window(desktop_state *state, const desktop_window *ta
 		}
 		position++;
 	}
-}
-
-static uint32_t desktop_panel_y(const desktop_state *state)
-{
-	return state->height > DESKTOP_PANEL_HEIGHT ?
-		state->height - DESKTOP_PANEL_HEIGHT : 0;
 }
 
 static int desktop_read_wallpaper(const char *path, gui_surface **image)
@@ -491,8 +586,10 @@ static void desktop_load_wallpaper(desktop_state *state)
 	const char *path = getenv("MARIO_WALLPAPER");
 	int configured = path != NULL;
 
-	if (path == NULL)
-		path = DESKTOP_WALLPAPER_PATH;
+	if (path == NULL) {
+		path = state->appearance.font_size ? state->appearance.wallpaper_path : DESKTOP_WALLPAPER_PATH;
+		configured = strcmp(path, DESKTOP_WALLPAPER_PATH) != 0;
+	}
 	if (*path == '\0')
 		return;
 	if (desktop_read_wallpaper(path, &state->wallpaper) < 0) {
@@ -553,7 +650,7 @@ static void desktop_prepare_wallpaper(desktop_state *state)
 static uint32_t desktop_menu_top(const desktop_state *state)
 {
 	uint32_t panel_y = desktop_panel_y(state);
-	uint32_t menu_height = DESKTOP_MENU_ITEM_HEIGHT * DESKTOP_MENU_ITEM_COUNT;
+	uint32_t menu_height = desktop_button_height(state) * DESKTOP_MENU_ITEM_COUNT;
 
 	return panel_y > menu_height ? panel_y - menu_height : 0;
 }
@@ -572,12 +669,12 @@ static int desktop_menu_entry_at(const desktop_state *state, uint32_t x,
 	uint32_t menu_top;
 
 	if (!state->menu_open || x < DESKTOP_MENU_X ||
-	    x >= DESKTOP_MENU_X + DESKTOP_MENU_WIDTH)
+	    x >= DESKTOP_MENU_X + desktop_menu_width(state))
 		return -1;
 	menu_top = desktop_menu_top(state);
 	if (y < menu_top || y >= desktop_panel_y(state))
 		return -1;
-	return (int)((y - menu_top) / DESKTOP_MENU_ITEM_HEIGHT);
+	return (int)((y - menu_top) / desktop_button_height(state));
 }
 
 static uint32_t desktop_focused_window_id(const desktop_state *state)
@@ -588,7 +685,65 @@ static uint32_t desktop_focused_window_id(const desktop_state *state)
 	return 0;
 }
 
-static uint32_t desktop_pixel(const desktop_state *state, uint32_t offset)
+static void desktop_draw_label(desktop_state *state, const char *text, gui_rect rectangle)
+{
+	gui_surface clipped;
+	int mask_top = (int)desktop_menu_top(state);
+	int height = state->font_metrics.ascent - state->font_metrics.descent + state->font_metrics.line_gap;
+	int baseline = rectangle.h > height ? (rectangle.h - height) / 2 : 0;
+
+	rectangle.y -= mask_top;
+	if (rectangle.x < 0 || rectangle.y < 0 || rectangle.x >= state->text_surface->width ||
+	    rectangle.y >= state->text_surface->height || rectangle.w <= 0 || rectangle.h <= 0)
+		return;
+	if (rectangle.w > state->text_surface->width - rectangle.x)
+		rectangle.w = state->text_surface->width - rectangle.x;
+	if (rectangle.h > state->text_surface->height - rectangle.y)
+		rectangle.h = state->text_surface->height - rectangle.y;
+	clipped = (gui_surface) { .width = rectangle.w, .height = rectangle.h,
+		.stride = state->text_surface->stride, .pixels = state->text_surface->pixels +
+		(size_t)rectangle.y * state->text_surface->stride + rectangle.x };
+	gui_font_draw_text(&clipped, 4, baseline + state->font_metrics.ascent,
+		state->font, text, 0x00ffffff);
+}
+
+static void desktop_prepare_text(desktop_state *state)
+{
+	uint32_t top = desktop_menu_top(state);
+	uint32_t panel_y = desktop_panel_y(state);
+
+	if (state->font == NULL || state->width == 0 || state->height <= top)
+		return;
+	if (state->text_surface == NULL || (uint32_t)state->text_surface->width != state->width ||
+	    (uint32_t)state->text_surface->height != state->height - top) {
+		gui_surface *surface = gui_surface_create(state->width, state->height - top);
+
+		gui_surface_destroy(state->text_surface);
+		state->text_surface = surface;
+		if (surface == NULL) {
+			fprintf(stderr, "mario-desktop: text cache allocation failed; using bitmap text\n");
+			return;
+		}
+	}
+	gui_fill_rect(state->text_surface, (gui_rect) { 0, 0, state->text_surface->width,
+		state->text_surface->height }, 0);
+	desktop_draw_label(state, "MENU", (gui_rect) { 8, panel_y + 4,
+		desktop_launcher_width(state), desktop_button_height(state) });
+	if (state->width >= desktop_clock_width(state))
+		desktop_draw_label(state, "--:--", (gui_rect) { state->width - desktop_clock_width(state),
+			panel_y + 4, desktop_clock_width(state), desktop_button_height(state) });
+	for (size_t index = 0; index < state->painted_taskbar.count; index++)
+		desktop_draw_label(state, state->painted_taskbar.buttons[index].label, (gui_rect) {
+			state->painted_taskbar.first_x + index * desktop_taskbar_stride(state), panel_y + 4,
+			desktop_taskbar_width(state), desktop_button_height(state) });
+	if (state->menu_open)
+		for (unsigned int entry = 0; entry < DESKTOP_MENU_ITEM_COUNT; entry++)
+			desktop_draw_label(state, desktop_menu_label((desktop_menu_entry)entry), (gui_rect) {
+				DESKTOP_MENU_X + 8, top + entry * desktop_button_height(state),
+				desktop_menu_width(state) - 8, desktop_button_height(state) });
+}
+
+static uint32_t desktop_background_pixel(const desktop_state *state, uint32_t offset)
 {
 	uint32_t x = offset % state->width;
 	uint32_t y = offset / state->width;
@@ -597,37 +752,38 @@ static uint32_t desktop_pixel(const desktop_state *state, uint32_t offset)
 	int control;
 
 	if (state->menu_open && x >= DESKTOP_MENU_X &&
-	    x < DESKTOP_MENU_X + DESKTOP_MENU_WIDTH && y >= desktop_menu_top(state) &&
+	    x < DESKTOP_MENU_X + desktop_menu_width(state) && y >= desktop_menu_top(state) &&
 	    y < panel_y) {
 		int entry = desktop_menu_entry_at(state, x, y);
 
 		if (entry >= 0 && (size_t)entry < DESKTOP_MENU_ITEM_COUNT) {
 			uint32_t row_y = desktop_menu_top(state) +
-				(uint32_t)entry * DESKTOP_MENU_ITEM_HEIGHT;
+				(uint32_t)entry * desktop_button_height(state);
 
-			if (text_pixel(desktop_menu_label((desktop_menu_entry)entry), x, y,
+			if (desktop_bitmap_text(state, desktop_menu_label((desktop_menu_entry)entry), x, y,
 				DESKTOP_MENU_X + 12, row_y + 5))
-				return DESKTOP_TEXT;
-			return DESKTOP_LAUNCHER;
+				return gui_appearance_color(&state->appearance, GUI_APPEARANCE_FOREGROUND);
+			return gui_appearance_color(&state->appearance, GUI_APPEARANCE_ACTIVE);
 		}
-		return DESKTOP_PANEL;
+		return gui_appearance_color(&state->appearance, GUI_APPEARANCE_PANEL);
 	}
 	if (y < panel_y) {
 		if (state->wallpaper != NULL && state->wallpaper_map != NULL &&
 		    state->wallpaper_width == state->width && state->wallpaper_height == state->height)
 			return state->wallpaper->pixels[state->wallpaper_map[state->width + y] +
 				state->wallpaper_map[x]];
-		return DESKTOP_BACKGROUND;
+		return gui_appearance_color(&state->appearance, GUI_APPEARANCE_BACKGROUND);
 	}
-	if (x >= 8 && x < 56 && y >= panel_y + 4 && y < panel_y + 24) {
-		if (text_pixel("MENU", x, y, 12, panel_y + 9))
-			return DESKTOP_TEXT;
-		return DESKTOP_LAUNCHER;
+	if (x >= 8 && x < 8 + desktop_launcher_width(state) &&
+	    y >= panel_y + 4 && y < panel_y + 4 + desktop_button_height(state)) {
+		if (desktop_bitmap_text(state, "MENU", x, y, 12, panel_y + 9))
+			return gui_appearance_color(&state->appearance, GUI_APPEARANCE_FOREGROUND);
+		return gui_appearance_color(&state->appearance, GUI_APPEARANCE_ACTIVE);
 	}
 	control = desktop_taskbar_control(state, &state->painted_taskbar, x, y);
 	if (control != 0) {
-		uint32_t origin = control < 0 ? DESKTOP_TASKBAR_FIRST_X :
-			state->width - 40 - DESKTOP_TASKBAR_CONTROL_STRIDE;
+		uint32_t origin = control < 0 ? desktop_taskbar_first_x(state) :
+			state->width - desktop_clock_width(state) - DESKTOP_TASKBAR_CONTROL_STRIDE;
 		uint32_t row = y - panel_y - 4;
 		int enabled = control < 0 ? state->painted_taskbar.page != 0 :
 			state->painted_taskbar.page + 1 < state->painted_taskbar.pages;
@@ -637,26 +793,56 @@ static uint32_t desktop_pixel(const desktop_state *state, uint32_t offset)
 			uint32_t column = control < 0 ? 6 + distance : 13 - distance;
 
 			if (x - origin >= column && x - origin < column + 2)
-				return enabled ? DESKTOP_TEXT : DESKTOP_TASK_INACTIVE;
+				return gui_appearance_color(&state->appearance,
+					enabled ? GUI_APPEARANCE_FOREGROUND : GUI_APPEARANCE_INACTIVE);
 		}
-		return enabled ? DESKTOP_TASK_INACTIVE : DESKTOP_PANEL;
+		return gui_appearance_color(&state->appearance,
+			enabled ? GUI_APPEARANCE_INACTIVE : GUI_APPEARANCE_PANEL);
 	}
 	button = desktop_taskbar_button(state, &state->painted_taskbar, x, y);
 	if (button != NULL) {
-		if (state->painted_taskbar.paged && text_pixel(button->label, x, y,
+		if (state->painted_taskbar.paged && desktop_bitmap_text(state, button->label, x, y,
 			state->painted_taskbar.first_x +
-			(button - state->painted_taskbar.buttons) * DESKTOP_TASKBAR_BUTTON_STRIDE + 8,
+			(button - state->painted_taskbar.buttons) * desktop_taskbar_stride(state) + 8,
 			panel_y + 9))
-			return DESKTOP_TEXT;
-		return button->focused ? DESKTOP_TASK_ACTIVE : DESKTOP_TASK_INACTIVE;
+			return gui_appearance_color(&state->appearance, GUI_APPEARANCE_FOREGROUND);
+		return gui_appearance_color(&state->appearance,
+			button->focused ? GUI_APPEARANCE_ACTIVE : GUI_APPEARANCE_INACTIVE);
 	}
-	if (state->width >= 40 &&
-	    text_pixel("--:--", x, y, state->width - 40, panel_y + 9))
-		return DESKTOP_TEXT;
-	if (state->launch_failed && x >= 56 && x < 64 &&
+	if (state->width >= desktop_clock_width(state) &&
+	    desktop_bitmap_text(state, "--:--", x, y, state->width - desktop_clock_width(state), panel_y + 9))
+		return gui_appearance_color(&state->appearance, GUI_APPEARANCE_FOREGROUND);
+	if (state->launch_failed && x >= 8 + desktop_launcher_width(state) &&
+	    x < desktop_taskbar_first_x(state) &&
 	    y >= panel_y + 9 && y < panel_y + 19)
-		return DESKTOP_LAUNCH_ERROR;
-	return DESKTOP_PANEL;
+		return gui_appearance_color(&state->appearance, GUI_APPEARANCE_ERROR);
+	return gui_appearance_color(&state->appearance, GUI_APPEARANCE_PANEL);
+}
+
+static uint32_t desktop_pixel(const desktop_state *state, uint32_t offset)
+{
+	uint32_t background = desktop_background_pixel(state, offset);
+	uint32_t top;
+	uint32_t row;
+	uint32_t alpha;
+	uint32_t foreground;
+	uint32_t result = 0;
+
+	if (state->font == NULL || state->text_surface == NULL)
+		return background;
+	top = desktop_menu_top(state);
+	row = offset / state->width;
+	if (row < top)
+		return background;
+	alpha = state->text_surface->pixels[(size_t)(row - top) * state->text_surface->stride +
+		offset % state->width] & 255;
+	if (alpha == 0)
+		return background;
+	foreground = gui_appearance_color(&state->appearance, GUI_APPEARANCE_FOREGROUND);
+	for (unsigned int shift = 0; shift < 24; shift += 8)
+		result |= ((((foreground >> shift) & 255) * alpha +
+			((background >> shift) & 255) * (255 - alpha) + 127) / 255) << shift;
+	return result;
 }
 
 static int read_message(int fd, gui_protocol_header *header, uint8_t *payload,
@@ -706,8 +892,7 @@ static int send_message(int fd, gui_protocol_type type, const void *payload,
 static int desktop_send_work_area(const desktop_state *state)
 {
 	uint8_t payload[sizeof(gui_protocol_wire_shell_work_area)];
-	uint32_t work_height = state->height > DESKTOP_PANEL_HEIGHT ?
-		state->height - DESKTOP_PANEL_HEIGHT : 0;
+	uint32_t work_height = desktop_panel_y(state);
 
 	put32(payload, 0);
 	put32(payload + 4, 0);
@@ -915,7 +1100,8 @@ static int desktop_handle_message(desktop_state *state,
 		y = get32(payload + 20);
 		buttons = payload[24];
 		menu_entry = desktop_menu_entry_at(state, x, y);
-		menu_button = x >= 8 && x < 56 && y >= panel_y + 4 && y < panel_y + 24;
+		menu_button = x >= 8 && x < 8 + desktop_launcher_width(state) &&
+			y >= panel_y + 4 && y < panel_y + 4 + desktop_button_height(state);
 		if (!(state->mouse_buttons & 1) && (buttons & 1)) {
 			if (menu_entry >= 0) {
 				int result;
@@ -1013,6 +1199,7 @@ static int read_surface_data_reply(desktop_state *state, uint64_t frame_serial,
 
 static int send_desktop(desktop_state *state)
 {
+	desktop_state scene;
 	uint8_t begin[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_begin)] = { 0 };
 	uint8_t commit[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_commit)];
 	uint64_t frame_serial = ++state->frame_serial;
@@ -1023,6 +1210,8 @@ static int send_desktop(desktop_state *state)
 		return -1;
 	total = state->width * state->height;
 	desktop_prepare_wallpaper(state);
+	desktop_prepare_text(state);
+	scene = *state;
 
 	if (gui_protocol_encode_header(begin, sizeof(begin), GUI_PROTOCOL_SURFACE_BEGIN,
 		sizeof(gui_protocol_wire_surface_begin)) < 0)
@@ -1052,7 +1241,7 @@ static int send_desktop(desktop_state *state)
 		for (uint32_t index = 0; index < pixels; index++)
 			put32(desktop_frame + GUI_PROTOCOL_HEADER_SIZE +
 				sizeof(gui_protocol_wire_surface_data) + index * sizeof(uint32_t),
-				desktop_pixel(state, pixel_offset + index));
+				desktop_pixel(&scene, pixel_offset + index));
 		if (write_full(WM_FD, desktop_frame,
 			GUI_PROTOCOL_HEADER_SIZE + payload) < 0)
 			return -1;
@@ -1367,6 +1556,8 @@ int main(int argc, char **argv)
 	state.height = get32(payload + 20);
 	if (state.window_id == 0 || state.configure_serial == 0)
 		return 1;
+	gui_appearance_load(&state.appearance);
+	desktop_setup_font(&state);
 	desktop_load_wallpaper(&state);
 	if (desktop_send_work_area(&state) < 0)
 		return 1;

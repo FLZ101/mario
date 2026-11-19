@@ -1,4 +1,5 @@
 RUN: /usr/bin/test/gui-wm-busy.exe
+CHECK: gui-wm-busy: desktop appearance validates settings, renders cached font families and shares chrome colors
 CHECK: gui-wm-busy: valid commits survive suspended scanout
 CHECK: gui-wm-busy: reservations, shell headroom and transition rollback pass
 CHECK: gui-wm-busy: real terminal survives pressure and allocation/flush rollback

@@ -1,0 +1,45 @@
+GUI-VISUAL-TEST:
+SERIAL: <<APPEARANCE
+mkdir -p /root/.config/mario /tmp/appearance-xdg/mario
+printf 'font_family=DejaVu Sans\nfont_size=32\ncolor_scheme=light\n' >/root/.config/mario/desktop.conf
+printf 'font_family=DejaVu Sans Mono Bold\nfont_size=16\ncolor_scheme=solarized-dark\n' >/tmp/appearance-xdg/mario/desktop.conf
+printf 'font_path=/tmp/missing-font.ttf\nfont_size=32\nbackground=#203040\nactive=#304050\n' >/tmp/appearance-override.conf
+APPEARANCE
+SERIAL: rm -f /tmp/mario-wm.*; XDG_CONFIG_HOME=/tmp/appearance-xdg MARIO_WALLPAPER= /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 0 0 4 4 0 43 54
+GUI-CHECK-RECT: 0 736 4 1 0 43 54
+GUI-CHECK-RECT: 0 737 4 4 7 54 66
+GUI-CHECK-RECT: 8 741 4 4 38 139 210
+GUI-CHECK-RECT: 13 747 1 11 238 232 213
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done; rm -f /tmp/mario-wm.*
+SERIAL: XDG_CONFIG_HOME=/tmp/appearance-xdg MARIO_DESKTOP_CONFIG=/tmp/appearance-override.conf MARIO_WALLPAPER= /usr/bin/mario-wm >/tmp/mario-wm.log 2>/tmp/mario-wm.err & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done; grep 'font unavailable' /tmp/mario-wm.err
+SERIAL-CHECK: font unavailable: /tmp/missing-font.ttf; using bitmap font
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 0 0 4 4 32 48 64
+GUI-CHECK-RECT: 0 739 4 1 32 48 64
+GUI-CHECK-RECT: 0 740 4 4 17 24 39
+GUI-CHECK-RECT: 8 744 4 4 48 64 80
+SERIAL: MARIO_TERMINAL_CONFIG= /usr/bin/terminal --command 'while :; do sleep 1; done' >/tmp/appearance-terminal.log 2>&1 &
+SERIAL: while ! grep -q 'window ready' /tmp/appearance-terminal.log; do sleep 1; done
+GUI-CHECK-RECT: 130 73 4 4 48 64 80
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while pgrep terminal >/dev/null; do sleep 1; done; kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done; rm -f /tmp/mario-wm.*
+SERIAL: XDG_CONFIG_HOME=/tmp/appearance-xdg MARIO_DESKTOP_CONFIG= MARIO_WALLPAPER= /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 0 0 4 4 31 41 51
+GUI-CHECK-RECT: 0 739 4 1 31 41 51
+GUI-CHECK-RECT: 0 740 4 4 17 24 39
+GUI-CHECK-RECT: 8 744 4 4 37 99 235
+GUI-CHECK-RECT: 12 749 2 2 248 250 252
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

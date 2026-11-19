@@ -18,6 +18,7 @@
 #include <mario/fb.h>
 #include <mario/input.h>
 #include <gui/input.h>
+#include <gui/appearance.h>
 #include <gui/protocol.h>
 #include <gui/surface.h>
 
@@ -107,6 +108,7 @@ typedef struct {
 	int motion_pending;
 	int scanout_busy;
 	uint64_t motion_deadline_ms;
+	const gui_appearance *appearance;
 } wm_state;
 
 typedef struct wm_server wm_server;
@@ -742,7 +744,8 @@ static void wm_draw_cursor(wm_state *state, gui_rect clip)
 				if (!(outline & (1U << column)))
 					continue;
 				color = foreground & (1U << column) ?
-					WM_WINDOW_CONTENT_COLOR : WM_WINDOW_BORDER_COLOR;
+					gui_appearance_color(state->appearance, GUI_APPEARANCE_CONTENT) :
+					gui_appearance_color(state->appearance, GUI_APPEARANCE_BORDER);
 			}
 			state->composite->pixels[(size_t)y * state->composite->stride + x] = color;
 		}
@@ -782,19 +785,21 @@ static int wm_title_button_x(const wm_window *client, wm_title_button button)
 static gui_color wm_title_button_background(const wm_window *client,
 					    wm_title_button button)
 {
+	const gui_appearance *appearance = client->server->state.appearance;
+
 	if (client->pressed_button == button)
-		return WM_WINDOW_BORDER_COLOR;
+		return gui_appearance_color(appearance, GUI_APPEARANCE_BORDER);
 	if (client->hover_button == button)
-		return WM_WINDOW_CONTENT_COLOR;
-	return client->focused ? WM_WINDOW_TITLE_ACTIVE_COLOR :
-		WM_WINDOW_TITLE_INACTIVE_COLOR;
+		return gui_appearance_color(appearance, GUI_APPEARANCE_CONTENT);
+	return gui_appearance_color(appearance,
+		client->focused ? GUI_APPEARANCE_ACTIVE : GUI_APPEARANCE_INACTIVE);
 }
 
 static gui_color wm_title_icon_color(const wm_window *client,
 				     wm_title_button button)
 {
-	return client->pressed_button == button ? WM_WINDOW_CONTENT_COLOR :
-		WM_WINDOW_BORDER_COLOR;
+	return gui_appearance_color(client->server->state.appearance,
+		client->pressed_button == button ? GUI_APPEARANCE_CONTENT : GUI_APPEARANCE_BORDER);
 }
 
 static void wm_draw_title_icon(wm_state *state, int button_x, int button_y,
@@ -856,6 +861,7 @@ static void wm_blend_content(gui_surface *destination, int position_x, int posit
 static void wm_draw_window(wm_state *state, const wm_window *client)
 {
 	wm_window presented;
+	gui_color border = gui_appearance_color(state->appearance, GUI_APPEARANCE_BORDER);
 	uint32_t committed_width = 0;
 	uint32_t committed_height = 0;
 
@@ -869,21 +875,21 @@ static void wm_draw_window(wm_state *state, const wm_window *client)
 			gui_fill_rect(state->composite, (gui_rect) { .x = outer_x, .y = outer_y,
 				.w = (int)client->width + 2 * WM_RESIZE_GRIP,
 				.h = (int)client->height + WM_TITLE_HEIGHT + 2 * WM_RESIZE_GRIP },
-				WM_WINDOW_BORDER_COLOR);
+				border);
 		} else {
 			gui_fill_rect(state->composite, (gui_rect) { outer_x, outer_y,
-				client->width + 2 * WM_RESIZE_GRIP, WM_TITLE_HEIGHT + WM_RESIZE_GRIP }, WM_WINDOW_BORDER_COLOR);
+				client->width + 2 * WM_RESIZE_GRIP, WM_TITLE_HEIGHT + WM_RESIZE_GRIP }, border);
 			gui_fill_rect(state->composite, (gui_rect) { outer_x, client->y,
-				WM_RESIZE_GRIP, client->height }, WM_WINDOW_BORDER_COLOR);
+				WM_RESIZE_GRIP, client->height }, border);
 			gui_fill_rect(state->composite, (gui_rect) { client->x + client->width, client->y,
-				WM_RESIZE_GRIP, client->height }, WM_WINDOW_BORDER_COLOR);
+				WM_RESIZE_GRIP, client->height }, border);
 			gui_fill_rect(state->composite, (gui_rect) { outer_x, client->y + client->height,
-				client->width + 2 * WM_RESIZE_GRIP, WM_RESIZE_GRIP }, WM_WINDOW_BORDER_COLOR);
+				client->width + 2 * WM_RESIZE_GRIP, WM_RESIZE_GRIP }, border);
 		}
 		gui_fill_rect(state->composite, (gui_rect) { .x = client->x,
 			.y = client->y - WM_TITLE_HEIGHT, .w = (int)client->width,
-			.h = WM_TITLE_HEIGHT }, client->focused ? WM_WINDOW_TITLE_ACTIVE_COLOR :
-			WM_WINDOW_TITLE_INACTIVE_COLOR);
+			.h = WM_TITLE_HEIGHT }, gui_appearance_color(state->appearance,
+			client->focused ? GUI_APPEARANCE_ACTIVE : GUI_APPEARANCE_INACTIVE));
 		for (wm_title_button button = WM_TITLE_BUTTON_MINIMIZE;
 		     button <= WM_TITLE_BUTTON_CLOSE; button++) {
 			int button_x = wm_title_button_x(client, button);
@@ -898,7 +904,8 @@ static void wm_draw_window(wm_state *state, const wm_window *client)
 	}
 	if (client->transparency == 0 || client->committed == NULL)
 		gui_fill_rect(state->composite, (gui_rect) { .x = client->x, .y = client->y,
-			.w = (int)client->width, .h = (int)client->height }, WM_WINDOW_CONTENT_COLOR);
+			.w = (int)client->width, .h = (int)client->height },
+			gui_appearance_color(state->appearance, GUI_APPEARANCE_CONTENT));
 	if (client->committed == NULL)
 		return;
 	committed_width = client->committed->width < (int)client->width ?
@@ -3745,6 +3752,7 @@ static int wm_start_terminal_executable(wm_server *server, const uint8_t *path,
 
 int main(int argc, char **argv)
 {
+	static gui_appearance appearance;
 	struct sigaction action = { .sa_handler = request_stop };
 	struct sigaction ignore_pipe = { .sa_handler = SIG_IGN };
 	struct sigaction child_action = { .sa_handler = request_child_reap };
@@ -3759,6 +3767,8 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	server.diagnostics = argc == 2;
+	gui_appearance_load(&appearance);
+	server.state.appearance = &appearance;
 	/* Preserve the previous cascade origin so normal applications stay put. */
 	server.next_placement = server.diagnostics ? 0 : WM_DIAGNOSTIC_COUNT;
 

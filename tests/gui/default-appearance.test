@@ -1,0 +1,25 @@
+INIT-WM: keep
+GUI-VISUAL-TEST:
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done; test "$HOME" = /root && test -r /root/.config/mario/desktop.conf && test -r /root/.config/mario/terminal.conf && echo default-appearance: bundled configs available
+SERIAL-CHECK: default-appearance: bundled configs available
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-MOUSE-POSITION: 16,752
+GUI-WAIT-FRAME:
+GUI-CHECK-SCREEN: assets/desktop-default.png
+SERIAL: <<DEFAULTTERMINAL
+cat >/tmp/default-terminal.sh <<'SCRIPT'
+printf '\033[?25l\033[31mDefault terminal\033[0m\n14px, opaque, dark\n'
+touch /tmp/default-terminal.ready
+while :; do sleep 1; done
+SCRIPT
+/usr/bin/terminal --command '. /tmp/default-terminal.sh' >/tmp/default-terminal.log 2>/tmp/default-terminal.err &
+DEFAULTTERMINAL
+SERIAL-WAIT-FILE: /tmp/default-terminal.ready
+GUI-CHECK-SCREEN: assets/terminal-default.png
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while pgrep terminal >/dev/null; do sleep 1; done
+GUI-CHECK-SCREEN: assets/desktop-default.png
+SERIAL: kill -TERM $(pgrep mario-wm); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

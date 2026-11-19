@@ -11,7 +11,9 @@ Configuration paths, in priority order:
 2. `$XDG_CONFIG_HOME/mario/terminal.conf`, when `XDG_CONFIG_HOME` is nonempty.
 3. `$HOME/.config/mario/terminal.conf` otherwise.
 
-For example, create `/root/.config/mario/terminal.conf` in the guest:
+An editable default file is bundled at `/root/.config/mario/terminal.conf`.
+It preserves the original font size, dark colors, and opaque content.
+For example, edit it in the guest:
 
 ```ini
 font_size=20
@@ -59,9 +61,9 @@ transparent windows. A fullscreen terminal blends with the desktop rather than
 other ordinary windows. Older WMs without opacity support render opaque content
 and emit a warning instead of disconnecting the terminal.
 
-To install a persistent configuration, place it at
+To change the persistent configuration, edit
 `rd/_ramdisk0/root/.config/mario/terminal.conf` on the host and rebuild the disk
-image. No configuration is bundled by default. Restart the terminal to apply
+image. Restart the terminal to apply
 changes; live configuration reload and a graphical settings editor are not
 implemented.
 

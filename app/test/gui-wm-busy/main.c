@@ -197,6 +197,133 @@ static void init_server(wm_server *server, uint32_t width, uint32_t height);
 static wm_window *init_client(wm_server *server, size_t index, gui_protocol_endpoint_role role);
 static void cleanup_server(wm_server *server);
 
+static void test_desktop_appearance(void)
+{
+	static const char settings[] = "foreground=#123456\ncolor_scheme=light\n"
+		"font_family=DejaVu Sans\nfont_size=20\nactive=#abcdef\nborder=#010203\n";
+	static const char invalid[] = "font_family=unknown\nfont_size=0\nfont_size=33\n"
+		"font_path=relative.ttf\nwallpaper=relative.png\ncolor_scheme=unknown\nforeground=#bad\nunknown=1\n";
+	static const unsigned int sizes[] = { 8, 20, 32 };
+	static const char *families[] = { "DejaVu Sans", "DejaVu Sans Mono" };
+	gui_appearance appearance;
+	char path[] = "/tmp/desktop-appearance.XXXXXX";
+	int descriptor;
+	static wm_server server;
+	wm_window *window;
+
+	assert(access("/root/.config/mario/desktop.conf", R_OK) == 0);
+	assert(setenv("MARIO_DESKTOP_CONFIG", "/root/.config/mario/desktop.conf", 1) == 0);
+	gui_appearance_load(&appearance);
+	assert(!memcmp(&appearance, &gui_appearance_default, sizeof(appearance)));
+	assert(unsetenv("MARIO_DESKTOP_CONFIG") == 0);
+	assert(gui_appearance_parse(&appearance, "", 0) == 0);
+	assert(!memcmp(&appearance, &gui_appearance_default, sizeof(appearance)));
+	assert(gui_appearance_parse(&appearance, "wallpaper=/tmp/background.png",
+		sizeof("wallpaper=/tmp/background.png") - 1) == 0);
+	assert(!strcmp(appearance.wallpaper_path, "/tmp/background.png"));
+	assert(gui_appearance_parse(&appearance, "wallpaper=/tmp/background.png\nwallpaper=",
+		sizeof("wallpaper=/tmp/background.png\nwallpaper=") - 1) == 0);
+	assert(appearance.wallpaper_path[0] == '\0');
+	assert(gui_appearance_parse(&appearance, invalid, sizeof(invalid) - 1) == 0);
+	assert(!memcmp(&appearance, &gui_appearance_default, sizeof(appearance)));
+	assert(gui_appearance_parse(&appearance, "font_size=16", 12) == 0);
+	assert(!strcmp(appearance.font_path, "/usr/share/fonts/DejaVuSans.ttf"));
+	assert(gui_appearance_parse(&appearance, "font_family=bitmap\nfont_size=20",
+		sizeof("font_family=bitmap\nfont_size=20") - 1) == 0);
+	assert(appearance.font_path[0] == '\0' && appearance.font_size == 20);
+	assert(gui_appearance_parse(&appearance, settings, GUI_APPEARANCE_MAX_BYTES + 1) < 0);
+	descriptor = mkstemp(path);
+	assert(descriptor >= 0 && write(descriptor, settings, sizeof(settings) - 1) == sizeof(settings) - 1);
+	assert(close(descriptor) == 0 && setenv("MARIO_DESKTOP_CONFIG", path, 1) == 0);
+	gui_appearance_load(&appearance);
+	assert(appearance.font_size == 20 && appearance.colors[GUI_APPEARANCE_FOREGROUND] == 0x00123456);
+	assert(appearance.colors[GUI_APPEARANCE_BACKGROUND] == 0x00f8fafc);
+	assert(appearance.colors[GUI_APPEARANCE_ACTIVE] == 0x00abcdef);
+	assert(unlink(path) == 0 && mkfifo(path, 0600) == 0);
+	gui_appearance_load(&appearance);
+	assert(!memcmp(&appearance, &gui_appearance_default, sizeof(appearance)));
+	assert(unlink(path) == 0 && setenv("MARIO_DESKTOP_CONFIG", "", 1) == 0);
+	gui_appearance_load(&appearance);
+	assert(!memcmp(&appearance, &gui_appearance_default, sizeof(appearance)));
+	assert(unsetenv("MARIO_DESKTOP_CONFIG") == 0);
+	for (size_t family = 0; family < sizeof(families) / sizeof(families[0]); family++) {
+		for (size_t size = 0; size < sizeof(sizes) / sizeof(sizes[0]); size++) {
+			desktop_state state = { .width = 1024, .height = 768 };
+			gui_font_glyph glyph;
+			gui_surface *cached;
+			char options[128];
+			int length = snprintf(options, sizeof(options), "font_family=%s\nfont_size=%u\n%s",
+				families[family], sizes[size], "color_scheme=light\nforeground=#123456\n");
+			int baseline;
+			unsigned int pixels = 0;
+
+			assert(gui_appearance_parse(&state.appearance, options, length) == 0);
+			desktop_setup_font(&state);
+			assert(state.font != NULL && gui_font_get_glyph(state.font, 'M', &glyph));
+			assert(desktop_panel_y(&state) + desktop_panel_height(&state) == state.height);
+			assert(desktop_button_height(&state) >= (uint32_t)(state.font_metrics.ascent - state.font_metrics.descent));
+			assert(desktop_prepare_taskbar(&state) == 0);
+			desktop_prepare_text(&state);
+			assert(state.text_surface != NULL);
+			baseline = (desktop_button_height(&state) -
+				(state.font_metrics.ascent - state.font_metrics.descent + state.font_metrics.line_gap)) / 2 +
+				state.font_metrics.ascent;
+			for (int row = 0; row < glyph.height; row++) {
+				for (int column = 0; column < glyph.width; column++) {
+					uint32_t screen_x = 12 + glyph.x_offset + column;
+					uint32_t screen_y = desktop_panel_y(&state) + 4 + baseline - glyph.y_offset + row;
+					uint32_t alpha = state.text_surface->pixels[
+						(size_t)(screen_y - desktop_menu_top(&state)) * state.text_surface->stride + screen_x] & 255;
+					uint32_t background = gui_appearance_color(&state.appearance, GUI_APPEARANCE_ACTIVE);
+					uint32_t expected = 0;
+
+					assert(alpha == glyph.alpha[row * glyph.stride + column]);
+					for (unsigned int shift = 0; shift < 24; shift += 8)
+						expected |= (((((0x00123456 >> shift) & 255) * alpha) +
+							((background >> shift) & 255) * (255 - alpha) + 127) / 255) << shift;
+					assert(desktop_pixel(&state, screen_y * state.width + screen_x) == expected);
+					pixels += alpha != 0;
+				}
+			}
+			assert(pixels != 0);
+			cached = state.text_surface;
+			desktop_prepare_text(&state);
+			assert(state.text_surface == cached);
+			state.menu_open = 1;
+			desktop_prepare_text(&state);
+			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X, desktop_panel_y(&state) - 1) == 0);
+			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X + desktop_menu_width(&state),
+				desktop_panel_y(&state) - 1) == -1);
+			gui_surface_destroy(state.text_surface);
+			gui_font_destroy(state.font);
+			free(state.taskbar_storage);
+		}
+	}
+	{
+		desktop_state state = { .width = 320, .height = 240 };
+
+		state.appearance = gui_appearance_default;
+		strcpy(state.appearance.font_path, "/tmp/missing-desktop-font.ttf");
+		desktop_setup_font(&state);
+		assert(state.font == NULL && desktop_panel_height(&state) == DESKTOP_PANEL_HEIGHT);
+	}
+	init_server(&server, 320, 240);
+	assert(gui_appearance_parse(&appearance, settings, sizeof(settings) - 1) == 0);
+	server.state.appearance = &appearance;
+	server.state.composite = gui_surface_create(320, 240);
+	assert(server.state.composite != NULL);
+	window = init_client(&server, 0, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	window->focused = 1;
+	wm_draw_window(&server.state, window);
+	assert(server.state.composite->pixels[38 * 320 + 60] == 0x00010203);
+	assert(server.state.composite->pixels[41 * 320 + 65] == 0x00abcdef);
+	assert(wm_title_icon_color(window, WM_TITLE_BUTTON_CLOSE) == 0x00010203);
+	window->focused = 0;
+	assert(wm_title_button_background(window, WM_TITLE_BUTTON_CLOSE) == 0x00cbd5e1);
+	cleanup_server(&server);
+	puts("gui-wm-busy: desktop appearance validates settings, renders cached font families and shares chrome colors");
+}
+
 static void check_wallpaper_scale(int source_width, int source_height,
 		uint32_t width, uint32_t height, uint32_t first_column,
 		uint32_t last_column, uint32_t first_row, uint32_t last_row)
@@ -296,6 +423,21 @@ static void test_desktop_wallpaper(void)
 	assert(desktop_read_wallpaper("/usr/share/mario-tests/gui/alpha-128.png", &image) == 0);
 	assert(image->width == 128 && image->height == 128);
 	gui_surface_destroy(image);
+	state = (desktop_state) { .width = 1024, .height = 768,
+		.appearance = gui_appearance_default };
+	strcpy(state.appearance.wallpaper_path, "/usr/share/mario-tests/gui/checker-64.bmp");
+	assert(unsetenv("MARIO_WALLPAPER") == 0);
+	desktop_load_wallpaper(&state);
+	assert(state.wallpaper != NULL && state.wallpaper->pixels[0] == 0x00ef4444U);
+	gui_surface_destroy(state.wallpaper);
+	state.wallpaper = NULL;
+	state.appearance.wallpaper_path[0] = '\0';
+	desktop_load_wallpaper(&state);
+	assert(state.wallpaper == NULL);
+	assert(setenv("MARIO_WALLPAPER", "/usr/share/mario-tests/gui/checker-64.bmp", 1) == 0);
+	desktop_load_wallpaper(&state);
+	assert(state.wallpaper != NULL && state.wallpaper->pixels[0] == 0x00ef4444U);
+	gui_surface_destroy(state.wallpaper);
 	state = (desktop_state) { .width = 1024, .height = 768 };
 	assert(setenv("MARIO_WALLPAPER", "", 1) == 0);
 	desktop_load_wallpaper(&state);
@@ -453,7 +595,7 @@ static void test_status_readers(void)
 	int result;
 	int saved_errno;
 	char marker[32] = { 0 };
-	char ready;
+	char ready = 'r';
 
 	unlink(WM_FRAME_PATH);
 	unlink(WM_READY_PATH);
@@ -464,7 +606,7 @@ static void test_status_readers(void)
 	assert(child >= 0);
 	if (child == 0) {
 		close(synchronization[0]);
-		if (write(synchronization[1], "r", 1) != 1 || usleep(40000) < 0 ||
+		if (write(synchronization[1], &ready, 1) != 1 || usleep(40000) < 0 ||
 		    read(descriptor, marker, sizeof(marker)) != 3 || strcmp(marker, "18\n") != 0)
 			_exit(2);
 		close(descriptor);
@@ -3216,6 +3358,7 @@ int main(void)
 
 	assert(sigaction(SIGPIPE, &ignore_pipe, NULL) == 0);
 	assert(sigaction(SIGCHLD, &reap_children, NULL) == 0);
+	test_desktop_appearance();
 	test_desktop_wallpaper();
 	test_window_opacity();
 	test_commit(GUI_FLUSH_BUSY, 1);

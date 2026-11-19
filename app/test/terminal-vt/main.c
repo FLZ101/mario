@@ -1048,6 +1048,11 @@ static void test_terminal_config(void)
 	char path[] = "/tmp/terminal-config.XXXXXX";
 	int descriptor;
 
+	assert(access("/root/.config/mario/terminal.conf", R_OK) == 0);
+	assert(setenv("MARIO_TERMINAL_CONFIG", "/root/.config/mario/terminal.conf", 1) == 0);
+	terminal_config_load(&config);
+	assert(!memcmp(&config, &terminal_config_default, sizeof(config)));
+	assert(unsetenv("MARIO_TERMINAL_CONFIG") == 0);
 	assert(terminal_config_parse(&config, "", 0) == 0);
 	assert(!memcmp(&config, &terminal_config_default, sizeof(config)));
 	assert(terminal_config_parse(&config, settings, sizeof(settings) - 1) == 0);

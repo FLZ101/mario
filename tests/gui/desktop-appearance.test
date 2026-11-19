@@ -1,0 +1,57 @@
+GUI-VISUAL-TEST:
+SERIAL: <<APPEARANCE
+mkdir -p /root/.config/mario
+cat >/root/.config/mario/desktop.conf <<'SETTINGS'
+foreground=#e0f0ff
+background=#102030
+panel=#203040
+active=#405060
+inactive=#506070
+border=#010203
+color_scheme=light
+font_family=DejaVu Sans
+font_size=20
+SETTINGS
+APPEARANCE
+SERIAL: rm -f /tmp/mario-wm.*; MARIO_WALLPAPER= /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 0 0 4 4 16 32 48
+GUI-CHECK-RECT: 0 731 4 1 16 32 48
+GUI-CHECK-RECT: 0 732 4 4 32 48 64
+GUI-CHECK-RECT: 8 736 4 4 64 80 96
+GUI-CHECK-RECT: 14 743 1 14 224 240 255
+GUI-MOUSE-POSITION: 20,750
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 8 703 4 1 16 32 48
+GUI-CHECK-RECT: 8 704 4 4 64 80 96
+GUI-MOUSE-POSITION: 20,718
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,up
+SERIAL: while ! pgrep terminal >/dev/null; do sleep 1; done
+GUI-CHECK-RECT: 130 73 4 4 64 80 96
+GUI-CHECK-RECT: 124 69 1 1 1 2 3
+GUI-CHECK-RECT: 160 737 4 1 64 80 96
+SERIAL: /usr/bin/terminal --command 'while :; do sleep 1; done' >/tmp/appearance-terminal.log 2>&1 &
+SERIAL: while ! grep -q 'window ready' /tmp/appearance-terminal.log; do sleep 1; done
+GUI-CHECK-RECT: 130 73 4 4 80 96 112
+GUI-CHECK-RECT: 162 105 4 4 64 80 96
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while test "$(pgrep terminal | wc -l)" -gt 1; do sleep 1; done
+GUI-MOUSE-POSITION: 424,84
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 40 727 1 1 17 24 39
+GUI-CHECK-RECT: 40 731 1 1 1 2 3
+GUI-CHECK-RECT: 0 732 4 4 32 48 64
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while pgrep terminal >/dev/null; do sleep 1; done; kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

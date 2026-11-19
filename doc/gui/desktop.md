@@ -244,9 +244,12 @@ Set `MARIO_WALLPAPER` to an image path inside the guest before starting
 MARIO_WALLPAPER=/root/background.png /usr/bin/mario-wm
 ```
 
-When the variable is unset, the shell tries `/usr/share/mario/wallpaper.png`.
-Setting it to an empty string explicitly disables wallpaper. To install a
-persistent default from the host, place a PNG at
+When the variable is unset, the shell uses the `wallpaper` setting in
+`/root/.config/mario/desktop.conf`, defaulting to `/usr/share/mario/wallpaper.png`.
+An empty `wallpaper=` setting disables the image. The environment variable
+takes precedence over the file; an empty environment value also disables it.
+See [Desktop Appearance](appearance.md) for configuration paths and examples.
+To install a persistent default from the host, place a PNG at
 `rd/_ramdisk0/usr/share/mario/wallpaper.png` before rebuilding the disk image.
 No default image is bundled, so the existing solid theme remains unchanged.
 
@@ -282,7 +285,11 @@ before reporting its log.
 Freed MarioFS block chains restore the free-block admission counter, so repeated
 atomic frame-marker replacement does not falsely exhaust the root ramdisk.
 
-The first desktop uses a fixed testable theme: background `#1f2933`, 28-pixel
+See [Desktop Appearance](appearance.md) for configurable font families, sizes,
+and desktop/window-decoration color schemes.
+
+Without appearance configuration, the desktop uses its original theme:
+background `#1f2933`, 28-pixel
 bottom panel `#111827`, 24-pixel title bars, 1-pixel borders `#0f172a`, active
 title bars `#2563eb`, and inactive title bars `#475569`. `mario-wm` owns the
 bundled 16x16 arrow or a state-specific built-in cursor as the topmost layer.
@@ -611,10 +618,10 @@ Session lifecycle and configuration:
   immediately starts one fresh shell endpoint. Server exit or a killed server
   closes all client windows and returns to the text console. Children inherit
   no framebuffer, raw-input, listener, or unrelated client fd.
-- Keep initial settings in `/etc/mario-gui.conf` as `key=value` lines:
-  background color, font paths, terminal command, panel position, and
-  default image viewer/file manager paths. Missing keys use compiled-in
-  defaults.
+- Desktop appearance uses `$HOME/.config/mario/desktop.conf` (or the XDG/explicit
+  override) for font selection and shared colors. See [Desktop Appearance](appearance.md).
+  Session commands, panel placement, and application paths remain compiled-in;
+  the proposed `/etc/mario-gui.conf` session-settings loader is not implemented.
 - Reboot/halt are present only if the kernel exposes a safe userspace call or
   device. If absent, the launcher omits those buttons instead of hardcoding a
   privileged path.
@@ -658,7 +665,8 @@ app/usr/Makefile
 app/usr/freetype/
 app/usr/libpng/
 app/gui/libmario-ui/assets/fonts/  # bundled TTF source files
-rd/etc/mario-gui.conf      # simple GUI session configuration
+rd/_ramdisk0/root/.config/mario/desktop.conf  # bundled desktop appearance defaults
+rd/_ramdisk0/root/.config/mario/terminal.conf # bundled terminal defaults
 rd/device_list             # adds fb0, gui, psaux, ptmx, pts/0..31
 ```
 
