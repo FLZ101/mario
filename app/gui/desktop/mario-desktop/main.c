@@ -6,9 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <gui/image.h>
 #include <gui/input.h>
 #include <gui/protocol.h>
 #include <app/gui-limits.h>
@@ -17,6 +19,7 @@
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
 #define SURFACE_PIXELS_PER_MESSAGE 1000U
 #define DESKTOP_BACKGROUND 0x001f2933U
+#define DESKTOP_WALLPAPER_PATH "/usr/share/mario/wallpaper.png"
 #define DESKTOP_PANEL 0x00111827U
 #define DESKTOP_LAUNCHER 0x002563ebU
 #define DESKTOP_TASK_ACTIVE 0x002563ebU
@@ -121,6 +124,10 @@ typedef struct {
 	desktop_button *taskbar_storage;
 	desktop_taskbar painted_taskbar;
 	desktop_taskbar displayed_taskbar;
+	gui_surface *wallpaper;
+	uint32_t *wallpaper_map;
+	uint32_t wallpaper_width;
+	uint32_t wallpaper_height;
 } desktop_state;
 
 /* Keep the largest wire frame out of the small initial userspace stack. */
@@ -423,6 +430,126 @@ static uint32_t desktop_panel_y(const desktop_state *state)
 		state->height - DESKTOP_PANEL_HEIGHT : 0;
 }
 
+static int desktop_read_wallpaper(const char *path, gui_surface **image)
+{
+	static const uint8_t png_signature[] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n' };
+	struct stat status;
+	uint8_t *contents = NULL;
+	size_t byte_count;
+	size_t offset = 0;
+	int result = -1;
+	int saved_errno;
+	int fd;
+
+	if (path == NULL || image == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	fd = open(path, O_RDONLY | O_NONBLOCK);
+	if (fd < 0)
+		return -1;
+	if (fstat(fd, &status) < 0)
+		goto done;
+	if (!S_ISREG(status.st_mode) || status.st_size <= 0) {
+		errno = EINVAL;
+		goto done;
+	}
+	if ((uintmax_t)status.st_size > GUI_IMAGE_MAX_FILE_BYTES) {
+		errno = EFBIG;
+		goto done;
+	}
+	byte_count = (size_t)status.st_size;
+	contents = malloc(byte_count);
+	if (contents == NULL)
+		goto done;
+	while (offset < byte_count) {
+		ssize_t count = read(fd, contents + offset, byte_count - offset);
+
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0) {
+			if (count == 0)
+				errno = EIO;
+			goto done;
+		}
+		offset += (size_t)count;
+	}
+	result = byte_count >= sizeof(png_signature) &&
+		memcmp(contents, png_signature, sizeof(png_signature)) == 0 ?
+		gui_png_decode(contents, byte_count, image) :
+		gui_bmp_decode(contents, byte_count, image);
+done:
+	saved_errno = errno;
+	close(fd);
+	free(contents);
+	errno = saved_errno;
+	return result;
+}
+
+static void desktop_load_wallpaper(desktop_state *state)
+{
+	const char *path = getenv("MARIO_WALLPAPER");
+	int configured = path != NULL;
+
+	if (path == NULL)
+		path = DESKTOP_WALLPAPER_PATH;
+	if (*path == '\0')
+		return;
+	if (desktop_read_wallpaper(path, &state->wallpaper) < 0) {
+		if (configured || errno != ENOENT)
+			fprintf(stderr, "mario-desktop: wallpaper unavailable: %s: %s; using solid background\n",
+				path, strerror(errno));
+		return;
+	}
+	fprintf(stderr, "mario-desktop: wallpaper loaded: %s (%dx%d)\n", path,
+		state->wallpaper->width, state->wallpaper->height);
+}
+
+static void desktop_prepare_wallpaper(desktop_state *state)
+{
+	uint64_t map_count = (uint64_t)state->width + state->height;
+	uint32_t source_width;
+	uint32_t source_height;
+	uint64_t margin;
+	int width_dominant;
+
+	if (state->wallpaper == NULL || (state->wallpaper_map != NULL &&
+	    state->wallpaper_width == state->width && state->wallpaper_height == state->height))
+		return;
+	free(state->wallpaper_map);
+	state->wallpaper_map = NULL;
+	state->wallpaper_width = state->wallpaper_height = 0;
+	if (state->width == 0 || state->height == 0 || desktop_panel_y(state) == 0)
+		return;
+	if (map_count > SIZE_MAX / sizeof(*state->wallpaper_map) ||
+	    (state->wallpaper_map = malloc((size_t)map_count * sizeof(*state->wallpaper_map))) == NULL) {
+		fprintf(stderr, "mario-desktop: wallpaper scaling allocation failed; using solid background\n");
+		return;
+	}
+	source_width = (uint32_t)state->wallpaper->width;
+	source_height = (uint32_t)state->wallpaper->height;
+	width_dominant = (uint64_t)source_width * state->height <=
+		(uint64_t)source_height * state->width;
+	margin = width_dominant ?
+		(uint64_t)source_height * state->width - (uint64_t)state->height * source_width :
+		(uint64_t)source_width * state->height - (uint64_t)state->width * source_height;
+	for (uint32_t column = 0; column < state->width; column++)
+		state->wallpaper_map[column] = width_dominant ?
+			(uint32_t)((uint64_t)column * source_width / state->width) :
+			(uint32_t)((2 * (uint64_t)column * source_height + margin) /
+				(2 * (uint64_t)state->height));
+	for (uint32_t row = 0; row < state->height; row++) {
+		uint32_t source_row = width_dominant ?
+			(uint32_t)((2 * (uint64_t)row * source_width + margin) /
+				(2 * (uint64_t)state->width)) :
+			(uint32_t)((uint64_t)row * source_height / state->height);
+
+		state->wallpaper_map[state->width + row] = source_row * (uint32_t)state->wallpaper->stride;
+	}
+	state->wallpaper_width = state->width;
+	state->wallpaper_height = state->height;
+}
+
 static uint32_t desktop_menu_top(const desktop_state *state)
 {
 	uint32_t panel_y = desktop_panel_y(state);
@@ -485,8 +612,13 @@ static uint32_t desktop_pixel(const desktop_state *state, uint32_t offset)
 		}
 		return DESKTOP_PANEL;
 	}
-	if (y < panel_y)
+	if (y < panel_y) {
+		if (state->wallpaper != NULL && state->wallpaper_map != NULL &&
+		    state->wallpaper_width == state->width && state->wallpaper_height == state->height)
+			return state->wallpaper->pixels[state->wallpaper_map[state->width + y] +
+				state->wallpaper_map[x]];
 		return DESKTOP_BACKGROUND;
+	}
 	if (x >= 8 && x < 56 && y >= panel_y + 4 && y < panel_y + 24) {
 		if (text_pixel("MENU", x, y, 12, panel_y + 9))
 			return DESKTOP_TEXT;
@@ -890,6 +1022,7 @@ static int send_desktop(desktop_state *state)
 	    state->height > UINT32_MAX / state->width))
 		return -1;
 	total = state->width * state->height;
+	desktop_prepare_wallpaper(state);
 
 	if (gui_protocol_encode_header(begin, sizeof(begin), GUI_PROTOCOL_SURFACE_BEGIN,
 		sizeof(gui_protocol_wire_surface_begin)) < 0)
@@ -1234,6 +1367,7 @@ int main(int argc, char **argv)
 	state.height = get32(payload + 20);
 	if (state.window_id == 0 || state.configure_serial == 0)
 		return 1;
+	desktop_load_wallpaper(&state);
 	if (desktop_send_work_area(&state) < 0)
 		return 1;
 	if (send_desktop(&state) < 0)

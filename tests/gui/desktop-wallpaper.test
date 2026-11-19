@@ -1,0 +1,38 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.*; cp /usr/share/mario-tests/gui/large-1600x1200.png /tmp/wallpaper.data; MARIO_WALLPAPER=/tmp/wallpaper.data /usr/bin/mario-wm >/tmp/mario-wm.log 2>/tmp/wallpaper.log & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done; grep 'wallpaper loaded' /tmp/wallpaper.log
+SERIAL-CHECK: wallpaper loaded: /tmp/wallpaper.data (1600x1200)
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 0 0 1 1 0 0 64
+GUI-CHECK-RECT: 32 32 1 1 7 10 64
+GUI-CHECK-RECT: 256 128 1 1 63 42 160
+GUI-CHECK-RECT: 512 400 1 1 127 132 160
+GUI-CHECK-RECT: 0 752 8 8 17 24 39
+SERIAL: rm /tmp/wallpaper.data
+GUI-MOUSE-POSITION: 16,752
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 100 722 1 1 37 99 235
+GUI-CHECK-RECT: 32 32 1 1 7 10 64
+GUI-SEND-KEY: esc
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 100 722 1 1 24 239 160
+SERIAL: /usr/bin/terminal >/tmp/wallpaper-terminal.log 2>&1 &
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/wallpaper-terminal.log; do sleep 1; done
+GUI-CHECK-RECT: 130 130 1 1 17 24 39
+GUI-CHECK-RECT: 32 32 1 1 7 10 64
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while pgrep terminal >/dev/null; do sleep 1; done
+GUI-CHECK-RECT: 130 130 1 1 32 43 64
+SERIAL: cp /usr/share/mario-tests/gui/checker-64.bmp /tmp/wallpaper.data; old_shell=$(pgrep mario-desktop); kill "$old_shell"; while :; do replacement=$(pgrep mario-desktop); test -n "$replacement" && test "$replacement" != "$old_shell" && break; sleep 1; done
+SERIAL: while ! grep -q 'wallpaper loaded: /tmp/wallpaper.data (64x64)' /tmp/wallpaper.log; do sleep 1; done; grep 'wallpaper loaded' /tmp/wallpaper.log
+SERIAL-CHECK: wallpaper loaded: /tmp/wallpaper.data (64x64)
+GUI-CHECK-RECT: 0 0 8 8 239 68 68
+GUI-CHECK-RECT: 256 0 8 8 34 197 94
+GUI-CHECK-RECT: 0 400 8 8 59 130 246
+GUI-CHECK-RECT: 0 752 8 8 17 24 39
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done; rm -f /tmp/wallpaper.data
+EXIT:

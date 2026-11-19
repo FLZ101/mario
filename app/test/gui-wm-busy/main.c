@@ -175,13 +175,137 @@ static gui_flush_result test_surface_flush_rect_fd(const gui_surface *surface,
 #undef calloc
 #undef main
 
+static int fail_desktop_allocation;
+
+static void *test_desktop_allocate(size_t bytes)
+{
+	if (fail_desktop_allocation) {
+		fail_desktop_allocation = 0;
+		errno = ENOMEM;
+		return NULL;
+	}
+	return malloc(bytes);
+}
+
 #define main desktop_program_main
+#define malloc test_desktop_allocate
 #include "../../gui/desktop/mario-desktop/main.c"
+#undef malloc
 #undef main
 
 static void init_server(wm_server *server, uint32_t width, uint32_t height);
 static wm_window *init_client(wm_server *server, size_t index, gui_protocol_endpoint_role role);
 static void cleanup_server(wm_server *server);
+
+static void check_wallpaper_scale(int source_width, int source_height,
+		uint32_t width, uint32_t height, uint32_t first_column,
+		uint32_t last_column, uint32_t first_row, uint32_t last_row)
+{
+	desktop_state state = { .width = width, .height = height,
+		.wallpaper = gui_surface_create(source_width, source_height) };
+	uint32_t *cached_map;
+
+	assert(state.wallpaper != NULL);
+	for (int row = 0; row < source_height; row++)
+		for (int column = 0; column < source_width; column++)
+			state.wallpaper->pixels[row * state.wallpaper->stride + column] =
+				(uint32_t)(row * 100 + column);
+	desktop_prepare_wallpaper(&state);
+	assert(state.wallpaper_map != NULL);
+	assert(state.wallpaper_map[0] == first_column);
+	assert(state.wallpaper_map[width - 1] == last_column);
+	assert(state.wallpaper_map[width] == first_row * state.wallpaper->stride);
+	assert(state.wallpaper_map[width + height - 1] == last_row * state.wallpaper->stride);
+	for (uint32_t row = 0; row < height; row++) {
+		uint32_t source_row = state.wallpaper_map[width + row] / state.wallpaper->stride;
+
+		assert(source_row < (uint32_t)source_height);
+		for (uint32_t column = 0; column < width; column++) {
+			uint32_t source_column = state.wallpaper_map[column];
+
+			assert(source_column < (uint32_t)source_width);
+			if (row < desktop_panel_y(&state))
+				assert(desktop_pixel(&state, row * width + column) ==
+					source_row * 100 + source_column);
+		}
+	}
+	assert(desktop_pixel(&state, desktop_panel_y(&state) * width) == DESKTOP_PANEL);
+	cached_map = state.wallpaper_map;
+	fail_desktop_allocation = 1;
+	desktop_prepare_wallpaper(&state);
+	assert(state.wallpaper_map == cached_map && fail_desktop_allocation == 1);
+	state.width++;
+	assert(desktop_pixel(&state, 0) == DESKTOP_BACKGROUND);
+	desktop_prepare_wallpaper(&state);
+	assert(state.wallpaper_map == NULL && !fail_desktop_allocation);
+	assert(desktop_pixel(&state, 0) == DESKTOP_BACKGROUND);
+	desktop_prepare_wallpaper(&state);
+	assert(state.wallpaper_map != NULL && state.wallpaper_width == state.width);
+	state.height = DESKTOP_PANEL_HEIGHT;
+	desktop_prepare_wallpaper(&state);
+	assert(state.wallpaper_map == NULL && state.wallpaper_height == 0);
+	gui_surface_destroy(state.wallpaper);
+}
+
+static void test_desktop_wallpaper(void)
+{
+	desktop_state state = { .width = 1024, .height = 768 };
+	gui_surface *image = NULL;
+	char invalid_path[] = "/tmp/gui-wallpaper.XXXXXX";
+	int descriptor;
+
+	check_wallpaper_scale(8, 8, 64, 32, 0, 7, 2, 5);
+	check_wallpaper_scale(8, 8, 32, 64, 2, 5, 0, 7);
+	check_wallpaper_scale(5, 8, 6, 32, 1, 3, 0, 7);
+	check_wallpaper_scale(8, 5, 64, 30, 0, 7, 0, 4);
+	check_wallpaper_scale(8, 8, 32, 32, 0, 7, 0, 7);
+	check_wallpaper_scale(64, 64, 32, 32, 0, 62, 0, 62);
+	check_wallpaper_scale(1, 1, 64, 32, 0, 0, 0, 0);
+	assert(desktop_read_wallpaper(NULL, &image) < 0 && errno == EINVAL);
+	assert(desktop_read_wallpaper("/tmp", NULL) < 0 && errno == EINVAL);
+	assert(desktop_read_wallpaper("/tmp", &image) < 0 && errno == EINVAL);
+	descriptor = mkstemp(invalid_path);
+	assert(descriptor >= 0);
+	assert(desktop_read_wallpaper(invalid_path, &image) < 0 && errno == EINVAL);
+	assert(write(descriptor, "not an image", 12) == 12);
+	assert(close(descriptor) == 0);
+	assert(desktop_read_wallpaper(invalid_path, &image) < 0 && image == NULL);
+	assert(unlink(invalid_path) == 0);
+	assert(desktop_read_wallpaper(invalid_path, &image) < 0 && errno == ENOENT);
+	assert(mkfifo(invalid_path, 0600) == 0);
+	assert(desktop_read_wallpaper(invalid_path, &image) < 0 && errno == EINVAL);
+	assert(unlink(invalid_path) == 0);
+	fail_desktop_allocation = 1;
+	assert(desktop_read_wallpaper("/usr/share/mario-tests/gui/checker-64.bmp", &image) < 0);
+	assert(errno == ENOMEM && image == NULL && !fail_desktop_allocation);
+	assert(desktop_read_wallpaper("/usr/share/mario-tests/gui/checker-64.bmp", &image) == 0);
+	assert(image->width == 64 && image->height == 64 && image->pixels[0] == 0x00ef4444U);
+	state.wallpaper = image;
+	desktop_prepare_wallpaper(&state);
+	assert(desktop_pixel(&state, 0) == 0x00ef4444U);
+	assert(desktop_pixel(&state, 256) == 0x0022c55eU);
+	assert(desktop_pixel(&state, 400 * state.width) == 0x003b82f6U);
+	assert(desktop_pixel(&state, 752 * state.width) == DESKTOP_PANEL);
+	state.menu_open = 1;
+	assert(desktop_pixel(&state, 722 * state.width + 100) == DESKTOP_LAUNCHER);
+	state.menu_open = 0;
+	assert(desktop_pixel(&state, 722 * state.width + 100) != DESKTOP_LAUNCHER);
+	free(state.wallpaper_map);
+	gui_surface_destroy(image);
+	image = NULL;
+	assert(desktop_read_wallpaper("/usr/share/mario-tests/gui/alpha-128.png", &image) == 0);
+	assert(image->width == 128 && image->height == 128);
+	gui_surface_destroy(image);
+	state = (desktop_state) { .width = 1024, .height = 768 };
+	assert(setenv("MARIO_WALLPAPER", "", 1) == 0);
+	desktop_load_wallpaper(&state);
+	assert(state.wallpaper == NULL && desktop_pixel(&state, 0) == DESKTOP_BACKGROUND);
+	assert(setenv("MARIO_WALLPAPER", invalid_path, 1) == 0);
+	desktop_load_wallpaper(&state);
+	assert(state.wallpaper == NULL && desktop_pixel(&state, 0) == DESKTOP_BACKGROUND);
+	assert(unsetenv("MARIO_WALLPAPER") == 0);
+	puts("gui-wm-busy: wallpaper scaling, cache, overlays and loading failures pass");
+}
 
 static void test_commit(gui_flush_result result, int graphics)
 {
@@ -2996,6 +3120,7 @@ int main(void)
 
 	assert(sigaction(SIGPIPE, &ignore_pipe, NULL) == 0);
 	assert(sigaction(SIGCHLD, &reap_children, NULL) == 0);
+	test_desktop_wallpaper();
 	test_commit(GUI_FLUSH_BUSY, 1);
 	test_commit(GUI_FLUSH_ERROR, 1);
 	test_commit(GUI_FLUSH_COMPLETE, 0);

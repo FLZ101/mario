@@ -220,7 +220,7 @@ in subsequent M9 steps.
 
 The desktop client provides:
 
-- a solid background;
+- an optional PNG/BMP wallpaper, with a solid background fallback;
 - a bottom panel with app launcher, window list, and a fixed `--:--` clock
   placeholder;
 - taskbar buttons for open windows;
@@ -234,8 +234,32 @@ The desktop client provides:
   buttons. Stream large snapshots and ordered deltas within the existing
   bounded output queue rather than enqueueing the whole list at once. The
   panel is hidden only while an ordinary window is fullscreen;
-- desktop icons and wallpaper configuration are deferred beyond the first
+- desktop icons and a graphical wallpaper chooser are deferred beyond the first
   desktop milestone.
+
+Set `MARIO_WALLPAPER` to an image path inside the guest before starting
+`mario-wm`, for example:
+
+```sh
+MARIO_WALLPAPER=/root/background.png /usr/bin/mario-wm
+```
+
+When the variable is unset, the shell tries `/usr/share/mario/wallpaper.png`.
+Setting it to an empty string explicitly disables wallpaper. To install a
+persistent default from the host, place a PNG at
+`rd/_ramdisk0/usr/share/mario/wallpaper.png` before rebuilding the disk image.
+No default image is bundled, so the existing solid theme remains unchanged.
+
+The shell recognizes PNG/BMP by their contents, decodes once per shell start,
+and caches the source pixels plus compact row/column sampling maps. Nearest-neighbor
+scaling preserves aspect ratio and center-crops to cover the whole display;
+the panel and launcher are painted over it. Ordinary repaints do not reload the
+file or allocate another full-screen image. Shell replacement reloads the same
+configuration. Missing, invalid, unsupported or over-limit files, and allocation
+failures, fall back to the solid theme without terminating the desktop.
+The toolkit's decoder limits apply: 64 MiB input, dimensions at most 4096,
+and 16 Mi pixels. PNG support is non-interlaced 8-bit RGB/RGBA; alpha is flattened
+against black, as in the image viewer. BMP support is 24-bit uncompressed RGB.
 
 At 1024x768 the unpaged taskbar fits nine windows. Overflow uses eight
 stable-ID buttons per page, with previous/next controls outside the launcher

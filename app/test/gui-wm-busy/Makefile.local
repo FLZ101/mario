@@ -1,2 +1,6 @@
+LIBPNG_INSTALL_DIR := $(ROOT)/usr/libpng-1.6.59-install
+ZLIB_INSTALL_DIR := $(ROOT)/usr/zlib-1.3.2-install
+
 CFLAGS += -I$(ROOT)/gui/libmario-ui/include
-LDFLAGS += -L$(ROOT)/gui/libmario-ui -lmario-ui
+LDFLAGS += -L$(ROOT)/gui/libmario-ui -L$(LIBPNG_INSTALL_DIR)/lib \
+	-L$(ZLIB_INSTALL_DIR)/lib -lmario-ui -lpng16 -lz
