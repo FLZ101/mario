@@ -462,6 +462,27 @@ current color. It also supports `CSI c` with the VT102 `?6c` response,
 `CSI ?1049h`/`CSI ?1049l` alternate-screen switching. It does not implement
 mouse reporting, bracketed paste, or OSC clipboard.
 
+`CSI Ps SP q` selects the terminal cursor style: `0`/`1` blinking block
+(the default), `2` steady block, `3` blinking underline, `4` steady underline,
+`5` blinking bar, and `6` steady bar. `CSI ?12h`/`CSI ?12l` independently
+enable/disable blinking without changing the shape; `RIS` restores the visible,
+blinking block. Block cursors retain readable text beneath them. Blinking uses
+500 ms monotonic deadlines, resets to the visible phase on keyboard input or
+PTY output, and damages only the cursor cell. Hidden and steady cursors do not
+schedule blink wakeups; pending cursor changes coalesce behind active uploads.
+Application screenshot checks omit the live cursor cell; the dedicated cursor
+fixture checks each shape and both blinking phases without assuming a fixed phase.
+
+The packaged `/usr/share/vim/vimrc` sets Vim's terminal-mode sequences for
+graphical terminals and nested tmux: Normal mode uses a blinking block,
+Insert mode a blinking bar, and Replace mode a blinking underline. Leaving Vim
+restores the terminal's default cursor. Cursor visibility changes preserve the
+selected blink policy. These defaults require the graphical
+`COLORTERM=truecolor` environment and do not affect text consoles. Starting Vim
+with `-u NONE` bypasses the packaged configuration, including these sequences.
+`terminal-vim-cursor.test` checks actual Vim mode changes and blinking, both
+directly and inside tmux, using whole-cell shape comparisons.
+
 Do not implement full xterm compatibility. The goal is enough ANSI/VT100
 support for `oksh`, `vim`, `top`, `less`, and interactive Python.
 

@@ -1,0 +1,78 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/vcursor.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & wm_pid=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL-WAIT-FILE: /tmp/mario-wm.ready
+SERIAL: <<FIXTURES
+vim -n -i NONE -es -c 'call writefile([&t_SI, &t_SR, &t_EI], "/tmp/vcursor.console")' -c 'qa!'
+printf '\n\n\n' >/tmp/vcursor.console-expected
+printf '\033[5 q\n\033[3 q\n\033[1 q\n\033[?25h\n\n' >/tmp/vcursor.expected
+touch /tmp/vcursor.txt
+cat >/tmp/vcursor.vim <<'SCRIPT'
+exec vim -n -i NONE -c 'set nonumber norelativenumber laststatus=0 noshowcmd noruler noshowmode' -c 'autocmd VimEnter * call writefile([&t_SI, &t_SR, &t_EI, &t_ve, &t_vs], "/tmp/vcursor.options")' /tmp/vcursor.txt
+SCRIPT
+cat >/tmp/vcursor.tmux <<'CONFIG'
+set -g default-terminal screen
+set -g status off
+set -sg escape-time 0
+CONFIG
+cat >/tmp/vcursor.run <<'SCRIPT'
+if test "$1" = tmux; then
+    tmux -u -L vcursor -f /tmp/vcursor.tmux new-session -s cursor /bin/oksh /tmp/vcursor.vim
+else
+    /bin/oksh /tmp/vcursor.vim
+fi
+status=$?
+printf '\033[2J\033[H'
+test "$status" -eq 0 && touch /tmp/vcursor.done
+while ! test -e /tmp/vcursor.checked; do sleep 1; done
+SCRIPT
+FIXTURES
+SERIAL: cmp /tmp/vcursor.console /tmp/vcursor.console-expected && printf 'vim cursor: console capabilities unchanged\n'
+SERIAL-CHECK: vim cursor: console capabilities unchanged
+SERIAL: /usr/bin/terminal --command '. /tmp/vcursor.run; rm -f /tmp/vcursor.checked; . /tmp/vcursor.run tmux' >/tmp/vcursor.log 2>&1 & terminal_pid=$!
+SERIAL-WAIT-FILE: /tmp/vcursor.options
+SERIAL: cmp /tmp/vcursor.options /tmp/vcursor.expected && printf 'vim cursor: graphical capabilities configured\n'
+SERIAL-CHECK: vim cursor: graphical capabilities configured
+GUI-CHECK-RECT: 144 112 8 16 248 250 252
+GUI-CHECK-RECT: 144 112 8 16 17 24 39
+GUI-SEND-KEY: i
+GUI-CHECK-SCREEN-RECT: assets/terminal-cursor-bar.png,144,112,8,16
+GUI-CHECK-RECT: 144 112 8 16 17 24 39
+GUI-SEND-KEY: esc
+GUI-CHECK-RECT: 144 112 8 16 248 250 252
+GUI-SEND-KEYS: shift,r
+GUI-CHECK-SCREEN-RECT: assets/terminal-cursor-underline.png,144,112,8,16
+GUI-CHECK-RECT: 144 112 8 16 17 24 39
+GUI-SEND-KEY: esc
+GUI-CHECK-RECT: 144 112 8 16 248 250 252
+GUI-TYPE: :q
+SERIAL-WAIT-FILE: /tmp/vcursor.done
+GUI-CHECK-RECT: 144 112 8 16 248 250 252
+GUI-CHECK-RECT: 144 112 8 16 17 24 39
+SERIAL: rm -f /tmp/vcursor.options /tmp/vcursor.done; touch /tmp/vcursor.checked
+SERIAL-WAIT-FILE: /tmp/vcursor.options
+SERIAL: cmp /tmp/vcursor.options /tmp/vcursor.expected && printf 'vim cursor: tmux capabilities configured\n'
+SERIAL-CHECK: vim cursor: tmux capabilities configured
+GUI-CHECK-RECT: 144 112 8 16 248 250 252
+GUI-CHECK-RECT: 144 112 8 16 17 24 39
+GUI-SEND-KEY: i
+GUI-CHECK-SCREEN-RECT: assets/terminal-cursor-bar.png,144,112,8,16
+GUI-CHECK-RECT: 144 112 8 16 17 24 39
+GUI-SEND-KEY: esc
+GUI-CHECK-RECT: 144 112 8 16 248 250 252
+GUI-SEND-KEYS: shift,r
+GUI-CHECK-SCREEN-RECT: assets/terminal-cursor-underline.png,144,112,8,16
+GUI-CHECK-RECT: 144 112 8 16 17 24 39
+GUI-SEND-KEY: esc
+GUI-CHECK-RECT: 144 112 8 16 248 250 252
+GUI-TYPE: :q
+SERIAL-WAIT-FILE: /tmp/vcursor.done
+GUI-CHECK-RECT: 144 112 8 16 248 250 252
+SERIAL: touch /tmp/vcursor.checked
+SERIAL: while ! grep -q 'terminal: child exit 0' /tmp/vcursor.log; do sleep 1; done
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"; kill -TERM "$wm_pid"; wait "$wm_pid"; test ! -e /tmp/mario-wm.started && test -z "$(pgrep -x vim)" && test -z "$(pgrep -x tmux)" && printf 'vim cursor: modes and clean teardown verified\n'
+SERIAL-CHECK: vim cursor: modes and clean teardown verified
+EXIT:

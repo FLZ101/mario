@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <gui/font.h>
@@ -36,6 +37,7 @@
 #define TERMINAL_PTY_READ_QUANTUM 16U
 #define TERMINAL_BACKGROUND 0x00111827U
 #define TERMINAL_CURSOR 0x00f8fafcU
+#define TERMINAL_CURSOR_BLINK_MS 500U
 #define TERMINAL_SCROLLBACK_LINES 128U
 #define TERMINAL_FONT_PATH "/usr/share/fonts/DejaVuSansMono.ttf"
 
@@ -59,6 +61,9 @@ typedef struct {
 	uint32_t rendered_cursor_row;
 	uint32_t rendered_cursor_column;
 	int rendered_cursor_visible;
+	terminal_vt_cursor_shape rendered_cursor_shape;
+	uint64_t cursor_blink_deadline;
+	int cursor_blink_on;
 	gui_rect render_damage;
 	uint64_t pending_configure_serial;
 	uint32_t pending_width;
@@ -78,6 +83,63 @@ typedef struct {
 static int terminal_resize_pty(int master, const terminal_state *state);
 
 static uint8_t terminal_input[TERMINAL_REPLY_BYTES];
+
+static uint64_t terminal_now_ms(void)
+{
+	struct timespec now;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+		return 0;
+	return (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+static int terminal_cursor_visible(const terminal_state *state)
+{
+	return state->vt.cursor_visible && state->vt.cursor_row < state->vt.rows &&
+		state->vt.cursor_column < state->vt.columns &&
+		(!state->vt.cursor_blink || state->cursor_blink_deadline == 0 || state->cursor_blink_on);
+}
+
+static void terminal_reset_cursor_blink(terminal_state *state)
+{
+	state->cursor_blink_on = 1;
+	state->cursor_blink_deadline = 0;
+	state->render_pending = 1;
+}
+
+static void terminal_update_cursor_blink(terminal_state *state, uint64_t now)
+{
+	if (!state->vt.cursor_blink || !state->vt.cursor_visible ||
+	    state->vt.cursor_row >= state->vt.rows || state->vt.cursor_column >= state->vt.columns) {
+		state->cursor_blink_deadline = 0;
+		state->cursor_blink_on = 1;
+		return;
+	}
+	if (state->cursor_blink_deadline == 0) {
+		state->cursor_blink_on = 1;
+		state->cursor_blink_deadline = now + TERMINAL_CURSOR_BLINK_MS;
+	} else if (now >= state->cursor_blink_deadline) {
+		uint64_t periods = (now - state->cursor_blink_deadline) / TERMINAL_CURSOR_BLINK_MS + 1;
+
+		state->cursor_blink_deadline += periods * TERMINAL_CURSOR_BLINK_MS;
+		if (periods & 1) {
+			state->cursor_blink_on = !state->cursor_blink_on;
+			state->render_pending = 1;
+		}
+	}
+}
+
+static int terminal_cursor_timeout(const terminal_state *state, uint64_t now, int timeout)
+{
+	uint64_t remaining;
+	int cursor_timeout;
+
+	if (state->cursor_blink_deadline == 0)
+		return timeout;
+	remaining = state->cursor_blink_deadline > now ? state->cursor_blink_deadline - now : 0;
+	cursor_timeout = remaining > INT_MAX ? INT_MAX : (int)remaining;
+	return timeout < 0 || cursor_timeout < timeout ? cursor_timeout : timeout;
+}
 
 static const gui_color terminal_palette[16] = {
 	0x00111827, 0x00ef4444, 0x0022c55e, 0x00eab308,
@@ -425,12 +487,54 @@ static void terminal_draw_cell_foreground(const terminal_state *state,
 			TERMINAL_CELL_WIDTH, 1 }, foreground);
 }
 
+static void terminal_draw_cursor(const terminal_state *state, gui_surface *surface,
+				 int offset_x, int offset_y)
+{
+	gui_rect bounds = terminal_cell_bounds(state->vt.cursor_row, state->vt.cursor_column);
+	const terminal_vt_cell *cell = state->vt.cells +
+		(size_t)state->vt.cursor_row * state->vt.columns + state->vt.cursor_column;
+	gui_surface clipped;
+	int left;
+	int top;
+	int right;
+	int bottom;
+
+	bounds.x -= offset_x;
+	bounds.y -= offset_y;
+	if (state->vt.cursor_shape == TERMINAL_VT_CURSOR_UNDERLINE) {
+		bounds.y += TERMINAL_CELL_HEIGHT - 2;
+		bounds.h = 2;
+	} else if (state->vt.cursor_shape == TERMINAL_VT_CURSOR_BAR)
+		bounds.w = 2;
+	left = bounds.x < 0 ? 0 : bounds.x;
+	top = bounds.y < 0 ? 0 : bounds.y;
+	right = (int64_t)bounds.x + bounds.w > surface->width ? surface->width : bounds.x + bounds.w;
+	bottom = (int64_t)bounds.y + bounds.h > surface->height ? surface->height : bounds.y + bounds.h;
+	if (right <= left || bottom <= top)
+		return;
+	gui_fill_rect(surface, bounds, TERMINAL_CURSOR);
+	if (state->vt.cursor_shape != TERMINAL_VT_CURSOR_BLOCK)
+		return;
+	clipped = (gui_surface) { .width = right - left, .height = bottom - top,
+		.stride = surface->stride, .pixels = surface->pixels +
+			(size_t)top * surface->stride + left };
+	if (cell->codepoint != 0) {
+		char bytes[5] = { 0 };
+
+		terminal_encode_utf8(cell->codepoint, bytes);
+		gui_font_draw_text(&clipped, bounds.x - left, bounds.y - top + TERMINAL_FONT_HEIGHT,
+			state->font, bytes, TERMINAL_BACKGROUND);
+	}
+	if (cell->attributes & TERMINAL_VT_ATTRIBUTE_UNDERLINE)
+		gui_fill_rect(&clipped, (gui_rect) { bounds.x - left,
+			bounds.y - top + TERMINAL_CELL_HEIGHT - 2, TERMINAL_CELL_WIDTH, 1 }, TERMINAL_BACKGROUND);
+}
+
 static int terminal_render(terminal_state *state)
 {
 	gui_rect damage = { 0 };
 	gui_surface clipped;
-	int cursor_visible = state->vt.cursor_visible && state->vt.cursor_row < state->vt.rows &&
-		state->vt.cursor_column < state->vt.columns;
+	int cursor_visible = terminal_cursor_visible(state);
 
 	if (state->font == NULL || state->surface.pixels == NULL || state->rendered_cells == NULL)
 		return -1;
@@ -450,6 +554,7 @@ static int terminal_render(terminal_state *state)
 				terminal_add_damage(state, &damage, terminal_glyph_bounds(state, row, column, cell->codepoint));
 			}
 		if (cursor_visible != state->rendered_cursor_visible ||
+		    state->vt.cursor_shape != state->rendered_cursor_shape ||
 		    state->vt.cursor_row != state->rendered_cursor_row ||
 		    state->vt.cursor_column != state->rendered_cursor_column) {
 			if (state->rendered_cursor_visible)
@@ -484,19 +589,13 @@ static int terminal_render(terminal_state *state)
 				terminal_draw_cell_foreground(state, &clipped, row, column,
 					damage.x, damage.y);
 		}
-	if (cursor_visible) {
-		gui_rect cursor = terminal_cell_bounds(state->vt.cursor_row, state->vt.cursor_column);
-
-		cursor.y += TERMINAL_CELL_HEIGHT - 2;
-		cursor.h = 2;
-		cursor.x -= damage.x;
-		cursor.y -= damage.y;
-		gui_fill_rect(&clipped, cursor, TERMINAL_CURSOR);
-	}
+	if (cursor_visible)
+		terminal_draw_cursor(state, &clipped, damage.x, damage.y);
 	memcpy(state->rendered_cells, state->vt.cells, state->rendered_cell_bytes);
 	state->rendered_cursor_row = state->vt.cursor_row;
 	state->rendered_cursor_column = state->vt.cursor_column;
 	state->rendered_cursor_visible = cursor_visible;
+	state->rendered_cursor_shape = state->vt.cursor_shape;
 	state->rendered = 1;
 	return 0;
 }
@@ -637,9 +736,11 @@ static int terminal_handle_message(terminal_state *state,
 		if (payload_bytes != sizeof(gui_protocol_wire_input_event) ||
 		    get32(payload) != state->window_id)
 			return -1;
-		if (get32(payload + 4) == GUI_INPUT_EVENT_KEY && get32(payload + 8) != 0 &&
-		    terminal_write_input(state, get32(payload + 8), get32(payload + 12)) < 0)
-			return -1;
+		if (get32(payload + 4) == GUI_INPUT_EVENT_KEY && get32(payload + 8) != 0) {
+			if (terminal_write_input(state, get32(payload + 8), get32(payload + 12)) < 0)
+				return -1;
+			terminal_reset_cursor_blink(state);
+		}
 		return 0;
 	}
 	return -1;
@@ -1048,6 +1149,8 @@ int main(int argc, char **argv)
 				state.destroy_queued = 1;
 			}
 		} else {
+			if (!pty_eof)
+				terminal_update_cursor_blink(&state, terminal_now_ms());
 			if (app_gui_surface_retry_ready(&state.surface_flow))
 				state.render_pending = 1;
 			if (terminal_send_current_surface(&state, master) < 0)
@@ -1066,6 +1169,8 @@ int main(int argc, char **argv)
 		pollfds[1] = (struct pollfd) { .fd = pty_eof || state.close_requested ? -1 : master,
 			.events = POLLIN | (state.pty_input_bytes ? POLLOUT : 0) };
 		timeout = buffered ? 0 : state.surface_flow.retry_pending ? APP_GUI_SURFACE_RETRY_MS : -1;
+		if (!pty_eof && !state.close_requested)
+			timeout = terminal_cursor_timeout(&state, terminal_now_ms(), timeout);
 		result = poll(pollfds, 2, timeout);
 		if (result < 0) {
 			if (errno == EINTR)
@@ -1095,7 +1200,7 @@ int main(int argc, char **argv)
 			if (result < 0)
 				break;
 			if (updated)
-				state.render_pending = 1;
+				terminal_reset_cursor_blink(&state);
 			if (result > 0)
 				pty_eof = 1;
 		}

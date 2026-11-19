@@ -14,6 +14,12 @@
 #define TERMINAL_VT_ATTRIBUTE_UNDERLINE 0x02U
 #define TERMINAL_VT_ATTRIBUTE_INVERSE 0x04U
 
+typedef enum {
+	TERMINAL_VT_CURSOR_BLOCK,
+	TERMINAL_VT_CURSOR_UNDERLINE,
+	TERMINAL_VT_CURSOR_BAR,
+} terminal_vt_cursor_shape;
+
 typedef struct {
 	uint32_t codepoint;
 	uint32_t foreground;
@@ -64,6 +70,7 @@ typedef struct {
 	uint8_t csi_ignored;
 	uint8_t csi_private;
 	uint8_t csi_secondary;
+	uint8_t csi_intermediate;
 	uint8_t osc_separator_seen;
 	uint8_t osc_ignored;
 	uint8_t title_changed;
@@ -73,6 +80,8 @@ typedef struct {
 	uint8_t using_alternate;
 	uint8_t application_cursor;
 	uint8_t cursor_visible;
+	terminal_vt_cursor_shape cursor_shape;
+	uint8_t cursor_blink;
 	uint8_t wrap_pending;
 	uint8_t saved_wrap_pending;
 	uint8_t primary_wrap_pending;

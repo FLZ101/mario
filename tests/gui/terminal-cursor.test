@@ -1,0 +1,70 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/tcursor.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & wm_pid=$!
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL-WAIT-FILE: /tmp/mario-wm.ready
+SERIAL: <<CURSOR
+cat >/tmp/tcursor.run <<'SCRIPT'
+wait_checked() {
+    while ! test -e /tmp/tcursor.$1-checked; do sleep 1; done
+}
+touch /tmp/tcursor.default
+wait_checked default
+printf '\033[2 q'
+touch /tmp/tcursor.block
+wait_checked block
+printf '\033[4 q'
+touch /tmp/tcursor.underline
+wait_checked underline
+printf '\033[6 q'
+touch /tmp/tcursor.bar
+wait_checked bar
+printf '\033[3 q'
+touch /tmp/tcursor.blink-under
+wait_checked blink-under
+printf '\033[5 q'
+touch /tmp/tcursor.blink-bar
+wait_checked blink-bar
+printf '\033[?25l'
+touch /tmp/tcursor.hidden
+wait_checked hidden
+printf '\033c'
+touch /tmp/tcursor.reset
+sleep 70
+SCRIPT
+/usr/bin/terminal --command '. /tmp/tcursor.run' >/tmp/tcursor.log 2>&1 &
+echo $! >/tmp/tcursor.pid
+CURSOR
+SERIAL-WAIT-FILE: /tmp/tcursor.default
+GUI-CHECK-RECT: 144 112 8 16 248 250 252
+GUI-CHECK-RECT: 144 112 8 16 17 24 39
+SERIAL: touch /tmp/tcursor.default-checked
+SERIAL-WAIT-FILE: /tmp/tcursor.block
+GUI-CHECK-RECT: 144 112 8 16 248 250 252
+SERIAL: touch /tmp/tcursor.block-checked
+SERIAL-WAIT-FILE: /tmp/tcursor.underline
+GUI-CHECK-RECT: 144 112 8 14 17 24 39
+GUI-CHECK-RECT: 144 126 8 2 248 250 252
+SERIAL: touch /tmp/tcursor.underline-checked
+SERIAL-WAIT-FILE: /tmp/tcursor.bar
+GUI-CHECK-RECT: 144 112 2 16 248 250 252
+GUI-CHECK-RECT: 146 112 6 16 17 24 39
+SERIAL: touch /tmp/tcursor.bar-checked
+SERIAL-WAIT-FILE: /tmp/tcursor.blink-under
+GUI-CHECK-RECT: 144 126 8 2 248 250 252
+GUI-CHECK-RECT: 144 126 8 2 17 24 39
+SERIAL: touch /tmp/tcursor.blink-under-checked
+SERIAL-WAIT-FILE: /tmp/tcursor.blink-bar
+GUI-CHECK-RECT: 144 112 2 16 248 250 252
+GUI-CHECK-RECT: 144 112 2 16 17 24 39
+SERIAL: touch /tmp/tcursor.blink-bar-checked
+SERIAL-WAIT-FILE: /tmp/tcursor.hidden
+GUI-CHECK-RECT: 144 112 8 16 17 24 39
+SERIAL: touch /tmp/tcursor.hidden-checked
+SERIAL-WAIT-FILE: /tmp/tcursor.reset
+GUI-CHECK-RECT: 144 112 8 16 248 250 252
+GUI-CHECK-RECT: 144 112 8 16 17 24 39
+SERIAL: kill $(cat /tmp/tcursor.pid); kill -TERM "$wm_pid"; wait "$wm_pid"; test ! -e /tmp/mario-wm.started && printf 'terminal cursor: clean teardown\n'
+SERIAL-CHECK: terminal cursor: clean teardown
+EXIT:

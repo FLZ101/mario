@@ -43,7 +43,10 @@ GUI-CHECK-RECT: 130 130 8 8 17 24 39
 GUI-TYPE: . /tmp/runvim
 SERIAL-WAIT-FILE: /tmp/guivimready
 GUI-WAIT-FRAME:
-GUI-CHECK-SCREEN-RECT: assets/terminal-vim.png,128,96,320,192
+GUI-CHECK-SCREEN-RECT: assets/terminal-vim.png,128,96,16,192
+GUI-CHECK-SCREEN-RECT: assets/terminal-vim.png,152,96,296,192
+GUI-CHECK-SCREEN-RECT: assets/terminal-vim.png,144,96,8,16
+GUI-CHECK-SCREEN-RECT: assets/terminal-vim.png,144,128,8,160
 GUI-SEND-KEY: i
 GUI-TYPE: gui smoke edit
 GUI-SEND-KEY: esc

@@ -72,7 +72,8 @@ SERIAL-CHECK: terminal-tmux-apps: resized three pane session
 SERIAL: while ! tmux -L guipanes capture-pane -pt gui:0.0 | grep -q 'vim pane base'; do sleep 1; done; while ! tmux -L guipanes capture-pane -pt gui:0.1 | grep -q 'PID USER'; do sleep 1; done; while ! tmux -L guipanes capture-pane -pt gui:0.2 | grep -q 'nano pane base'; do sleep 1; done; pgrep -x vim && pgrep -x top && pgrep -x nano && printf 'terminal-tmux-apps: %s\n' 'all applications visible'
 SERIAL-CHECK: terminal-tmux-apps: all applications visible
 GUI-WAIT-FRAME:
-GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,144,112,176,272
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,152,112,168,16
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,144,128,176,256
 GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,320,240,176,96
 GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,320,352,176,32
 GUI-SEND-KEY: i

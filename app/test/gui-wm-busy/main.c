@@ -2863,7 +2863,7 @@ static void test_live_upload_progress(void)
 	unlink("/tmp/gui-upload.single-finish");
 	hold_upload_replies = 1;
 	peer = start_upload_terminal(&server,
-		"trap 'printf \"RESIZE-PROGRESS\\n\"' WINCH; "
+		"printf '\\033[?12l'; trap 'printf \"RESIZE-PROGRESS\\n\"' WINCH; "
 		"printf '%16384s' '' | tr ' ' X; printf 'PTY-PROGRESS\\n'; "
 		"read answer; printf 'KEY-PROGRESS:%s\\n' \"$answer\"; "
 		"while test ! -e /tmp/gui-upload.finish; do sleep 1; done",
@@ -2902,7 +2902,7 @@ static void test_live_upload_progress(void)
 		assert(usleep(1000) == 0);
 	}
 	assert(upload_commits == 1 && upload_patch_begins == 1 && window->committed != NULL);
-	assert(window->committed->pixels[16 * 320 + 16] == 0x00111827);
+	assert(window->committed->pixels[16 * 320 + 16] == 0x00f8fafc);
 	assert(wm_resize_window(&server, window, window->x, window->y, 400, 256) == 1);
 	for (unsigned int attempt = 0; !upload_log_contains("/tmp/gui-upload.term", "RESIZE-PROGRESS"); attempt++) {
 		assert(attempt < 20000 && !upload_peer_pump(peer));
@@ -2918,7 +2918,7 @@ static void test_live_upload_progress(void)
 	assert(window->committed != NULL && window->committed->width == 400 && window->committed->height == 256);
 	finish_upload_terminal(&server, peer, listener, child, "/tmp/gui-upload.finish");
 	peer = start_upload_terminal(&server,
-		"while test ! -e /tmp/gui-upload.single-paint; do sleep 1; done; printf A; "
+		"printf '\\033[?12l'; while test ! -e /tmp/gui-upload.single-paint; do sleep 1; done; printf A; "
 		"while test ! -e /tmp/gui-upload.single-finish; do sleep 1; done",
 		"/tmp/gui-upload.single-log", &listener, &child);
 	assert(peer != NULL);
@@ -2953,7 +2953,7 @@ static void test_live_upload_progress(void)
 	unlink("/tmp/gui-upload.legacy-finish");
 	upload_legacy = 1;
 	peer = start_upload_terminal(&server,
-		"while test ! -e /tmp/gui-upload.legacy-paint; do sleep 1; done; printf A; "
+		"printf '\\033[?12l'; while test ! -e /tmp/gui-upload.legacy-paint; do sleep 1; done; printf A; "
 		"while test ! -e /tmp/gui-upload.legacy-finish; do sleep 1; done",
 		"/tmp/gui-upload.legacy-log", &listener, &child);
 	assert(peer != NULL);

@@ -10,5 +10,7 @@ CHECK: terminal-vt: resize ok
 CHECK: terminal-vt: scrollback and tabs ok
 CHECK: terminal-vt: titles and RGB ok
 CHECK: terminal-vt: DEC modes ok
+CHECK: terminal-vt: cursor styles and blink modes preserve cells across split reads
 CHECK: terminal-vt: charset designation ok
 CHECK: terminal-vt: incremental pixels match full rendering and resize failures preserve state
+CHECK: terminal-vt: cursor shapes blink on bounded deadlines and preserve incremental pixels

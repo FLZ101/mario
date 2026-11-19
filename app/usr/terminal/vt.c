@@ -195,6 +195,7 @@ static void terminal_vt_reset_escape(terminal_vt *terminal)
 	terminal->csi_ignored = 0;
 	terminal->csi_private = 0;
 	terminal->csi_secondary = 0;
+	terminal->csi_intermediate = 0;
 	terminal->csi_colon_parameters = 0;
 	terminal->osc_command = 0;
 	terminal->osc_title_bytes = 0;
@@ -209,6 +210,7 @@ static void terminal_vt_begin_csi(terminal_vt *terminal)
 	terminal->csi_ignored = 0;
 	terminal->csi_private = 0;
 	terminal->csi_secondary = 0;
+	terminal->csi_intermediate = 0;
 	terminal->csi_colon_parameters = 0;
 	terminal->csi_parameters[0] = 0;
 }
@@ -364,6 +366,8 @@ static void terminal_vt_reset(terminal_vt *terminal)
 	terminal->application_cursor = 0;
 	terminal->wrap_pending = 0;
 	terminal->cursor_visible = 1;
+	terminal->cursor_shape = TERMINAL_VT_CURSOR_BLOCK;
+	terminal->cursor_blink = 1;
 	terminal->charset_g0 = 'B';
 	terminal->charset_g1 = 'B';
 	terminal->charset_target = 0;
@@ -516,11 +520,15 @@ static void terminal_vt_set_sgr(terminal_vt *terminal)
 static void terminal_vt_execute_private_csi(terminal_vt *terminal,
 					    uint8_t final)
 {
+	if (final != 'h' && final != 'l')
+		return;
 	for (uint8_t index = 0; index < terminal->csi_parameter_count; index++) {
 		uint32_t parameter = terminal_vt_csi_value(terminal, index);
 
 		if (parameter == 1)
 			terminal->application_cursor = final == 'h';
+		else if (parameter == 12)
+			terminal->cursor_blink = final == 'h';
 		else if (parameter == 25)
 			terminal->cursor_visible = final == 'h';
 		else if (parameter == 1049 && final == 'h')
@@ -534,6 +542,18 @@ static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
 {
 	uint32_t amount;
 
+	if (terminal->csi_intermediate != 0) {
+		uint32_t style = terminal_vt_csi_value(terminal, 0);
+
+		if (terminal->csi_intermediate == ' ' && final == 'q' &&
+		    terminal->csi_parameter_count == 1 && !terminal->csi_colon_parameters &&
+		    !terminal->csi_private && !terminal->csi_secondary && style <= 6) {
+			terminal->cursor_shape = style <= 2 ? TERMINAL_VT_CURSOR_BLOCK :
+				style <= 4 ? TERMINAL_VT_CURSOR_UNDERLINE : TERMINAL_VT_CURSOR_BAR;
+			terminal->cursor_blink = style == 0 || (style & 1);
+		}
+		return;
+	}
 	if (terminal->csi_secondary) {
 		if (final == 'c')
 			terminal_vt_queue_device_attributes(terminal, 1);
@@ -638,6 +658,16 @@ static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
 
 static void terminal_vt_feed_csi(terminal_vt *terminal, uint8_t byte)
 {
+	if (byte >= 0x20 && byte <= 0x2f) {
+		if (byte != ' ' || terminal->csi_intermediate != 0)
+			terminal->csi_ignored = 1;
+		terminal->csi_intermediate = byte;
+		return;
+	}
+	if (terminal->csi_intermediate != 0 && byte >= 0x30 && byte <= 0x3f) {
+		terminal->csi_ignored = 1;
+		return;
+	}
 	if (byte == '?' && terminal->csi_parameter_count == 1 &&
 	    terminal->csi_parameters[0] == 0 && !terminal->csi_private) {
 		terminal->csi_private = 1;

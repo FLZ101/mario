@@ -1,0 +1,9 @@
+if $COLORTERM ==# 'truecolor' && $TERM =~# '^\%(xterm\|screen\|tmux\)'
+    let &t_SI = "\e[5 q"
+    let &t_SR = "\e[3 q"
+    let &t_EI = "\e[1 q"
+    let &t_ve = "\e[?25h"
+    let &t_vs = ""
+    let &t_ti .= "\e[1 q"
+    let &t_te .= "\e[0 q"
+endif

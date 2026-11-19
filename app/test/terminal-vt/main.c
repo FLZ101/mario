@@ -637,6 +637,61 @@ static void test_charset_designation(void)
 	assert(cells[4].codepoint == 0 && cells[5].codepoint == 0);
 }
 
+static void test_cursor_styles(void)
+{
+	static const char *invalid[] = {
+		"\033[7 q", "\033[999999999999999999 q", "\033[1;2 q", "\033[1:2 q",
+		"\033[5q", "\033[5  q", "\033[ 5q", "\033[?5 q", "\033[>5 q",
+		"\033[5$q", "\033[5 m", "\033[5! q",
+	};
+	terminal_vt_cell cells[12];
+	terminal_vt_cell alternate[12];
+	terminal_vt terminal;
+
+	assert(terminal_vt_init(&terminal, cells, alternate, 3, 4) == 0);
+	assert(terminal.cursor_shape == TERMINAL_VT_CURSOR_BLOCK && terminal.cursor_blink);
+	for (unsigned int style = 0; style <= 6; style++) {
+		char sequence[16];
+		size_t length = snprintf(sequence, sizeof(sequence), "\033[%u q", style);
+
+		for (size_t split = 0; split <= length; split++) {
+			assert(terminal_vt_init(&terminal, cells, alternate, 3, 4) == 0);
+			terminal_vt_feed(&terminal, (const uint8_t *)"X\033[6 q", 6);
+			terminal_vt_feed(&terminal, (const uint8_t *)sequence, split);
+			terminal_vt_feed(&terminal, (const uint8_t *)sequence + split, length - split);
+			assert(terminal.cursor_shape == (style <= 2 ? TERMINAL_VT_CURSOR_BLOCK :
+				style <= 4 ? TERMINAL_VT_CURSOR_UNDERLINE : TERMINAL_VT_CURSOR_BAR));
+			assert(terminal.cursor_blink == (style == 0 || (style & 1)));
+			assert(cells[0].codepoint == 'X' && cells[1].codepoint == 0);
+			assert(terminal.cursor_row == 0 && terminal.cursor_column == 1);
+		}
+	}
+	for (size_t index = 0; index < sizeof(invalid) / sizeof(invalid[0]); index++) {
+		size_t length = strlen(invalid[index]);
+
+		for (size_t split = 0; split <= length; split++) {
+			assert(terminal_vt_init(&terminal, cells, alternate, 3, 4) == 0);
+			terminal_vt_feed(&terminal, (const uint8_t *)"\033[6 q", 5);
+			terminal_vt_feed(&terminal, (const uint8_t *)invalid[index], split);
+			terminal_vt_feed(&terminal, (const uint8_t *)invalid[index] + split, length - split);
+			assert(terminal.cursor_shape == TERMINAL_VT_CURSOR_BAR && !terminal.cursor_blink);
+			for (size_t cell = 0; cell < 12; cell++)
+				assert(cells[cell].codepoint == 0);
+		}
+	}
+	terminal_vt_feed(&terminal, (const uint8_t *)"\033[ q", 4);
+	assert(terminal.cursor_shape == TERMINAL_VT_CURSOR_BLOCK && terminal.cursor_blink);
+	terminal_vt_feed(&terminal, (const uint8_t *)"\033[6 q\033[?12h", 11);
+	assert(terminal.cursor_shape == TERMINAL_VT_CURSOR_BAR && terminal.cursor_blink);
+	terminal_vt_feed(&terminal, (const uint8_t *)"\033[?12l\033[?25l", 12);
+	assert(terminal.cursor_shape == TERMINAL_VT_CURSOR_BAR && !terminal.cursor_blink && !terminal.cursor_visible);
+	terminal_vt_feed(&terminal, (const uint8_t *)"\033[?1049h\033[?1049l", 16);
+	assert(terminal.cursor_shape == TERMINAL_VT_CURSOR_BAR && !terminal.cursor_blink);
+	terminal_vt_feed(&terminal, (const uint8_t *)"\033c", 2);
+	assert(terminal.cursor_shape == TERMINAL_VT_CURSOR_BLOCK && terminal.cursor_blink && terminal.cursor_visible);
+	puts("terminal-vt: cursor styles and blink modes preserve cells across split reads");
+}
+
 static void assert_renderer_oracle(terminal_state *state)
 {
 	gui_surface *oracle = gui_surface_create(state->width, state->height);
@@ -684,12 +739,138 @@ static void assert_renderer_oracle(terminal_state *state)
 				gui_fill_rect(oracle, (gui_rect) { cell_x, cell_y + TERMINAL_CELL_HEIGHT - 2,
 					TERMINAL_CELL_WIDTH, 1 }, foreground);
 		}
-	if (state->vt.cursor_visible && state->vt.cursor_row < state->vt.rows && state->vt.cursor_column < state->vt.columns)
-		gui_fill_rect(oracle, (gui_rect) { TERMINAL_MARGIN + state->vt.cursor_column * TERMINAL_CELL_WIDTH,
-			TERMINAL_MARGIN + state->vt.cursor_row * TERMINAL_CELL_HEIGHT + TERMINAL_CELL_HEIGHT - 2,
-			TERMINAL_CELL_WIDTH, 2 }, TERMINAL_CURSOR);
+	if (terminal_cursor_visible(state)) {
+		gui_rect bounds = { TERMINAL_MARGIN + state->vt.cursor_column * TERMINAL_CELL_WIDTH,
+			TERMINAL_MARGIN + state->vt.cursor_row * TERMINAL_CELL_HEIGHT,
+			TERMINAL_CELL_WIDTH, TERMINAL_CELL_HEIGHT };
+
+		if (state->vt.cursor_shape == TERMINAL_VT_CURSOR_UNDERLINE) {
+			bounds.y += TERMINAL_CELL_HEIGHT - 2;
+			bounds.h = 2;
+		} else if (state->vt.cursor_shape == TERMINAL_VT_CURSOR_BAR)
+			bounds.w = 2;
+		gui_fill_rect(oracle, bounds, TERMINAL_CURSOR);
+		if (state->vt.cursor_shape == TERMINAL_VT_CURSOR_BLOCK) {
+			const terminal_vt_cell *cell = state->vt.cells +
+				(size_t)state->vt.cursor_row * state->vt.columns + state->vt.cursor_column;
+			gui_surface cursor = { .width = bounds.w, .height = bounds.h,
+				.stride = oracle->stride, .pixels = oracle->pixels +
+					(size_t)bounds.y * oracle->stride + bounds.x };
+
+			if (cell->codepoint != 0) {
+				char bytes[5] = { 0 };
+
+				terminal_encode_utf8(cell->codepoint, bytes);
+				gui_font_draw_text(&cursor, 0, TERMINAL_FONT_HEIGHT, state->font, bytes, TERMINAL_BACKGROUND);
+			}
+			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_UNDERLINE)
+				gui_fill_rect(&cursor, (gui_rect) { 0, TERMINAL_CELL_HEIGHT - 2,
+					TERMINAL_CELL_WIDTH, 1 }, TERMINAL_BACKGROUND);
+		}
+	}
 	assert(!memcmp(state->pixels, oracle->pixels, (size_t)state->width * state->height * sizeof(gui_color)));
 	gui_surface_destroy(oracle);
+}
+
+static void test_cursor_renderer(void)
+{
+	static terminal_state state = { .fd = -1, .master = -1, .window_id = 1, .configure_serial = 1 };
+	uint64_t now = 1000;
+	gui_protocol_header key = { .type = GUI_PROTOCOL_INPUT_EVENT };
+	uint8_t payload[sizeof(gui_protocol_wire_input_event)] = { 0 };
+
+	assert(terminal_resize_grid(&state, 320, 192) == 0);
+	state.font = gui_font_load(TERMINAL_FONT_PATH, TERMINAL_FONT_HEIGHT);
+	assert(state.font != NULL);
+	terminal_vt_feed(&state.vt, (const uint8_t *)"W\033[H", 4);
+	terminal_update_cursor_blink(&state, now);
+	assert(terminal_render(&state) == 0);
+	assert_renderer_oracle(&state);
+	{
+		unsigned int dark_pixels = 0;
+		unsigned int light_pixels = 0;
+
+		for (uint32_t row = 16; row < 32; row++)
+			for (uint32_t column = 16; column < 24; column++) {
+				gui_color pixel = state.pixels[(size_t)row * state.width + column] & 0x00ffffffU;
+
+				dark_pixels += pixel == TERMINAL_BACKGROUND;
+				light_pixels += pixel == TERMINAL_CURSOR;
+			}
+		assert(dark_pixels > 0 && light_pixels > 0);
+	}
+	for (unsigned int style = 1; style <= 6; style++) {
+		char sequence[16];
+		size_t length = snprintf(sequence, sizeof(sequence), "\033[%u q", style);
+
+		terminal_vt_feed(&state.vt, (const uint8_t *)sequence, length);
+		terminal_reset_cursor_blink(&state);
+		terminal_update_cursor_blink(&state, now);
+		assert(terminal_render(&state) == 0);
+		assert_renderer_oracle(&state);
+		assert(state.render_damage.w <= 8 && state.render_damage.h <= 16);
+		state.render_pending = 0;
+		assert(terminal_cursor_timeout(&state, now, 0) == 0);
+		assert(terminal_cursor_timeout(&state, now, 17) == 17);
+		assert(terminal_cursor_timeout(&state, now, -1) == (style & 1 ? 500 : -1));
+		terminal_update_cursor_blink(&state, now + 499);
+		assert(!state.render_pending && terminal_cursor_visible(&state));
+		assert(terminal_render(&state) == 0 && state.render_damage.w == 0);
+		terminal_update_cursor_blink(&state, now + 500);
+		assert(state.render_pending == (int)(style & 1));
+		assert(terminal_cursor_visible(&state) == !(style & 1));
+		assert(terminal_render(&state) == 0);
+		assert_renderer_oracle(&state);
+		state.render_pending = 0;
+		terminal_update_cursor_blink(&state, now + 1000);
+		assert(terminal_cursor_visible(&state));
+		assert(terminal_render(&state) == 0);
+		assert_renderer_oracle(&state);
+		now += 2000;
+	}
+	terminal_vt_feed(&state.vt, (const uint8_t *)"\033[1 q", 5);
+	terminal_reset_cursor_blink(&state);
+	terminal_update_cursor_blink(&state, now);
+	assert(terminal_render(&state) == 0);
+	state.render_pending = 0;
+	state.upload.active = 1;
+	terminal_update_cursor_blink(&state, now + 500);
+	assert(state.render_pending && !terminal_cursor_visible(&state));
+	assert(terminal_cursor_timeout(&state, now + 1000, -1) == 0);
+	assert(terminal_send_surface(&state) == 0 && state.render_pending && state.rendered_cursor_visible);
+	state.upload.active = 0;
+	assert(terminal_render(&state) == 0 && !state.rendered_cursor_visible);
+	assert_renderer_oracle(&state);
+	state.render_pending = 0;
+	terminal_update_cursor_blink(&state, now + 1500);
+	assert(!state.render_pending && !terminal_cursor_visible(&state));
+	terminal_update_cursor_blink(&state, now + 2000);
+	assert(state.render_pending && terminal_cursor_visible(&state));
+	terminal_update_cursor_blink(&state, now + 2500);
+	assert(!terminal_cursor_visible(&state));
+	put32(payload, state.window_id);
+	put32(payload + 4, GUI_INPUT_EVENT_KEY);
+	put32(payload + 8, 'a');
+	state.master = STDOUT_FILENO;
+	assert(terminal_handle_message(&state, &key, payload, sizeof(payload)) == 0);
+	state.master = -1;
+	assert(terminal_cursor_visible(&state) && state.cursor_blink_deadline == 0);
+	assert(state.render_pending && state.pty_input_bytes == 1 && state.pty_input[0] == 'a');
+	terminal_update_cursor_blink(&state, now + 2500);
+	assert(state.cursor_blink_deadline == now + 3000);
+	terminal_vt_feed(&state.vt, (const uint8_t *)"\033[?25l", 6);
+	terminal_update_cursor_blink(&state, now + 2600);
+	assert(!terminal_cursor_visible(&state) && state.cursor_blink_deadline == 0);
+	assert(terminal_cursor_timeout(&state, now + 10000, -1) == -1);
+	assert(terminal_render(&state) == 0);
+	assert_renderer_oracle(&state);
+	gui_font_destroy(state.font);
+	free(state.primary_cells);
+	free(state.alternate_cells);
+	free(state.scrollback_cells);
+	free(state.rendered_cells);
+	free(state.pixels);
+	puts("terminal-vt: cursor shapes blink on bounded deadlines and preserve incremental pixels");
 }
 
 static void test_incremental_renderer(void)
@@ -701,6 +882,7 @@ static void test_incremental_renderer(void)
 		"\033[2;5r\033[5;1Hscroll\nscroll\nscroll\033[r", "\033[?1049h\033[Halternate",
 		"\033[?1049l\033[?25h\033[2;3H", "\033[2K\033[3;4H\033[48;2;19;83;137m\033[K",
 		"\033[0m\033[1;1H\033[?25l", "\033c",
+		"\033[4 q", "\033[6 q", "\033[2 q", "\033[?12h", "\033[?12l",
 	};
 	static const uint32_t glyphs[] = { 'j', 'W', 0x0301, 0x00c5, 0x4e2d, 0x1f600, 0x10ffff, 0 };
 	gui_protocol_header configure = { .type = GUI_PROTOCOL_WINDOW_CONFIGURE };
@@ -742,6 +924,7 @@ static void test_incremental_renderer(void)
 		state.vt.cursor_row = (index * 3) % state.vt.rows;
 		state.vt.cursor_column = (index * 7) % state.vt.columns;
 		state.vt.cursor_visible = index % 2;
+		state.vt.cursor_shape = index % 3;
 		assert(terminal_render(&state) == 0);
 		assert_renderer_oracle(&state);
 	}
@@ -770,6 +953,7 @@ static void test_incremental_renderer(void)
 	state.surface_flow.retry_pending = 0;
 	assert(terminal_apply_pending_configure(&state, -1) == 0);
 	assert(state.pending_configure_serial == 0 && state.configure_serial == 2 && state.width == 400);
+	assert(state.vt.cursor_shape == previous.vt.cursor_shape && state.vt.cursor_blink == previous.vt.cursor_blink);
 	assert(terminal_render(&state) == 0 && state.render_damage.w == 400 && state.render_damage.h == 256);
 	assert_renderer_oracle(&state);
 	gui_font_destroy(state.font);
@@ -797,6 +981,7 @@ int main(void)
 	test_scrollback_and_tabs();
 	test_titles_and_direct_color();
 	test_dec_private_modes();
+	test_cursor_styles();
 	test_charset_designation();
 	puts("terminal-vt: basic controls ok");
 	puts("terminal-vt: UTF-8 ok");
@@ -809,5 +994,6 @@ int main(void)
 	puts("terminal-vt: DEC modes ok");
 	puts("terminal-vt: charset designation ok");
 	test_incremental_renderer();
+	test_cursor_renderer();
 	return 0;
 }
