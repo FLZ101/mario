@@ -1,6 +1,7 @@
 # Link the test against the terminal's production parser implementation.
 CFLAGS += -I$(ROOT)/usr/terminal
 OBJS += $(ROOT)/usr/terminal/vt.o
+OBJS += $(ROOT)/usr/terminal/config.o
 OBJS += $(ROOT)/usr/terminal/upload.o
 CFLAGS += -I$(ROOT)/gui/libmario-ui/include
 LDFLAGS += -L$(ROOT)/gui/libmario-ui -lmario-ui

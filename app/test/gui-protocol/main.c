@@ -236,10 +236,12 @@ static void test_patch_wire_contract(void)
 	uint8_t header_bytes[GUI_PROTOCOL_HEADER_SIZE];
 	gui_protocol_header header;
 	gui_protocol_type types[] = { GUI_PROTOCOL_CAPABILITIES, GUI_PROTOCOL_CAPABILITIES_REPLY,
-		GUI_PROTOCOL_SURFACE_PATCH_BEGIN, GUI_PROTOCOL_SURFACE_CANCEL };
+		GUI_PROTOCOL_SURFACE_PATCH_BEGIN, GUI_PROTOCOL_SURFACE_CANCEL, GUI_PROTOCOL_WINDOW_OPACITY };
 
 	assert(GUI_PROTOCOL_VERSION_MAJOR == 1 && GUI_PROTOCOL_VERSION_MINOR == 1);
 	assert(GUI_PROTOCOL_CAP_SURFACE_PATCH == 1);
+	assert(GUI_PROTOCOL_CAP_WINDOW_OPACITY == 2);
+	assert(sizeof(gui_protocol_wire_window_opacity) == 8);
 	assert(sizeof(gui_protocol_wire_hello) == 4);
 	assert(sizeof(gui_protocol_wire_capabilities) == 4);
 	assert(sizeof(gui_protocol_wire_surface_begin) == 36);

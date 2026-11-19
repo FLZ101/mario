@@ -1,4 +1,7 @@
 RUN: /usr/bin/test/terminal-vt.exe
+CHECK: terminal-vt: config defaults, validation, themes and font geometry pass
+CHECK: terminal-vt: configured fonts and colors preserve incremental rendering and cursor shapes
+CHECK: terminal-vt: blank cells use default colors and erases preserve the active background
 CHECK: terminal-vt: basic controls ok
 CHECK: terminal-vt: UTF-8 ok
 CHECK: terminal-vt: CSI ok

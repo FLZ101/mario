@@ -188,6 +188,7 @@ struct wm_window {
 	uint64_t painted_order;
 	wm_title_button hover_button;
 	wm_title_button pressed_button;
+	uint32_t transparency;
 };
 
 struct wm_client {
@@ -824,6 +825,34 @@ static void wm_draw_title_icon(wm_state *state, int button_x, int button_y,
 	}
 }
 
+static void wm_blend_content(gui_surface *destination, int position_x, int position_y,
+		const gui_surface *source, uint32_t transparency)
+{
+	int64_t left = position_x < 0 ? -(int64_t)position_x : 0;
+	int64_t top = position_y < 0 ? -(int64_t)position_y : 0;
+	int64_t right = source->width;
+	int64_t bottom = source->height;
+	uint32_t alpha = 255 - transparency;
+
+	if ((int64_t)position_x + right > destination->width)
+		right = (int64_t)destination->width - position_x;
+	if ((int64_t)position_y + bottom > destination->height)
+		bottom = (int64_t)destination->height - position_y;
+	for (int64_t row = top; row < bottom; row++)
+		for (int64_t column = left; column < right; column++) {
+			gui_color foreground = source->pixels[row * source->stride + column];
+			gui_color *pixel = destination->pixels +
+				(row + position_y) * destination->stride + column + position_x;
+			gui_color background = *pixel;
+			gui_color result = 0;
+
+			for (unsigned int shift = 0; shift < 24; shift += 8)
+				result |= ((((foreground >> shift) & 255) * alpha +
+					((background >> shift) & 255) * transparency + 127) / 255) << shift;
+			*pixel = result;
+		}
+}
+
 static void wm_draw_window(wm_state *state, const wm_window *client)
 {
 	wm_window presented;
@@ -836,10 +865,21 @@ static void wm_draw_window(wm_state *state, const wm_window *client)
 
 	/* Content coordinates remain client-visible; only the server owns chrome. */
 	if (!client->fullscreen) {
-		gui_fill_rect(state->composite, (gui_rect) { .x = outer_x, .y = outer_y,
-			.w = (int)client->width + 2 * WM_RESIZE_GRIP,
-			.h = (int)client->height + WM_TITLE_HEIGHT + 2 * WM_RESIZE_GRIP },
-			WM_WINDOW_BORDER_COLOR);
+		if (client->transparency == 0) {
+			gui_fill_rect(state->composite, (gui_rect) { .x = outer_x, .y = outer_y,
+				.w = (int)client->width + 2 * WM_RESIZE_GRIP,
+				.h = (int)client->height + WM_TITLE_HEIGHT + 2 * WM_RESIZE_GRIP },
+				WM_WINDOW_BORDER_COLOR);
+		} else {
+			gui_fill_rect(state->composite, (gui_rect) { outer_x, outer_y,
+				client->width + 2 * WM_RESIZE_GRIP, WM_TITLE_HEIGHT + WM_RESIZE_GRIP }, WM_WINDOW_BORDER_COLOR);
+			gui_fill_rect(state->composite, (gui_rect) { outer_x, client->y,
+				WM_RESIZE_GRIP, client->height }, WM_WINDOW_BORDER_COLOR);
+			gui_fill_rect(state->composite, (gui_rect) { client->x + client->width, client->y,
+				WM_RESIZE_GRIP, client->height }, WM_WINDOW_BORDER_COLOR);
+			gui_fill_rect(state->composite, (gui_rect) { outer_x, client->y + client->height,
+				client->width + 2 * WM_RESIZE_GRIP, WM_RESIZE_GRIP }, WM_WINDOW_BORDER_COLOR);
+		}
 		gui_fill_rect(state->composite, (gui_rect) { .x = client->x,
 			.y = client->y - WM_TITLE_HEIGHT, .w = (int)client->width,
 			.h = WM_TITLE_HEIGHT }, client->focused ? WM_WINDOW_TITLE_ACTIVE_COLOR :
@@ -856,17 +896,26 @@ static void wm_draw_window(wm_state *state, const wm_window *client)
 				wm_title_icon_color(client, button));
 		}
 	}
-	gui_fill_rect(state->composite, (gui_rect) { .x = client->x, .y = client->y,
-		.w = (int)client->width, .h = (int)client->height }, WM_WINDOW_CONTENT_COLOR);
+	if (client->transparency == 0 || client->committed == NULL)
+		gui_fill_rect(state->composite, (gui_rect) { .x = client->x, .y = client->y,
+			.w = (int)client->width, .h = (int)client->height }, WM_WINDOW_CONTENT_COLOR);
 	if (client->committed == NULL)
 		return;
 	committed_width = client->committed->width < (int)client->width ?
 		(uint32_t)client->committed->width : client->width;
 	committed_height = client->committed->height < (int)client->height ?
 		(uint32_t)client->committed->height : client->height;
-	gui_blit(state->composite, client->x, client->y, client->committed,
-		&(gui_rect) { .x = 0, .y = 0, .w = (int)committed_width,
-			.h = (int)committed_height });
+	if (client->transparency != 0) {
+		gui_surface content = *client->committed;
+
+		content.width = (int)committed_width;
+		content.height = (int)committed_height;
+		wm_blend_content(state->composite, client->x, client->y, &content, client->transparency);
+	} else {
+		gui_blit(state->composite, client->x, client->y, client->committed,
+			&(gui_rect) { .x = 0, .y = 0, .w = (int)committed_width,
+				.h = (int)committed_height });
+	}
 }
 
 static gui_rect wm_window_bounds(const wm_server *server, const wm_window *window)
@@ -905,6 +954,7 @@ static int wm_window_above(const wm_window *cover, const wm_window *window)
 
 	return cover != window && cover->client->fd >= 0 && cover->window_id != 0 &&
 		cover->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY && !cover->minimized &&
+		cover->transparency == 0 &&
 		(fullscreen != NULL ? cover == fullscreen :
 		 (window == NULL || window->client->role == GUI_PROTOCOL_ENDPOINT_SHELL ||
 		  cover->stack_order > window->stack_order));
@@ -3297,11 +3347,32 @@ static void client_message(void *context, const gui_protocol_header *header,
 		} else if (client->windows != NULL) {
 			client_reject(client, header->type, -EBUSY);
 		} else {
-			client->capabilities = get_u32(bytes) & GUI_PROTOCOL_CAP_SURFACE_PATCH;
+			client->capabilities = get_u32(bytes) &
+				(GUI_PROTOCOL_CAP_SURFACE_PATCH | GUI_PROTOCOL_CAP_WINDOW_OPACITY);
 			put_u32(capabilities, client->capabilities);
 			if (client_enqueue(client, GUI_PROTOCOL_CAPABILITIES_REPLY, capabilities, sizeof(capabilities)) < 0)
 				client->hello = -1;
 		}
+		return;
+	}
+	if (header->type == GUI_PROTOCOL_WINDOW_OPACITY) {
+		if (!(client->capabilities & GUI_PROTOCOL_CAP_WINDOW_OPACITY)) {
+			client_reject(client, header->type, -EPROTONOSUPPORT);
+			return;
+		}
+		if (payload_bytes != sizeof(gui_protocol_wire_window_opacity) || get_u32(bytes + 4) > 100) {
+			client_reject(client, header->type, -EINVAL);
+			return;
+		}
+		window = wm_find_window(client->server, get_u32(bytes));
+		if (window == NULL || window->client != client || client->role != GUI_PROTOCOL_ENDPOINT_ORDINARY) {
+			client_reject(client, header->type, -EPERM);
+			return;
+		}
+		window->transparency = 255 - (get_u32(bytes + 4) * 255 + 50) / 100;
+		wm_damage_rect(&client->server->state, wm_window_bounds(client->server, window));
+		if (wm_compose(client->server) == GUI_FLUSH_ERROR)
+			client->hello = -1;
 		return;
 	}
 	if (header->type == GUI_PROTOCOL_LAUNCH_REQUEST) {

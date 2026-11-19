@@ -426,6 +426,9 @@ adjacent-cursor fixture sends a 16x16 patch (1140 protocol bytes) and scans out
 
 ## Terminal Window and PTY Integration
 
+See [Terminal Configuration](terminal.md) for font sizes, color schemes,
+custom palettes, and opacity settings.
+
 Add:
 
 - `app/usr/terminal/main.c`

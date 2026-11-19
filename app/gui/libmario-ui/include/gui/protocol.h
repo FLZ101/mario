@@ -8,6 +8,7 @@
 #define GUI_PROTOCOL_VERSION_MAJOR 1U
 #define GUI_PROTOCOL_VERSION_MINOR 1U
 #define GUI_PROTOCOL_CAP_SURFACE_PATCH 0x00000001U
+#define GUI_PROTOCOL_CAP_WINDOW_OPACITY 0x00000002U
 #define GUI_PROTOCOL_HEADER_SIZE 8U
 #define GUI_PROTOCOL_MIN_MESSAGE_SIZE GUI_PROTOCOL_HEADER_SIZE
 #define GUI_PROTOCOL_MAX_MESSAGE_SIZE 65536U
@@ -58,6 +59,7 @@ typedef enum {
 	GUI_PROTOCOL_WINDOW_STATE,
 	GUI_PROTOCOL_SHELL_WORK_AREA,
 	GUI_PROTOCOL_WINDOW_STATE_REQUEST,
+	GUI_PROTOCOL_WINDOW_OPACITY,
 } gui_protocol_type;
 
 typedef enum {
@@ -243,6 +245,13 @@ typedef struct __attribute__((packed)) {
 	uint32_t state_le;
 	uint32_t reserved_le;
 } gui_protocol_wire_window_state_request;
+
+typedef struct __attribute__((packed)) {
+	uint32_t window_id_le;
+	uint32_t opacity_le;
+} gui_protocol_wire_window_opacity;
+
+_Static_assert(sizeof(gui_protocol_wire_window_opacity) == 8, "window opacity wire size");
 
 typedef struct __attribute__((packed)) {
 	uint32_t window_id_le;

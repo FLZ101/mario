@@ -1,0 +1,50 @@
+GUI-VISUAL-TEST:
+SERIAL: <<CONFIG
+mkdir -p /root/.config/mario
+cat >/root/.config/mario/terminal.conf <<'SETTINGS'
+font_size=20
+color_scheme=light
+foreground=#e0f0ff
+background=#102030
+cursor=#00ff00
+color1=#ff00ff
+opaque=true
+SETTINGS
+cat >/tmp/terminal-config.run <<'SCRIPT'
+stty size >/tmp/terminal-config.size
+printf '\033[?25l\033[41m  \033[0m'
+touch /tmp/terminal-config.ready
+while :; do sleep 1; done
+SCRIPT
+CONFIG
+SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/terminal --command '. /tmp/terminal-config.run' >/tmp/terminal-config.log 2>/tmp/terminal-config.err &
+SERIAL-WAIT-FILE: /tmp/terminal-config.ready
+SERIAL: cat /tmp/terminal-config.size
+SERIAL-CHECK: 6 22
+GUI-CHECK-RECT: 130 130 4 4 16 32 48
+GUI-CHECK-RECT: 144 112 26 24 255 0 255
+GUI-CHECK-RECT: 170 112 1 24 16 32 48
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while pgrep terminal >/dev/null; do sleep 1; done; printf 'font_size=32\nbackground=#000000\nopacity=50\n' >/tmp/terminal-override.conf; rm /tmp/terminal-config.ready
+SERIAL: MARIO_TERMINAL_CONFIG=/tmp/terminal-override.conf /usr/bin/terminal --command 'printf "\033[?25l"; touch /tmp/terminal-config.ready; while :; do sleep 1; done' >/tmp/terminal-config.log 2>/tmp/terminal-config.err &
+SERIAL-WAIT-FILE: /tmp/terminal-config.ready
+GUI-CHECK-RECT: 162 162 4 4 15 20 25
+GUI-CHECK-RECT: 162 110 1 1 37 99 235
+GUI-SEND-KEYS: meta_l,f
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 0 0 4 4 15 20 25
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while pgrep terminal >/dev/null; do sleep 1; done; rm /tmp/terminal-config.ready
+SERIAL: MARIO_TERMINAL_CONFIG= /usr/bin/terminal --command '. /tmp/terminal-config.run' >/tmp/terminal-config.log 2>/tmp/terminal-config.err &
+SERIAL-WAIT-FILE: /tmp/terminal-config.ready
+SERIAL: cat /tmp/terminal-config.size
+SERIAL-CHECK: 10 36
+GUI-CHECK-RECT: 194 194 4 4 17 24 39
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while pgrep terminal >/dev/null; do sleep 1; done; kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

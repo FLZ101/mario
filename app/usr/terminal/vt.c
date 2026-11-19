@@ -11,6 +11,16 @@
 #define TERMINAL_VT_STATE_OSC_ESCAPE 4U
 #define TERMINAL_VT_STATE_CHARSET 5U
 
+static void terminal_vt_blank_cells(terminal_vt_cell *cells, size_t count,
+		uint32_t background)
+{
+	terminal_vt_cell blank = { .foreground = TERMINAL_VT_COLOR_DEFAULT,
+		.background = background };
+
+	for (size_t index = 0; index < count; index++)
+		cells[index] = blank;
+}
+
 static void terminal_vt_set_cursor(terminal_vt *terminal, uint32_t row,
 				   uint32_t column);
 
@@ -40,8 +50,8 @@ static void terminal_vt_scroll_region(terminal_vt *terminal)
 	/* A one-row margin clears its only line instead of reading past it. */
 	if (row_count != 0)
 		memmove(top, top + terminal->columns, row_bytes * row_count);
-	memset(terminal->cells + (size_t)terminal->scroll_bottom * terminal->columns,
-		0, row_bytes);
+	terminal_vt_blank_cells(terminal->cells + (size_t)terminal->scroll_bottom * terminal->columns,
+		terminal->columns, terminal->background);
 }
 
 static void terminal_vt_line_feed(terminal_vt *terminal)
@@ -273,13 +283,11 @@ static void terminal_vt_clear_screen(terminal_vt *terminal, uint32_t mode)
 	size_t count = (size_t)terminal->rows * terminal->columns;
 
 	if (mode == 0)
-		memset(terminal->cells + cursor, 0,
-			(count - cursor) * sizeof(*terminal->cells));
+		terminal_vt_blank_cells(terminal->cells + cursor, count - cursor, terminal->background);
 	else if (mode == 1)
-		memset(terminal->cells, 0,
-			(cursor + 1) * sizeof(*terminal->cells));
+		terminal_vt_blank_cells(terminal->cells, cursor + 1, terminal->background);
 	else if (mode == 2)
-		memset(terminal->cells, 0, count * sizeof(*terminal->cells));
+		terminal_vt_blank_cells(terminal->cells, count, terminal->background);
 }
 
 static void terminal_vt_clear_line(terminal_vt *terminal, uint32_t mode)
@@ -288,12 +296,12 @@ static void terminal_vt_clear_line(terminal_vt *terminal, uint32_t mode)
 		(size_t)terminal->cursor_row * terminal->columns;
 
 	if (mode == 0)
-		memset(line + terminal->cursor_column, 0,
-			(terminal->columns - terminal->cursor_column) * sizeof(*line));
+		terminal_vt_blank_cells(line + terminal->cursor_column,
+			terminal->columns - terminal->cursor_column, terminal->background);
 	else if (mode == 1)
-		memset(line, 0, (terminal->cursor_column + 1) * sizeof(*line));
+		terminal_vt_blank_cells(line, terminal->cursor_column + 1, terminal->background);
 	else if (mode == 2)
-		memset(line, 0, terminal->columns * sizeof(*line));
+		terminal_vt_blank_cells(line, terminal->columns, terminal->background);
 }
 
 static void terminal_vt_set_cursor(terminal_vt *terminal, uint32_t row,
@@ -308,8 +316,8 @@ static void terminal_vt_set_cursor(terminal_vt *terminal, uint32_t row,
 static void terminal_vt_clear_buffer(const terminal_vt *terminal,
 				     terminal_vt_cell *cells)
 {
-	memset(cells, 0, (size_t)terminal->rows * terminal->columns *
-		sizeof(*cells));
+	terminal_vt_blank_cells(cells, (size_t)terminal->rows * terminal->columns,
+		TERMINAL_VT_COLOR_DEFAULT);
 }
 
 static void terminal_vt_enter_alternate(terminal_vt *terminal)
@@ -624,8 +632,8 @@ static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
 		amount = terminal_vt_csi_count(terminal, 0, 1);
 		if (amount > terminal->columns - terminal->cursor_column)
 			amount = terminal->columns - terminal->cursor_column;
-		memset(terminal->cells + (size_t)terminal->cursor_row * terminal->columns +
-			terminal->cursor_column, 0, amount * sizeof(*terminal->cells));
+		terminal_vt_blank_cells(terminal->cells + (size_t)terminal->cursor_row * terminal->columns +
+			terminal->cursor_column, amount, terminal->background);
 		break;
 	case 'g':
 		if (terminal_vt_csi_value(terminal, 0) == 0 &&
@@ -901,8 +909,8 @@ int terminal_vt_set_scrollback(terminal_vt *terminal,
 	terminal->scrollback_head = 0;
 	terminal->scrollback_count = 0;
 	if (scrollback_lines != 0)
-		memset(scrollback_cells, 0, (size_t)scrollback_lines * terminal->columns *
-			sizeof(*scrollback_cells));
+		terminal_vt_blank_cells(scrollback_cells, (size_t)scrollback_lines * terminal->columns,
+			TERMINAL_VT_COLOR_DEFAULT);
 	return 0;
 }
 
@@ -981,8 +989,8 @@ int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 	    scrollback_lines > SIZE_MAX / columns / sizeof(*scrollback_cells))
 		return -1;
 	cell_count = (size_t)rows * columns;
-	memset(primary_cells, 0, cell_count * sizeof(*primary_cells));
-	memset(alternate_cells, 0, cell_count * sizeof(*alternate_cells));
+	terminal_vt_blank_cells(primary_cells, cell_count, TERMINAL_VT_COLOR_DEFAULT);
+	terminal_vt_blank_cells(alternate_cells, cell_count, TERMINAL_VT_COLOR_DEFAULT);
 	if (terminal->columns == columns)
 		terminal_vt_copy_resize_cells(primary_cells, columns,
 			terminal->primary_cells, terminal->rows,
@@ -994,8 +1002,8 @@ int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 	terminal_vt_copy_resize_cells(alternate_cells, columns, terminal->alternate_cells,
 		terminal->rows, terminal->columns, rows, columns);
 	if (scrollback_lines != 0)
-		memset(scrollback_cells, 0, (size_t)scrollback_lines * columns *
-			sizeof(*scrollback_cells));
+		terminal_vt_blank_cells(scrollback_cells, (size_t)scrollback_lines * columns,
+			TERMINAL_VT_COLOR_DEFAULT);
 	copied_scrollback = terminal->scrollback_count < scrollback_lines ?
 		terminal->scrollback_count : scrollback_lines;
 	first_scrollback = terminal->scrollback_count - copied_scrollback;

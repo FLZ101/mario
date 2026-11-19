@@ -1,0 +1,41 @@
+GUI-VISUAL-TEST:
+SERIAL: <<CONFIG
+printf 'background=#000000\nopacity=50\n' >/tmp/terminal-transparent.conf
+printf 'background=#00ff00\nopaque=true\n' >/tmp/terminal-opaque.conf
+cat >/tmp/terminal-underlay.run <<'SCRIPT'
+printf '\033[?25l'
+touch /tmp/terminal-underlay.ready
+while ! test -e /tmp/terminal-underlay.update; do sleep 1; done
+printf '\033[44m\033[2J'
+touch /tmp/terminal-underlay.changed
+while :; do sleep 1; done
+SCRIPT
+CONFIG
+SERIAL: rm -f /tmp/mario-wm.*; MARIO_WALLPAPER=/usr/share/mario-tests/gui/checker-64.bmp /usr/bin/mario-wm >/tmp/mario-wm.log 2>/tmp/wallpaper.log & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: MARIO_TERMINAL_CONFIG=/tmp/terminal-transparent.conf /usr/bin/terminal --command 'printf "\033[?25l"; touch /tmp/terminal-transparent.ready; while :; do sleep 1; done' >/tmp/terminal-transparent.log 2>/tmp/terminal-transparent.err &
+SERIAL-WAIT-FILE: /tmp/terminal-transparent.ready
+GUI-CHECK-RECT: 130 130 4 4 17 98 47
+SERIAL: MARIO_TERMINAL_CONFIG=/tmp/terminal-opaque.conf /usr/bin/terminal --command '. /tmp/terminal-underlay.run' >/tmp/terminal-underlay.log 2>/tmp/terminal-underlay.err &
+SERIAL-WAIT-FILE: /tmp/terminal-underlay.ready
+GUI-CHECK-RECT: 176 176 4 4 0 255 0
+GUI-SEND-KEYS: alt,tab
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 176 176 4 4 0 127 0
+SERIAL: touch /tmp/terminal-underlay.update
+SERIAL-WAIT-FILE: /tmp/terminal-underlay.changed
+GUI-CHECK-RECT: 176 176 4 4 29 65 123
+GUI-SEND-KEYS: meta_l,f
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 0 0 4 4 119 34 34
+GUI-SEND-KEYS: meta_l,f
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 130 130 4 4 17 98 47
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while test "$(pgrep terminal | wc -l)" -gt 1; do sleep 1; done
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while pgrep terminal >/dev/null; do sleep 1; done; kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

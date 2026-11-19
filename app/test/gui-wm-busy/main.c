@@ -2502,7 +2502,7 @@ static wm_window *test_patch_window(wm_server *server, uint16_t minor)
 	captured_bytes = 0;
 	assert(gui_protocol_output_flush(peer->output, capture_output, NULL) == GUI_PROTOCOL_OUTPUT_EMPTY);
 	assert(get_u16(captured_output + GUI_PROTOCOL_HEADER_SIZE + 2) == minor);
-	put_u32(payload, GUI_PROTOCOL_CAP_SURFACE_PATCH | 2);
+	put_u32(payload, GUI_PROTOCOL_CAP_SURFACE_PATCH | 0x80000000U);
 	client_message(peer, &capabilities, payload, 4);
 	captured_bytes = 0;
 	assert(gui_protocol_output_flush(peer->output, capture_output, NULL) == GUI_PROTOCOL_OUTPUT_EMPTY);
@@ -3113,6 +3113,102 @@ static void test_live_upload_progress(void)
 	puts("gui-wm-busy: rejected negotiation reconnects to legacy full-frame uploads");
 }
 
+static void test_window_opacity(void)
+{
+	static wm_server server;
+	wm_window *desktop;
+	wm_window *back;
+	wm_window *front;
+	gui_surface *destination = gui_surface_create(3, 3);
+	gui_surface *source = gui_surface_create(4, 4);
+	uint8_t payload[sizeof(gui_protocol_wire_window_opacity)] = { 0 };
+	gui_protocol_header header = { .type = GUI_PROTOCOL_WINDOW_OPACITY };
+
+	assert(destination != NULL && source != NULL);
+	gui_fill_rect(destination, (gui_rect) { 0, 0, 3, 3 }, 0x000000ff);
+	gui_fill_rect(source, (gui_rect) { 0, 0, 4, 4 }, 0x00ff0000);
+	wm_blend_content(destination, -2, -2, source, 127);
+	assert(destination->pixels[0] == 0x0080007f && destination->pixels[4] == 0x0080007f);
+	assert(destination->pixels[2] == 0x000000ff && destination->pixels[8] == 0x000000ff);
+	wm_blend_content(destination, 0, 0, source, 255);
+	assert(destination->pixels[0] == 0x0080007f);
+	gui_surface_destroy(source);
+	gui_surface_destroy(destination);
+	init_server(&server, 320, 240);
+	server.state.graphics = 1;
+	server.state.framebuffer = 123;
+	server.state.scanout_stride = 320 * 4;
+	scanout_result = GUI_FLUSH_COMPLETE;
+	server.state.composite = gui_surface_create(320, 240);
+	assert(server.state.composite != NULL);
+	desktop = init_client(&server, 0, GUI_PROTOCOL_ENDPOINT_SHELL);
+	desktop->width = 320;
+	desktop->height = 240;
+	desktop->x = desktop->y = 0;
+	fullscreen_stage(desktop, 0x00204060);
+	commit_staged(desktop);
+	back = init_client(&server, 1, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	front = init_client(&server, 2, GUI_PROTOCOL_ENDPOINT_ORDINARY);
+	back->stack_order = 1;
+	front->stack_order = 2;
+	fullscreen_stage(back, 0x00ff0000);
+	commit_staged(back);
+	fullscreen_stage(front, 0x000000ff);
+	commit_staged(front);
+	assert(wm_window_obscured(&server, back));
+	put_u32(payload, front->window_id);
+	put_u32(payload + 4, 50);
+	client_message(front->client, &header, payload, sizeof(payload));
+	drain_output(front);
+	assert((int32_t)get_u32(captured_output + 8) == -EPROTONOSUPPORT);
+	front->client->capabilities = GUI_PROTOCOL_CAP_WINDOW_OPACITY;
+	client_message(front->client, &header, payload, sizeof(payload));
+	assert(front->transparency == 127 && !wm_window_obscured(&server, back));
+	assert(server.state.composite->pixels[70 * 320 + 70] == 0x007f0080);
+	stage(back, back->configure_serial, 2);
+	gui_fill_rect(back->staging, (gui_rect) { 0, 0, back->width, back->height }, 0x0000ff00);
+	commit_staged(back);
+	assert(server.state.composite->pixels[70 * 320 + 70] == 0x00007f80);
+	assert_full_scene(&server);
+	client_message(front->client, &header, payload, sizeof(payload) - 1);
+	drain_output(front);
+	assert((int32_t)get_u32(captured_output + 8) == -EINVAL && front->transparency == 127);
+	desktop->client->capabilities = GUI_PROTOCOL_CAP_WINDOW_OPACITY;
+	put_u32(payload, desktop->window_id);
+	client_message(desktop->client, &header, payload, sizeof(payload));
+	drain_output(desktop);
+	assert((int32_t)get_u32(captured_output + 8) == -EPERM && desktop->transparency == 0);
+	put_u32(payload, front->window_id);
+	put_u32(payload + 4, 101);
+	client_message(front->client, &header, payload, sizeof(payload));
+	drain_output(front);
+	assert((int32_t)get_u32(captured_output + 8) == -EINVAL && front->transparency == 127);
+	back->client->capabilities = GUI_PROTOCOL_CAP_WINDOW_OPACITY;
+	client_message(back->client, &header, payload, sizeof(payload));
+	drain_output(back);
+	assert((int32_t)get_u32(captured_output + 8) == -EINVAL);
+	put_u32(payload + 4, 50);
+	client_message(back->client, &header, payload, sizeof(payload));
+	drain_output(back);
+	assert((int32_t)get_u32(captured_output + 8) == -EPERM);
+	server.fullscreen_window = front;
+	front->fullscreen = 1;
+	assert(wm_compose(&server) == GUI_FLUSH_COMPLETE);
+	assert(server.state.composite->pixels[70 * 320 + 70] == 0x001020b0);
+	assert_full_scene(&server);
+	put_u32(payload + 4, 100);
+	client_message(front->client, &header, payload, sizeof(payload));
+	assert(front->transparency == 0 && wm_window_obscured(&server, NULL));
+	assert(server.state.composite->pixels[70 * 320 + 70] == 0x000000ff);
+	put_u32(payload + 4, 0);
+	client_message(front->client, &header, payload, sizeof(payload));
+	assert(front->transparency == 255);
+	assert(server.state.composite->pixels[70 * 320 + 70] == 0x00204060);
+	assert_full_scene(&server);
+	cleanup_server(&server);
+	puts("gui-wm-busy: opacity blends clipped layers, preserves underlay damage and validates ownership");
+}
+
 int main(void)
 {
 	struct sigaction ignore_pipe = { .sa_handler = SIG_IGN };
@@ -3121,6 +3217,7 @@ int main(void)
 	assert(sigaction(SIGPIPE, &ignore_pipe, NULL) == 0);
 	assert(sigaction(SIGCHLD, &reap_children, NULL) == 0);
 	test_desktop_wallpaper();
+	test_window_opacity();
 	test_commit(GUI_FLUSH_BUSY, 1);
 	test_commit(GUI_FLUSH_ERROR, 1);
 	test_commit(GUI_FLUSH_COMPLETE, 0);

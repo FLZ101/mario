@@ -74,8 +74,8 @@ clean-terminal:
 $(TERMINAL_UI_DIR)/libmario-ui.a: $(TERMINAL_UI_INPUTS)
 	$(MAKE) -C $(TERMINAL_UI_DIR)
 
-terminal/terminal.exe: terminal/main.c terminal/vt.c terminal/upload.c terminal/upload.h $(TERMINAL_UI_DIR)/libmario-ui.a
-	$(CC) -o $@ terminal/main.c terminal/vt.c terminal/upload.c -I$(ROOT)/../include \
+terminal/terminal.exe: terminal/main.c terminal/config.c terminal/config.h terminal/vt.c terminal/upload.c terminal/upload.h $(TERMINAL_UI_DIR)/libmario-ui.a
+	$(CC) -o $@ terminal/main.c terminal/config.c terminal/vt.c terminal/upload.c -I$(ROOT)/../include \
 		-I$(TERMINAL_UI_DIR)/include \
 		-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
 		-L$(TERMINAL_UI_DIR) -L$(FREETYPE_INSTALL_DIR)/lib -static \

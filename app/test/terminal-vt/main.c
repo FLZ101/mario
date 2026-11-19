@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <sys/stat.h>
 #include <gui/font.h>
 
 #include <vt.h>
@@ -695,16 +696,20 @@ static void test_cursor_styles(void)
 static void assert_renderer_oracle(terminal_state *state)
 {
 	gui_surface *oracle = gui_surface_create(state->width, state->height);
+	const terminal_config *settings = terminal_settings(state);
+	uint32_t cell_width = terminal_cell_width(state);
+	uint32_t cell_height = terminal_cell_height(state);
+	int baseline = terminal_baseline(state);
 
 	assert(oracle != NULL);
-	gui_fill_rect(oracle, (gui_rect) { 0, 0, state->width, state->height }, TERMINAL_BACKGROUND);
+	gui_fill_rect(oracle, (gui_rect) { 0, 0, state->width, state->height }, settings->background);
 	for (uint32_t row = 0; row < state->vt.rows; row++)
 		for (uint32_t column = 0; column < state->vt.columns; column++) {
 			const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
-			gui_color foreground = terminal_color(cell->foreground, TERMINAL_CURSOR);
-			gui_color background = terminal_color(cell->background, TERMINAL_BACKGROUND);
-			int cell_x = TERMINAL_MARGIN + column * TERMINAL_CELL_WIDTH;
-			int cell_y = TERMINAL_MARGIN + row * TERMINAL_CELL_HEIGHT;
+			gui_color foreground = terminal_color(state, cell->foreground, settings->foreground);
+			gui_color background = terminal_color(state, cell->background, settings->background);
+			int cell_x = TERMINAL_MARGIN + column * cell_width;
+			int cell_y = TERMINAL_MARGIN + row * cell_height;
 
 			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_INVERSE) {
 				gui_color color = foreground;
@@ -712,15 +717,15 @@ static void assert_renderer_oracle(terminal_state *state)
 				foreground = background;
 				background = color;
 			}
-			gui_fill_rect(oracle, (gui_rect) { cell_x, cell_y, TERMINAL_CELL_WIDTH, TERMINAL_CELL_HEIGHT }, background);
+			gui_fill_rect(oracle, (gui_rect) { cell_x, cell_y, cell_width, cell_height }, background);
 		}
 	for (uint32_t row = 0; row < state->vt.rows; row++)
 		for (uint32_t column = 0; column < state->vt.columns; column++) {
 			const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
-			gui_color foreground = terminal_color(cell->foreground, TERMINAL_CURSOR);
-			gui_color background = terminal_color(cell->background, TERMINAL_BACKGROUND);
-			int cell_x = TERMINAL_MARGIN + column * TERMINAL_CELL_WIDTH;
-			int cell_y = TERMINAL_MARGIN + row * TERMINAL_CELL_HEIGHT;
+			gui_color foreground = terminal_color(state, cell->foreground, settings->foreground);
+			gui_color background = terminal_color(state, cell->background, settings->background);
+			int cell_x = TERMINAL_MARGIN + column * cell_width;
+			int cell_y = TERMINAL_MARGIN + row * cell_height;
 
 			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_INVERSE) {
 				gui_color color = foreground;
@@ -733,23 +738,22 @@ static void assert_renderer_oracle(terminal_state *state)
 				char bytes[5] = { 0 };
 
 				terminal_encode_utf8(cell->codepoint, bytes);
-				gui_font_draw_text(oracle, cell_x, cell_y + TERMINAL_FONT_HEIGHT, state->font, bytes, foreground);
+				gui_font_draw_text(oracle, cell_x, cell_y + baseline, state->font, bytes, foreground);
 			}
 			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_UNDERLINE)
-				gui_fill_rect(oracle, (gui_rect) { cell_x, cell_y + TERMINAL_CELL_HEIGHT - 2,
-					TERMINAL_CELL_WIDTH, 1 }, foreground);
+				gui_fill_rect(oracle, (gui_rect) { cell_x, cell_y + cell_height - 2,
+					cell_width, 1 }, foreground);
 		}
 	if (terminal_cursor_visible(state)) {
-		gui_rect bounds = { TERMINAL_MARGIN + state->vt.cursor_column * TERMINAL_CELL_WIDTH,
-			TERMINAL_MARGIN + state->vt.cursor_row * TERMINAL_CELL_HEIGHT,
-			TERMINAL_CELL_WIDTH, TERMINAL_CELL_HEIGHT };
+		gui_rect bounds = { TERMINAL_MARGIN + state->vt.cursor_column * cell_width,
+			TERMINAL_MARGIN + state->vt.cursor_row * cell_height, cell_width, cell_height };
 
 		if (state->vt.cursor_shape == TERMINAL_VT_CURSOR_UNDERLINE) {
-			bounds.y += TERMINAL_CELL_HEIGHT - 2;
+			bounds.y += cell_height - 2;
 			bounds.h = 2;
 		} else if (state->vt.cursor_shape == TERMINAL_VT_CURSOR_BAR)
 			bounds.w = 2;
-		gui_fill_rect(oracle, bounds, TERMINAL_CURSOR);
+		gui_fill_rect(oracle, bounds, settings->cursor);
 		if (state->vt.cursor_shape == TERMINAL_VT_CURSOR_BLOCK) {
 			const terminal_vt_cell *cell = state->vt.cells +
 				(size_t)state->vt.cursor_row * state->vt.columns + state->vt.cursor_column;
@@ -761,11 +765,11 @@ static void assert_renderer_oracle(terminal_state *state)
 				char bytes[5] = { 0 };
 
 				terminal_encode_utf8(cell->codepoint, bytes);
-				gui_font_draw_text(&cursor, 0, TERMINAL_FONT_HEIGHT, state->font, bytes, TERMINAL_BACKGROUND);
+				gui_font_draw_text(&cursor, 0, baseline, state->font, bytes, settings->background);
 			}
 			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_UNDERLINE)
-				gui_fill_rect(&cursor, (gui_rect) { 0, TERMINAL_CELL_HEIGHT - 2,
-					TERMINAL_CELL_WIDTH, 1 }, TERMINAL_BACKGROUND);
+				gui_fill_rect(&cursor, (gui_rect) { 0, cell_height - 2,
+					cell_width, 1 }, settings->background);
 		}
 	}
 	assert(!memcmp(state->pixels, oracle->pixels, (size_t)state->width * state->height * sizeof(gui_color)));
@@ -965,8 +969,140 @@ static void test_incremental_renderer(void)
 	puts("terminal-vt: incremental pixels match full rendering and resize failures preserve state");
 }
 
+static void test_configured_renderer(void)
+{
+	static const unsigned int sizes[] = { 8, 20, 48 };
+	static const char *sequences[] = {
+		"\033[?25l\033[38;2;1;2;3;48;2;4;5;6mWj",
+		"\033[4;7m\xc3\xa9\xe4\xb8\xad\xf0\x9f\x98\x80",
+		"\033[0m\033[2J\033[H", "\033[44m\033[2K\033[1X",
+		"\033[?1049hW\033[?1049l", "\033[?25h\033[H\033[2 q",
+		"\033[4 q", "\033[6 q", "\033c",
+	};
+
+	for (size_t size_index = 0; size_index < sizeof(sizes) / sizeof(sizes[0]); size_index++) {
+		terminal_state state = { .config = terminal_config_default };
+
+		state.config.font_size = sizes[size_index];
+		state.config.foreground = 0x00123456;
+		state.config.background = 0x00abcdef;
+		state.config.cursor = 0x00010203;
+		assert(terminal_setup_font(&state) == 0);
+		assert(terminal_resize_grid(&state, 320, 192) == 0);
+		assert(terminal_render(&state) == 0);
+		assert_renderer_oracle(&state);
+		for (size_t index = 0; index < sizeof(sequences) / sizeof(sequences[0]); index++) {
+			terminal_vt_feed(&state.vt, (const uint8_t *)sequences[index], strlen(sequences[index]));
+			assert(terminal_render(&state) == 0);
+			assert_renderer_oracle(&state);
+		}
+		assert(terminal_resize_grid(&state, 640, 384) == 0);
+		assert(state.vt.columns == (640 - 2 * TERMINAL_MARGIN) / terminal_cell_width(&state));
+		assert(state.vt.rows == (384 - 2 * TERMINAL_MARGIN) / terminal_cell_height(&state));
+		assert(terminal_render(&state) == 0);
+		assert_renderer_oracle(&state);
+		gui_font_destroy(state.font);
+		free(state.primary_cells);
+		free(state.alternate_cells);
+		free(state.scrollback_cells);
+		free(state.rendered_cells);
+		free(state.pixels);
+	}
+	puts("terminal-vt: configured fonts and colors preserve incremental rendering and cursor shapes");
+}
+
+static void test_blank_colors(void)
+{
+	static const char *sequences[] = { "\033[2J", "\033[2K", "\033[2X", "\033[2S" };
+	terminal_vt_cell primary[4];
+	terminal_vt_cell alternate[4];
+	terminal_vt terminal;
+
+	for (size_t index = 0; index < sizeof(sequences) / sizeof(sequences[0]); index++) {
+		assert(terminal_vt_init(&terminal, primary, alternate, 1, 4) == 0);
+		assert(primary[0].foreground == TERMINAL_VT_COLOR_DEFAULT &&
+			primary[0].background == TERMINAL_VT_COLOR_DEFAULT);
+		terminal_vt_feed(&terminal, (const uint8_t *)"\033[44m", 5);
+		terminal_vt_feed(&terminal, (const uint8_t *)sequences[index], strlen(sequences[index]));
+		assert(primary[0].codepoint == 0 && primary[0].background == 4);
+		assert(primary[1].codepoint == 0 && primary[1].background == 4);
+		terminal_vt_feed(&terminal, (const uint8_t *)"\033c", 2);
+		assert(primary[0].background == TERMINAL_VT_COLOR_DEFAULT &&
+			alternate[0].background == TERMINAL_VT_COLOR_DEFAULT);
+	}
+	puts("terminal-vt: blank cells use default colors and erases preserve the active background");
+}
+
+static void test_terminal_config(void)
+{
+	static const char settings[] =
+		"# terminal settings\nforeground = #123456\ncolor1=#abcdef\n"
+		"color_scheme=light\nfont_size=20\nopacity=50\ncursor=#010203\n";
+	static const char invalid[] =
+		"font_size=0\nfont_size=49\nopacity=-1\nopacity=101\n"
+		"background=#bad\ncolor16=#ffffff\nunknown=1\ncolor_scheme=bad\nopaque=maybe\n";
+	terminal_config config;
+	terminal_state state = { 0 };
+	gui_color foreground;
+	gui_color background;
+	char path[] = "/tmp/terminal-config.XXXXXX";
+	int descriptor;
+
+	assert(terminal_config_parse(&config, "", 0) == 0);
+	assert(!memcmp(&config, &terminal_config_default, sizeof(config)));
+	assert(terminal_config_parse(&config, settings, sizeof(settings) - 1) == 0);
+	assert(config.font_size == 20 && config.opacity == 50);
+	assert(config.foreground == 0x00123456 && config.background == 0x00f8fafc);
+	assert(config.cursor == 0x00010203 && config.palette[1] == 0x00abcdef);
+	assert(terminal_config_parse(&config, invalid, sizeof(invalid) - 1) == 0);
+	assert(!memcmp(&config, &terminal_config_default, sizeof(config)));
+	assert(terminal_config_parse(&config, "opaque=false", 12) == 0 && config.opacity == 80);
+	assert(terminal_config_parse(&config, "opaque=true", 11) == 0 && config.opacity == 100);
+	assert(terminal_config_parse(&config, "color_scheme=solarized-dark", sizeof("color_scheme=solarized-dark") - 1) == 0);
+	assert(config.background == 0x00002b36 && config.palette[4] == 0x00268bd2);
+	assert(terminal_config_parse(&config, settings, TERMINAL_CONFIG_MAX_BYTES + 1) < 0);
+	descriptor = mkstemp(path);
+	assert(descriptor >= 0 && write(descriptor, settings, sizeof(settings) - 1) == sizeof(settings) - 1);
+	assert(close(descriptor) == 0 && setenv("MARIO_TERMINAL_CONFIG", path, 1) == 0);
+	terminal_config_load(&state.config);
+	assert(state.config.font_size == 20 && state.config.opacity == 50);
+	assert(terminal_setup_font(&state) == 0);
+	assert(terminal_cell_width(&state) == 13 && terminal_cell_height(&state) == 24);
+	assert(terminal_baseline(&state) == 19);
+	assert(terminal_resize_grid(&state, 320, 192) == 0);
+	assert(state.vt.columns == 22 && state.vt.rows == 6);
+	terminal_cell_colors(&state, &state.vt.cells[0], &foreground, &background);
+	assert(foreground == 0x00123456 && background == 0x00f8fafc);
+	assert(terminal_color(&state, 1, 0) == 0x00abcdef);
+	assert(terminal_color(&state, TERMINAL_VT_COLOR_RGB_TAG | 0x112233, 0) == 0x00112233);
+	assert(terminal_render(&state) == 0);
+	assert(state.pixels[0] == 0x00f8fafc);
+	assert(state.pixels[16 * state.width + 16] == 0x00010203);
+	assert_renderer_oracle(&state);
+	gui_font_destroy(state.font);
+	free(state.primary_cells);
+	free(state.alternate_cells);
+	free(state.scrollback_cells);
+	free(state.rendered_cells);
+	free(state.pixels);
+	assert(unlink(path) == 0 && mkfifo(path, 0600) == 0);
+	terminal_config_load(&config);
+	assert(config.font_size == 14 && config.opacity == 100);
+	assert(unlink(path) == 0);
+	terminal_config_load(&config);
+	assert(config.font_size == 14 && config.opacity == 100);
+	assert(setenv("MARIO_TERMINAL_CONFIG", "", 1) == 0);
+	terminal_config_load(&config);
+	assert(config.font_size == 14);
+	assert(unsetenv("MARIO_TERMINAL_CONFIG") == 0);
+	puts("terminal-vt: config defaults, validation, themes and font geometry pass");
+}
+
 int main(void)
 {
+	test_terminal_config();
+	test_configured_renderer();
+	test_blank_colors();
 	test_cases();
 	test_csi_cursor();
 	test_csi_erase();
