@@ -60,6 +60,7 @@ typedef enum {
 	GUI_PROTOCOL_SHELL_WORK_AREA,
 	GUI_PROTOCOL_WINDOW_STATE_REQUEST,
 	GUI_PROTOCOL_WINDOW_OPACITY,
+	GUI_PROTOCOL_SHELL_SURFACE_COMMIT,
 } gui_protocol_type;
 
 typedef enum {
@@ -185,6 +186,14 @@ typedef struct __attribute__((packed)) {
 	uint64_t frame_serial_le;
 } gui_protocol_wire_surface_commit;
 
+typedef struct __attribute__((packed)) {
+	gui_protocol_wire_surface_commit surface;
+	uint32_t x_le;
+	uint32_t y_le;
+	uint32_t width_le;
+	uint32_t height_le;
+} gui_protocol_wire_shell_surface_commit;
+
 typedef gui_protocol_wire_surface_commit gui_protocol_wire_surface_cancel;
 
 typedef struct __attribute__((packed)) {
@@ -294,6 +303,8 @@ _Static_assert(sizeof(gui_protocol_wire_surface_data) == 28,
 	       "GUI protocol surface data size");
 _Static_assert(sizeof(gui_protocol_wire_surface_commit) == 20,
 	       "GUI protocol surface commit size");
+_Static_assert(sizeof(gui_protocol_wire_shell_surface_commit) == 36,
+	       "GUI protocol shell surface commit size");
 _Static_assert(sizeof(gui_protocol_wire_window_state) == 16,
 	       "GUI protocol window state size");
 _Static_assert(sizeof(gui_protocol_wire_shell_work_area) == 16,

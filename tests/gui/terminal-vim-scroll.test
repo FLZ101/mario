@@ -1,0 +1,33 @@
+INIT-WM: keep
+GUI-VISUAL-TEST:
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+GUI-SEND-KEY: f8
+SERIAL-WAIT-FILE: /tmp/mario-wm.ready
+SERIAL: <<FIXTURE
+seq 1 80 | sed '15s/.*/    marker/' >/tmp/vim-scroll.txt
+cat >/tmp/vim-scroll.vim <<'VIM'
+set scrolloff=0 noshowcmd noruler laststatus=0
+highlight ScrollProbe ctermbg=1
+match ScrollProbe /^    \zemarker/
+call cursor(15, 1)
+normal! zt
+call writefile(['ready'], '/tmp/vim-scroll.ready')
+VIM
+MARIO_TERMINAL_CONFIG= /usr/bin/terminal --command 'exec vim -Nu NONE -n -i NONE -S /tmp/vim-scroll.vim /tmp/vim-scroll.txt' >/tmp/vim-scroll.log 2>&1 &
+terminal_pid=$!
+FIXTURE
+SERIAL-WAIT-FILE: /tmp/vim-scroll.ready
+GUI-CHECK-RECT: 136 96 24 16 239 68 68
+# k scrolls the marker down one screen row, while Vim stays at the top.
+GUI-SEND-KEY: k
+GUI-CHECK-RECT: 136 112 24 16 239 68 68
+# Move to the bottom visible row; j then scrolls the marker back to the top.
+GUI-SEND-KEYS: shift,l
+GUI-SEND-KEY: j
+GUI-CHECK-RECT: 136 96 24 16 239 68 68
+GUI-CHECK-RECT: 144 112 16 16 17 24 39
+GUI-TYPE: :q
+SERIAL: while ! grep -q 'terminal: child exit 0' /tmp/vim-scroll.log; do sleep 1; done
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait "$terminal_pid"
+EXIT:

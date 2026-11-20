@@ -1,6 +1,7 @@
-"""Host-only checks for safe publication and cleanup of disk images."""
+"""Host-only checks for disk image inputs, publication, and cleanup."""
 
 import os
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -8,11 +9,74 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "qemu"))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "qemu"))
+sys.path.insert(0, str(ROOT / "rd"))
 import mkdisk
 
 
 class DiskImageTests(unittest.TestCase):
+    def test_gtk_boot_disk_uses_its_own_ramdisk_at_the_same_guest_path(self):
+        script = Path(mkdisk.__file__).with_name("make-hd1.py")
+        for variant, name, ramdisk in (
+            ("0", "hd1", "rdx"),
+            ("1", "hd1-gtk", "rdx-gtk"),
+        ):
+            with self.subTest(variant=variant), patch.dict(
+                os.environ, {"MARIO_HD1_GTK": variant}
+            ):
+                disk = runpy.run_path(str(script))["disk"]
+                self.assertEqual(disk.name, name)
+                self.assertIn(
+                    (Path("../rd") / ramdisk, "/rdx"), disk.partitions[-1].content
+                )
+
+    def test_gtk_usr_disk_uses_its_own_staging_tree(self):
+        script = Path(mkdisk.__file__).with_name("make-hd3.py")
+        for variant, name, staging in (
+            ("0", "hd3", "ramdisk0_usr"),
+            ("1", "hd3-gtk", "ramdisk0_usr-gtk"),
+        ):
+            with self.subTest(variant=variant), patch.dict(
+                os.environ, {"MARIO_HD3_GTK": variant}
+            ):
+                disk = runpy.run_path(str(script))["disk"]
+                self.assertEqual(disk.name, name)
+                usr = disk.partitions[-1]
+                self.assertEqual(usr.number, 5)
+                self.assertEqual(usr.content, ((Path("../rd") / staging, "/"),))
+
+    def test_gtk_overlay_adds_and_replaces_files_without_following_symlinks(self):
+        copy_overlay = runpy.run_path(str(ROOT / "rd/make-rd0.py"))["copy_overlay"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "overlay"
+            target = root / "staging"
+            outside = root / "outside"
+            for path in (source, target, outside):
+                path.mkdir()
+            (outside / "data").write_text("leave unchanged")
+            (target / "link").symlink_to(outside, target_is_directory=True)
+            (target / "file").write_text("base file")
+            (target / "keep").touch()
+            (target / "replace-directory").mkdir()
+            (source / "file").write_text("older override")
+            os.utime(source / "file", ns=(0, 0))
+            (source / "link").mkdir()
+            (source / "link/data").write_text("inside staging")
+            (source / ".new file").write_text("new file")
+            (source / "replace-directory").symlink_to("missing")
+
+            copy_overlay(source, target)
+
+            self.assertEqual((target / "file").read_text(), "older override")
+            self.assertEqual((target / ".new file").read_text(), "new file")
+            self.assertTrue((target / "keep").exists())
+            self.assertFalse((target / "link").is_symlink())
+            self.assertEqual((target / "link/data").read_text(), "inside staging")
+            self.assertEqual((outside / "data").read_text(), "leave unchanged")
+            self.assertEqual(os.readlink(target / "replace-directory"), "missing")
+
     def test_unmount_retries_busy_filesystem(self):
         results = [subprocess.CompletedProcess([], status) for status in (1, 1, 0)]
         with patch.object(mkdisk, "_run", side_effect=results) as run_command:

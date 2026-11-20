@@ -131,6 +131,13 @@ Shell behavior:
 - After `DESKTOP_CREATE`, the shell sends one `SHELL_WORK_AREA` for the desktop
   area excluding the panel.  `mario-wm` accepts it only from the private shell
   capability and clamps maximize geometry to it.
+- The private shell uses `SHELL_SURFACE_COMMIT` to commit a desktop frame with
+  its launcher popup rectangle (zero size when closed). The WM draws that
+  rectangle above application windows and routes pointer hits inside it to
+  the shell. The cursor remains the topmost layer.
+- After the initial desktop upload, menu toggles patch only the popup's
+  rectangle and take priority over pending taskbar redraws. Closing the menu
+  restores that rectangle's background without uploading the rest of the wallpaper.
 
 Success: minimize/restore preserves exact pixels and client state; maximize
 reaches exact work-area geometry and restore reaches exact prior geometry.

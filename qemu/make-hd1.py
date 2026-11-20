@@ -5,9 +5,10 @@ import mkdisk
 
 GRUB = Path("grub4dos-0.4.6a")
 MENU = Path(os.environ.get("MARIO_BOOT_MENU", GRUB / "menu.lst"))
+GTK = os.environ.get("MARIO_HD1_GTK") == "1"
 
 disk = mkdisk.Disk(
-    name="hd1",
+    name="hd1-gtk" if GTK else "hd1",
     size_mib=400,
     label="dos",
     boot_mbr=GRUB / "grldr.mbr",
@@ -33,7 +34,7 @@ disk = mkdisk.Disk(
             content=(
                 (Path("../src/kernel/kernel.exe"), "/"),
                 (Path("../src/boot/boot.bin"), "/"),
-                (Path("../rd/rdx"), "/"),
+                (Path("../rd/rdx-gtk" if GTK else "../rd/rdx"), "/rdx"),
                 (Path("hd1/p7"), "/"),
             ),
         ),

@@ -105,6 +105,7 @@ typedef struct {
 	int painted_cursor_loaded;
 	uint32_t painted_fullscreen;
 	const void *painted_desktop;
+	gui_rect painted_popup;
 	int motion_pending;
 	int scanout_busy;
 	uint64_t motion_deadline_ms;
@@ -178,6 +179,7 @@ struct wm_window {
 	uint64_t committed_configure_serial;
 	size_t committed_bytes;
 	gui_surface *committed;
+	gui_rect popup;
 	wm_server *server;
 	uint16_t title_bytes;
 	uint8_t title[GUI_PROTOCOL_MAX_TITLE_BYTES];
@@ -278,6 +280,7 @@ static int window_enqueue(wm_window *window, gui_protocol_type type,
 static void window_reject(wm_window *window, gui_protocol_type type, int status);
 static void wm_cancel_capture(wm_server *server);
 static int wm_update_cursor(wm_server *server);
+static wm_window *wm_shell_client(const wm_server *server);
 static void wm_reset_input_owner(wm_server *server);
 static void wm_set_input_owner(wm_server *server, wm_window *client);
 static wm_window *wm_next_focus(wm_server *server);
@@ -1051,6 +1054,13 @@ static int wm_same_rect(gui_rect first, gui_rect second)
 	return first.x == second.x && first.y == second.y && first.w == second.w && first.h == second.h;
 }
 
+static gui_rect wm_popup_bounds(const wm_server *server)
+{
+	const wm_window *shell = wm_shell_client(server);
+
+	return shell != NULL && shell->committed != NULL ? shell->popup : (gui_rect) { 0 };
+}
+
 static gui_rect wm_content_bounds(const wm_window *window)
 {
 	wm_window storage;
@@ -1064,12 +1074,17 @@ static void wm_collect_damage(wm_server *server)
 	wm_state *state = &server->state;
 	wm_window *fullscreen = wm_presented_fullscreen(server);
 	uint32_t fullscreen_id = fullscreen != NULL ? fullscreen->window_id : 0;
+	gui_rect popup = wm_popup_bounds(server);
 
 	wm_update_cursor(server);
 	wm_damage_init(state);
 	if (!state->painted || state->painted_fullscreen != fullscreen_id ||
 	    (state->painted_desktop != wm_desktop_identity(server) && !wm_window_obscured(server, NULL)))
 		gui_region_mark_full(&state->damage);
+	if (!wm_same_rect(state->painted_popup, popup)) {
+		wm_damage_rect(state, state->painted_popup);
+		wm_damage_rect(state, popup);
+	}
 	if (state->painted && (state->cursor_x != state->painted_cursor_x ||
 	    state->cursor_y != state->painted_cursor_y ||
 	    state->cursor_shape != state->painted_cursor_shape ||
@@ -1110,6 +1125,7 @@ static void wm_record_presented(wm_server *server)
 	state->painted_cursor_loaded = state->cursor_loaded;
 	state->painted_fullscreen = fullscreen != NULL ? fullscreen->window_id : 0;
 	state->painted_desktop = wm_desktop_identity(server);
+	state->painted_popup = wm_popup_bounds(server);
 	for (wm_window *window = server->windows; window != NULL; window = window->next) {
 		window->painted = wm_window_visible(server, window);
 		window->painted_bounds = wm_window_bounds(server, window);
@@ -1131,6 +1147,7 @@ static void wm_paint_rect(wm_server *server, gui_rect rectangle)
 	wm_state *state = &clipped;
 	wm_window *fullscreen = wm_presented_fullscreen(server);
 	gui_surface *desktop = wm_desktop_surface(server);
+	gui_rect popup = wm_popup_bounds(server);
 
 	state->composite = &view;
 	gui_fill_rect(state->composite, (gui_rect) { .x = 0, .y = 0,
@@ -1167,6 +1184,9 @@ static void wm_paint_rect(wm_server *server, gui_rect rectangle)
 		}
 		painted = next->stack_order;
 	}
+	if (popup.w != 0)
+		gui_blit(state->composite, popup.x - rectangle.x, popup.y - rectangle.y,
+			desktop, &popup);
 	/* The server-owned sprite is always the final layer, independent of focus. */
 	wm_draw_cursor(&server->state, rectangle);
 }
@@ -1945,13 +1965,34 @@ static int client_surface_data(wm_window *client, const uint8_t *bytes,
 			      sizeof(gui_protocol_wire_surface_data));
 }
 
-static int client_commit_surface(wm_window *client, const uint8_t *bytes)
+static int client_commit_surface(wm_window *client, gui_protocol_type type, const uint8_t *bytes)
 {
 	uint32_t window_id = get_u32(bytes);
 	uint64_t configure_serial = get_u64(bytes + 4);
 	uint64_t frame_serial = get_u64(bytes + 12);
 	gui_flush_result result;
 	int mode_pending = client->mode_pending;
+	gui_rect popup = { 0 };
+
+	if (type == GUI_PROTOCOL_SHELL_SURFACE_COMMIT) {
+		const uint8_t *rectangle = bytes + sizeof(gui_protocol_wire_surface_commit);
+		uint32_t x = get_u32(rectangle);
+		uint32_t y = get_u32(rectangle + 4);
+		uint32_t width = get_u32(rectangle + 8);
+		uint32_t height = get_u32(rectangle + 12);
+
+		if (client->client->role != GUI_PROTOCOL_ENDPOINT_SHELL) {
+			window_reject(client, type, -EPERM);
+			return 0;
+		}
+		if ((width == 0) != (height == 0) || x > client->width || y > client->height ||
+		    width > client->width - x || height > client->height - y) {
+			window_reject(client, type, -EINVAL);
+			return 0;
+		}
+		if (width != 0)
+			popup = (gui_rect) { x, y, width, height };
+	}
 
 	if (client->staging == NULL || window_id != client->window_id ||
 	    configure_serial != client->configure_serial ||
@@ -1960,19 +2001,23 @@ static int client_commit_surface(wm_window *client, const uint8_t *bytes)
 		(size_t)client->staging_rectangle.w * client->staging_rectangle.h :
 		(size_t)client->width * client->height) ||
 	    (client->staging_patch && client->staging_base_frame_serial != client->committed_frame_serial)) {
-		window_reject(client, GUI_PROTOCOL_SURFACE_COMMIT, -EINVAL);
+		window_reject(client, type, -EINVAL);
 		return 0;
 	}
 	{
 		gui_surface *old = client->committed;
 		size_t old_bytes = client->committed_bytes;
+		gui_rect old_popup = client->popup;
+		int obscured;
 
 		client->committed = client->staging;
 		client->committed_bytes = client->staging_bytes;
+		client->popup = popup;
 		client->staging = NULL;
 		client->staging_bytes = 0;
 		client->mode_pending = 0;
-		if (mode_pending || !wm_window_obscured(client->server, client)) {
+		obscured = !mode_pending && wm_window_obscured(client->server, client);
+		if (!obscured) {
 			if (client->staging_patch) {
 				gui_rect rectangle = client->staging_rectangle;
 
@@ -1985,8 +2030,10 @@ static int client_commit_surface(wm_window *client, const uint8_t *bytes)
 			else
 				wm_damage_rect(&client->server->state,
 					(gui_rect) { client->x, client->y, client->width, client->height });
+		} else if (popup.w != 0) {
+			wm_damage_rect(&client->server->state, popup);
 		}
-		result = !mode_pending && wm_window_obscured(client->server, client) ? GUI_FLUSH_COMPLETE :
+		result = obscured && popup.w == 0 && old_popup.w == 0 ? GUI_FLUSH_COMPLETE :
 			wm_compose(client->server);
 		if (result == GUI_FLUSH_ERROR) {
 			client->mode_pending = mode_pending;
@@ -1994,7 +2041,8 @@ static int client_commit_surface(wm_window *client, const uint8_t *bytes)
 			client->staging_bytes = client->committed_bytes;
 			client->committed = old;
 			client->committed_bytes = old_bytes;
-			client_fail_surface(client, GUI_PROTOCOL_SURFACE_COMMIT, -EIO);
+			client->popup = old_popup;
+			client_fail_surface(client, type, -EIO);
 			return 0;
 		}
 		if (old != NULL) {
@@ -2414,7 +2462,14 @@ static wm_window *wm_hit_test(wm_server *server, uint32_t x, uint32_t y,
 	wm_window *fullscreen = wm_presented_fullscreen(server);
 	wm_window *hit = NULL;
 	wm_hit_region hit_region = WM_HIT_NONE;
+	gui_rect popup = wm_popup_bounds(server);
 
+	if (x >= (uint32_t)popup.x && x - popup.x < (uint32_t)popup.w &&
+	    y >= (uint32_t)popup.y && y - popup.y < (uint32_t)popup.h) {
+		if (region != NULL)
+			*region = WM_HIT_CONTENT;
+		return wm_shell_client(server);
+	}
 	if (fullscreen != NULL) {
 		if (region != NULL)
 			*region = WM_HIT_CONTENT;
@@ -2496,7 +2551,7 @@ static void wm_begin_capture(wm_server *server, wm_window *client,
 	server->capture_height = client->height;
 }
 
-static wm_window *wm_shell_client(wm_server *server)
+static wm_window *wm_shell_client(const wm_server *server)
 {
 	for (wm_window *client = server->windows; client != NULL; client = client->next) {
 
@@ -2919,6 +2974,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	wm_server *server = context;
 	wm_state *state = &server->state;
 	wm_window *client;
+	wm_window *popup_target = NULL;
 	uint8_t message[sizeof(gui_protocol_wire_input_event)] = { 0 };
 	uint32_t keysym = 0;
 	int32_t x;
@@ -3022,9 +3078,11 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 
 				server->title_click_window_id = 0;
 
+				if (hit != NULL && hit->client->role == GUI_PROTOCOL_ENDPOINT_SHELL)
+					popup_target = hit;
 				if (hit == NULL)
 					hit = wm_shell_client(server);
-				if (hit != NULL) {
+				if (hit != NULL && (popup_target == NULL || server->fullscreen_window == NULL)) {
 					wm_set_input_owner(server, hit);
 					compose = 1;
 				}
@@ -3088,7 +3146,10 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 		}
 		wm_present_input(server, compose, motion_only);
 	}
-	client = server->input_owner;
+	client = popup_target != NULL ? popup_target : server->input_owner;
+	if (event->type == GUI_INPUT_EVENT_KEY && keysym == GUI_KEYSYM_ESCAPE &&
+	    wm_popup_bounds(server).w != 0)
+		client = wm_shell_client(server);
 	if (client == NULL || client->mode_pending)
 		return;
 	put_u32(message, client->window_id);
@@ -3183,9 +3244,9 @@ static void window_message(wm_window *client, const gui_protocol_header *header,
 			client->client->hello = -1;
 		return;
 	}
-	if (header->type == GUI_PROTOCOL_SURFACE_COMMIT &&
-	    payload_bytes == sizeof(gui_protocol_wire_surface_commit)) {
-		if (client_commit_surface(client, bytes) < 0)
+	if (header->type == GUI_PROTOCOL_SURFACE_COMMIT ||
+	    header->type == GUI_PROTOCOL_SHELL_SURFACE_COMMIT) {
+		if (client_commit_surface(client, header->type, bytes) < 0)
 			client->client->hello = -1;
 		return;
 	}
@@ -3497,6 +3558,9 @@ static void client_message(void *context, const gui_protocol_header *header,
 		break;
 	case GUI_PROTOCOL_SURFACE_COMMIT:
 		window_payload_bytes = sizeof(gui_protocol_wire_surface_commit);
+		break;
+	case GUI_PROTOCOL_SHELL_SURFACE_COMMIT:
+		window_payload_bytes = sizeof(gui_protocol_wire_shell_surface_commit);
 		break;
 	case GUI_PROTOCOL_WINDOW_MOVE:
 		window_payload_bytes = sizeof(gui_protocol_wire_window_move);

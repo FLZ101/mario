@@ -10,7 +10,7 @@ SMP ?= 1
 BOOT_MENU ?= menu.lst
 BOOT_MENU_FILE := grub4dos-0.4.6a/$(BOOT_MENU)
 
-.PHONY: all clean image run debug quick-run quick-debug \
+.PHONY: all clean image image-gtk run debug quick-run quick-debug \
 	tmux-run tmux-debug tmux-attach tmux-kill
 
 all: image
@@ -19,6 +19,7 @@ RDX := ../rd/rdx
 KERNEL_EXE := ../src/kernel/kernel.exe
 
 image: hd1.img hd2.img hd3.img
+image-gtk: hd1-gtk.img hd2.img hd3-gtk.img
 
 HD1_BOOT_STAMP := tmp/.hd1-boot-$(BOOT_MENU)
 
@@ -27,17 +28,28 @@ $(HD1_BOOT_STAMP): $(BOOT_MENU_FILE)
 	@rm -f tmp/.hd1-boot-*
 	@touch $@
 
-hd1.img: make-hd1.py mkdisk.py $(HD1_BOOT_STAMP) $(shell MARIO_BOOT_MENU='$(BOOT_MENU_FILE)' $(PYTHON) make-hd1.py --deps)
-	MARIO_BOOT_MENU='$(BOOT_MENU_FILE)' $(PYTHON) make-hd1.py
+HD1_ENV := MARIO_HD1_GTK=0 MARIO_BOOT_MENU='$(BOOT_MENU_FILE)'
+HD1_GTK_ENV := MARIO_HD1_GTK=1 MARIO_BOOT_MENU=grub4dos-0.4.6a/menu.lst
+
+hd1.img: make-hd1.py mkdisk.py $(HD1_BOOT_STAMP) $(shell $(HD1_ENV) $(PYTHON) make-hd1.py --deps)
+	$(HD1_ENV) $(PYTHON) make-hd1.py
+
+hd1-gtk.img: make-hd1.py mkdisk.py $(shell $(HD1_GTK_ENV) $(PYTHON) make-hd1.py --deps)
+	$(HD1_GTK_ENV) $(PYTHON) make-hd1.py
 
 hd2.img: make-hd2.py mkdisk.py $(shell $(PYTHON) make-hd2.py --deps)
 	$(PYTHON) make-hd2.py
 
-hd3.img: make-hd3.py mkdisk.py $(shell $(PYTHON) make-hd3.py --deps)
-	$(PYTHON) make-hd3.py
+HD3_DEPS := $(shell MARIO_HD3_GTK=0 $(PYTHON) make-hd3.py --deps)
+
+hd3.img: make-hd3.py mkdisk.py $(HD3_DEPS)
+	MARIO_HD3_GTK=0 $(PYTHON) make-hd3.py
+
+hd3-gtk.img: make-hd3.py mkdisk.py $(filter-out ../rd/ramdisk0_usr%,$(HD3_DEPS)) ../rd/ramdisk0_usr-gtk
+	MARIO_HD3_GTK=1 $(PYTHON) make-hd3.py
 
 clean:
-	rm -rf tmp/ hd1.img hd2.img hd3.img
+	rm -rf tmp/ hd1.img hd1-gtk.img hd2.img hd3.img hd3-gtk.img
 
 #	-display gtk
 #
@@ -64,11 +76,14 @@ else
 QEMU_VMPORT := on
 endif
 
+BOOT_DISK ?= hd1.img
+USR_DISK ?= hd3.img
+
 HD_FLAGS := \
 	-snapshot \
-	-drive id=disk1,file=hd1.img,format=raw,if=none \
+	-drive id=disk1,file=$(BOOT_DISK),format=raw,if=none \
 	-drive id=disk2,file=hd2.img,format=raw,if=none \
-	-drive id=disk3,file=hd3.img,format=raw,if=none \
+	-drive id=disk3,file=$(USR_DISK),format=raw,if=none \
 	-device ahci,id=ahci \
 	-device ide-hd,drive=disk1,bus=ahci.0 \
 	-device ide-hd,drive=disk2,bus=ahci.1 \

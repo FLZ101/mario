@@ -37,10 +37,10 @@ quick-debug:
 	$(MAKE) -C $(QEMU_DIR) quick-debug
 
 run-gtk:
-	$(MAKE) QEMU_DISPLAY=gtk -C $(QEMU_DIR) run
+	$(MAKE) QEMU_DISPLAY=gtk BOOT_DISK=hd1-gtk.img USR_DISK=hd3-gtk.img -C $(QEMU_DIR) run
 
 debug-gtk:
-	$(MAKE) QEMU_DISPLAY=gtk -C $(QEMU_DIR) debug
+	$(MAKE) QEMU_DISPLAY=gtk BOOT_DISK=hd1-gtk.img USR_DISK=hd3-gtk.img -C $(QEMU_DIR) debug
 
 quick-run-gtk:
 	$(MAKE) QEMU_DISPLAY=gtk -C $(QEMU_DIR) quick-run

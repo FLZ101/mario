@@ -14,7 +14,7 @@ export CC
 LD	:= $(ROOT)/util/ld
 export LD
 
-.PHONY: all clean rd image clean-rd clean-image
+.PHONY: all clean rd rd-gtk image image-gtk clean-rd clean-image
 
 all: image
 
@@ -23,8 +23,14 @@ clean: clean-image clean-rd
 rd:
 	$(MAKE) -C $(RD_DIR)
 
+rd-gtk:
+	$(MAKE) -C $(RD_DIR) rdx-gtk
+
 image: rd
 	$(MAKE) BOOT_MENU=$(BOOT_MENU) -C $(QEMU_DIR) image
+
+image-gtk: rd-gtk
+	$(MAKE) -C $(QEMU_DIR) image-gtk
 
 clean-rd:
 	$(MAKE) clean -C $(RD_DIR)

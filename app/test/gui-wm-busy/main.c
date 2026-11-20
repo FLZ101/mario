@@ -481,7 +481,7 @@ static void test_commit(gui_flush_result result, int graphics)
 	put_u64(commit + 12, 2);
 	scanout_result = result;
 	scanout_calls = 0;
-	assert(client_commit_surface(client, commit) == 0);
+	assert(client_commit_surface(client, GUI_PROTOCOL_SURFACE_COMMIT, commit) == 0);
 	assert(scanout_calls == (unsigned int)(graphics && result == GUI_FLUSH_ERROR ? 2 : graphics));
 	assert(server.state.frame_number == 7);
 	if (result == GUI_FLUSH_ERROR && graphics) {
@@ -582,7 +582,7 @@ static void commit_staged(wm_window *client)
 	put_u32(commit, client->window_id);
 	put_u64(commit + 4, client->configure_serial);
 	put_u64(commit + 12, client->staging_frame_serial);
-	assert(client_commit_surface(client, commit) == 0);
+	assert(client_commit_surface(client, GUI_PROTOCOL_SURFACE_COMMIT, commit) == 0);
 }
 
 static void test_status_readers(void)
@@ -702,7 +702,7 @@ static void test_occlusion(void)
 	put_u32(commit, target->window_id);
 	put_u64(commit + 4, 1);
 	put_u64(commit + 12, 3);
-	assert(client_commit_surface(target, commit) == 0);
+	assert(client_commit_surface(target, GUI_PROTOCOL_SURFACE_COMMIT, commit) == 0);
 	assert(scanout_calls == 0 && target->committed == latest);
 	assert(target->staging_pixels == 1 && server.state.surface_bytes == 2 * retained);
 	client_discard_staging(target);
@@ -887,7 +887,7 @@ static void test_fullscreen(void)
 	put_u32(commit, target->window_id);
 	put_u64(commit + 4, 11);
 	put_u64(commit + 12, 11);
-	assert(client_commit_surface(target, commit) == 0);
+	assert(client_commit_surface(target, GUI_PROTOCOL_SURFACE_COMMIT, commit) == 0);
 	assert(target->mode_pending && target->committed == previous && server.input_owner == target);
 	scanout_calls = 0;
 	commit_staged(target);
@@ -1353,6 +1353,80 @@ static void test_shell_keyboard_input(void)
 	assert(model.redraw == 0 && model.mouse_buttons == 0);
 	put32(payload, model.window_id + 1);
 	assert(desktop_handle_message(&model, &header, payload, sizeof(payload)) < 0);
+}
+
+static void test_menu_patch_upload(void)
+{
+	int descriptors[2];
+	pid_t child;
+	int status;
+	uint8_t *payload = desktop_frame;
+	uint32_t menu_pixels = DESKTOP_MENU_WIDTH * DESKTOP_MENU_ITEM_HEIGHT;
+
+	assert(socketpair(AF_UNIX, SOCK_STREAM, 0, descriptors) == 0);
+	child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		desktop_state model = { .window_id = 1, .configure_serial = 1,
+			.width = 1024, .height = 768, .frame_serial = 1, .base_frame_serial = 1,
+			.capabilities = GUI_PROTOCOL_CAP_SURFACE_PATCH, .redraw = DESKTOP_REDRAW_PANEL };
+		gui_protocol_header input = { .type = GUI_PROTOCOL_INPUT_EVENT };
+		uint8_t mouse[sizeof(gui_protocol_wire_input_event)] = { 0 };
+
+		close(descriptors[0]);
+		if (descriptors[1] != WM_FD) {
+			assert(dup2(descriptors[1], WM_FD) == WM_FD);
+			close(descriptors[1]);
+		}
+		put32(mouse, model.window_id);
+		put32(mouse + 4, GUI_INPUT_EVENT_MOUSE);
+		put32(mouse + 16, 24);
+		put32(mouse + 20, 754);
+		for (int opening = 1; opening >= 0; opening--) {
+			mouse[24] = 1;
+			assert(desktop_handle_message(&model, &input, mouse, sizeof(mouse)) == 0);
+			assert(model.menu_open == opening && send_desktop(&model) == 0);
+			assert(model.redraw == DESKTOP_REDRAW_PANEL);
+			mouse[24] = 0;
+			assert(desktop_handle_message(&model, &input, mouse, sizeof(mouse)) == 0);
+		}
+		_exit(0);
+	}
+	close(descriptors[1]);
+	for (uint64_t serial = 2; serial <= 3; serial++) {
+		gui_protocol_header header;
+		uint32_t offset = 0;
+		uint32_t menu_width = serial == 2 ? DESKTOP_MENU_WIDTH : 0;
+		uint32_t menu_height = serial == 2 ? DESKTOP_MENU_ITEM_HEIGHT : 0;
+
+		assert(read_message(descriptors[0], &header, payload, sizeof(desktop_frame)) == 0);
+		assert(header.type == GUI_PROTOCOL_SURFACE_PATCH_BEGIN);
+		assert(get64(payload + 12) == serial - 1 && get64(payload + 20) == serial);
+		assert(get32(payload + 28) == DESKTOP_MENU_X && get32(payload + 32) == 720);
+		assert(get32(payload + 36) == DESKTOP_MENU_WIDTH &&
+			get32(payload + 40) == DESKTOP_MENU_ITEM_HEIGHT);
+		while (offset < menu_pixels) {
+			uint32_t count;
+
+			assert(read_message(descriptors[0], &header, payload, sizeof(desktop_frame)) == 0);
+			assert(header.type == GUI_PROTOCOL_SURFACE_DATA && get64(payload + 12) == serial);
+			assert(get32(payload + 20) == offset);
+			count = get32(payload + 24);
+			assert(count == (menu_pixels - offset > SURFACE_PIXELS_PER_MESSAGE ?
+				SURFACE_PIXELS_PER_MESSAGE : menu_pixels - offset));
+			assert(header.length == GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_data) +
+				count * sizeof(uint32_t));
+			assert(send_message(descriptors[0], GUI_PROTOCOL_SURFACE_DATA_REPLY, payload,
+				sizeof(gui_protocol_wire_surface_data_reply)) == 0);
+			offset += count;
+		}
+		assert(read_message(descriptors[0], &header, payload, sizeof(desktop_frame)) == 0);
+		assert(header.type == GUI_PROTOCOL_SHELL_SURFACE_COMMIT && get64(payload + 12) == serial);
+		assert(get32(payload + 28) == menu_width && get32(payload + 32) == menu_height);
+	}
+	close(descriptors[0]);
+	assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	puts("gui-wm-busy: menu toggles upload only the popup even with a pending panel redraw");
 }
 
 static int block_shell_output;
@@ -2615,7 +2689,7 @@ static void test_patch_finish(wm_window *window, uint64_t frame, int cancel)
 	if (cancel)
 		client_cancel_surface(window, bytes);
 	else
-		assert(client_commit_surface(window, bytes) == 0);
+		assert(client_commit_surface(window, GUI_PROTOCOL_SURFACE_COMMIT, bytes) == 0);
 }
 
 static void assert_patch_error(wm_window *window, int status)
@@ -3374,6 +3448,7 @@ int main(void)
 	test_record_capacity();
 	test_large_shell_stream();
 	test_shell_keyboard_input();
+	test_menu_patch_upload();
 	test_terminal_recovery();
 	test_drawing_counter_clipping();
 	test_title_double_click();

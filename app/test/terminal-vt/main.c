@@ -326,6 +326,51 @@ static void test_scroll_region(void)
 	assert(terminal.cursor_row == 2 && terminal.cursor_column == 3);
 }
 
+static void test_insert_delete_lines(void)
+{
+	static const uint8_t seed[] = "AA\r\n\x1b[31mBB\r\nCC\r\nDD\r\nEE"
+		"\x1b[2;4r\x1b[3;2H\x1b[44mC\x1b[";
+	static const uint8_t insert[] = "L";
+	static const uint8_t delete[] = "\x1b[3;2H\x1b[0M";
+	static const uint8_t outside[] = "\x1b[5;2HE\x1b[L\x1b[M";
+	static const uint8_t clamped[] = "\x1b[2;2H\x1b[4294967295L";
+	static const uint8_t single_row[] = "\x1b[4;2HZ\x1b[4294967295M";
+	terminal_vt_cell cells[10];
+	terminal_vt_cell alternate_cells[10];
+	terminal_vt_cell scrollback[4];
+	terminal_vt terminal;
+	terminal_vt_cell row[2];
+
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 5, 2) == 0);
+	assert(terminal_vt_set_scrollback(&terminal, scrollback, 2) == 0);
+	terminal_vt_feed(&terminal, seed, sizeof(seed) - 1);
+	memcpy(row, cells + 4, sizeof(row));
+	assert(terminal.wrap_pending);
+	terminal_vt_feed(&terminal, insert, sizeof(insert) - 1);
+	assert(terminal.cursor_row == 2 && terminal.cursor_column == 0 && !terminal.wrap_pending);
+	assert(memcmp(cells + 6, row, sizeof(row)) == 0);
+	assert(cells[4].codepoint == 0 && cells[5].codepoint == 0 && cells[4].background == 4);
+	assert(cells[0].codepoint == 'A' && cells[2].codepoint == 'B' && cells[8].codepoint == 'E');
+
+	terminal_vt_feed(&terminal, delete, sizeof(delete) - 1);
+	assert(terminal.cursor_row == 2 && terminal.cursor_column == 0);
+	assert(memcmp(cells + 4, row, sizeof(row)) == 0);
+	assert(cells[6].codepoint == 0 && cells[7].codepoint == 0 && cells[7].background == 4);
+	terminal_vt_feed(&terminal, outside, sizeof(outside) - 1);
+	assert(terminal.cursor_row == 4 && terminal.cursor_column == 1 && terminal.wrap_pending);
+	assert(cells[8].codepoint == 'E' && cells[9].codepoint == 'E');
+	assert(memcmp(cells + 4, row, sizeof(row)) == 0);
+
+	terminal_vt_feed(&terminal, clamped, sizeof(clamped) - 1);
+	for (size_t index = 2; index < 8; index++)
+		assert(cells[index].codepoint == 0 && cells[index].background == 4);
+	terminal_vt_feed(&terminal, single_row, sizeof(single_row) - 1);
+	assert(terminal.cursor_row == 3 && terminal.cursor_column == 0 && !terminal.wrap_pending);
+	assert(cells[7].codepoint == 0 && cells[7].background == 4);
+	assert(cells[0].codepoint == 'A' && cells[8].codepoint == 'E' && terminal.scrollback_count == 0);
+	puts("terminal-vt: insert and delete lines shift only the scrolling region");
+}
+
 static void test_delayed_wrap(void)
 {
 	static const uint8_t edge[] = "abc\x1b[31m";
@@ -1130,6 +1175,7 @@ int main(void)
 	test_csi_erase();
 	test_unsupported_csi();
 	test_scroll_region();
+	test_insert_delete_lines();
 	test_delayed_wrap();
 	test_tmux_resize_controls();
 	test_attributes_and_saved_cursor();

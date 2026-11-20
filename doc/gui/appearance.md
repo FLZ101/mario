@@ -27,6 +27,9 @@ manual session, set `MARIO_DESKTOP_CONFIG=/root/custom-desktop.conf` before
 starting `/usr/bin/mario-wm`; the shell inherits the same selection. To install
 a persistent configuration from the host, edit
 `rd/_ramdisk0/root/.config/mario/desktop.conf` and rebuild the disk image.
+For `make run-gtk` and `make debug-gtk`, edit
+`rd/_ramdisk0-gtk/root/.config/mario/desktop.conf` instead. These targets apply
+the GTK filesystem overlay without changing the standard image or test defaults.
 
 ## Fonts
 

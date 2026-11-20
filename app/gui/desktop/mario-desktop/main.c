@@ -50,6 +50,12 @@ typedef enum {
 	DESKTOP_MENU_SHUTDOWN,
 } desktop_menu_entry;
 
+enum {
+	DESKTOP_REDRAW_FULL = 1,
+	DESKTOP_REDRAW_MENU = 2,
+	DESKTOP_REDRAW_PANEL = 4,
+};
+
 typedef struct {
 	int fd;
 	uint32_t window_id;
@@ -113,6 +119,8 @@ typedef struct {
 	uint32_t width;
 	uint32_t height;
 	uint64_t frame_serial;
+	uint64_t base_frame_serial;
+	uint32_t capabilities;
 	uint8_t mouse_buttons;
 	uint8_t menu_open;
 	uint8_t launch_failed;
@@ -713,6 +721,19 @@ static uint32_t desktop_menu_top(const desktop_state *state)
 	return panel_y > menu_height ? panel_y - menu_height : 0;
 }
 
+static gui_rect desktop_menu_bounds(const desktop_state *state)
+{
+	uint32_t top = desktop_menu_top(state);
+	uint32_t bottom = desktop_panel_y(state);
+	uint32_t width = desktop_menu_width(state);
+
+	if (state->width <= DESKTOP_MENU_X || bottom == top)
+		return (gui_rect) { 0 };
+	if (width > state->width - DESKTOP_MENU_X)
+		width = state->width - DESKTOP_MENU_X;
+	return (gui_rect) { DESKTOP_MENU_X, top, width, bottom - top };
+}
+
 static const char *desktop_menu_label(desktop_menu_entry entry)
 {
 	switch (entry) {
@@ -980,7 +1001,7 @@ static int desktop_open_menu(desktop_state *state)
 	if (state->menu_restore_window_id == 0)
 		state->menu_restore_window_id = state->last_focused_window_id;
 	state->menu_open = 1;
-	state->redraw = 1;
+	state->redraw |= DESKTOP_REDRAW_MENU;
 	return 0;
 }
 
@@ -989,7 +1010,7 @@ static int desktop_close_menu(desktop_state *state)
 	if (!state->menu_open)
 		return 0;
 	state->menu_open = 0;
-	state->redraw = 1;
+	state->redraw |= DESKTOP_REDRAW_MENU;
 	return desktop_restore_menu_focus(state);
 }
 
@@ -1017,8 +1038,9 @@ static int desktop_send_launch(desktop_state *state,
 		sizeof(gui_protocol_wire_launch_request) + path_bytes) < 0)
 		return -1;
 	state->pending_request_id = request_id;
+	if (state->launch_failed)
+		state->redraw |= DESKTOP_REDRAW_PANEL;
 	state->launch_failed = 0;
-	state->redraw = 1;
 	return 0;
 }
 
@@ -1049,7 +1071,7 @@ static int desktop_handle_window_list(desktop_state *state,
 		state->record_bytes -= sizeof(*window);
 		state->window_count--;
 		free(window);
-		state->redraw = 1;
+		state->redraw |= DESKTOP_REDRAW_PANEL;
 		return 0;
 	}
 	window = desktop_window_by_id(state, window_id);
@@ -1065,7 +1087,7 @@ static int desktop_handle_window_list(desktop_state *state,
 			*link = window;
 			state->record_bytes += sizeof(*window);
 			state->window_count++;
-			state->redraw = 1;
+			state->redraw |= DESKTOP_REDRAW_PANEL;
 		}
 		if (window == NULL)
 			return -1;
@@ -1082,7 +1104,8 @@ static int desktop_handle_window_list(desktop_state *state,
 		state->last_focused_window_id = window_id;
 	if (newly_focused)
 		desktop_reveal_window(state, window);
-	state->redraw |= focus_changed;
+	if (focus_changed)
+		state->redraw |= DESKTOP_REDRAW_PANEL;
 	return 0;
 }
 
@@ -1090,6 +1113,22 @@ static int desktop_handle_message(desktop_state *state,
 				  const gui_protocol_header *header,
 				  const uint8_t *payload, size_t payload_bytes)
 {
+	if (header->type == GUI_PROTOCOL_ERROR && payload_bytes == sizeof(gui_protocol_wire_error)) {
+		int32_t status = (int32_t)get32(payload);
+		uint16_t failed_type = (uint16_t)payload[4] | (uint16_t)payload[5] << 8;
+
+		if (failed_type == GUI_PROTOCOL_SURFACE_PATCH_BEGIN &&
+		    status == -EINVAL && state->surface_flow.discard_reply)
+			return 0;
+		if ((failed_type == GUI_PROTOCOL_SURFACE_PATCH_BEGIN &&
+		     (status == -ENOMEM || status == -ESTALE)) ||
+		    (failed_type == GUI_PROTOCOL_SHELL_SURFACE_COMMIT && status == -EIO)) {
+			if (status != -ENOMEM)
+				state->redraw |= DESKTOP_REDRAW_FULL;
+			app_gui_surface_defer(&state->surface_flow);
+			return 0;
+		}
+	}
 	int flow_result = app_gui_surface_flow_message(&state->surface_flow,
 		state->window_id, header->type, payload, payload_bytes);
 
@@ -1102,6 +1141,7 @@ static int desktop_handle_message(desktop_state *state,
 		    get32(payload + 12) != state->width || get32(payload + 16) != state->height)
 			return -1;
 		state->configure_serial = get64(payload + 4);
+		state->redraw |= DESKTOP_REDRAW_FULL;
 		app_gui_surface_defer(&state->surface_flow);
 		return 0;
 	}
@@ -1123,10 +1163,10 @@ static int desktop_handle_message(desktop_state *state,
 		state->pending_request_id = 0;
 		if (status != 0) {
 			state->launch_failed = 1;
+			state->redraw |= DESKTOP_REDRAW_PANEL;
 			fprintf(stderr, "mario-desktop: launch %u failed: %d\n",
 				request_id, status);
 		}
-		state->redraw = 1;
 		return 0;
 	}
 	if (header->type == GUI_PROTOCOL_INPUT_RESET) {
@@ -1187,6 +1227,7 @@ static int desktop_handle_message(desktop_state *state,
 					return -1;
 				state->menu_restore_window_id = 0;
 				state->menu_open = 0;
+				state->redraw |= DESKTOP_REDRAW_MENU;
 				state->mouse_buttons = buttons;
 				return 0;
 			}
@@ -1207,11 +1248,11 @@ static int desktop_handle_message(desktop_state *state,
 		if (!(state->mouse_buttons & 1) && (buttons & 1) && control != 0) {
 			if (control < 0 && state->displayed_taskbar.page != 0) {
 				state->taskbar_page = state->displayed_taskbar.page - 1;
-				state->redraw = 1;
+				state->redraw |= DESKTOP_REDRAW_PANEL;
 			} else if (control > 0 && state->displayed_taskbar.page + 1 <
 				   state->displayed_taskbar.pages) {
 				state->taskbar_page = state->displayed_taskbar.page + 1;
-				state->redraw = 1;
+				state->redraw |= DESKTOP_REDRAW_PANEL;
 			}
 			state->mouse_buttons = buttons;
 			return 0;
@@ -1227,7 +1268,8 @@ static int desktop_handle_message(desktop_state *state,
 }
 
 static int read_surface_data_reply(desktop_state *state, uint64_t frame_serial,
-				   uint32_t pixel_offset, uint32_t pixel_count)
+				   uint32_t pixel_offset, uint32_t pixel_count,
+				   gui_protocol_type begin_type)
 {
 	uint8_t payload[sizeof(gui_protocol_wire_window_list) + GUI_PROTOCOL_MAX_TITLE_BYTES];
 
@@ -1255,7 +1297,7 @@ static int read_surface_data_reply(desktop_state *state, uint64_t frame_serial,
 		if (header.type == GUI_PROTOCOL_WINDOW_CONFIGURE ||
 		    (header.type == GUI_PROTOCOL_ERROR &&
 		     ((uint16_t)payload[4] | (uint16_t)payload[5] << 8) ==
-		     GUI_PROTOCOL_SURFACE_BEGIN && state->surface_flow.retry_pending)) {
+		     begin_type && state->surface_flow.retry_pending)) {
 			app_gui_surface_discard_reply(&state->surface_flow, configure_serial,
 				frame_serial, pixel_offset, pixel_count);
 			return 1;
@@ -1266,27 +1308,58 @@ static int read_surface_data_reply(desktop_state *state, uint64_t frame_serial,
 static int send_desktop(desktop_state *state)
 {
 	desktop_state scene;
-	uint8_t begin[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_begin)] = { 0 };
-	uint8_t commit[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_commit)];
-	uint64_t frame_serial = ++state->frame_serial;
+	uint8_t begin[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_patch_begin)];
+	uint8_t commit[GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_shell_surface_commit)] = { 0 };
+	uint8_t *popup = commit + GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_commit);
+	uint8_t *identity = begin + GUI_PROTOCOL_HEADER_SIZE;
+	int patch = (state->capabilities & GUI_PROTOCOL_CAP_SURFACE_PATCH) &&
+		state->base_frame_serial != 0 && !(state->redraw & DESKTOP_REDRAW_FULL);
+	int redraw = state->redraw;
+	gui_protocol_type begin_type = patch ? GUI_PROTOCOL_SURFACE_PATCH_BEGIN : GUI_PROTOCOL_SURFACE_BEGIN;
+	size_t begin_size = patch ? sizeof(gui_protocol_wire_surface_patch_begin) :
+		sizeof(gui_protocol_wire_surface_begin);
+	gui_rect rectangle = { 0, 0, state->width, state->height };
+	gui_rect menu = desktop_menu_bounds(state);
+	uint64_t frame_serial;
 	uint32_t total;
 
-	if (desktop_prepare_taskbar(state) < 0 || frame_serial == 0 || (state->width != 0 &&
-	    state->height > UINT32_MAX / state->width))
+	if (patch) {
+		if (redraw & DESKTOP_REDRAW_MENU) {
+			redraw = DESKTOP_REDRAW_MENU;
+			rectangle = menu;
+		} else {
+			redraw = DESKTOP_REDRAW_PANEL;
+			rectangle.y = desktop_panel_y(state);
+			rectangle.h -= rectangle.y;
+		}
+	}
+	state->redraw &= ~redraw;
+	if (rectangle.w == 0 || rectangle.h == 0)
+		return patch ? 0 : -1;
+	frame_serial = ++state->frame_serial;
+	if (frame_serial == 0 || (uint32_t)rectangle.h > UINT32_MAX / (uint32_t)rectangle.w ||
+	    ((!patch || redraw == DESKTOP_REDRAW_PANEL) && desktop_prepare_taskbar(state) < 0))
 		return -1;
-	total = state->width * state->height;
-	desktop_prepare_wallpaper(state);
+	total = (uint32_t)rectangle.w * rectangle.h;
+	if (!patch)
+		desktop_prepare_wallpaper(state);
 	desktop_prepare_text(state);
 	scene = *state;
 
-	if (gui_protocol_encode_header(begin, sizeof(begin), GUI_PROTOCOL_SURFACE_BEGIN,
-		sizeof(gui_protocol_wire_surface_begin)) < 0)
+	if (gui_protocol_encode_header(begin, sizeof(begin), begin_type, begin_size) < 0)
 		return -1;
-	put32(begin + 8, state->window_id);
-	put64(begin + 12, state->configure_serial);
-	put64(begin + 20, frame_serial);
-	put32(begin + 36, state->width); put32(begin + 40, state->height);
-	if (write_full(WM_FD, begin, sizeof(begin)) < 0)
+	put32(identity, state->window_id);
+	put64(identity + 4, state->configure_serial);
+	if (patch) {
+		put64(identity + 12, state->base_frame_serial);
+		identity += sizeof(uint64_t);
+	}
+	put64(identity + 12, frame_serial);
+	put32(identity + 20, rectangle.x);
+	put32(identity + 24, rectangle.y);
+	put32(identity + 28, rectangle.w);
+	put32(identity + 32, rectangle.h);
+	if (write_full(WM_FD, begin, GUI_PROTOCOL_HEADER_SIZE + begin_size) < 0)
 		return -1;
 	for (uint32_t pixel_offset = 0; pixel_offset < total;) {
 		uint32_t pixels = total - pixel_offset > SURFACE_PIXELS_PER_MESSAGE ?
@@ -1303,28 +1376,43 @@ static int send_desktop(desktop_state *state)
 		put64(desktop_frame + 12, state->configure_serial);
 		put64(desktop_frame + 20, frame_serial);
 		put32(desktop_frame + 28, pixel_offset); put32(desktop_frame + 32, pixels);
-		/* Build the complete shell scene incrementally to stay within the socket ring. */
-		for (uint32_t index = 0; index < pixels; index++)
+		for (uint32_t index = 0; index < pixels; index++) {
+			uint32_t offset = pixel_offset + index;
+
+			if (patch)
+				offset = (rectangle.y + offset / rectangle.w) * scene.width +
+					rectangle.x + offset % rectangle.w;
 			put32(desktop_frame + GUI_PROTOCOL_HEADER_SIZE +
 				sizeof(gui_protocol_wire_surface_data) + index * sizeof(uint32_t),
-				desktop_pixel(&scene, pixel_offset + index));
+				desktop_pixel(&scene, offset));
+		}
 		if (write_full(WM_FD, desktop_frame,
 			GUI_PROTOCOL_HEADER_SIZE + payload) < 0)
 			return -1;
-		result = read_surface_data_reply(state, frame_serial, pixel_offset, pixels);
-		if (result != 0)
+		result = read_surface_data_reply(state, frame_serial, pixel_offset, pixels, begin_type);
+		if (result != 0) {
+			state->redraw |= redraw;
 			return result;
+		}
 		pixel_offset += pixels;
 	}
-	if (gui_protocol_encode_header(commit, sizeof(commit), GUI_PROTOCOL_SURFACE_COMMIT,
-		sizeof(gui_protocol_wire_surface_commit)) < 0)
+	if (gui_protocol_encode_header(commit, sizeof(commit), GUI_PROTOCOL_SHELL_SURFACE_COMMIT,
+		sizeof(gui_protocol_wire_shell_surface_commit)) < 0)
 		return -1;
 	put32(commit + 8, state->window_id);
 	put64(commit + 12, state->configure_serial);
 	put64(commit + 20, frame_serial);
+	if (scene.menu_open) {
+		put32(popup, menu.x);
+		put32(popup + 4, menu.y);
+		put32(popup + 8, menu.w);
+		put32(popup + 12, menu.h);
+	}
 	if (write_full(WM_FD, commit, sizeof(commit)) < 0)
 		return -1;
-	desktop_commit_taskbar(state);
+	state->base_frame_serial = frame_serial;
+	if (!patch || redraw == DESKTOP_REDRAW_PANEL)
+		desktop_commit_taskbar(state);
 	return 0;
 }
 
@@ -1570,7 +1658,7 @@ static int private_fd_only(void)
 
 int main(int argc, char **argv)
 {
-	desktop_state state = { 0 };
+	desktop_state state = { .redraw = DESKTOP_REDRAW_FULL };
 	diagnostic_client diagnostics[DIAGNOSTIC_COUNT] = { 0 };
 	int diagnostics_mode;
 	uint8_t frame[64];
@@ -1604,6 +1692,14 @@ int main(int argc, char **argv)
 	    header.type != GUI_PROTOCOL_HELLO_REPLY ||
 	    header.length != GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_hello))
 		return 1;
+	put32(payload, GUI_PROTOCOL_CAP_SURFACE_PATCH);
+	if (send_message(WM_FD, GUI_PROTOCOL_CAPABILITIES, payload,
+		sizeof(gui_protocol_wire_capabilities)) < 0 ||
+	    desktop_read_message(&header, payload, sizeof(payload)) < 0 ||
+	    header.type != GUI_PROTOCOL_CAPABILITIES_REPLY ||
+	    header.length != GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_capabilities))
+		return 1;
+	state.capabilities = get32(payload);
 	if (gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_DESKTOP_CREATE,
 		sizeof(gui_protocol_wire_desktop_create)) < 0)
 		return 1;
@@ -1640,7 +1736,6 @@ int main(int argc, char **argv)
 		return 1;
 	for (;;) {
 		if (state.redraw && !state.surface_flow.retry_pending) {
-			state.redraw = 0;
 			if (send_desktop(&state) < 0) {
 				fprintf(stderr, "mario-desktop: desktop upload failed: %d\n", errno);
 				return 1;
@@ -1676,9 +1771,7 @@ int main(int argc, char **argv)
 			return 1;
 		}
 		if (poll_result == 0) {
-			if (app_gui_surface_retry_ready(&state.surface_flow)) {
-				state.redraw = 1;
-			}
+			app_gui_surface_retry_ready(&state.surface_flow);
 			for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
 				if (app_gui_surface_retry_ready(&diagnostics[index].surface_flow)) {
 					diagnostics[index].redraw = 1;
@@ -1706,8 +1799,7 @@ int main(int argc, char **argv)
 				return 1;
 			}
 		}
-		if (app_gui_surface_retry_ready(&state.surface_flow))
-			state.redraw = 1;
+		app_gui_surface_retry_ready(&state.surface_flow);
 		for (unsigned int index = 0; index < DIAGNOSTIC_COUNT; index++) {
 			if (app_gui_surface_retry_ready(&diagnostics[index].surface_flow))
 				diagnostics[index].redraw = 1;

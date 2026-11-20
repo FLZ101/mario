@@ -304,6 +304,33 @@ static void terminal_vt_clear_line(terminal_vt *terminal, uint32_t mode)
 		terminal_vt_blank_cells(line, terminal->columns, terminal->background);
 }
 
+static void terminal_vt_edit_lines(terminal_vt *terminal, uint32_t amount, int insert)
+{
+	terminal_vt_cell *start;
+	uint32_t rows;
+	size_t shift_cells;
+	size_t move_cells;
+
+	if (terminal->cursor_row < terminal->scroll_top ||
+	    terminal->cursor_row > terminal->scroll_bottom)
+		return;
+	terminal->cursor_column = 0;
+	terminal->wrap_pending = 0;
+	rows = terminal->scroll_bottom - terminal->cursor_row + 1;
+	if (amount > rows)
+		amount = rows;
+	start = terminal->cells + (size_t)terminal->cursor_row * terminal->columns;
+	shift_cells = (size_t)amount * terminal->columns;
+	move_cells = (size_t)(rows - amount) * terminal->columns;
+	if (insert) {
+		memmove(start + shift_cells, start, move_cells * sizeof(*start));
+		terminal_vt_blank_cells(start, shift_cells, terminal->background);
+	} else {
+		memmove(start, start + shift_cells, move_cells * sizeof(*start));
+		terminal_vt_blank_cells(start + move_cells, shift_cells, terminal->background);
+	}
+}
+
 static void terminal_vt_set_cursor(terminal_vt *terminal, uint32_t row,
 				   uint32_t column)
 {
@@ -619,6 +646,10 @@ static void terminal_vt_execute_csi(terminal_vt *terminal, uint8_t final)
 	case 'K':
 		terminal->wrap_pending = 0;
 		terminal_vt_clear_line(terminal, terminal_vt_csi_value(terminal, 0));
+		break;
+	case 'L':
+	case 'M':
+		terminal_vt_edit_lines(terminal, terminal_vt_csi_count(terminal, 0, 1), final == 'L');
 		break;
 	case 'S':
 		amount = terminal_vt_csi_count(terminal, 0, 1);

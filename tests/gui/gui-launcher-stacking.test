@@ -1,0 +1,36 @@
+INIT-WM: keep
+GUI-VISUAL-TEST:
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL-WAIT-FILE: /tmp/mario-wm.ready
+SERIAL: printf 'background=#112233\n' >/tmp/launcher-terminal.conf; MARIO_TERMINAL_CONFIG=/tmp/launcher-terminal.conf /usr/bin/terminal --command 'sleep 120' >/tmp/launcher-terminal.log 2>&1 &
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/launcher-terminal.log; do sleep 1; done
+GUI-MOUSE-POSITION: 200,84
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 100 728 1 1 17 34 51
+GUI-MOUSE-POSITION: 24,754
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 100 728 1 1 37 99 235
+GUI-MOUSE-POSITION: 200,700
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 512 16 1 1 37 99 235
+GUI-CHECK-RECT: 100 728 1 1 37 99 235
+GUI-SEND-KEY: esc
+GUI-CHECK-RECT: 100 728 1 1 17 34 51
+GUI-MOUSE-POSITION: 24,754
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 100 728 1 1 37 99 235
+GUI-MOUSE-POSITION: 24,728
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 100 728 1 1 17 34 51
+SERIAL: for probe in 1 2 3 4 5; do test "$(pgrep -x terminal | wc -l)" -eq 2 && printf 'launcher stacking: %s\n' passed && break; sleep 1; done
+SERIAL-CHECK: launcher stacking: passed
+EXIT:

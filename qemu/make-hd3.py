@@ -3,8 +3,11 @@ from pathlib import Path
 
 import mkdisk
 
+gtk = os.environ.get("MARIO_HD3_GTK") == "1"
+usr = Path("../rd/ramdisk0_usr-gtk" if gtk else "../rd/ramdisk0_usr")
+
 disk = mkdisk.Disk(
-    name="hd3",
+    name="hd3-gtk" if gtk else "hd3",
     size_mib=320 + 512,
     label="gpt",
     partitions=[
@@ -41,7 +44,7 @@ disk = mkdisk.Disk(
             512,
             "ext2",
             type_id=mkdisk.GPT_TYPE_GUIDS["linux-filesystem"],
-            content=((Path("../rd/ramdisk0_usr"), "/"),),
+            content=((usr, "/"),),
         ),
     ],
 )

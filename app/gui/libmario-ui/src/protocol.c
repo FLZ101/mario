@@ -31,7 +31,7 @@ static uint32_t gui_protocol_get_u32(const uint8_t *buffer)
 
 static int gui_protocol_type_valid(uint16_t type)
 {
-	return type >= GUI_PROTOCOL_HELLO && type <= GUI_PROTOCOL_WINDOW_OPACITY;
+	return type >= GUI_PROTOCOL_HELLO && type <= GUI_PROTOCOL_SHELL_SURFACE_COMMIT;
 }
 
 int gui_protocol_message_length(size_t payload_bytes, uint32_t *length)

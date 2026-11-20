@@ -6,6 +6,7 @@ CHECK: gui-wm-busy: real terminal survives pressure and allocation/flush rollbac
 CHECK: gui-wm-busy: dynamic records, peer budgets and bounded snapshots pass
 CHECK: gui-wm-busy: large snapshots, ordered deltas and stable taskbar pages pass
 CHECK: gui-wm-busy: valid shell key input preserves the desktop
+CHECK: gui-wm-busy: menu toggles upload only the popup even with a pending panel redraw
 CHECK: gui-wm-busy: wallpaper scaling, cache, overlays and loading failures pass
 CHECK: gui-wm-busy: opacity blends clipped layers, preserves underlay damage and validates ownership
 CHECK: gui-wm-busy: union occlusion retains pixels and charges without scanout

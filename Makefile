@@ -98,13 +98,16 @@ clean-build clean-kernel clean-app clean-src:
 
 # ------
 
-.PHONY: disk-image disk-image-vbe_1024x768 disk-image-vbe_1920x1080 \
+.PHONY: disk-image disk-image-gtk disk-image-vbe_1024x768 disk-image-vbe_1920x1080 \
 	disk-image-text clean-disk-image
 
-disk-image disk-image-vbe_1024x768 disk-image-vbe_1920x1080 disk-image-text: venv
+disk-image disk-image-gtk disk-image-vbe_1024x768 disk-image-vbe_1920x1080 disk-image-text: venv
 
 disk-image:
 	make -f Makefile.image.mk BOOT_MENU=menu.lst
+
+disk-image-gtk:
+	make -f Makefile.image.mk image-gtk
 
 disk-image-vbe_1024x768:
 	make -f Makefile.image.mk BOOT_MENU=menu.lst.vbe_1024x768
@@ -144,7 +147,7 @@ test-all:
 run debug quick-run quick-debug quick-run-gtk quick-debug-gtk \
 	tmux-run tmux-debug tmux-attach tmux-kill: disk-image-text
 
-run-gtk debug-gtk: disk-image
+run-gtk debug-gtk: disk-image-gtk
 
 run debug quick-run quick-debug \
 	run-gtk debug-gtk quick-run-gtk quick-debug-gtk \

@@ -11,7 +11,6 @@ GUI-CHECK-SCREEN: assets/desktop-wallpaper-blue-marble.png
 SERIAL: rm /tmp/wallpaper-real.png
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
-GUI-WAIT-FRAME:
 GUI-CHECK-DIFFERENT: assets/desktop-wallpaper-blue-marble.png
 GUI-CHECK-RECT: 100 722 1 1 37 99 235
 GUI-SEND-KEY: esc

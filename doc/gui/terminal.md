@@ -72,6 +72,10 @@ image. Restart the terminal to apply
 changes; live configuration reload and a graphical settings editor are not
 implemented.
 
+For `make run-gtk` and `make debug-gtk`, edit
+`rd/_ramdisk0-gtk/root/.config/mario/terminal.conf` instead. These targets apply
+the GTK filesystem overlay without changing the standard image or test defaults.
+
 The protocol extension is negotiated with `GUI_PROTOCOL_CAP_WINDOW_OPACITY`
 (`0x00000002`). `GUI_PROTOCOL_WINDOW_OPACITY` carries two little-endian
 32-bit fields: the client's own ordinary window ID and an opacity percentage.
