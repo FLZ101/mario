@@ -24,7 +24,7 @@ SCRIPT
 TERMINAL
 SERIAL: /usr/bin/terminal --command '/bin/oksh /tmp/gui-many.term1.sh' >/tmp/gui-many.term1.log 2>&1 & echo $! >/tmp/gui-many.term1.pid
 SERIAL-WAIT-FILE: /tmp/gui-many.term1.size
-SERIAL: test "$(cat /tmp/gui-many.term1.size)" = "10 36" && printf "many-windows: terminal 1 size ready\n"
+SERIAL: test "$(cat /tmp/gui-many.term1.size)" = "12 40" && printf "many-windows: terminal 1 size ready\n"
 SERIAL-CHECK: many-windows: terminal 1 size ready
 SERIAL: <<TERMINAL
 cat >/tmp/gui-many.term2.sh <<'SCRIPT'
@@ -37,7 +37,7 @@ SCRIPT
 TERMINAL
 SERIAL: /usr/bin/terminal --command '/bin/oksh /tmp/gui-many.term2.sh' >/tmp/gui-many.term2.log 2>&1 & echo $! >/tmp/gui-many.term2.pid
 SERIAL-WAIT-FILE: /tmp/gui-many.term2.size
-SERIAL: test "$(cat /tmp/gui-many.term2.size)" = "10 36" && printf "many-windows: terminal 2 size ready\n"
+SERIAL: test "$(cat /tmp/gui-many.term2.size)" = "12 40" && printf "many-windows: terminal 2 size ready\n"
 SERIAL-CHECK: many-windows: terminal 2 size ready
 SERIAL: /usr/bin/test/gui-wm-client.exe --many-windows >>/tmp/gui-many.log 2>&1 & echo $! >/tmp/gui-many.pid
 SERIAL: while test ! -e /tmp/gui-many.initial && kill -0 $(cat /tmp/gui-many.pid) 2>/dev/null; do sleep 1; done; cat /tmp/gui-many.log

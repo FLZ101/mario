@@ -3,6 +3,7 @@ SERIAL: <<CONFIG
 mkdir -p /root/.config/mario
 cat >/root/.config/mario/terminal.conf <<'SETTINGS'
 font_size=20
+padding=16
 color_scheme=light
 foreground=#e0f0ff
 background=#102030
@@ -27,6 +28,7 @@ SERIAL-WAIT-FILE: /tmp/terminal-config.ready
 SERIAL: cat /tmp/terminal-config.size
 SERIAL-CHECK: 6 22
 GUI-CHECK-RECT: 130 130 4 4 16 32 48
+GUI-CHECK-RECT: 128 96 16 16 16 32 48
 GUI-CHECK-RECT: 144 112 26 24 255 0 255
 GUI-CHECK-RECT: 170 112 1 24 16 32 48
 GUI-SEND-KEYS: meta_l,w
@@ -43,8 +45,9 @@ SERIAL: while pgrep terminal >/dev/null; do sleep 1; done; rm /tmp/terminal-conf
 SERIAL: MARIO_TERMINAL_CONFIG= /usr/bin/terminal --command '. /tmp/terminal-config.run' >/tmp/terminal-config.log 2>/tmp/terminal-config.err &
 SERIAL-WAIT-FILE: /tmp/terminal-config.ready
 SERIAL: cat /tmp/terminal-config.size
-SERIAL-CHECK: 10 36
-GUI-CHECK-RECT: 194 194 4 4 17 24 39
+SERIAL-CHECK: 12 40
+GUI-CHECK-RECT: 192 128 16 16 239 68 68
+GUI-CHECK-RECT: 208 128 4 4 17 24 39
 GUI-SEND-KEYS: meta_l,w
 SERIAL: while pgrep terminal >/dev/null; do sleep 1; done; kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
 EXIT:

@@ -28,7 +28,6 @@
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
 #define TERMINAL_WIDTH 320U
 #define TERMINAL_HEIGHT 192U
-#define TERMINAL_MARGIN 16U
 #define TERMINAL_CELL_WIDTH 8U
 #define TERMINAL_CELL_HEIGHT 16U
 #define TERMINAL_FONT_HEIGHT 14
@@ -77,6 +76,7 @@ typedef struct {
 	uint8_t pty_input[TERMINAL_PTY_INPUT_BYTES];
 	size_t pty_input_bytes;
 	gui_surface surface;
+	gui_rect content;
 	gui_color *pixels;
 	gui_font *font;
 	terminal_config config;
@@ -302,17 +302,11 @@ static size_t terminal_encode_utf8(uint32_t codepoint, char bytes[4])
 	return 4;
 }
 
-static void terminal_grid_dimensions(const terminal_state *state, uint32_t width, uint32_t height,
-				     uint32_t *rows, uint32_t *columns)
+static uint32_t terminal_axis_padding(uint32_t size, uint32_t cell_size, uint32_t padding)
 {
-	*columns = width > 2 * TERMINAL_MARGIN ?
-		(width - 2 * TERMINAL_MARGIN) / terminal_cell_width(state) : 1;
-	*rows = height > 2 * TERMINAL_MARGIN ?
-		(height - 2 * TERMINAL_MARGIN) / terminal_cell_height(state) : 1;
-	if (*columns == 0)
-		*columns = 1;
-	if (*rows == 0)
-		*rows = 1;
+	uint32_t limit = size > cell_size ? (size - cell_size) / 2 : 0;
+
+	return padding < limit ? padding : limit;
 }
 
 static int terminal_resize_grid(terminal_state *state, uint32_t width,
@@ -323,6 +317,10 @@ static int terminal_resize_grid(terminal_state *state, uint32_t width,
 	terminal_vt_cell *scrollback_cells;
 	terminal_vt_cell *rendered_cells;
 	gui_color *pixels;
+	gui_rect content;
+	uint32_t cell_width = terminal_cell_width(state);
+	uint32_t cell_height = terminal_cell_height(state);
+	uint32_t padding = terminal_settings(state)->padding;
 	uint32_t rows;
 	uint32_t columns;
 	size_t cell_count;
@@ -336,7 +334,12 @@ static int terminal_resize_grid(terminal_state *state, uint32_t width,
 	if (width == 0 || height == 0 || width > INT_MAX || height > INT_MAX || width > UINT32_MAX / height ||
 	    width > SIZE_MAX / height)
 		return -1;
-	terminal_grid_dimensions(state, width, height, &rows, &columns);
+	content.x = terminal_axis_padding(width, cell_width, padding);
+	content.y = terminal_axis_padding(height, cell_height, padding);
+	content.w = width - 2 * (uint32_t)content.x;
+	content.h = height - 2 * (uint32_t)content.y;
+	columns = (uint32_t)content.w >= cell_width ? content.w / cell_width : 1;
+	rows = (uint32_t)content.h >= cell_height ? content.h / cell_height : 1;
 	if (rows > SIZE_MAX / columns / sizeof(*primary_cells))
 		return -1;
 	cell_count = (size_t)rows * columns;
@@ -383,6 +386,7 @@ static int terminal_resize_grid(terminal_state *state, uint32_t width,
 	state->vt = resized;
 	state->width = width;
 	state->height = height;
+	state->content = content;
 	state->surface = (gui_surface) {
 		.width = width,
 		.height = height,
@@ -401,8 +405,8 @@ out:
 
 static gui_rect terminal_cell_bounds(const terminal_state *state, uint32_t row, uint32_t column)
 {
-	return (gui_rect) { TERMINAL_MARGIN + column * terminal_cell_width(state),
-		TERMINAL_MARGIN + row * terminal_cell_height(state),
+	return (gui_rect) { state->content.x + column * terminal_cell_width(state),
+		state->content.y + row * terminal_cell_height(state),
 		terminal_cell_width(state), terminal_cell_height(state) };
 }
 
@@ -441,18 +445,18 @@ static int terminal_rect_intersects(gui_rect first, gui_rect second)
 		(int64_t)second.y < (int64_t)first.y + first.h;
 }
 
-static void terminal_add_damage(const terminal_state *state, gui_rect *damage,
+static void terminal_add_damage(gui_rect content, gui_rect *damage,
 				gui_rect bounds)
 {
-	int64_t left = bounds.x < 0 ? 0 : bounds.x;
-	int64_t top = bounds.y < 0 ? 0 : bounds.y;
+	int64_t left = bounds.x < content.x ? content.x : bounds.x;
+	int64_t top = bounds.y < content.y ? content.y : bounds.y;
 	int64_t right = (int64_t)bounds.x + bounds.w;
 	int64_t bottom = (int64_t)bounds.y + bounds.h;
 
-	if (right > state->width)
-		right = state->width;
-	if (bottom > state->height)
-		bottom = state->height;
+	if (right > content.x + content.w)
+		right = content.x + content.w;
+	if (bottom > content.y + content.h)
+		bottom = content.y + content.h;
 	if (bounds.w <= 0 || bounds.h <= 0 || left >= right || top >= bottom)
 		return;
 	if (damage->w > 0 && damage->h > 0) {
@@ -576,12 +580,13 @@ static int terminal_render(terminal_state *state)
 {
 	gui_rect damage = { 0 };
 	gui_surface clipped;
+	gui_color background = terminal_settings(state)->background;
 	int cursor_visible = terminal_cursor_visible(state);
 
 	if (state->font == NULL || state->surface.pixels == NULL || state->rendered_cells == NULL)
 		return -1;
 	if (!state->rendered) {
-		damage = (gui_rect) { 0, 0, state->width, state->height };
+		damage = state->content;
 	} else {
 		for (uint32_t row = 0; row < state->vt.rows; row++)
 			for (uint32_t column = 0; column < state->vt.columns; column++) {
@@ -591,19 +596,19 @@ static int terminal_render(terminal_state *state)
 
 				if (terminal_same_cell(cell, old))
 					continue;
-				terminal_add_damage(state, &damage, terminal_cell_bounds(state, row, column));
-				terminal_add_damage(state, &damage, terminal_glyph_bounds(state, row, column, old->codepoint));
-				terminal_add_damage(state, &damage, terminal_glyph_bounds(state, row, column, cell->codepoint));
+				terminal_add_damage(state->content, &damage, terminal_cell_bounds(state, row, column));
+				terminal_add_damage(state->content, &damage, terminal_glyph_bounds(state, row, column, old->codepoint));
+				terminal_add_damage(state->content, &damage, terminal_glyph_bounds(state, row, column, cell->codepoint));
 			}
 		if (cursor_visible != state->rendered_cursor_visible ||
 		    state->vt.cursor_shape != state->rendered_cursor_shape ||
 		    state->vt.cursor_row != state->rendered_cursor_row ||
 		    state->vt.cursor_column != state->rendered_cursor_column) {
 			if (state->rendered_cursor_visible)
-				terminal_add_damage(state, &damage, terminal_cell_bounds(state,
+				terminal_add_damage(state->content, &damage, terminal_cell_bounds(state,
 					state->rendered_cursor_row, state->rendered_cursor_column));
 			if (cursor_visible)
-				terminal_add_damage(state, &damage, terminal_cell_bounds(state, state->vt.cursor_row, state->vt.cursor_column));
+				terminal_add_damage(state->content, &damage, terminal_cell_bounds(state, state->vt.cursor_row, state->vt.cursor_column));
 		}
 	}
 	state->render_damage = damage;
@@ -612,7 +617,12 @@ static int terminal_render(terminal_state *state)
 	clipped = (gui_surface) { .width = damage.w, .height = damage.h,
 		.stride = state->surface.stride, .pixels = state->pixels +
 			(size_t)damage.y * state->surface.stride + damage.x };
-	gui_fill_rect(&clipped, (gui_rect) { 0, 0, damage.w, damage.h }, terminal_settings(state)->background);
+	if (!state->rendered) {
+		state->render_damage = (gui_rect) { 0, 0, state->width, state->height };
+		gui_fill_rect(&state->surface, state->render_damage, background);
+	} else {
+		gui_fill_rect(&clipped, (gui_rect) { 0, 0, damage.w, damage.h }, background);
+	}
 	for (uint32_t row = 0; row < state->vt.rows; row++)
 		for (uint32_t column = 0; column < state->vt.columns; column++) {
 			const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
@@ -908,13 +918,13 @@ static int terminal_set_opacity(terminal_state *state)
 static int terminal_winsize(const terminal_state *state, struct winsize *size)
 {
 	if (state->vt.rows > UINT16_MAX || state->vt.columns > UINT16_MAX ||
-	    state->width > UINT16_MAX || state->height > UINT16_MAX)
+	    state->content.w > UINT16_MAX || state->content.h > UINT16_MAX)
 		return -1;
 	*size = (struct winsize) {
 		.ws_row = state->vt.rows,
 		.ws_col = state->vt.columns,
-		.ws_xpixel = state->width,
-		.ws_ypixel = state->height,
+		.ws_xpixel = state->content.w,
+		.ws_ypixel = state->content.h,
 	};
 	return 0;
 }

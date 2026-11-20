@@ -2,7 +2,7 @@
 
 The terminal reads configuration once at startup. Existing defaults remain a
 14-pixel DejaVu Sans Mono font, the original dark palette, and opaque content.
-The default 8 × 16 cell geometry stays unchanged for existing applications.
+The default 8 × 16 cells start at the edge of the window's content area.
 
 Configuration paths, in priority order:
 
@@ -17,6 +17,7 @@ For example, edit it in the guest:
 
 ```ini
 font_size=20
+padding=8
 color_scheme=dark
 foreground=#f8fafc
 background=#111827
@@ -35,6 +36,7 @@ falls back to defaults without preventing terminal startup.
 | Setting | Values | Default |
 | --- | --- | --- |
 | `font_size` | Integer pixel height, 8–48 | `14` |
+| `padding` | Nonnegative integer pixels on each side of the content | `0` |
 | `color_scheme` | `default`, `dark`, `light`, `solarized-dark` | `default` |
 | `foreground` | `#RRGGBB` | `#f8fafc` |
 | `background` | `#RRGGBB` | `#111827` |
@@ -53,6 +55,9 @@ For non-default font sizes, character advance and font metrics determine the
 cell size and baseline. The resulting grid is reported to the PTY through
 `TIOCSWINSZ`, including later window resizes and fullscreen changes. Existing
 cursor-shape escapes and blinking continue to use the configured cell geometry.
+Padding uses the terminal background color and reduces the available grid size.
+It shrinks as needed to leave room for at least one cell when the window is small.
+Set `padding=16` to restore the previous inset.
 
 Opacity applies to the complete terminal content, including text and cursor;
 title bars and resize borders remain opaque. The WM blends content with the

@@ -11,8 +11,8 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/terminal-resize.log; do sleep 1; done; cat /tmp/terminal-resize.log
-SERIAL-CHECK: 10 44
+SERIAL: while ! grep -q '^12 48' /tmp/terminal-resize.log; do sleep 1; done; cat /tmp/terminal-resize.log
+SERIAL-CHECK: 12 48
 GUI-CHECK-RECT: 496 200 8 8 17 24 39
 SERIAL: kill -TERM $(cat /tmp/terminal-resize.pid); kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
 EXIT:

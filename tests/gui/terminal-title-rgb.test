@@ -5,7 +5,7 @@ SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.
 GUI-SEND-KEY: f8
 SERIAL: /usr/bin/terminal --command "printf '\033]2;RGB title\007\033[48;2;12;34;56m \033[0m'; sleep 70" >/tmp/terminal-title-rgb.log 2>&1 & echo $! >/tmp/terminal-title-rgb.pid
 SERIAL: while ! grep -q 'terminal: window ready' /tmp/terminal-title-rgb.log; do sleep 1; done
-GUI-CHECK-RECT: 144 116 8 8 12 34 56
+GUI-CHECK-RECT: 128 100 8 8 12 34 56
 SERIAL: sleep 1; pgrep terminal >/dev/null; ! grep -q 'terminal: protocol error' /tmp/terminal-title-rgb.log
 GUI-SEND-KEYS: meta_l,w
 SERIAL: while pgrep terminal >/dev/null; do sleep 1; done

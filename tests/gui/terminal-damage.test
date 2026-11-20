@@ -8,11 +8,11 @@ GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
 SERIAL: /usr/bin/terminal --command "printf '\033[?25l\033[7m \033[0m'; while test ! -e /tmp/terminal-damage.paint; do sleep 1; done; printf '\033[7m \033[0m'; sleep 70" >/tmp/terminal-damage.log 2>&1 & damage_term=$!
 SERIAL: while ! grep -q 'terminal: window ready' /tmp/terminal-damage.log; do sleep 1; done
-GUI-CHECK-RECT: 144 116 8 8 248 250 252
-GUI-CHECK-RECT: 152 116 8 8 17 24 39
+GUI-CHECK-RECT: 128 100 8 8 248 250 252
+GUI-CHECK-RECT: 136 100 8 8 17 24 39
 SERIAL: touch /tmp/terminal-damage.paint
-GUI-CHECK-RECT: 152 116 8 8 248 250 252
-GUI-CHECK-RECT: 144 116 8 8 248 250 252
+GUI-CHECK-RECT: 136 100 8 8 248 250 252
+GUI-CHECK-RECT: 128 100 8 8 248 250 252
 GUI-SEND-KEYS: meta_l,w
 SERIAL: wait "$damage_term" && printf 'terminal damage: clean close\n'
 SERIAL-CHECK: terminal damage: clean close

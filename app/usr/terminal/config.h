@@ -8,6 +8,7 @@
 
 typedef struct {
 	unsigned int font_size;
+	unsigned int padding;
 	unsigned int opacity;
 	uint32_t foreground;
 	uint32_t background;

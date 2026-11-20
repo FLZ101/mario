@@ -696,6 +696,7 @@ static void test_cursor_styles(void)
 static void assert_renderer_oracle(terminal_state *state)
 {
 	gui_surface *oracle = gui_surface_create(state->width, state->height);
+	gui_surface content;
 	const terminal_config *settings = terminal_settings(state);
 	uint32_t cell_width = terminal_cell_width(state);
 	uint32_t cell_height = terminal_cell_height(state);
@@ -703,13 +704,16 @@ static void assert_renderer_oracle(terminal_state *state)
 
 	assert(oracle != NULL);
 	gui_fill_rect(oracle, (gui_rect) { 0, 0, state->width, state->height }, settings->background);
+	content = (gui_surface) { .width = state->content.w, .height = state->content.h,
+		.stride = oracle->stride, .pixels = oracle->pixels +
+			(size_t)state->content.y * oracle->stride + state->content.x };
 	for (uint32_t row = 0; row < state->vt.rows; row++)
 		for (uint32_t column = 0; column < state->vt.columns; column++) {
 			const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
 			gui_color foreground = terminal_color(state, cell->foreground, settings->foreground);
 			gui_color background = terminal_color(state, cell->background, settings->background);
-			int cell_x = TERMINAL_MARGIN + column * cell_width;
-			int cell_y = TERMINAL_MARGIN + row * cell_height;
+			int cell_x = column * cell_width;
+			int cell_y = row * cell_height;
 
 			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_INVERSE) {
 				gui_color color = foreground;
@@ -717,15 +721,15 @@ static void assert_renderer_oracle(terminal_state *state)
 				foreground = background;
 				background = color;
 			}
-			gui_fill_rect(oracle, (gui_rect) { cell_x, cell_y, cell_width, cell_height }, background);
+			gui_fill_rect(&content, (gui_rect) { cell_x, cell_y, cell_width, cell_height }, background);
 		}
 	for (uint32_t row = 0; row < state->vt.rows; row++)
 		for (uint32_t column = 0; column < state->vt.columns; column++) {
 			const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
 			gui_color foreground = terminal_color(state, cell->foreground, settings->foreground);
 			gui_color background = terminal_color(state, cell->background, settings->background);
-			int cell_x = TERMINAL_MARGIN + column * cell_width;
-			int cell_y = TERMINAL_MARGIN + row * cell_height;
+			int cell_x = column * cell_width;
+			int cell_y = row * cell_height;
 
 			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_INVERSE) {
 				gui_color color = foreground;
@@ -738,28 +742,28 @@ static void assert_renderer_oracle(terminal_state *state)
 				char bytes[5] = { 0 };
 
 				terminal_encode_utf8(cell->codepoint, bytes);
-				gui_font_draw_text(oracle, cell_x, cell_y + baseline, state->font, bytes, foreground);
+				gui_font_draw_text(&content, cell_x, cell_y + baseline, state->font, bytes, foreground);
 			}
 			if (cell->attributes & TERMINAL_VT_ATTRIBUTE_UNDERLINE)
-				gui_fill_rect(oracle, (gui_rect) { cell_x, cell_y + cell_height - 2,
+				gui_fill_rect(&content, (gui_rect) { cell_x, cell_y + cell_height - 2,
 					cell_width, 1 }, foreground);
 		}
 	if (terminal_cursor_visible(state)) {
-		gui_rect bounds = { TERMINAL_MARGIN + state->vt.cursor_column * cell_width,
-			TERMINAL_MARGIN + state->vt.cursor_row * cell_height, cell_width, cell_height };
+		gui_rect bounds = { state->vt.cursor_column * cell_width,
+			state->vt.cursor_row * cell_height, cell_width, cell_height };
 
 		if (state->vt.cursor_shape == TERMINAL_VT_CURSOR_UNDERLINE) {
 			bounds.y += cell_height - 2;
 			bounds.h = 2;
 		} else if (state->vt.cursor_shape == TERMINAL_VT_CURSOR_BAR)
 			bounds.w = 2;
-		gui_fill_rect(oracle, bounds, settings->cursor);
+		gui_fill_rect(&content, bounds, settings->cursor);
 		if (state->vt.cursor_shape == TERMINAL_VT_CURSOR_BLOCK) {
 			const terminal_vt_cell *cell = state->vt.cells +
 				(size_t)state->vt.cursor_row * state->vt.columns + state->vt.cursor_column;
 			gui_surface cursor = { .width = bounds.w, .height = bounds.h,
-				.stride = oracle->stride, .pixels = oracle->pixels +
-					(size_t)bounds.y * oracle->stride + bounds.x };
+				.stride = content.stride, .pixels = content.pixels +
+					(size_t)bounds.y * content.stride + bounds.x };
 
 			if (cell->codepoint != 0) {
 				char bytes[5] = { 0 };
@@ -794,8 +798,8 @@ static void test_cursor_renderer(void)
 		unsigned int dark_pixels = 0;
 		unsigned int light_pixels = 0;
 
-		for (uint32_t row = 16; row < 32; row++)
-			for (uint32_t column = 16; column < 24; column++) {
+		for (uint32_t row = 0; row < TERMINAL_CELL_HEIGHT; row++)
+			for (uint32_t column = 0; column < TERMINAL_CELL_WIDTH; column++) {
 				gui_color pixel = state.pixels[(size_t)row * state.width + column] & 0x00ffffffU;
 
 				dark_pixels += pixel == TERMINAL_BACKGROUND;
@@ -982,8 +986,10 @@ static void test_configured_renderer(void)
 
 	for (size_t size_index = 0; size_index < sizeof(sizes) / sizeof(sizes[0]); size_index++) {
 		terminal_state state = { .config = terminal_config_default };
+		struct winsize size;
 
 		state.config.font_size = sizes[size_index];
+		state.config.padding = 8;
 		state.config.foreground = 0x00123456;
 		state.config.background = 0x00abcdef;
 		state.config.cursor = 0x00010203;
@@ -997,8 +1003,16 @@ static void test_configured_renderer(void)
 			assert_renderer_oracle(&state);
 		}
 		assert(terminal_resize_grid(&state, 640, 384) == 0);
-		assert(state.vt.columns == (640 - 2 * TERMINAL_MARGIN) / terminal_cell_width(&state));
-		assert(state.vt.rows == (384 - 2 * TERMINAL_MARGIN) / terminal_cell_height(&state));
+		assert(state.vt.columns == 624 / terminal_cell_width(&state));
+		assert(state.vt.rows == 368 / terminal_cell_height(&state));
+		assert(terminal_winsize(&state, &size) == 0);
+		assert(size.ws_xpixel == 624 && size.ws_ypixel == 368);
+		assert(terminal_render(&state) == 0);
+		assert_renderer_oracle(&state);
+		assert(terminal_resize_grid(&state, terminal_cell_width(&state) + 2,
+			terminal_cell_height(&state) + 4) == 0);
+		assert(state.vt.columns == 1 && state.vt.rows == 1);
+		assert(state.content.x == 1 && state.content.y == 2);
 		assert(terminal_render(&state) == 0);
 		assert_renderer_oracle(&state);
 		gui_font_destroy(state.font);
@@ -1037,9 +1051,9 @@ static void test_terminal_config(void)
 {
 	static const char settings[] =
 		"# terminal settings\nforeground = #123456\ncolor1=#abcdef\n"
-		"color_scheme=light\nfont_size=20\nopacity=50\ncursor=#010203\n";
+		"color_scheme=light\nfont_size=20\npadding=16\nopacity=50\ncursor=#010203\n";
 	static const char invalid[] =
-		"font_size=0\nfont_size=49\nopacity=-1\nopacity=101\n"
+		"font_size=0\nfont_size=49\npadding=-1\npadding=3px\nopacity=-1\nopacity=101\n"
 		"background=#bad\ncolor16=#ffffff\nunknown=1\ncolor_scheme=bad\nopaque=maybe\n";
 	terminal_config config;
 	terminal_state state = { 0 };
@@ -1055,8 +1069,10 @@ static void test_terminal_config(void)
 	assert(unsetenv("MARIO_TERMINAL_CONFIG") == 0);
 	assert(terminal_config_parse(&config, "", 0) == 0);
 	assert(!memcmp(&config, &terminal_config_default, sizeof(config)));
+	assert(config.padding == 0);
 	assert(terminal_config_parse(&config, settings, sizeof(settings) - 1) == 0);
 	assert(config.font_size == 20 && config.opacity == 50);
+	assert(config.padding == 16);
 	assert(config.foreground == 0x00123456 && config.background == 0x00f8fafc);
 	assert(config.cursor == 0x00010203 && config.palette[1] == 0x00abcdef);
 	assert(terminal_config_parse(&config, invalid, sizeof(invalid) - 1) == 0);
@@ -1071,6 +1087,7 @@ static void test_terminal_config(void)
 	assert(close(descriptor) == 0 && setenv("MARIO_TERMINAL_CONFIG", path, 1) == 0);
 	terminal_config_load(&state.config);
 	assert(state.config.font_size == 20 && state.config.opacity == 50);
+	assert(state.config.padding == 16);
 	assert(terminal_setup_font(&state) == 0);
 	assert(terminal_cell_width(&state) == 13 && terminal_cell_height(&state) == 24);
 	assert(terminal_baseline(&state) == 19);

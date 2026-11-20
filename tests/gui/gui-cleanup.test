@@ -118,8 +118,8 @@ GUI-SEND-KEY: f6
 GUI-CHECK-SCREEN: assets/fb-tty.ppm
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-# Check the retained client's top margin between the replacement diagnostics.
-GUI-CHECK-RECT: 460 180 8 8 17 24 39
+# Check the retained client's background below its output.
+GUI-CHECK-RECT: 460 200 8 8 17 24 39
 # Losing the replacement ends the session rather than consuming another retry.
 SERIAL: kill -KILL "$new_shell"; wait "$wm_pid"; cleanup_wait_gone "$new_shell" && cleanup_recovered && printf 'gui-cleanup: %s\n' 'session reclaimed'
 SERIAL-CHECK: gui-cleanup: session reclaimed

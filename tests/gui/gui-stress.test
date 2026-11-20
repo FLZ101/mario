@@ -1,4 +1,5 @@
 GUI-VISUAL-TEST:
+SERIAL: printf 'padding=16\n' >>/root/.config/mario/terminal.conf
 SERIAL: rm -f /tmp/mario-wm.*; /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & wm_pid=$!
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done

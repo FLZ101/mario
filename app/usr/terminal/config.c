@@ -11,7 +11,7 @@
 #include "config.h"
 
 const terminal_config terminal_config_default = {
-	.font_size = 14, .opacity = 100,
+	.font_size = 14, .padding = 0, .opacity = 100,
 	.foreground = 0x00f8fafc, .background = 0x00111827, .cursor = 0x00f8fafc,
 	.palette = {
 		0x00111827, 0x00ef4444, 0x0022c55e, 0x00eab308,
@@ -104,6 +104,8 @@ static int config_setting(terminal_config *config, const char *key, const char *
 
 	if (!strcmp(key, "font_size"))
 		return config_number(value, 8, 48, &config->font_size);
+	if (!strcmp(key, "padding"))
+		return config_number(value, 0, UINT_MAX, &config->padding);
 	if (!strcmp(key, "opacity"))
 		return config_number(value, 0, 100, &config->opacity);
 	if (!strcmp(key, "opaque")) {

@@ -3168,7 +3168,7 @@ static void test_live_upload_progress(void)
 		assert(usleep(1000) == 0);
 	}
 	assert(upload_commits == 1 && upload_patch_begins == 1 && window->committed != NULL);
-	assert(window->committed->pixels[16 * 320 + 16] == 0x00f8fafc);
+	assert(window->committed->pixels[0] == 0x00f8fafc);
 	assert(wm_resize_window(&server, window, window->x, window->y, 400, 256) == 1);
 	for (unsigned int attempt = 0; !upload_log_contains("/tmp/gui-upload.term", "RESIZE-PROGRESS"); attempt++) {
 		assert(attempt < 20000 && !upload_peer_pump(peer));
@@ -3210,7 +3210,7 @@ static void test_live_upload_progress(void)
 	assert(measured_work.filled_pixels <= 3 * 256 && measured_work.blitted_pixels <= 256);
 	for (unsigned int row = 0; row < 192; row++)
 		for (unsigned int column = 0; column < 320; column++)
-			if (row < 16 || row >= 32 || column < 16 || column >= 32)
+			if (row >= 16 || column >= 16)
 				assert(window->committed->pixels[row * 320 + column] == previous->pixels[row * 320 + column]);
 	gui_surface_destroy(previous);
 	assert_full_scene(&server);
