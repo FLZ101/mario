@@ -78,11 +78,17 @@ static int poll_fds(struct poll_context *ctx, struct pollfd *fds,
         short events = fds[i].events;
         short *revents = &fds[i].revents;
 
-        if (FD_IGNORE == fd)
+        /*
+         * Negative fds (including FD_IGNORE) are unused poll slots, not
+         * errors.  They must stay inert with revents == 0; otherwise an
+         * idle waiter such as mario-desktop sees constant "readiness" and
+         * spins in poll() forever.
+         */
+        if (fd < 0 || FD_IGNORE == fd)
             continue;
 
         struct file *f = files[i];
-        if (fd < 0 || fd >= NR_OPEN || !f) {
+        if (fd >= NR_OPEN || !f) {
             *revents = POLLNVAL;
             ++n_done;
             continue;
