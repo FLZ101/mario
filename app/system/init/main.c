@@ -7,6 +7,7 @@
 #include <string.h>
 #include <time.h>
 #include <assert.h>
+#include <sys/reboot.h>
 
 #include <app/util.h>
 #include <app/gui-session.h>
@@ -14,6 +15,8 @@
 static volatile sig_atomic_t sigchld = 0;
 static volatile sig_atomic_t sigint = 0;
 static volatile sig_atomic_t sigterm = 0;
+static volatile sig_atomic_t sigusr1 = 0;
+static volatile sig_atomic_t sigusr2 = 0;
 
 /* The compositor is a service only on framebuffer-capable boots. */
 static struct service {
@@ -36,6 +39,12 @@ static void handle_sig(int sig)
         break;
     case SIGTERM:
         sigterm = 1;
+        break;
+    case SIGUSR1:
+        sigusr1 = 1;
+        break;
+    case SIGUSR2:
+        sigusr2 = 1;
         break;
     }
 }
@@ -146,6 +155,35 @@ static int window_manager_stopped(int status)
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
+static void init_terminate_children(void)
+{
+    /* Ask every process except init and the current task to exit. */
+    kill(-1, SIGTERM);
+    sleep(1);
+
+    /* Reap cleanly exited children, then force the stragglers. */
+    while (waitpid(-1, NULL, WNOHANG) > 0)
+        ;
+    kill(-1, SIGKILL);
+    while (waitpid(-1, NULL, WNOHANG) > 0)
+        ;
+}
+
+static void init_reboot(int command)
+{
+    const char *action = command == RB_AUTOBOOT ? "reboot" :
+        command == RB_HALT_SYSTEM ? "halt" : "power-off";
+
+    printf("[init] %s\n", action);
+    fflush(stdout);
+    init_terminate_children();
+    reboot(command);
+
+    /* reboot() is not expected to return; stay alive if it does. */
+    for (;;)
+        pause();
+}
+
 void do_getty()
 {
     printf("[init] Press F1-6 to switch to /dev/tty1-6\n");
@@ -161,6 +199,23 @@ void do_getty()
 
     while (1) {
         pause();
+
+        if (sigint) {
+            sigint = 0;
+            init_reboot(RB_AUTOBOOT);
+        }
+        if (sigterm) {
+            sigterm = 0;
+            init_reboot(RB_AUTOBOOT);
+        }
+        if (sigusr1) {
+            sigusr1 = 0;
+            init_reboot(RB_HALT_SYSTEM);
+        }
+        if (sigusr2) {
+            sigusr2 = 0;
+            init_reboot(RB_POWER_OFF);
+        }
 
         if (sigchld) {
             sigchld = 0;
@@ -236,6 +291,8 @@ int main(int argc, char *argv[], char *envp[])
     HandleErr(sigaction(SIGCHLD, &sa, NULL));
     HandleErr(sigaction(SIGTERM, &sa, NULL));
     HandleErr(sigaction(SIGINT, &sa, NULL));
+    HandleErr(sigaction(SIGUSR1, &sa, NULL));
+    HandleErr(sigaction(SIGUSR2, &sa, NULL));
 
     HandleErr(signal(SIGPIPE, SIG_IGN));
     HandleErr(signal(SIGHUP, SIG_IGN));

@@ -533,7 +533,7 @@ ENTRY(sys_call_table)
 	.long sys_readlink
 	.long sys_not_exist /* SYS_uselib */
 	.long sys_not_exist /* SYS_swapon */
-	.long sys_not_exist /* SYS_reboot */
+	.long sys_reboot /* SYS_reboot */
 	.long sys_not_exist /* SYS_readdir */
 	.long sys_not_exist /* SYS_mmap */
 	.long sys_munmap

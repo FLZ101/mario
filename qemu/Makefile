@@ -80,14 +80,15 @@ QEMU_FLAGS := \
 	-smp $(SMP) \
 	-display $(QEMU_DISPLAY) \
 	-machine vmport=$(QEMU_VMPORT) \
-	$(HD_FLAGS) \
-	-no-reboot -no-shutdown
+	$(HD_FLAGS)
+
+QEMU_FLAGS_DEBUG := $(QEMU_FLAGS) -no-reboot -no-shutdown
 
 run:
 	qemu-system-i386 $(QEMU_FLAGS)
 
 debug:
-	qemu-system-i386 -s -S $(QEMU_FLAGS)
+	qemu-system-i386 -s -S $(QEMU_FLAGS_DEBUG)
 
 #	-display gtk
 #	-display curses
@@ -99,20 +100,21 @@ QUICK_QEMU_FLAGS := \
 	-initrd $(RDX) \
 	-display $(QEMU_DISPLAY) \
 	-machine vmport=$(QEMU_VMPORT) \
-	$(HD_FLAGS) \
-	-no-reboot -no-shutdown
+	$(HD_FLAGS)
+
+QUICK_QEMU_FLAGS_DEBUG := $(QUICK_QEMU_FLAGS) -no-reboot -no-shutdown
 
 quick-run:
 	qemu-system-i386 $(QUICK_QEMU_FLAGS)
 
 quick-debug:
-	qemu-system-i386 -s -S $(QUICK_QEMU_FLAGS)
+	qemu-system-i386 -s -S $(QUICK_QEMU_FLAGS_DEBUG)
 
 tmux-run:
 	./tmux.sh start $(QUICK_QEMU_FLAGS)
 
 tmux-debug:
-	./tmux.sh start -s -S $(QUICK_QEMU_FLAGS)
+	./tmux.sh start -s -S $(QUICK_QEMU_FLAGS_DEBUG)
 
 tmux-attach:
 	./tmux.sh attach
