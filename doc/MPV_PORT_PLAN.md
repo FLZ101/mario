@@ -19,9 +19,9 @@ Keep PCM as the decoded sample format and use the same `/dev/pcm0` API for both
 virtual and physical HDA; the device name does not imply AC’97.
 
 Skip streaming, playlists, external tracks, subtitles, scripts, JSON IPC, hardware
-decoding, GPU rendering and other media formats. Keep the port opt-in until it
-passes the focused guest tests. Do not introduce SDL, X11 or Wayland just to open a
-window.
+decoding, GPU rendering and other media formats. Build mpv with the other apps,
+but keep disk-image packaging opt-in. Do not introduce SDL, X11 or Wayland just
+to open a window.
 
 ## Milestone Map
 
@@ -39,11 +39,11 @@ both remain outstanding. M3 passes in QEMU; the player milestones have not start
 | M2 — PCM device | `/dev/pcm0`, playback controls, and recovery | Captured PCM and guest counters agree through pause, reset, underrun, wrap, and reopen on one and two vCPUs. |
 | M2H — Physical PC | Same HDA driver and `/dev/pcm0` on the reference desktop | Analog output passes channel, pause, reset, and reopen checks during disk I/O on the recorded board and codec. |
 | M3 — Guest runtime | Verified i386/musl floating-point and wait behavior | Guest x87 state survives scheduling, migration, and signals; runtime probes pass. |
-| M4 — Static mpv build | Opt-in FFmpeg and mpv build under `app/usr/video/` | Static ELF32 mpv decodes both AAC fixtures to a diagnostic null output in the guest. |
+| M4 — Static mpv build | Standard app build with media recipes under `app/usr/video/` | Static ELF32 mpv decodes both AAC fixtures to a diagnostic null output in the guest. |
 | M5 — Audible AAC | `ao_mario` plays local MP4 without video | QEMU capture has the correct markers at both input rates after pause/seek and through EOF. |
 | M6 — Native video | `vo_mario` renders H.264 in the compositor | GUI test observes distinct frames, controls work, and closing releases the window and PCM device. |
 | M7 — A/V sync | Timed and bounded playback at the initial target | Flash/beep skew stays within 100 ms in the reference QEMU run, including after pause/seek. |
-| M8 — Opt-in release | Local-only `/usr/bin/mpv` and image/test integration | Enabled image plays a demo in QEMU and on the reference PC; the disabled image contains no stale port artifacts and builds without media dependencies. |
+| M8 — Opt-in packaging | Local-only `/usr/bin/mpv` and image/test integration | Enabled image plays a demo in QEMU and on the reference PC; the disabled image contains no player or media payload. |
 
 ### Validation Rules
 
@@ -54,7 +54,7 @@ both remain outstanding. M3 passes in QEMU; the player milestones have not start
   state; reserve performance measurements for a controlled run.
 - Keep kernel PCM tests independent of mpv throughout. Driver initialization,
   test fixtures and opt-in player packaging must not make ordinary boots or
-  test runs depend on host audio. Do not enable the port by default at M8.
+  test runs depend on host audio. Do not package the player by default at M8.
 
 ## M1a — PCI and MMIO Prerequisites
 
@@ -244,41 +244,44 @@ behavior before depending on it from the player.
 
 ## M4 — Static Cross-Build and Decode
 
-- Start with [mpv 0.41.0's build manifest][mpv-build] as a reproducible reference,
-  not a claim that it is the latest release. Select and pin the shipping revisions
-  and checksums before packaging. That manifest requires six FFmpeg libraries
-  (`libavcodec`, `libavfilter`, `libavformat`, `libavutil`, `libswresample`,
-  `libswscale`), `libass` and `libplacebo` even when the player uses null outputs.
-  Disable Meson's optional features and the `libmpv` install target, not its CLI.
-- Build FFmpeg static with cross-compilation enabled, targeting Mario's i386/musl
-  wrappers. Start from `--disable-everything`, `--disable-autodetect`,
-  `--disable-network`, `--disable-programs` and `--disable-asm`. Enable `file`, the
-  `mov` demuxer, `aac` decoding, and only the parser/filter components the guest
-  smoke tests show mpv needs. Keep the six required libraries, including
-  resampling and filtering. Enable `h264` decoding in M6.
-  Verify the actual component list against the [FFmpeg configure source][ffmpeg].
-- Test a static `libplacebo` build with graphics backends disabled and a minimal
-  `libass` build without Fontconfig, reusing Mario's FreeType. [libplacebo's build][placebo]
-  still includes C++ code without a graphics backend; [libass][libass] also needs
-  FriBidi and HarfBuzz. Time-box this spike. If the target C++ runtime becomes a
-  blocker, compare the cost of bootstrapping it against a narrowly scoped mpv
-  patch making unused rendering paths optional; feature-disable flags alone do
-  not remove these required dependencies.
-- Keep the audio/video userspace build tree under `app/usr/video/`: recipes,
-  patches, cross files, downloaded sources, build outputs, and install staging
-  for mpv, FFmpeg, and media-specific dependencies. Wire opt-in targets from
-  `app/usr/Makefile` into that directory and follow the
-  [third-party build convention](../app/usr/AGENTS.md). Reuse existing shared
-  dependencies such as FreeType without moving them. Use host Meson/Ninja and
-  Mario's compiler wrapper for target compile/link. Isolate target `pkg-config`
-  metadata, disable host-library discovery, and prevent Meson from executing
-  target probes on the host. Use `readelf` to check for a static ELF32 i386
-  executable with no program interpreter or `NEEDED` entries.
+- `make app` builds mpv alongside the other apps. The recipes in `app/usr/video/`
+  pin and verify [mpv 0.41.0][mpv-build], [FFmpeg 7.1.1][ffmpeg], and
+  [libplacebo 6.338.2][placebo]. The build package lists provide `pkg-config`.
+  The build venv installs Meson (at least 1.3), Ninja, and Jinja2 from
+  `requirements.txt`. Meson uses Ninja from that venv, which also runs the
+  Python generators. No host FFmpeg executable or development libraries are used.
+- FFmpeg builds its six required static libraries with only local file I/O,
+  the MOV/MP4 demuxer, AAC decoding and parsing, and minimal audio filtering
+  and resampling. Networking, assembly, SIMD, and H.264 decoding are disabled.
+  H.264 decoding belongs to M6.
+- libplacebo runs without graphics backends or a target C++ runtime: its numeric
+  conversions use C and musl. mpv builds the CLI without libmpv installation,
+  graphics backends, or [libass][libass]. Subtitle text rendering and graphical
+  text OSD are unavailable in this build; terminal status still works.
+- Meson uses Mario's musl wrapper and staged target `pkg-config` metadata, with
+  no target binaries executed on the host. The build verifies a static ELF32
+  i386 executable with no interpreter or dynamic dependencies before installing
+  it to `app/usr/video/install/bin/mpv`.
+- Build the normal kernel and disk images as for the shell suite, then run the
+  focused check with `N=1` and `N=2`:
 
-**Exit:** A clean opt-in build yields the same target and feature set without
+  ```sh
+  .venv/bin/python tests/media/mpv_decode_test.py --smp "$N"
+  ```
+
+  The test uses `mke2fs` to put mpv and the two checked-in AAC fixtures on a
+  disposable QEMU disk. It checks decoder selection, the number of stereo
+  frames delivered to `--ao=null` (within one AAC frame of two seconds), and
+  successful exit at EOF. It leaves normal and GTK images unchanged.
+
+**Exit:** A clean app build yields the same target and feature set without
 host library leakage. A development image runs `mpv --no-video --ao=null` on
 both AAC fixtures, selects an AAC decoder, produces decoded audio, and exits
 at EOF. Keep this diagnostic path out of the normal launch interface.
+
+Verified on one and two QEMU vCPUs: the 44.1 and 48 kHz fixtures delivered
+89,088 and 96,256 stereo frames, respectively, and exited successfully at EOF.
+The link uses staged media libraries, Mario's musl, and Mario's compiler runtime.
 
 ## M5 — mpv Audio Output
 
@@ -346,12 +349,12 @@ accuracy for other backends.
   config file. Accept a single regular `.mp4` file, verify the container and H.264
   stream, and reject URLs, stdin, pipes, devices and playlists. Do not expose
   alternate load paths, external MOV references, or auto-loading of other files.
-  Keep the unrestricted headless diagnostic path confined to development builds.
+  Keep the unrestricted headless diagnostic path out of the packaged entry point.
 - Stage `/usr/bin/mpv` through [the `/usr` image manifest](../rd/copy_files.py#L182)
-  behind the opt-in build setting. Use the GTK overlay for a manual demo clip,
+  behind an opt-in image setting. Use the GTK overlay for a manual demo clip,
   and the normal test image for automated fixtures so tests do not depend on GTK
   or the wallpaper overlay. Verify that turning the option off removes staged
-  artifacts and does not add dependencies to the default image build.
+  artifacts without requiring a clean app build.
 - Add shell tests for exit status, decode/seek/EOF and rejection of nonlocal or
   unsupported inputs. Reuse the focused audio and GUI gates; keep the independent
   PCM tests runnable with mpv disabled.

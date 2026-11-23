@@ -46,6 +46,7 @@ BUILD_ENV_FILE := $(ROOT)/.build-env
 override BUILD_IMAGE := $(if $(wildcard $(BUILD_ENV_FILE)),$(shell cat $(BUILD_ENV_FILE)))
 
 BUILD_IMAGE_TAG := localhost/mario-build:$(subst :,-,$(BUILD_IMAGE))
+APP_VENV_DIR := $(ROOT)/.venv$(if $(BUILD_IMAGE),/build-$(subst :,-,$(BUILD_IMAGE)))
 
 PODMAN ?= podman
 PODMAN_RUN_FLAGS ?= --rm -v "$(ROOT):$(ROOT)" -w "$(ROOT)"
@@ -129,8 +130,12 @@ selftest-fbcon-start-failure: clean-kernel compiler-rt
 musl: compiler-rt
 	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(ROOT)/util/mario-cc COMPILE_COMMANDS_JSON= -C musl
 
-app: musl
-	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(APP_CC) LD=$(APP_LD) -C app
+$(APP_VENV_DIR)/.stamp: $(ROOT)/requirements.txt $(ROOT)/Makefile.setup.mk
+	$(PODMAN_RUN) $(MAKE) -f Makefile.setup.mk VENV_DIR="$(APP_VENV_DIR)" venv
+
+app: musl $(APP_VENV_DIR)/.stamp
+	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(APP_CC) LD=$(APP_LD) \
+		MPV_PYTHON="$(APP_VENV_DIR)/bin/python" -C app
 
 clean-all: clean-build clean-src
 

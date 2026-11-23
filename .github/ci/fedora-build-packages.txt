@@ -16,8 +16,10 @@ nasm
 
 # Python used by app/usr/build-python.sh while CPython configure/make runs.
 python3
+python3-pip
 
 # Archive and configure tools used by app builds.
+ca-certificates
 wget
 patch
 tar

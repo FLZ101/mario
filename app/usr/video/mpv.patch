@@ -1,0 +1,209 @@
+--- a/meson.build
++++ b/meson.build
+@@ -29,7 +29,7 @@
+ libplacebo = dependency('libplacebo', version: '>=6.338.2',
+                 default_options: ['default_library=static', 'demos=false'])
+
+-libass = dependency('libass', version: '>= 0.12.2')
++libass = dependency('libass', version: '>= 0.12.2', required: get_option('libass'))
+
+ # the dependency order of libass -> ffmpeg is necessary due to
+ # static linking symbol resolution between fontconfig and MinGW
+@@ -47,7 +47,7 @@
+     'debug': get_option('debug'),
+     'ffmpeg': true,
+     'gpl': get_option('gpl'),
+-    'libass': true,
++    'libass': libass.found(),
+     'libplacebo': true,
+ }
+
+@@ -195,15 +195,12 @@
+     'stream/stream_slice.c',
+
+     ## Subtitles
+-    'sub/ass_mp.c',
+     'sub/dec_sub.c',
+     'sub/draw_bmp.c',
+     'sub/filter_sdh.c',
+     'sub/img_convert.c',
+     'sub/lavc_conv.c',
+     'sub/osd.c',
+-    'sub/osd_libass.c',
+-    'sub/sd_ass.c',
+     'sub/sd_lavc.c',
+
+     ## Video
+@@ -267,6 +264,12 @@
+     'ta/ta_utils.c',
+ )
+
++if libass.found()
++    sources += files('sub/ass_mp.c', 'sub/osd_libass.c', 'sub/sd_ass.c')
++else
++    sources += files('sub/osd_null.c')
++endif
++
+
+ # compiler stuff
+ cc = meson.get_compiler('c')
+@@ -356,7 +359,9 @@
+ endif
+
+ # C11 atomics are mandatory but linking to the library is not always required.
+-dependencies += cc.find_library('atomic', required: false)
++if host_machine.system() != 'mario'
++    dependencies += cc.find_library('atomic', required: false)
++endif
+
+ cplugins = get_option('cplugins').require(
+     win32 or (features['libdl'] and cc.has_link_argument('-rdynamic')),
+@@ -575,7 +580,8 @@
+
+ features += {'linux-fstatfs': cc.has_function('fstatfs', prefix: '#include <sys/vfs.h>')}
+
+-features += {'vector': cc.has_function_attribute('vector_size', required: get_option('vector'))}
++features += {'vector': not get_option('vector').disabled() and
++             cc.has_function_attribute('vector_size', required: get_option('vector'))}
+
+ sources += path_source + timer_source
+
+--- a/meson.options
++++ b/meson.options
+@@ -2,6 +2,7 @@
+ option('gpl', type: 'boolean', value: true, description: 'GPL (version 2 or later) build')
+ option('cplayer', type: 'boolean', value: true, description: 'mpv CLI player')
+ option('libmpv', type: 'boolean', value: true, description: 'libmpv library')
++option('libass', type: 'feature', value: 'enabled', description: 'ASS subtitles and text OSD')
+ option('build-date', type: 'boolean', value: true, description: 'include compile timestamp in binary')
+ option('tests', type: 'boolean', value: false, description: 'meson unit tests')
+ option('fuzzers', type: 'boolean', value: false, description: 'fuzzer binaries')
+--- a/player/command.c
++++ b/player/command.c
+@@ -25,7 +25,11 @@
+ #include <math.h>
+ #include <sys/types.h>
+
++#include "config.h"
++
++#if HAVE_LIBASS
+ #include <ass/ass.h>
++#endif
+ #include <libavutil/avstring.h>
+ #include <libavutil/common.h>
+ #include <libavutil/timecode.h>
+@@ -3751,11 +3755,13 @@
+     return m_property_strdup_ro(action, arg, av_version_info());
+ }
+
++#if HAVE_LIBASS
+ static int mp_property_libass_version(void *ctx, struct m_property *prop,
+                                       int action, void *arg)
+ {
+     return m_property_int64_ro(action, arg, ass_library_version());
+ }
++#endif
+
+ static int mp_property_platform(void *ctx, struct m_property *prop,
+                                 int action, void *arg)
+@@ -4539,7 +4545,9 @@
+     {"mpv-version", mp_property_version},
+     {"mpv-configuration", mp_property_configuration},
+     {"ffmpeg-version", mp_property_ffmpeg},
++#if HAVE_LIBASS
+     {"libass-version", mp_property_libass_version},
++#endif
+     {"platform", mp_property_platform},
+
+     {"options", mp_property_options},
+@@ -5216,6 +5224,7 @@
+         mp_image_unrefp(&cmd->overlay_osd[n].packed);
+ }
+
++#if HAVE_LIBASS
+ static void cmd_osd_overlay(void *p)
+ {
+     struct mp_cmd_ctx *cmd = p;
+@@ -5249,6 +5258,7 @@
+
+     mp_wakeup_core(mpctx);
+ }
++#endif
+
+ static struct track *find_track_with_url(struct MPContext *mpctx, int type, const char *url)
+ {
+@@ -6063,6 +6073,7 @@
+     talloc_free(path);
+ }
+
++#if HAVE_LIBASS
+ static void cmd_escape_ass(void *p)
+ {
+     struct mp_cmd_ctx *cmd = p;
+@@ -6075,6 +6086,7 @@
+         .u.string = dst.len ? (char *)dst.start : talloc_strdup(NULL, ""),
+     };
+ }
++#endif
+
+ static struct load_action get_load_action(struct MPContext *mpctx, int action_flag)
+ {
+@@ -7253,8 +7265,10 @@
+     { "expand-path", cmd_expand_path, { {"text", OPT_STRING(v.s)} },
+         .is_noisy = true },
+     { "normalize-path", cmd_normalize_path, { {"filename", OPT_STRING(v.s)} }},
++#if HAVE_LIBASS
+     { "escape-ass", cmd_escape_ass, { {"text", OPT_STRING(v.s)} },
+         .is_noisy = true },
++#endif
+     { "show-progress", cmd_show_progress, .allow_auto_repeat = true,
+         .is_noisy = true },
+
+@@ -7568,6 +7582,7 @@
+                                         {"dh", OPT_INT(v.i), OPTDEF_INT(0)}, }},
+     { "overlay-remove", cmd_overlay_remove, { {"id", OPT_INT(v.i)} } },
+
++#if HAVE_LIBASS
+     { "osd-overlay", cmd_osd_overlay,
+         {
+             {"id", OPT_INT64(v.i64)},
+@@ -7582,6 +7597,7 @@
+         .is_noisy = true,
+     },
+
++#endif
+     { "write-watch-later-config", cmd_write_watch_later_config },
+     { "delete-watch-later-config", cmd_delete_watch_later_config,
+         {{"filename", OPT_STRING(v.s), .flags = MP_CMD_OPT_ARG} }},
+--- a/sub/dec_sub.c
++++ b/sub/dec_sub.c
+@@ -25,6 +25,7 @@
+ #include "demux/demux.h"
+ #include "demux/packet_pool.h"
+ #include "sd.h"
++#include "config.h"
+ #include "dec_sub.h"
+ #include "options/m_config.h"
+ #include "options/options.h"
+@@ -39,7 +40,9 @@
+
+ static const struct sd_functions *const sd_list[] = {
+     &sd_lavc,
++#if HAVE_LIBASS
+     &sd_ass,
++#endif
+     NULL
+ };
+
+--- a/options/options.c
++++ b/options/options.c
+@@ -738,7 +738,9 @@
+
+     {"", OPT_SUBSTRUCT(subs_rend, mp_subtitle_sub_opts)},
+     {"", OPT_SUBSTRUCT(subs_shared, mp_subtitle_shared_sub_opts)},
++#if HAVE_LIBASS
+     {"sub-filter", OPT_SUBSTRUCT(subs_filt, mp_sub_filter_opts)},
++#endif
+     {"", OPT_SUBSTRUCT(osd_rend, mp_osd_render_sub_opts)},
+
+     {"osd-bar", OPT_BOOL(osd_bar_visible), .flags = UPDATE_OSD},

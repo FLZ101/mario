@@ -53,6 +53,7 @@ include libpng.mk
 include sqlite.mk
 
 include python.mk
+include video/mpv.mk
 
 TERMINAL_EXE := terminal/terminal.exe
 TERMINAL_UI_DIR := $(ROOT)/../gui/libmario-ui

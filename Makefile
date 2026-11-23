@@ -77,6 +77,10 @@ STACK_PROTECTOR ?= $(if $(DEBUG_TRUE),1,0)
 UBSAN ?= 0
 export STACK_PROTECTOR
 
+ifeq ($(LAST_BUILD_IMAGE),)
+app: venv
+endif
+
 kernel app:
 	make -f Makefile.build.mk DEBUG=$(DEBUG) OPTIMIZE=$(OPTIMIZE) \
 		AUTO_VAR_INIT=$(AUTO_VAR_INIT) \

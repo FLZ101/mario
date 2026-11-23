@@ -1,0 +1,6 @@
+/*-*/
+/*.tar.gz
+/*.tar.gz.tmp
+/*.tar.xz
+/build/
+/install/

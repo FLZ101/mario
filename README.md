@@ -136,7 +136,10 @@ Use `DEBUG=0` and `OPTIMIZE=-O3` when needed:
 $ make DEBUG=0 OPTIMIZE=-O3 kernel app
 ```
 
-Image and test targets create `.venv` automatically when it is missing.
+Host app, image, and test targets create `.venv` and install `requirements.txt`
+automatically, including Meson, Ninja, and Jinja2 for the mpv build. Container app
+builds create a separate venv under `.venv/build-<image>` using the container's
+Python.
 
 ## Test
 

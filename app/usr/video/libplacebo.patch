@@ -1,0 +1,52 @@
+--- a/meson.build
++++ b/meson.build
+@@ -1,10 +1,9 @@
+-project('libplacebo', ['c', 'cpp'],
++project('libplacebo', 'c',
+   license: 'LGPL2.1+',
+   default_options: [
+     'buildtype=debugoptimized',
+     'warning_level=2',
+     'c_std=c11',
+-    'cpp_std=c++20',
+   ],
+   meson_version: '>=0.63',
+   version: '@0@.@1@.@2@'.format(
+@@ -385,7 +384,6 @@
+ link_args = []
+
+ cc = meson.get_compiler('c')
+-cxx = meson.get_compiler('cpp')
+
+ c_opts = [
+   '-D_ISOC99_SOURCE', '-D_ISOC11_SOURCE', '-D_GNU_SOURCE', '-U__STRICT_ANSI__',
+@@ -430,8 +428,7 @@
+ endif
+
+ add_project_arguments(build_opts + c_opts, language: ['c'])
+-add_project_arguments(build_opts, language: ['c', 'cpp'])
+-add_project_link_arguments(link_args, language: ['c', 'cpp'])
++add_project_link_arguments(link_args, language: 'c')
+
+
+ # Global dependencies
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -92,7 +92,7 @@
+   'cache.c',
+   'colorspace.c',
+   'common.c',
+-  'convert.cc',
++  'convert.c',
+   'dither.c',
+   'dispatch.c',
+   'dummy.c',
+--- a/src/vulkan/meson.build
++++ b/src/vulkan/meson.build
+@@ -54,6 +54,4 @@
+     build_deps += vulkan_loader
+     tests += 'vulkan.c'
+   endif
+-else
+-  sources += 'vulkan/stubs.c'
+ endif
