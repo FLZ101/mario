@@ -1,0 +1,212 @@
+--- a/edit.c
++++ b/edit.c
+@@ -25,7 +25,9 @@
+ 
+ static void x_sigwinch(int);
+ volatile sig_atomic_t got_sigwinch;
+-static void check_sigwinch(void);
++static int check_sigwinch(void);
++
++void (*x_winch_hook)(void);
+ 
+ static int	x_file_glob(int, const char *, int, char ***);
+ static int	x_command_glob(int, const char *, int, char ***);
+@@ -58,11 +60,12 @@
+ 	got_sigwinch = 1;
+ }
+ 
+-static void
++static int
+ check_sigwinch(void)
+ {
+ 	if (got_sigwinch) {
+ 		struct winsize ws;
++		int changed = 0;
+ 
+ 		got_sigwinch = 0;
+ 		if (procpid == kshpid && ioctl(tty_fd, TIOCGWINSZ, &ws) == 0) {
+@@ -75,16 +78,21 @@
+ 			 * see the change cause the environ doesn't change.
+ 			 */
+ 			if (ws.ws_col) {
+-				x_cols = ws.ws_col < MIN_COLS ? MIN_COLS :
++				int cols = ws.ws_col < MIN_COLS ? MIN_COLS :
+ 				    ws.ws_col;
+ 
++				if (cols != x_cols)
++					changed = 1;
++				x_cols = cols;
+ 				if ((vp = typeset("COLUMNS", 0, 0, 0, 0)))
+ 					setint(vp, (int64_t) ws.ws_col);
+ 			}
+ 			if (ws.ws_row && (vp = typeset("LINES", 0, 0, 0, 0)))
+ 				setint(vp, (int64_t) ws.ws_row);
+ 		}
++		return changed;
+ 	}
++	return 0;
+ }
+ 
+ /*
+@@ -120,12 +128,15 @@
+ 	char c;
+ 	int n;
+ 
+-	while ((n = blocking_read(STDIN_FILENO, &c, 1)) < 0 && errno == EINTR)
++	while ((n = blocking_read(STDIN_FILENO, &c, 1)) < 0 && errno == EINTR) {
+ 		if (trap) {
+ 			x_mode(false);
+ 			runtraps(0);
+ 			x_mode(true);
+ 		}
++		if (check_sigwinch() && x_winch_hook)
++			x_winch_hook();
++	}
+ 	if (n != 1)
+ 		return -1;
+ 	return (int) (unsigned char) c;
+--- a/edit.h
++++ b/edit.h
+@@ -39,6 +39,7 @@
+ #define XCF_COMMAND_FILE (XCF_COMMAND|XCF_FILE)
+ 
+ /* edit.c */
++extern void (*x_winch_hook)(void);
+ int	x_getc(void);
+ void	x_flush(void);
+ int	x_putc(int);
+--- a/emacs.c
++++ b/emacs.c
+@@ -141,6 +141,7 @@
+ static int	x_search(char *, int, int);
+ static int	x_match(char *, char *);
+ static void	x_redraw(int);
++static void	x_emacs_winch(void);
+ static void	x_push(int);
+ static void	x_adjust(void);
+ static void	x_e_ungetc(int);
+@@ -295,6 +296,7 @@
+ 	x_histp = histptr + 1;
+ 
+ 	xx_cols = x_cols;
++	x_winch_hook = x_emacs_winch;
+ 	x_col = promptlen(prompt, &p);
+ 	prompt_skip = p - prompt;
+ 	x_adj_ok = 1;
+@@ -324,8 +326,10 @@
+ 	x_last_command = NULL;
+ 	while (1) {
+ 		x_flush();
+-		if ((at = x_e_getu8(line, at)) < 0)
++		if ((at = x_e_getu8(line, at)) < 0) {
++			x_winch_hook = NULL;
+ 			return 0;
++		}
+ 		ntries++;
+ 
+ 		if (x_arg == -1) {
+@@ -387,6 +391,7 @@
+ 			break;
+ 		case KEOL:
+ 			ret = xep - xbuf;
++			x_winch_hook = NULL;
+ 			return (ret);
+ 			break;
+ 		case KINTR:
+@@ -1103,6 +1108,21 @@
+ 	return;
+ }
+ 
++static void
++x_emacs_winch(void)
++{
++	/*
++	 * The width changed while the editor was blocked on input.  Reset the
++	 * horizontal scroll and redraw the line at the new width instead of
++	 * waiting until the next command line.
++	 */
++	xx_cols = x_cols;
++	xbp = xbuf;
++	xlp_valid = false;
++	x_redraw(-1);
++	x_flush();
++}
++
+ static int
+ x_transpose(int c)
+ {
+--- a/vi.c
++++ b/vi.c
+@@ -68,6 +68,7 @@
+ static void	do_clear_screen(void);
+ static void	redraw_line(int, int);
+ static void	refresh_line(int);
++static void	x_vi_winch(void);
+ static int	outofwin(void);
+ static void	rewindow(void);
+ static int	newcol(int, int);
+@@ -209,6 +210,7 @@
+ 	int	c;
+ 
+ 	vi_reset(buf, len > LINE ? LINE : len);
++	x_winch_hook = x_vi_winch;
+ 	vi_pprompt(1);
+ 	x_flush();
+ 	while (1) {
+@@ -252,14 +254,17 @@
+ 
+ 	x_putc('\r'); x_putc('\n'); x_flush();
+ 
+-	if (c == -1 || len <= (size_t)es->linelen)
++	if (c == -1 || len <= (size_t)es->linelen) {
++		x_winch_hook = NULL;
+ 		return -1;
++	}
+ 
+ 	if (es->cbuf != buf)
+ 		memmove(buf, es->cbuf, es->linelen);
+ 
+ 	buf[es->linelen++] = '\n';
+ 
++	x_winch_hook = NULL;
+ 	return es->linelen;
+ }
+ 
+@@ -1778,6 +1783,37 @@
+ 	win = 1 - win;
+ }
+ 
++static void
++x_vi_winch(void)
++{
++	const char *p;
++
++	/*
++	 * Recompute the vi editor geometry for the new terminal width and
++	 * repaint the current line immediately, matching edit_reset() but
++	 * preserving the edit buffer and cursor.
++	 */
++	pwidth = promptlen(prompt, &p);
++	prompt_skip = p - prompt;
++	if (pwidth > x_cols - 3 - MIN_EDIT_SPACE) {
++		cur_col = x_cols - 3 - MIN_EDIT_SPACE;
++		prompt_trunc = pwidth - cur_col;
++		pwidth -= prompt_trunc;
++	} else
++		prompt_trunc = 0;
++
++	wbuf_len = x_cols - 3;
++	wbuf[0] = aresize(wbuf[0], wbuf_len, APERM);
++	wbuf[1] = aresize(wbuf[1], wbuf_len, APERM);
++	(void) memset(wbuf[0], ' ', wbuf_len);
++	(void) memset(wbuf[1], ' ', wbuf_len);
++	winwidth = x_cols - pwidth - 3;
++
++	redraw_line(1, 0);
++	refresh_line(0);
++	x_flush();
++}
++
+ static int
+ outofwin(void)
+ {
