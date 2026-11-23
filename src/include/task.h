@@ -32,6 +32,7 @@ struct thread_struct {
 	unsigned long cr2, trap_no, error_code;
 	struct user_desc user_descs[NR_USER_DESC];
 	struct x87_state x87;
+	struct fpu_state fpu;
 };
 
 struct fs_struct;
@@ -98,6 +99,8 @@ struct task_struct {
 	int syscall_trace_active;
 	char comm[16];
 };
+
+_Static_assert(sizeof(struct task_struct) <= PAGE_SIZE, "task fits one page");
 
 #define TASK_RUNNING		0
 #define TASK_INTERRUPTIBLE	1

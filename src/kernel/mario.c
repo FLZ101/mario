@@ -96,6 +96,7 @@ void mario(struct multiboot_info *m)
 	runtime_selftest();
 	trap_init();
 	x87_init_cpu();
+	fpu_init_cpu();
 	irq_init();
 	time_init();
 

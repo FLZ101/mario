@@ -14,6 +14,14 @@ extern void notify_parent(struct task_struct *p);
 
 #define _BLOCKABLE (~(_S(SIGKILL) | _S(SIGSTOP)))
 
+/* Legacy sigcontext uses 32 words before the x87 area.  Keep that layout and
+ * append the full FXSAVE/XSAVE area at a 64-byte boundary so signal handlers
+ * keep the musl-compatible fpstate while the kernel can restore XMM/YMM. */
+#define SIG_FRAME_WORDS 32
+#define SIG_FRAME_X87_OFFSET (SIG_FRAME_WORDS * sizeof(unsigned long))
+#define SIG_FRAME_FPU_OFFSET \
+	(((SIG_FRAME_X87_OFFSET + sizeof(struct x87_state)) + 63) & ~63UL)
+
 typedef struct {
 	void *ss_sp;
 	int ss_flags;
@@ -214,17 +222,25 @@ int do_sigreturn(struct trap_frame *tr)
 
 	struct sigcontext_struct context;
 	struct x87_state saved;
+	struct fpu_state fpu_saved;
 	unsigned long flags;
 	if (verify_area(VERIFY_READ, (void *)tr->esp, sizeof(context)))
 		goto badframe;
 	memcpy_fromfs(&context,(void *)tr->esp, sizeof(context));
 	if (context.i387) {
+		void *user_fpu = (void *)(context.i387 +
+			(SIG_FRAME_FPU_OFFSET - SIG_FRAME_X87_OFFSET));
+
 		if (verify_area(VERIFY_READ, (void *)context.i387, sizeof(saved)))
 			goto badframe;
 		memcpy_fromfs(&saved, (void *)context.i387, sizeof(saved));
+		if (verify_area(VERIFY_READ, user_fpu, sizeof(fpu_saved)))
+			goto badframe;
+		memcpy_fromfs(&fpu_saved, user_fpu, sizeof(fpu_saved));
+		fpu_restore(&fpu_saved);
 		x87_restore(&saved);
 	} else {
-		x87_reset();
+		fpu_reset();
 	}
 	spin_lock_irqsave(&current->lock, flags);
 	current->blocked = context.old_mask & _BLOCKABLE;
@@ -262,16 +278,19 @@ void setup_frame(struct sigaction *sa, unsigned long **fp, unsigned long eip,
 
 	unsigned long *frame = *fp;
 	struct x87_state saved = {0};
-	const unsigned int frame_words = 32;
-	const unsigned long frame_size = frame_words * sizeof(*frame) + sizeof(saved);
+	struct fpu_state fpu_saved;
+	const unsigned long frame_size = SIG_FRAME_FPU_OFFSET + sizeof(fpu_saved);
 
-	frame -= ((frame_size + 15) & ~15UL) / sizeof(*frame);
+	frame -= ((frame_size + 63) & ~63UL) / sizeof(*frame);
 	if (verify_area(VERIFY_WRITE, frame, frame_size))
 		do_exit(SIGSEGV);
-	void *user_x87 = frame + frame_words;
+	void *user_x87 = (void *)((unsigned long)frame + SIG_FRAME_X87_OFFSET);
+	void *user_fpu = (void *)((unsigned long)frame + SIG_FRAME_FPU_OFFSET);
+	fpu_save(&fpu_saved);
 	x87_save(&saved);
 	x87_reset();
 	memcpy_tofs(user_x87, &saved, sizeof(saved));
+	memcpy_tofs(user_fpu, &fpu_saved, sizeof(fpu_saved));
 	/* set up the "normal" stack seen by the signal handler (iBCS2) */
 	put_fs_long(__CODE, frame);		// Return address
 	put_fs_long(signr, frame+1);	// 1st argument

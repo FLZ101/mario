@@ -185,8 +185,8 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	 */
 	cpu_info[n->cpu].current_task = n;
 	assert(current == n);
-	x87_save(&prev->x87);
-	x87_restore(&next->x87);
+	fpu_save(&prev->fpu);
+	fpu_restore(&next->fpu);
 
 	/* Every CPU must update its own ring-0 stack pointer. */
 	tss = (n->cpu == 0) ? &init_tss : &ap_tss[n->cpu];
