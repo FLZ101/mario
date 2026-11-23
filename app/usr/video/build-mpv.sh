@@ -2,8 +2,8 @@
 
 set -e
 
-if [[ -z $CC || -z $MPV_SRC_DIR || -z $PLACEBO_SRC_DIR || -z $MEDIA_BUILD_DIR || -z $MEDIA_INSTALL_DIR || -z $PCM_UAPI_DIR || -z $MARIO_UI_DIR ]] ; then
-    echo "CC, MPV_SRC_DIR, PLACEBO_SRC_DIR, MEDIA_BUILD_DIR, MEDIA_INSTALL_DIR, PCM_UAPI_DIR and MARIO_UI_DIR are not all set"
+if [[ -z $CC || -z $MPV_SRC_DIR || -z $PLACEBO_SRC_DIR || -z $MEDIA_BUILD_DIR || -z $MEDIA_INSTALL_DIR || -z $PCM_UAPI_DIR || -z $MARIO_UI_DIR || -z $FREETYPE_INSTALL_DIR ]] ; then
+    echo "CC, MPV_SRC_DIR, PLACEBO_SRC_DIR, MEDIA_BUILD_DIR, MEDIA_INSTALL_DIR, PCM_UAPI_DIR, MARIO_UI_DIR and FREETYPE_INSTALL_DIR are not all set"
     exit 1
 fi
 
@@ -40,6 +40,7 @@ endian = 'little'
 needs_exe_wrapper = true
 pkg_config_libdir = '$MEDIA_INSTALL_DIR/lib/pkgconfig'
 mario_ui_lib = '$MARIO_UI_DIR/libmario-ui.a'
+mario_freetype_lib = '$FREETYPE_INSTALL_DIR/lib/libfreetype.a'
 
 [built-in options]
 c_args = ['-I$PCM_UAPI_DIR', '-I$MARIO_UI_DIR/include', '-I$MARIO_UI_DIR/../../include', '-idirafter', '$(gcc -print-file-name=include)', '-march=i686', '-msse2', '-ffunction-sections', '-fdata-sections']

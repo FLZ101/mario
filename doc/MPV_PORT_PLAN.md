@@ -256,8 +256,10 @@ behavior before depending on it from the player.
   H.264 decoder and parser to this build.
 - libplacebo runs without graphics backends or a target C++ runtime: its numeric
   conversions use C and musl. mpv builds the CLI without libmpv installation,
-  upstream graphics backends, or [libass][libass]. Subtitle text rendering and graphical
-  text OSD are unavailable in this build; terminal status still works.
+  upstream graphics backends, or [libass][libass]. ASS subtitle rendering stays
+  unavailable, but `vo_mario` draws a native OSD directly on the compositor
+  surface with the bundled DejaVu font: a playback progress bar, a paused
+  label, and transient seek/volume messages.
 - Meson uses Mario's musl wrapper and staged target `pkg-config` metadata, with
   no target binaries executed on the host. The build verifies a static ELF32
   i386 executable with no interpreter or dynamic dependencies before installing

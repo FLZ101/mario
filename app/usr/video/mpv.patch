@@ -76,12 +76,13 @@
 +endif
 +
  alsa = dependency('alsa', version: '>= 1.0.18', required: get_option('alsa'))
-@@ -932,2 +942,9 @@
+@@ -932,2 +942,10 @@
  # video output dependencies
 +features += {'mario-video': host_machine.system() == 'mario'}
 +if features['mario-video']
 +    mario_ui_lib = meson.get_external_property('mario_ui_lib')
-+    dependencies += declare_dependency(link_args: [mario_ui_lib])
++    mario_freetype_lib = meson.get_external_property('mario_freetype_lib')
++    dependencies += declare_dependency(link_args: [mario_ui_lib, mario_freetype_lib])
 +    sources += files('video/out/vo_mario.c')
 +endif
 +

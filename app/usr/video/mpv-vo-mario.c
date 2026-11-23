@@ -1,11 +1,14 @@
 #include <errno.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdio.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 
 #include <app/gui-limits.h>
+#include <gui/font.h>
 #include <gui/input.h>
 #include <gui/surface_upload.h>
 
@@ -16,12 +19,20 @@
 #include "osdep/io.h"
 #include "osdep/poll_wrapper.h"
 #include "osdep/timer.h"
+#include "sub/osd.h"
+#include "sub/osd_state.h"
 #include "video/sws_utils.h"
 #include "vo.h"
 
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
 #define MARIO_MAX_SURFACE_PIXELS (APP_GUI_PEER_SURFACE_BYTES / 2 / sizeof(gui_color))
 #define MARIO_UPLOAD_TIMEOUT MP_TIME_S_TO_NS(10)
+#define OSD_FONT_PATH "/usr/share/fonts/DejaVuSans.ttf"
+#define OSD_FONT_SIZE 12
+#define OSD_BAR_MARGIN 8
+#define OSD_BAR_HEIGHT 6
+#define OSD_BAR_HIT_PAD 6
+#define OSD_BAR_VISIBLE_MS 1500
 
 struct priv {
     int fd;
@@ -43,6 +54,12 @@ struct priv {
     gui_surface_upload upload;
     app_gui_surface_flow flow;
     gui_surface *surface;
+    gui_font *font;
+    gui_font_metrics font_metrics;
+    struct voctrl_playback_state playback;
+    bool osd_seeking;
+    float osd_seek_target;
+    int64_t osd_bar_until;
     struct mp_sws_context *sws;
     struct mp_image *next;
     struct mp_image *latest;
@@ -101,7 +118,7 @@ static bool handshake(struct vo *vo, gui_protocol_type type,
             gui_protocol_wire_window_create create;
             char title[3];
         } message = {{.request_id_le = 1, .width_le = 320, .height_le = 180,
-                      .title_bytes_le = 3}, {'m', 'priv', 'v'}};
+                      .title_bytes_le = 3}, {'m', 'p', 'v'}};
         priv->expected = GUI_PROTOCOL_WINDOW_CREATE_REPLY;
         return gui_surface_upload_control(&priv->upload, GUI_PROTOCOL_WINDOW_CREATE,
                                           &message, sizeof(message)) == 0;
@@ -159,10 +176,14 @@ static void queue_mouse_command(struct vo *vo, const char *command)
         talloc_free(cmd);
 }
 
+static bool osd_bar_hit(const struct priv *priv, int x, int y);
+static float osd_bar_fraction(const struct priv *priv, int x);
+static void queue_seek_percent(struct vo *vo, float fraction);
+
 static void handle_mouse(struct vo *vo, const gui_protocol_wire_input_event *event)
 {
     struct priv *priv = vo->priv;
-    static const int buttons[3] = { MP_MBTN_LEFT, MP_MBTN_MID, MP_MBTN_RIGHT };
+    static const int buttons[3] = { MP_MBTN_LEFT, MP_MBTN_RIGHT, MP_MBTN_MID };
     uint8_t previous = priv->mouse_buttons;
     uint8_t current = event->buttons;
 
@@ -173,18 +194,40 @@ static void handle_mouse(struct vo *vo, const gui_protocol_wire_input_event *eve
 
         if (!changed)
             continue;
-        if (current & mask)
+        if (current & mask) {
+            if (index == 0) {
+                if (osd_bar_hit(priv, event->x_le, event->y_le)) {
+                    priv->osd_seeking = true;
+                    priv->osd_seek_target = osd_bar_fraction(priv, event->x_le);
+                    priv->dirty = priv->latest != NULL;
+                } else {
+                    priv->osd_seeking = false;
+                }
+            }
             mp_input_put_key(vo->input_ctx, buttons[index] | MP_KEY_STATE_DOWN);
-        else {
+        } else {
             mp_input_put_key(vo->input_ctx, buttons[index] | MP_KEY_STATE_UP);
-            if (index == 0)
-                queue_mouse_command(vo, "cycle pause");
-            else if (index == 1)
-                queue_mouse_command(vo, "cycle mute");
-            else
+            if (index == 0) {
+                if (priv->osd_seeking) {
+                    priv->osd_seek_target = osd_bar_fraction(priv, event->x_le);
+                    queue_seek_percent(vo, priv->osd_seek_target);
+                    priv->osd_seeking = false;
+                } else {
+                    queue_mouse_command(vo, "cycle pause");
+                }
+            } else if (index == 1) {
                 queue_mouse_command(vo, "seek 10");
+            } else {
+                queue_mouse_command(vo, "cycle mute");
+            }
         }
     }
+    if (priv->osd_seeking && (current & 1)) {
+        priv->osd_seek_target = osd_bar_fraction(priv, event->x_le);
+        priv->dirty = priv->latest != NULL;
+    }
+    priv->osd_bar_until = mp_time_ns() + MP_TIME_MS_TO_NS(OSD_BAR_VISIBLE_MS);
+    priv->dirty = priv->latest != NULL;
     priv->mouse_buttons = current;
 }
 
@@ -285,6 +328,127 @@ static ssize_t socket_write(void *context, const void *bytes, size_t count)
     return write(*(int *)context, bytes, count);
 }
 
+static void osd_draw_text(struct priv *priv, const char *text, int x, int baseline,
+                          gui_color color)
+{
+    if (!priv->font || !text || !text[0])
+        return;
+    gui_font_draw_text(priv->surface, x, baseline, priv->font, text, color);
+}
+
+static void osd_draw_bar(struct priv *priv, int x, int y, int width, int height,
+                         float fraction, gui_color background, gui_color foreground)
+{
+    gui_rect rect = {x, y, width, height};
+    int fill;
+
+    gui_fill_rect(priv->surface, rect, background);
+    if (fraction <= 0.0f)
+        return;
+    if (fraction > 1.0f)
+        fraction = 1.0f;
+    fill = (int)(width * fraction + 0.5f);
+    if (fill <= 0)
+        return;
+    gui_fill_rect(priv->surface, (gui_rect){x, y, fill, height}, foreground);
+}
+
+static gui_rect osd_bar_bounds(const struct priv *priv)
+{
+    return (gui_rect){
+        OSD_BAR_MARGIN,
+        priv->height - OSD_BAR_HEIGHT - OSD_BAR_MARGIN,
+        priv->width - 2 * OSD_BAR_MARGIN,
+        OSD_BAR_HEIGHT,
+    };
+}
+
+static bool osd_bar_hit(const struct priv *priv, int x, int y)
+{
+    gui_rect bar = osd_bar_bounds(priv);
+
+    return x >= bar.x - OSD_BAR_HIT_PAD && x < bar.x + bar.w + OSD_BAR_HIT_PAD &&
+           y >= bar.y - OSD_BAR_HIT_PAD && y < bar.y + bar.h + OSD_BAR_HIT_PAD;
+}
+
+static float osd_bar_fraction(const struct priv *priv, int x)
+{
+    gui_rect bar = osd_bar_bounds(priv);
+    float fraction;
+
+    if (bar.w <= 0)
+        return 0.0f;
+    fraction = (float)(x - bar.x) / bar.w;
+    return MPCLAMP(fraction, 0.0f, 1.0f);
+}
+
+static void queue_seek_percent(struct vo *vo, float fraction)
+{
+    char command[64];
+
+    snprintf(command, sizeof(command), "seek %f absolute-percent",
+             MPCLAMP(fraction, 0.0f, 1.0f) * 100.0f);
+    queue_mouse_command(vo, command);
+}
+
+static void draw_osd(struct vo *vo)
+{
+    struct priv *priv = vo->priv;
+    gui_rect bar = osd_bar_bounds(priv);
+    float position = priv->osd_seeking ? priv->osd_seek_target :
+                                         priv->playback.position / 255.0f;
+    bool show_bar;
+    char text[512];
+    int64_t now = mp_time_ns();
+
+    if (!priv->surface)
+        return;
+    text[0] = '\0';
+    mp_mutex_lock(&vo->osd->lock);
+    struct osd_object *object = vo->osd->objs[OSDTYPE_OSD];
+    if (object && object->text && object->text[0]) {
+        snprintf(text, sizeof(text), "%s", object->text);
+        for (char *cursor = text; *cursor; cursor++)
+            if (*cursor == '\n')
+                *cursor = ' ';
+        char *display = text;
+        if (display[0] == (char)0xc2 && display[1] == (char)0x91) {
+            display += 2;
+            if (*display)
+                display++;
+            if (*display == ' ')
+                display++;
+        }
+        if (display != text)
+            memmove(text, display, strlen(display) + 1);
+        priv->osd_bar_until = now + MP_TIME_MS_TO_NS(OSD_BAR_VISIBLE_MS);
+    }
+    if (!priv->osd_seeking && object && object->progbar_state.type >= 0) {
+        position = MPCLAMP(object->progbar_state.value, 0.0f, 1.0f);
+        priv->osd_bar_until = now + MP_TIME_MS_TO_NS(OSD_BAR_VISIBLE_MS);
+    }
+    mp_mutex_unlock(&vo->osd->lock);
+
+    show_bar = priv->osd_seeking || priv->playback.paused ||
+               now < priv->osd_bar_until;
+    if (show_bar && bar.w > 0)
+        osd_draw_bar(priv, bar.x, bar.y, bar.w, bar.h, position,
+                     0x00333333, 0x00ffffff);
+
+    if (text[0] && priv->font) {
+        gui_text_layout layout = {0};
+        int baseline = bar.y - 5;
+        if (gui_text_measure(text, &priv->font_metrics, gui_font_lookup,
+                             priv->font, &layout)) {
+            int x = (priv->width - layout.width) / 2;
+            osd_draw_text(priv, text, x < 0 ? 0 : x, baseline, 0x00ffffff);
+        }
+    }
+
+    if (priv->playback.paused)
+        osd_draw_text(priv, "Paused", 6, priv->font_metrics.ascent + 4, 0x00ffffff);
+}
+
 static bool start_upload(struct vo *vo)
 {
     struct priv *priv = vo->priv;
@@ -321,6 +485,7 @@ static bool start_upload(struct vo *vo)
     if (mp_sws_scale(priv->sws, &target, priv->latest) < 0)
         return false;
     priv->conversion_end = mp_time_ns();
+    draw_osd(vo);
     priv->dirty = false;
     return gui_surface_upload_start(&priv->upload, priv->window, priv->configure, 0,
                                     ++priv->serial, priv->surface, full, false) == 0;
@@ -417,6 +582,7 @@ static void uninit(struct vo *vo)
         close(priv->wakeup_pipe[1]);
     gui_protocol_input_destroy(priv->input);
     gui_surface_destroy(priv->surface);
+    gui_font_destroy(priv->font);
     talloc_free(priv->latest);
     talloc_free(priv->next);
 }
@@ -441,6 +607,9 @@ static int preinit(struct vo *vo)
     priv->input = gui_protocol_input_create();
     priv->sws = mp_sws_alloc(priv);
     priv->sws->log = vo->log;
+    priv->font = gui_font_load(OSD_FONT_PATH, OSD_FONT_SIZE);
+    if (priv->font)
+        gui_font_get_metrics(priv->font, &priv->font_metrics);
     const gui_protocol_wire_hello hello = {GUI_PROTOCOL_VERSION_MAJOR, GUI_PROTOCOL_VERSION_MINOR};
     priv->expected = GUI_PROTOCOL_HELLO_REPLY;
     if (!priv->input || gui_surface_upload_control(&priv->upload, GUI_PROTOCOL_HELLO,
@@ -475,12 +644,19 @@ static int query_format(struct vo *vo, int format)
 static bool draw_frame(struct vo *vo, struct vo_frame *frame)
 {
     struct priv *priv = vo->priv;
-    if (!priv->stopped && frame->current && frame->frame_id != priv->frame_id) {
+    if (priv->stopped)
+        return false;
+    if (frame->redraw) {
+        priv->dirty = priv->latest != NULL;
+        priv->can_drop = false;
+        return true;
+    }
+    if (frame->current && frame->frame_id != priv->frame_id) {
         priv->next = mp_image_new_ref(frame->current);
         priv->frame_id = frame->frame_id;
         priv->can_drop = frame->can_drop;
     }
-    return !priv->stopped;
+    return true;
 }
 
 static void flip_page(struct vo *vo)
@@ -516,6 +692,12 @@ static int control(struct vo *vo, uint32_t request, void *data)
         TA_FREEP(&priv->latest);
         priv->frame_id = 0;
         priv->dirty = false;
+        return VO_TRUE;
+    case VOCTRL_UPDATE_PLAYBACK_STATE:
+        if (data) {
+            priv->playback = *(struct voctrl_playback_state *)data;
+            priv->dirty = priv->latest != NULL;
+        }
         return VO_TRUE;
     }
     return VO_NOTIMPL;
