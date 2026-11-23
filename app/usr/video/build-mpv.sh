@@ -57,14 +57,16 @@ options=(--cross-file mario.cross --wrap-mode=nofallback --auto-features=disable
     -Dlibmpv=false -Dlibass=disabled -Dgl=disabled -Dbuild-date=false
 "$meson" compile -C mpv -j "${JOBS:-1}"
 
-elf=$(readelf -W -h -l -d mpv/mpv)
-if ! [[ $elf =~ Class:[[:space:]]+ELF32 && $elf =~ Machine:[[:space:]]+Intel\ 80386 ]] ||
-        [[ $elf =~ (INTERP|NEEDED|DYNAMIC) ]]; then
-    echo "Expected a static ELF32 i386 mpv executable" >&2
-    exit 1
-fi
+for binary in mpv mario-mpv; do
+    elf=$(readelf -W -h -l -d "mpv/$binary")
+    if ! [[ $elf =~ Class:[[:space:]]+ELF32 && $elf =~ Machine:[[:space:]]+Intel\ 80386 ]] ||
+            [[ $elf =~ (INTERP|NEEDED|DYNAMIC) ]]; then
+        echo "Expected a static ELF32 i386 $binary executable" >&2
+        exit 1
+    fi
 
-install -Dm755 mpv/mpv "$MEDIA_INSTALL_DIR/bin/mpv.tmp"
-mv "$MEDIA_INSTALL_DIR/bin/mpv.tmp" "$MEDIA_INSTALL_DIR/bin/mpv"
+    install -Dm755 "mpv/$binary" "$MEDIA_INSTALL_DIR/bin/$binary.tmp"
+    mv "$MEDIA_INSTALL_DIR/bin/$binary.tmp" "$MEDIA_INSTALL_DIR/bin/$binary"
+done
 
 popd

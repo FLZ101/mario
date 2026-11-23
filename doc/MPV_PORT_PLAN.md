@@ -19,9 +19,8 @@ Keep PCM as the decoded sample format and use the same `/dev/pcm0` API for both
 virtual and physical HDA; the device name does not imply AC’97.
 
 Skip streaming, playlists, external tracks, subtitles, scripts, JSON IPC, hardware
-decoding, GPU rendering and other media formats. Build mpv with the other apps,
-but keep disk-image packaging opt-in. Do not introduce SDL, X11 or Wayland just
-to open a window.
+decoding, GPU rendering and other media formats. Build and package mpv with the
+other apps. Do not introduce SDL, X11 or Wayland just to open a window.
 
 ## Milestone Map
 
@@ -43,7 +42,7 @@ both remain outstanding. M3 through M5 pass in QEMU on one and two vCPUs.
 | M5 — Audible AAC | `ao_mario` plays local MP4 without video | QEMU capture has the correct markers at both input rates after pause/seek and through EOF. |
 | M6 — Native video | `vo_mario` renders H.264 in the compositor | GUI test observes distinct frames, controls work, and closing releases the window and PCM device. |
 | M7 — A/V sync | Timed and bounded playback at the initial target | Flash/beep skew stays within 100 ms in the reference QEMU run, including after pause/seek. |
-| M8 — Opt-in packaging | Local-only `/usr/bin/mpv` and image/test integration | Enabled image plays a demo in QEMU and on the reference PC; the disabled image contains no player or media payload. |
+| M8 — Image integration | Local-only `/usr/bin/mpv` in standard and GTK images | Packaged player passes local-input tests and plays a demo in QEMU and on the reference PC. |
 
 ### Validation Rules
 
@@ -53,8 +52,8 @@ both remain outstanding. M3 through M5 pass in QEMU on one and two vCPUs.
   captures and serial/player logs on failure. Use bounded waits and observable
   state; reserve performance measurements for a controlled run.
 - Keep kernel PCM tests independent of mpv throughout. Driver initialization,
-  test fixtures and opt-in player packaging must not make ordinary boots or
-  test runs depend on host audio. Do not package the player by default at M8.
+  test fixtures and player packaging must not make ordinary boots or test runs
+  depend on host audio.
 
 ## M1a — PCI and MMIO Prerequisites
 
@@ -327,8 +326,10 @@ record the full wall-clock pause while DMA is stopped.
   boundaries. Measure full-frame uploads at the target size before proposing a
   new transport or shared memory.
 
-The native VO shares `libmario-ui`'s bounded uploader with the terminal. It
-finishes the in-flight transaction and keeps only the newest waiting frame.
+The native VO shares `libmario-ui`'s bounded uploader with the terminal. With
+frame dropping allowed, it finishes the in-flight transaction and keeps only
+the newest waiting frame. With `--framedrop=no`, it waits for each upload before
+advancing instead; playback can slow down when the renderer cannot keep up.
 Resize/seek cancel stale uploads; a resize rerenders the retained frame even
 while paused. `--msg-level=vo/mario=trace` logs conversion-to-COMMIT times, not
 scanout timestamps. The full 320×180 RGB surface is 225 KiB before headers.
@@ -345,11 +346,17 @@ with `N=1` and `N=2`:
 .venv/bin/python tests/media/mpv_video_test.py --smp "$N"
 ```
 
+The video test runs both 1024×768 and 1920×1080 boots by default. The 1080p case
+uses `--framedrop=no`, checks that all 12 frames are submitted in the default
+window and that all 12 numbered frames are visible in order when maximized.
+It also checks EOF and zero decoder and output drops. This is a correctness
+check, not a sustained 30 fps or A/V sync guarantee.
+
 The decode check requires all 60 H.264 frames to reach `--vo=null`. The GUI
 check uses `mcopy` (from `mtools`) and `sfdisk` to select the resolution on a
 disposable copy of the boot disk. It checks actual QEMU screen pixels with the
-video-only color markers and the A/V flash fixture. Neither test installs mpv
-in the normal or GTK images.
+video-only color markers and the A/V flash fixture. These focused tests run the
+build output from a disposable media disk.
 
 **Exit:** A focused GUI test observes frame changes, a stable paused frame,
 redraw on seek/resize, and clean close/EOF. Check both an A/V clip and a video-only
@@ -443,20 +450,23 @@ accuracy for other backends.
   stream, and reject URLs, stdin, pipes, devices and playlists. Do not expose
   alternate load paths, external MOV references, or auto-loading of other files.
   Keep the unrestricted headless diagnostic path out of the packaged entry point.
-- Stage `/usr/bin/mpv` through [the `/usr` image manifest](../rd/copy_files.py#L182)
-  behind an opt-in image setting. Use the GTK overlay for a manual demo clip,
-  and the normal test image for automated fixtures so tests do not depend on GTK
-  or the wallpaper overlay. Verify that turning the option off removes staged
-  artifacts without requiring a clean app build.
-- Add shell tests for exit status, decode/seek/EOF and rejection of nonlocal or
-  unsupported inputs. Reuse the focused audio and GUI gates; keep the independent
-  PCM tests runnable with mpv disabled.
+- Stage `/usr/bin/mpv` through [the shared image manifest](../rd/copy_files.py#L197)
+  for both standard and GTK images. Include the 180p, 720p, and 1080p Big Buck
+  Bunny demos and their attribution in `/usr/share/mario-tests/media`. Keep
+  the dedicated MP4 test fixtures on a separate test disk.
+- `tests/shell/mpv-local.test` checks that the demos are installed and that the
+  packaged command rejects unsupported paths, file types, and options.
+  `tests/media/mpv_video_test.py` also checks packaged decode, seek, EOF, and
+  rejection of an audio-only MP4. The focused audio and PCM tests remain
+  independent of the packaged command.
 
 **Exit:** Run the local-only input tests and the focused audio/GUI suites against
-the enabled image; manually play a demo under `make run-gtk` and on the recorded
-reference PC. Build again with the option off without cleaning first and confirm
-the image contains no player or media-only payload, then run the standard
-regressions.
+the packaged player; manually play a demo under `make run-gtk` and on the
+recorded reference PC. Run the standard regressions with mpv installed.
+
+The focused shell and video regressions pass in QEMU with one and two vCPUs.
+The 180p Big Buck Bunny demo reaches EOF in the GTK image with non-silent stereo
+WAV capture. Playback on the reference PC remains unverified.
 
 [intel-hda]: https://www.intel.com/content/www/us/en/standards/high-definition-audio-specification.html
 [qemu-hda]: https://gitlab.com/qemu-project/qemu/-/blob/v9.2.4/hw/audio/intel-hda.c

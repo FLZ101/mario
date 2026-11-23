@@ -1,0 +1,46 @@
+RUN: /bin/oksh <<'END'
+set -e
+media=/usr/share/mario-tests/media
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+for suffix in '' -720p -1080p; do
+    test -s "$media/big-buck-bunny$suffix.mp4"
+done
+grep -q 'Creative Commons Attribution' "$media/big-buck-bunny-attribution.txt"
+
+reject_path() {
+    result=0
+    /usr/bin/mpv "$@" >"$work/log" 2>&1 || result=$?
+    if [ "$result" -ne 2 ] || ! grep -q '^Usage: mpv FILE.mp4' "$work/log"; then
+        printf 'unexpected result %s for %s\n' "$result" "$*"
+        cat "$work/log"
+        exit 1
+    fi
+}
+
+/usr/bin/sbase/mknod "$work/pipe.mp4" p
+ln -s /dev/null "$work/device.mp4"
+mkdir "$work/directory.mp4"
+reject_path
+reject_path -
+reject_path https://example.invalid/video.mp4
+reject_path "file://$media/big-buck-bunny.mp4"
+reject_path "$work/pipe.mp4"
+reject_path "$work/device.mp4"
+reject_path "$work/directory.mp4"
+reject_path "$work/missing.mp4"
+reject_path "$media/stereo-markers.wav"
+reject_path --vo=null "$media/big-buck-bunny.mp4"
+reject_path "$media/big-buck-bunny.mp4" "$media/big-buck-bunny-720p.mp4"
+
+printf '#EXTM3U\n%s/big-buck-bunny.mp4\n' "$media" >"$work/playlist.mp4"
+result=0
+/usr/bin/mpv "$work/playlist.mp4" >"$work/log" 2>&1 || result=$?
+if [ "$result" -ne 2 ] || ! grep -q 'Errors when loading file' "$work/log"; then
+    cat "$work/log"
+    exit 1
+fi
+printf 'mpv-local: demo assets present and unsupported inputs rejected\n'
+END
+CHECK: mpv-local: demo assets present and unsupported inputs rejected
+EXIT:

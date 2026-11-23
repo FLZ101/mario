@@ -86,6 +86,15 @@
 +endif
 +
  caca_opt = get_option('caca').require(
+@@ -1854,4 +1871,8 @@
+     mpv = executable('mpv', main_fn_source, objects: libmpv.extract_all_objects(recursive: true), dependencies: dependencies,
+                      win_subsystem: get_option('win32-subsystem'), install: true)
++    if host_machine.system() == 'mario'
++        executable('mario-mpv', 'osdep/main-fn-mario.c', dependencies: dependencies,
++                   objects: libmpv.extract_all_objects(recursive: true))
++    endif
+
+     if win32
 --- a/video/out/vo.c
 +++ b/video/out/vo.c
 @@ -53,6 +53,7 @@
@@ -260,3 +269,40 @@
      {"", OPT_SUBSTRUCT(osd_rend, mp_osd_render_sub_opts)},
 
      {"osd-bar", OPT_BOOL(osd_bar_visible), .flags = UPDATE_OSD},
+--- a/demux/demux_lavf.c
++++ b/demux/demux_lavf.c
+@@ -79,3 +79,4 @@
+     int linearize_ts;
+     bool propagate_opts;
++    bool mario_mp4;
+ };
+@@ -87,3 +88,4 @@
+             {"no", 0}, {"yes", 1}, {"auto", -1}, {"nostreams", -2})},
+         {"demuxer-lavf-format", OPT_STRING(format)},
++        {"demuxer-lavf-mario-mp4", OPT_BOOL(mario_mp4)},
+         {"demuxer-lavf-analyzeduration", OPT_FLOAT(analyzeduration),
+@@ -1104,3 +1106,24 @@
+     priv->avfc = avfc;
+
++    if (lavfdopts->mario_mp4) {
++        const AVDictionaryEntry *brand = av_dict_get(avfc->metadata, "major_brand", NULL, 0);
++        bool h264 = false;
++        bool supported = matches_avinputformat_name(priv, "mp4") && brand &&
++                         strcmp(brand->value, "qt  ");
++        for (unsigned int index = 0; supported && index < avfc->nb_streams; index++) {
++            const AVStream *stream = avfc->streams[index];
++            const AVCodecParameters *codec = stream->codecpar;
++            if (codec->codec_type == AVMEDIA_TYPE_VIDEO &&
++                !(stream->disposition & AV_DISPOSITION_ATTACHED_PIC)) {
++                supported = codec->codec_id == AV_CODEC_ID_H264;
++                h264 |= supported;
++            } else if (codec->codec_type == AVMEDIA_TYPE_AUDIO) {
++                supported = codec->codec_id == AV_CODEC_ID_AAC;
++            }
++        }
++        if (!supported || !h264) {
++            MP_ERR(demuxer, "Expected an MP4 file with H.264 video and optional AAC audio.\n");
++            goto fail;
++        }
++    }
+     bool probeinfo = lavfdopts->probeinfo != 0;

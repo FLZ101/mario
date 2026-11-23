@@ -1,0 +1,9 @@
+Big Buck Bunny (trailer excerpt)
+(c) copyright 2008, Blender Foundation / www.bigbuckbunny.org
+
+Source: https://download.blender.org/peach/trailer/trailer_1080p.mov
+License: Creative Commons Attribution 3.0 Unported
+https://creativecommons.org/licenses/by/3.0/
+
+Mario uses twelve seconds of the trailer starting at 00:10, scaled as needed
+and re-encoded at 15 fps with H.264 video and stereo AAC audio.

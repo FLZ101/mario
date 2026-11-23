@@ -20,12 +20,14 @@
 
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
 #define MARIO_MAX_SURFACE_PIXELS (APP_GUI_PEER_SURFACE_BYTES / 2 / sizeof(gui_color))
+#define MARIO_UPLOAD_TIMEOUT MP_TIME_S_TO_NS(10)
 
 struct priv {
     int fd;
     int wakeup_pipe[2];
     bool stopped;
     bool dirty;
+    bool can_drop;
     uint32_t window;
     uint64_t configure;
     uint64_t serial;
@@ -283,7 +285,7 @@ static bool start_upload(struct vo *vo)
                                     ++priv->serial, priv->surface, full, false) == 0;
 }
 
-static void wait_events(struct vo *vo, int64_t deadline)
+static void pump_events(struct vo *vo, int64_t deadline, bool interruptible)
 {
     struct priv *priv = vo->priv;
     int64_t timeout = MPCLAMP(deadline - mp_time_ns(), 0, MP_TIME_S_TO_NS(10));
@@ -295,7 +297,7 @@ static void wait_events(struct vo *vo, int64_t deadline)
     }
     struct pollfd fds[] = {
         {.fd = priv->fd, .events = POLLIN | (gui_surface_upload_writable(&priv->upload) ? POLLOUT : 0)},
-        {.fd = priv->wakeup_pipe[0], .events = POLLIN},
+        {.fd = interruptible ? priv->wakeup_pipe[0] : -1, .events = POLLIN},
     };
     int result = mp_poll(fds, MP_ARRAY_SIZE(fds), timeout);
     if (result < 0 && errno == EINTR)
@@ -334,6 +336,26 @@ static void wait_events(struct vo *vo, int64_t deadline)
 failed:
     MP_ERR(vo, "Lost connection to the window manager\n");
     stop(vo);
+}
+
+static void wait_events(struct vo *vo, int64_t deadline)
+{
+    pump_events(vo, deadline, true);
+}
+
+static bool drain_upload(struct vo *vo)
+{
+    struct priv *priv = vo->priv;
+    int64_t deadline = mp_time_ns() + MARIO_UPLOAD_TIMEOUT;
+    while (!priv->stopped && (priv->dirty || !gui_surface_upload_ready(&priv->upload))) {
+        if (mp_time_ns() >= deadline) {
+            MP_ERR(vo, "Timed out uploading a video frame\n");
+            stop(vo);
+            break;
+        }
+        pump_events(vo, deadline, false);
+    }
+    return !priv->stopped;
 }
 
 static void wakeup(struct vo *vo)
@@ -415,6 +437,7 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
     if (!priv->stopped && frame->current && frame->frame_id != priv->frame_id) {
         priv->next = mp_image_new_ref(frame->current);
         priv->frame_id = frame->frame_id;
+        priv->can_drop = frame->can_drop;
     }
     return !priv->stopped;
 }
@@ -423,14 +446,21 @@ static void flip_page(struct vo *vo)
 {
     struct priv *priv = vo->priv;
     if (priv->next) {
-        if (priv->dirty)
-            vo_increment_drop_count(vo, 1);
+        if (priv->dirty) {
+            if (priv->can_drop)
+                vo_increment_drop_count(vo, 1);
+            else if (!drain_upload(vo))
+                return;
+        }
         talloc_free(priv->latest);
         priv->latest = priv->next;
         priv->next = NULL;
         priv->dirty = true;
     }
-    wait_events(vo, 0);
+    if (priv->can_drop)
+        wait_events(vo, 0);
+    else
+        drain_upload(vo);
 }
 
 static int control(struct vo *vo, uint32_t request, void *data)

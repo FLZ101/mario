@@ -19,7 +19,7 @@ MPV_URL := https://codeload.github.com/mpv-player/mpv/tar.gz/refs/tags/v0.41.0
 MPV_SHA256 := ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
 MPV_PATCH := $(MEDIA_DIR)/mpv.patch
 MPV_OVERLAYS := mpv-osd-null.c:sub/osd_null.c mpv-ao-mario.c:audio/out/ao_mario.c \
-	mpv-vo-mario.c:video/out/vo_mario.c
+	mpv-vo-mario.c:video/out/vo_mario.c mpv-main-mario.c:osdep/main-fn-mario.c
 PCM_UAPI_DIR := $(abspath $(ROOT)/../../src/include/uapi)
 
 overlay_source = $(MEDIA_DIR)/$(word 1,$(subst :, ,$(1)))
@@ -51,11 +51,11 @@ MEDIA_ENV = CC="$(CC)" MEDIA_BUILD_DIR="$(MEDIA_BUILD_DIR)" MEDIA_INSTALL_DIR="$
 
 .PHONY:: build-mpv src-mpv clean-mpv clean-src-mpv
 build:: build-mpv
-build-mpv: $(MEDIA_INSTALL_DIR)/bin/mpv
+build-mpv: $(MEDIA_INSTALL_DIR)/bin/mpv $(MEDIA_INSTALL_DIR)/bin/mario-mpv
 
 src-mpv: $(MEDIA_SOURCES)
 
-$(MEDIA_INSTALL_DIR)/bin/mpv: $(MEDIA_SOURCES) $(MEDIA_RECIPES) $(CC) $(PCM_UAPI_DIR)/mario/pcm.h \
+$(MEDIA_INSTALL_DIR)/bin/mpv $(MEDIA_INSTALL_DIR)/bin/mario-mpv &: $(MEDIA_SOURCES) $(MEDIA_RECIPES) $(CC) $(PCM_UAPI_DIR)/mario/pcm.h \
 		$(MARIO_UI_LIB) $(ROOT)/../include/app/gui-limits.h \
 		$(ROOT)/../../musl/musl-1.2.5-install/lib/libc.a $(ROOT)/../../compiler-rt/libcompiler_rt.a
 	$(RM) -r "$(MEDIA_BUILD_DIR)" "$(MEDIA_INSTALL_DIR)"

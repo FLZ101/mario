@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -31,13 +32,23 @@ CONTROLS = (
 SAMPLE = (216, 136, 232, 152)
 MAX_CENTER = (504, 376, 520, 392)
 MAX_TOP = (100, 50, 116, 66)
+HD_SIZE = (1920, 1080)
+HD_EDGES = ((128, 160, 144, 176), (1776, 160, 1792, 176))
+HD_ASSET = "video-markers-1080p.mp4"
+HD_FRAMES = 12
+HD_BITS = tuple((632 + bit * 192, 456, 648 + bit * 192, 472) for bit in range(4))
+HD_OPTIONS = (
+    "--pause --framedrop=no "
+    "--term-status-msg='media-drops:${frame-drop-count}/${decoder-frame-drop-count} "
+    "media-eof:${eof-reached}'"
+)
 BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 WHITE = (255, 255, 255)
 
 
-def vbe_boot_disk(work, kernel=None):
+def vbe_boot_disk(work, kernel=None, *, size=(1024, 768)):
     boot = work / "hd1.img"
     subprocess.run(
         ["cp", "--reflink=auto", "--sparse=always", HD1_IMAGE, boot], check=True
@@ -46,7 +57,8 @@ def vbe_boot_disk(work, kernel=None):
         "partitiontable"
     ]
     offset = table["partitions"][0]["start"] * table["sectorsize"]
-    menu = Path(ROOT) / "qemu/grub4dos-0.4.6a/menu.lst.vbe_1024x768"
+    width, height = size
+    menu = Path(ROOT) / f"qemu/grub4dos-0.4.6a/menu.lst.vbe_{width}x{height}"
     subprocess.run(
         ["mcopy", "-o", "-i", f"{boot}@@{offset}", menu, "::menu.lst"], check=True
     )
@@ -65,19 +77,22 @@ def sample_matches(screen, rectangle, color):
     )
 
 
-def expect_screen(qmp, reason, predicate, timeout=5):
+def expect_screen(qmp, reason, predicate, timeout=5, interval=0.05):
     end = time.monotonic() + timeout
     while time.monotonic() < end:
         screen = dump_screen(qmp)
         if predicate(screen):
             return screen
-        time.sleep(0.05)
+        time.sleep(interval)
     raise AssertionError(f"screen did not show {reason} within {timeout:g}s")
 
 
-def expect_color(qmp, color, rectangle=SAMPLE):
+def expect_color(qmp, color, rectangle=SAMPLE, *, timeout=5):
     return expect_screen(
-        qmp, f"{color} at {rectangle}", lambda screen: sample_matches(screen, rectangle, color)
+        qmp,
+        f"{color} at {rectangle}",
+        lambda screen: sample_matches(screen, rectangle, color),
+        timeout=timeout,
     )
 
 
@@ -105,11 +120,12 @@ def start_player(child, asset, options=""):
     )
 
 
-def finish_player(child, marker):
+def finish_player(child, marker, *, size=(320, 180)):
     output = run_checked(
         child, 'wait "$media_pid"; result=$?; cat /tmp/mpv.log; (exit "$result")'
     )
-    if marker not in output or "VO: [mario] 320x180 yuv420p" not in output:
+    width, height = size
+    if marker not in output or f"VO: [mario] {width}x{height} yuv420p" not in output:
         raise AssertionError(f"unexpected mpv output:\n{output}")
     return output
 
@@ -121,13 +137,16 @@ def expect_log(child, pattern):
     )
 
 
-def verify_guest(child, qmp):
+def prepare_guest(child, qmp):
     child.expect(BOOT_PROMPT, timeout=45)
     run_checked(child, "mount -t ext2 -o ro /dev/hdd /mnt")
     run_checked(child, "while ! test -e /tmp/mario-wm.started; do sleep 1; done")
     send_key(qmp, "f8")
-    expect_color(qmp, (31, 41, 51))
-    desktop = dump_screen(qmp).crop(SAMPLE).tobytes()
+    return expect_color(qmp, (31, 41, 51))
+
+
+def verify_guest(child, qmp):
+    desktop = prepare_guest(child, qmp).crop(SAMPLE).tobytes()
 
     start_player(child, "video-markers.mp4", "--pause")
     expect_color(qmp, BLACK)
@@ -168,28 +187,98 @@ def verify_guest(child, qmp):
         raise AssertionError(f"A/V playback did not open Mario PCM:\n{output}")
     run_checked(child, "(: 3>/dev/pcm0)")
 
-    start_player(child, "flash-beep.mp4", "--ao=mario")
-    finish_player(child, "(End of file)")
+    run_checked(
+        child,
+        "/usr/bin/mpv /mnt/flash-beep.mp4 >/tmp/mpv.log 2>&1 & media_pid=$!",
+    )
+    expect_color(qmp, WHITE)
+    output = finish_player(child, "(End of file)")
+    if "AO: [mario] 48000Hz stereo" not in output:
+        raise AssertionError(f"packaged mpv did not initialize PCM:\n{output}")
     expect_screen(
         qmp, "desktop after EOF", lambda screen: screen.crop(SAMPLE).tobytes() == desktop
     )
     run_checked(child, "(: 3>/dev/pcm0)")
 
+    run_checked(
+        child,
+        "/usr/bin/mpv /mnt/video-markers.mp4 >/tmp/mpv.log 2>&1 & media_pid=$!",
+    )
+    sample = (256, 176, 272, 192)
+    expect_color(qmp, RED, sample)
+    send_key(qmp, "right")
+    expect_color(qmp, BLUE, sample, timeout=2)
+    finish_player(child, "(End of file)")
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--smp", type=int, choices=(1, 2), default=1)
-    args = parser.parse_args()
-    if not MPV.is_file() or not Path(HD1_IMAGE).is_file():
-        parser.error("build the applications and disk images first")
+    output = run_checked(child, "/usr/bin/mpv /mnt/stereo-markers-48000.mp4", success=False)
+    if "Expected an MP4 file with H.264 video" not in output:
+        raise AssertionError(f"packaged mpv did not reject audio-only MP4:\n{output}")
 
+
+def expect_no_drops(output):
+    counts = re.findall(r"media-drops:(\d+/\d+)", output)
+    if not counts or set(counts) != {"0/0"}:
+        raise AssertionError(f"expected zero VO/decoder drops, got {sorted(set(counts))}")
+
+
+def verify_1080p(child, qmp):
+    desktop = prepare_guest(child, qmp)
+    if desktop.size != HD_SIZE:
+        raise AssertionError(f"expected a 1920x1080 framebuffer, got {desktop.size}")
+
+    def expect_frame(number):
+        color = BLUE if number < HD_FRAMES // 2 else RED
+
+        def matches(screen):
+            return all(sample_matches(screen, edge, color) for edge in HD_EDGES) and all(
+                sample_matches(screen, cell, WHITE if number & (1 << bit) else BLACK)
+                for bit, cell in enumerate(HD_BITS)
+            )
+
+        expect_screen(
+            qmp,
+            f"maximized 1080p frame {number}",
+            matches,
+            timeout=10,
+            interval=0.002,
+        )
+
+    start_player(child, HD_ASSET, HD_OPTIONS)
+    expect_color(qmp, BLUE, timeout=15)
+    send_key(qmp, "p")
+    output = finish_player(child, "(End of file)", size=HD_SIZE)
+    expect_no_drops(output)
+    submitted = output.count("Submitted surface ")
+    if submitted != HD_FRAMES:
+        raise AssertionError(f"expected {HD_FRAMES} windowed frames, submitted {submitted}")
+
+    start_player(child, HD_ASSET, HD_OPTIONS + " --keep-open=yes")
+    maximize_player(qmp, expect_color(qmp, BLUE))
+    expect_frame(0)
+    send_key(qmp, "p")
+    for number in range(1, HD_FRAMES):
+        expect_frame(number)
+    expect_log(child, "media-eof:yes")
+    send_keys(qmp, ("meta_l", "w"))
+    expect_no_drops(finish_player(child, "(Quit)", size=HD_SIZE))
+    expect_screen(
+        qmp,
+        "desktop after 1080p close",
+        lambda screen: all(
+            screen.crop(edge).tobytes() == desktop.crop(edge).tobytes()
+            for edge in HD_EDGES
+        ),
+    )
+
+
+def run_case(smp, size, verify, media):
+    width, height = size
+    test_name = f"mpv video {width}x{height} (SMP={smp})"
     logs = Path(tempfile.mkdtemp(prefix="mario-mpv-video-"))
-    with tempfile.TemporaryDirectory(prefix="mario-video-boot-") as work, media_disk(
-        files=[("controls.conf", CONTROLS)], assets=("flash-beep.mp4", "video-markers.mp4")
-    ) as media:
+    with tempfile.TemporaryDirectory(prefix="mario-video-boot-") as work:
         qmp = Qmp(str(logs / "qmp.sock"))
-        command = qemu_command(QEMU, qmp.path, args.smp, absolute_mouse=True)
-        boot = vbe_boot_disk(Path(work))
+        command = qemu_command(QEMU, qmp.path, smp, absolute_mouse=True)
+        boot = vbe_boot_disk(Path(work), size=size)
         command = [arg.replace(HD1_IMAGE, str(boot)) for arg in command]
         command += [
             "-drive",
@@ -209,19 +298,37 @@ def main():
             try:
                 make_pexpect_raw(child)
                 qmp.connect()
-                verify_guest(child, qmp)
+                verify(child, qmp)
             except (AssertionError, GuiTestError, pexpect.ExceptionPexpect) as error:
                 try:
                     dump_screen(qmp).save(logs / "failure.png")
                     run_checked(child, "cat /tmp/mpv.log 2>/dev/null || true")
                 except (AssertionError, OSError, GuiTestError, pexpect.ExceptionPexpect):
                     pass
-                print(f"FAIL: mpv video (SMP={args.smp}): {error}; logs: {logs}")
-                return 1
+                print(f"FAIL: {test_name}: {error}; logs: {logs}")
+                return False
             finally:
                 child.close(force=True)
                 qmp.close()
-    print(f"PASS: mpv video (SMP={args.smp}); logs: {logs}")
+    print(f"PASS: {test_name}; logs: {logs}")
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--smp", type=int, choices=(1, 2), default=1)
+    args = parser.parse_args()
+    if not MPV.is_file() or not Path(HD1_IMAGE).is_file():
+        parser.error("build the applications and disk images first")
+
+    with media_disk(
+        files=[("controls.conf", CONTROLS)],
+        assets=("flash-beep.mp4", "video-markers.mp4", HD_ASSET),
+    ) as media:
+        if not run_case(args.smp, (1024, 768), verify_guest, media):
+            return 1
+        if not run_case(args.smp, HD_SIZE, verify_1080p, media):
+            return 1
     return 0
 
 
