@@ -26,8 +26,7 @@
 #define TRAMPOLINE_STACK	(TRAMPOLINE_BASE + 0x250)
 
 /*
- * Local APIC MMIO is outside normal RAM, so give it a dedicated fixed mapping
- * instead of sharing the single active ioremap slot with the AHCI driver.
+ * Local APIC MMIO has a fixed address independent of boot device mappings.
  */
 #define APIC_BASE_VIRT		0xffc00000UL
 /* Temporary mapping for the ACPI tables above the E820-visible RAM top. */
@@ -286,8 +285,6 @@ static int acpi_madt_parse(const struct acpi_sdt_hdr *madt)
 
 /*
  * Install a single kernel-only page for the local APIC at APIC_BASE_VIRT.
- * This mapping is intentionally not managed by ioremap(): the AHCI driver
- * already holds that one-shot mapping.
  */
 static void apic_map(unsigned long phys)
 {

@@ -6,11 +6,13 @@
 #include <panic.h>
 #include <smp.h>
 #include <futex.h>
+#include <hda.h>
 
 #define __KERNEL_SYSCALLS__
 #include <unistd.h>
 
 #include <mm/e820.h>
+#include <mm/ioremap.h>
 #include <mm/mm.h>
 
 #include <video/fb.h>
@@ -86,6 +88,7 @@ void mario(struct multiboot_info *m)
 	printk_init(m);
 	setup_memory_region(m);
 	fb_early_init(m);
+	hda_boot_options(m);
 	paging_init(m);
 	fb_map();
 	page_alloc_init();
@@ -109,6 +112,8 @@ void mario(struct multiboot_info *m)
 	futex_init();
 
 	sti();
+	hda_init();
+	ioremap_seal();
 	/* The PIT is already running, which lets the AP start-up path wait on
 	 * jiffies for INIT/SIPI pacing. */
 	smp_init();

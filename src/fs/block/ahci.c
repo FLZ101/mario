@@ -1010,8 +1010,8 @@ void hd_init(void)
 		pr_debug("AHCI: BAR5 is I/O mapped\n");
 		return;
 	}
-	if (!abar) {
-		pr_debug("AHCI: BAR5 is zero\n");
+	if (!abar || abar > 0xffffffffULL) {
+		pr_debug("AHCI: BAR5 is unassigned or outside 32-bit MMIO\n");
 		return;
 	}
 

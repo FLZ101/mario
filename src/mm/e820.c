@@ -1,4 +1,5 @@
 #include <mm/e820.h>
+#include <mm/ioremap.h>
 
 #include <types.h>
 #include <misc.h>
@@ -23,7 +24,7 @@ struct e820map e820;
 /*
  * Maximum physical memory supported
  */
-#define MAX_MEMORY  KERNEL_BASE
+#define MAX_MEMORY  (IOREMAP_BASE - KERNEL_BASE)
 
 void add_memory_region(__u64 addr, __u64 len, __u32 type)
 {

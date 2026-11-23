@@ -298,7 +298,7 @@ def require_files(require_kernel):
         sys.exit(2)
 
 
-def start_qemu(qemu, realtime=False, smp=1, expect_halt=None):
+def qemu_command(qemu, smp):
     cmd = [
         qemu,
         "-smp",
@@ -334,7 +334,12 @@ def start_qemu(qemu, realtime=False, smp=1, expect_halt=None):
         "ide-hd,drive=mario-test-hd3,bus=mario-test-ahci.2",
     ]
 
-    child = pexpect.spawn(" ".join(cmd), encoding="latin-1", timeout=30)
+    return cmd
+
+
+def start_qemu(qemu, realtime=False, smp=1, expect_halt=None):
+    cmd = qemu_command(qemu, smp)
+    child = pexpect.spawn(cmd[0], cmd[1:], encoding="latin-1", timeout=30)
     make_pexpect_raw(child)
     if realtime:
         child.logfile_read = RealtimeOutput(sys.stdout)

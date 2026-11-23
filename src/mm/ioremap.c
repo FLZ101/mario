@@ -1,106 +1,84 @@
-#include <misc.h>
-
+#include <lib/stddef.h>
 #include <mm/ioremap.h>
+#include <mm/mm.h>
 #include <mm/page_alloc.h>
 #include <mm/pagetable.h>
-#include <mm/mm.h>
 
-#include <lib/spinlock.h>
-#include <lib/stddef.h>
+#define IOREMAP_MAX_MAPPINGS 16
 
-#define IOREMAP_BASE	0xf0000000UL
+static struct {
+	unsigned long address;
+	unsigned int first;
+	unsigned int pages;
+} mappings[IOREMAP_MAX_MAPPINGS];
+static pte_t *mapping_table;
+static int sealed;
 
-static unsigned long iomap_virt;
-static unsigned long iomap_size;
-/*
- * ioremap() supports only one active mapping and mutates the shared swapper
- * page table, so the lookup and installation must be atomic with respect to
- * another CPU.  The lock also protects the iomap_* bookkeeping read by
- * iounmap().
- */
-static spinlock_t ioremap_lock = SPINLOCK_UNLOCKED;
-
-/*
- * MMIO mappings are not backed by normal RAM, so this is a small identity
- * helper that installs kernel-only present pages into the swapper page table.
- * The driver currently needs only one AHCI BAR, hence the single active
- * mapping restriction.
- */
 void *ioremap(unsigned long phys, size_t size)
 {
-	unsigned long virt;
-	unsigned long end;
-	unsigned long page_phys;
-	unsigned long page_virt;
-	unsigned long flags;
+	unsigned long offset = phys & ~PAGE_MASK;
+	unsigned int first = 0, free_pages = 0;
+	unsigned int pages, index, slot;
 
-	if (!phys || !size)
+	if (sealed || !phys || !size || size - 1 > ~phys ||
+	    size > PGDIR_SIZE - offset)
+		return NULL;
+	pages = (offset + size + PAGE_SIZE - 1) >> PAGE_SHIFT;
+	for (slot = 0; slot < IOREMAP_MAX_MAPPINGS; slot++)
+		if (!mappings[slot].address)
+			break;
+	if (slot == IOREMAP_MAX_MAPPINGS)
 		return NULL;
 
-	spin_lock_irqsave(&ioremap_lock, flags);
-	if (iomap_virt)
-		goto out;
+	if (!mapping_table) {
+		pde_t *directory = pde_offset(swapper_pg_dir, IOREMAP_BASE);
 
-	phys &= PAGE_MASK;
-	size = (size + PAGE_SIZE - 1) & PAGE_MASK;
-	virt = IOREMAP_BASE;
-	end = virt + size;
-
-	for (page_phys = phys, page_virt = virt;
-	     page_virt < end;
-	     page_phys += PAGE_SIZE, page_virt += PAGE_SIZE) {
-		pde_t *pde = pde_offset(swapper_pg_dir, page_virt);
-		pte_t *pt;
-		pte_t *pte;
-
-		if (!__pe_present(pde)) {
-			pt = (pte_t *)alloc_pt();
-			if (!pt)
-				return NULL;
-			set_pde(pde, mk_pde(pt, _PDE));
-		} else {
-			pt = pte_offset(__vir(*pde), page_virt);
-		}
-
-		pte = pte_offset(pt, page_virt);
-		set_pte(pte, __mk_pte(page_phys, PG_PRESENT | PG_RW));
+		if (*directory)
+			return NULL;
+		mapping_table = alloc_pt();
+		if (!mapping_table)
+			return NULL;
+		set_pde(directory, mk_pde(mapping_table, PG_PRESENT | PG_RW));
 	}
 
-	flush_tlb();
-	iomap_virt = virt;
-	iomap_size = end - virt;
-	spin_unlock_irqrestore(&ioremap_lock, flags);
-	return (void *)virt;
+	for (index = 0; index < PTES_PER_PT; index++) {
+		if (mapping_table[index]) {
+			free_pages = 0;
+			first = index + 1;
+		} else if (++free_pages == pages) {
+			break;
+		}
+	}
+	if (free_pages != pages)
+		return NULL;
 
-out:
-	spin_unlock_irqrestore(&ioremap_lock, flags);
-	return NULL;
+	phys &= PAGE_MASK;
+	for (index = 0; index < pages; index++, phys += PAGE_SIZE)
+		set_pte(mapping_table + first + index,
+			__mk_pte(phys, PG_PRESENT | PG_RW | PG_PCD | PG_PWT));
+	flush_tlb();
+	mappings[slot].first = first;
+	mappings[slot].pages = pages;
+	mappings[slot].address = IOREMAP_BASE + first * PAGE_SIZE + offset;
+	return (void *)mappings[slot].address;
 }
 
 void iounmap(void *virt)
 {
-	unsigned long address = (unsigned long)virt;
-	unsigned long flags;
-
-	spin_lock_irqsave(&ioremap_lock, flags);
-	if (address != iomap_virt)
-		goto out;
-
-	for (unsigned long page = address; page < address + iomap_size;
-	     page += PAGE_SIZE) {
-		pde_t *pde = pde_offset(swapper_pg_dir, page);
-
-		if (__pe_present(pde)) {
-			pte_t *pt = pte_offset(__vir(*pde), page);
-			pte_t *pte = pte_offset(pt, page);
-
-			set_pte(pte, 0);
-		}
+	if (sealed || !virt)
+		return;
+	for (unsigned int slot = 0; slot < IOREMAP_MAX_MAPPINGS; slot++) {
+		if (mappings[slot].address != (unsigned long)virt)
+			continue;
+		for (unsigned int index = 0; index < mappings[slot].pages; index++)
+			set_pte(mapping_table + mappings[slot].first + index, 0);
+		mappings[slot].address = 0;
+		flush_tlb();
+		return;
 	}
+}
 
-	flush_tlb();
-	iomap_virt = 0;
-	iomap_size = 0;
-out:
-	spin_unlock_irqrestore(&ioremap_lock, flags);
+void ioremap_seal(void)
+{
+	sealed = 1;
 }

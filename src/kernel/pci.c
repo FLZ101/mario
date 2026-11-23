@@ -13,18 +13,20 @@
 
 #define PCI_VENDOR_ID		0x00
 #define PCI_DEVICE_ID		0x02
+#define PCI_COMMAND		0x04
 #define PCI_CLASS_REVISION	0x08
 #define PCI_HEADER_TYPE		0x0c
 #define PCI_BAR0		0x10
 #define PCI_SECONDARY_BUS	0x18
 #define PCI_INTERRUPT_LINE	0x3c
+#define PCI_COMMAND_IO		0x0001
 
 #define PCI_BAR_IO		0x1U
 #define PCI_BAR_MEM32		0x2U
 #define PCI_BAR_MEM64		0x4U
 
-uint32_t pci_config_read32(unsigned int bus, unsigned int slot,
-			   unsigned int func, unsigned int offset)
+static void pci_select(unsigned int bus, unsigned int slot,
+		       unsigned int func, unsigned int offset)
 {
 	uint32_t address;
 
@@ -34,21 +36,32 @@ uint32_t pci_config_read32(unsigned int bus, unsigned int slot,
 		  ((func & 0x07U) << 8) |
 		  (offset & 0xfcU);
 	outl(PCI_CONFIG_ADDRESS, address);
+}
+
+static uint32_t pci_config_read32(unsigned int bus, unsigned int slot,
+				  unsigned int func, unsigned int offset)
+{
+	pci_select(bus, slot, func, offset);
 	return inl(PCI_CONFIG_DATA);
 }
 
-void pci_config_write32(unsigned int bus, unsigned int slot,
-			unsigned int func, unsigned int offset, uint32_t value)
+static void pci_config_write32(const struct pci_device *dev,
+			       unsigned int offset, uint32_t value)
 {
-	uint32_t address;
-
-	address = 0x80000000U |
-		  ((bus & 0xffU) << 16) |
-		  ((slot & 0x1fU) << 11) |
-		  ((func & 0x07U) << 8) |
-		  (offset & 0xfcU);
-	outl(PCI_CONFIG_ADDRESS, address);
+	pci_select(dev->bus, dev->slot, dev->func, offset);
 	outl(PCI_CONFIG_DATA, value);
+}
+
+uint16_t pci_command(const struct pci_device *dev)
+{
+	pci_select(dev->bus, dev->slot, dev->func, PCI_COMMAND);
+	return inw(PCI_CONFIG_DATA);
+}
+
+void pci_write_command(const struct pci_device *dev, uint16_t command)
+{
+	pci_select(dev->bus, dev->slot, dev->func, PCI_COMMAND);
+	outw(PCI_CONFIG_DATA, command);
 }
 
 static uint8_t pci_class_code(uint32_t class_revision)
@@ -96,9 +109,9 @@ static void pci_read_device(unsigned int bus, unsigned int slot,
  * Recursively scan a bus for a class/subclass/prog-if match, descending into
  * PCI-to-PCI bridges when present.  The seen[] map prevents bridge loops.
  */
-static int pci_find_on_bus(unsigned int bus, uint8_t class_code,
-			   uint8_t subclass, uint8_t prog_if,
-			   struct pci_device *dev, unsigned char *seen)
+static int pci_scan_bus(unsigned int bus, uint8_t class_code,
+			uint8_t subclass, int prog_if, pci_match_fn match,
+			void *context, unsigned char *seen)
 {
 	unsigned int slot;
 	unsigned int func;
@@ -114,7 +127,7 @@ static int pci_find_on_bus(unsigned int bus, uint8_t class_code,
 			continue;
 
 		uint32_t header_type =
-			pci_config_read32(bus, slot, 0, PCI_HEADER_TYPE);
+			pci_config_read32(bus, slot, 0, PCI_HEADER_TYPE) >> 16;
 		unsigned int max_func = (header_type & 0x80) ? 8 : 1;
 
 		for (func = 0; func < max_func; func++) {
@@ -127,20 +140,20 @@ static int pci_find_on_bus(unsigned int bus, uint8_t class_code,
 			pci_read_device(bus, slot, func, &candidate);
 			if (candidate.class_code == class_code &&
 			    candidate.subclass == subclass &&
-			    candidate.prog_if == prog_if) {
-				*dev = candidate;
+			    (prog_if == PCI_ANY_PROG_IF ||
+			     candidate.prog_if == prog_if) &&
+			    match(&candidate, context))
 				return 1;
-			}
 
 			header_type = pci_config_read32(bus, slot, func,
-							PCI_HEADER_TYPE);
+							PCI_HEADER_TYPE) >> 16;
 			if ((header_type & 0x7f) == 0x01) {
 				uint32_t secondary =
 					pci_config_read32(bus, slot, func,
 							  PCI_SECONDARY_BUS);
-				if (pci_find_on_bus((secondary >> 8) & 0xff,
-						    class_code, subclass,
-						    prog_if, dev, seen))
+				if (pci_scan_bus((secondary >> 8) & 0xff,
+						 class_code, subclass, prog_if,
+						 match, context, seen))
 					return 1;
 			}
 		}
@@ -149,12 +162,24 @@ static int pci_find_on_bus(unsigned int bus, uint8_t class_code,
 	return 0;
 }
 
-int pci_find_device_by_class(uint8_t class_code, uint8_t subclass,
-			     uint8_t prog_if, struct pci_device *dev)
+int pci_scan_class(uint8_t class_code, uint8_t subclass, int prog_if,
+		   pci_match_fn match, void *context)
 {
 	unsigned char seen[256] = {0};
 
-	return pci_find_on_bus(0, class_code, subclass, prog_if, dev, seen);
+	return pci_scan_bus(0, class_code, subclass, prog_if, match, context, seen);
+}
+
+static int pci_take_first(const struct pci_device *dev, void *context)
+{
+	*(struct pci_device *)context = *dev;
+	return 1;
+}
+
+int pci_find_device_by_class(uint8_t class_code, uint8_t subclass,
+			     uint8_t prog_if, struct pci_device *dev)
+{
+	return pci_scan_class(class_code, subclass, prog_if, pci_take_first, dev);
 }
 
 int pci_bar_info(const struct pci_device *dev, int bar, uint64_t *address,
@@ -194,4 +219,43 @@ int pci_bar_info(const struct pci_device *dev, int bar, uint64_t *address,
 	}
 
 	return -EINVAL;
+}
+
+int pci_mem_bar32(const struct pci_device *dev, int bar,
+		  unsigned long *address, size_t *size)
+{
+	uint64_t base, mask, length;
+	uint32_t flags;
+	unsigned int offset;
+	uint16_t command;
+	int words;
+
+	if (pci_bar_info(dev, bar, &base, &flags, &words) ||
+	    flags == PCI_BAR_IO || !base || base > 0xffffffffULL)
+		return -EINVAL;
+
+	command = pci_command(dev);
+	pci_write_command(dev, command & ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY |
+					   PCI_COMMAND_MASTER));
+	offset = PCI_BAR0 + bar * 4;
+	pci_config_write32(dev, offset, ~0U);
+	if (words == 2)
+		pci_config_write32(dev, offset + 4, ~0U);
+	mask = pci_config_read32(dev->bus, dev->slot, dev->func, offset) & ~15U;
+	if (words == 2) {
+		mask |= (uint64_t)pci_config_read32(dev->bus, dev->slot,
+						   dev->func, offset + 4) << 32;
+		pci_config_write32(dev, offset + 4, dev->bars[bar + 1]);
+	} else {
+		mask |= 0xffffffff00000000ULL;
+	}
+	pci_config_write32(dev, offset, dev->bars[bar]);
+	pci_write_command(dev, command);
+	length = ~mask + 1;
+	if (!length || length > 0xffffffffULL || (length & (length - 1)) ||
+	    (base & (length - 1)) || base + length > 0x100000000ULL)
+		return -EINVAL;
+	*address = base;
+	*size = length;
+	return 0;
 }

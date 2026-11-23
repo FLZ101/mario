@@ -26,8 +26,8 @@ window.
 ## Milestone Map
 
 Complete each exit gate before starting the next milestone. A build that links
-or a QEMU command that starts is not proof of playback. Only M0 has been
-verified; the driver, guest runtime checks, and player are not implemented.
+or a QEMU command that starts is not proof of playback. M0 and M1a are verified;
+playback, the guest runtime checks, and the player are not implemented.
 
 | Milestone | Deliverable | Exit gate |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ verified; the driver, guest runtime checks, and player are not implemented.
   reject addresses outside Mario's supported physical address range. Enable
   memory decoding and bus mastering without clearing unrelated PCI state or
   writing back status bits.
-- Extend the [single-mapping MMIO helper](../src/mm/ioremap.c#L10) so an HDA BAR
+- Extend the [MMIO helper](../src/mm/ioremap.c) so an HDA BAR
   can coexist with AHCI. Use uncached/device mappings, preserve byte offsets,
   check address/size overflow, and unwind partial allocation failures. Check
   kernel mapping visibility and lifetime on SMP; failure to map or unmap HDA
@@ -75,6 +75,13 @@ verified; the driver, guest runtime checks, and player are not implemented.
 **Exit:** Boot QEMU with both AHCI and HDA, read stable HDA capability registers,
 and verify disk I/O before and after an HDA probe failure. Repeat on one and two
 vCPUs. No audio ABI is introduced here.
+
+Verified on QEMU 9.2.4 with `python3 tests/media/hda_test.py --smp 1 --bridge`
+and `python3 tests/media/hda_test.py --smp 2`. Two HDA functions passed stable
+register reads and unmap checks after AHCI disk discovery; the AHCI exact-sector
+test passed afterward. MMIO map mutations are confined to the boot CPU before
+AP startup. The `0xff400000` aperture keeps device PTEs out of the RAM direct
+map, whose physical limit is now 2036 MiB.
 
 ## M1b — HDA DMA and Codec Bring-up
 

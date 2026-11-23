@@ -18,6 +18,8 @@
 
 #define PG_RW 0x002
 #define PG_USER 0x004
+#define PG_PWT 0x008
+#define PG_PCD 0x010
 #define PG_DIRTY 0x040
 #define PG_PRESENT 0x001
 #define PG_ACCESSED 0x020
