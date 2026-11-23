@@ -26,6 +26,16 @@ static inline uint32_t readl(const volatile void *addr)
 	return *(volatile uint32_t *)addr;
 }
 
+static inline void writeb(uint8_t value, volatile void *addr)
+{
+	*(volatile uint8_t *)addr = value;
+}
+
+static inline void writew(uint16_t value, volatile void *addr)
+{
+	*(volatile uint16_t *)addr = value;
+}
+
 static inline void writel(uint32_t value, volatile void *addr)
 {
 	*(volatile uint32_t *)addr = value;

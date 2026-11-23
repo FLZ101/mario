@@ -26,8 +26,8 @@ window.
 ## Milestone Map
 
 Complete each exit gate before starting the next milestone. A build that links
-or a QEMU command that starts is not proof of playback. M0 and M1a are verified;
-playback, the guest runtime checks, and the player are not implemented.
+or a QEMU command that starts is not proof of playback. M0 through M1b are
+verified in QEMU; the PCM device, physical audio, and the player are not verified.
 
 | Milestone | Deliverable | Exit gate |
 | --- | --- | --- |
@@ -123,6 +123,14 @@ map, whose physical limit is now 2036 MiB.
 **Exit:** The WAV confirms the expected stereo signal. The same kernel still
 boots with no audio controller or usable codec. No mpv or floating point is
 needed for this milestone.
+
+Verified with `python3 tests/media/hda_test.py --mode pcm --smp N` for `N=1,2`
+on QEMU 9.2.4. The WAV backend ran at 48 kHz, stereo, S16 with a 1 ms audio
+timer. The capture contains exactly 480 left-only frames followed by 480
+right-only frames, with the expected polarity and no duplicate markers.
+The test skips a codec-less controller before selecting a working controller.
+The `no-codec` and `no-controller` modes boot and pass the AHCI check at both
+CPU counts. The boot self-test is opt-in through `hda=selftest`.
 
 ## M2 — PCM Device and Recovery
 
