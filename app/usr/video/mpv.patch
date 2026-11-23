@@ -68,6 +68,30 @@
 
  sources += path_source + timer_source
 
+@@ -803,2 +808,7 @@
+ # audio output dependencies
++features += {'mario-audio': host_machine.system() == 'mario'}
++if features['mario-audio']
++    sources += files('audio/out/ao_mario.c')
++endif
++
+ alsa = dependency('alsa', version: '>= 1.0.18', required: get_option('alsa'))
+--- a/audio/out/ao.c
++++ b/audio/out/ao.c
+@@ -54,4 +54,5 @@
+ extern const struct ao_driver audio_out_pcm;
++extern const struct ao_driver audio_out_mario;
+ extern const struct ao_driver audio_out_lavc;
+ extern const struct ao_driver audio_out_sdl;
+ extern const struct ao_driver audio_out_aaudio;
+@@ -59,4 +60,7 @@
+ static const struct ao_driver * const audio_out_drivers[] = {
+ // native:
++#if HAVE_MARIO_AUDIO
++    &audio_out_mario,
++#endif
+ #if HAVE_AUDIOTRACK
+     &audio_out_audiotrack,
 --- a/meson.options
 +++ b/meson.options
 @@ -2,6 +2,7 @@

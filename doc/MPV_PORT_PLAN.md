@@ -29,7 +29,7 @@ Complete each exit gate before starting the next milestone unless the gate is
 explicitly deferred. A build that links or a QEMU command that starts is not
 proof of playback. M0 through M1b and the automated M2 QEMU gates are verified.
 The M2 listening check and M2H physical-PC gate were deferred to start M3;
-both remain outstanding. M3 passes in QEMU; the player milestones have not started.
+both remain outstanding. M3 through M5 pass in QEMU on one and two vCPUs.
 
 | Milestone | Deliverable | Exit gate |
 | --- | --- | --- |
@@ -285,24 +285,31 @@ The link uses staged media libraries, Mario's musl, and Mario's compiler runtime
 
 ## M5 — mpv Audio Output
 
-- Add `ao_mario` as an [mpv push backend][mpv-ao]. Negotiate 48 kHz stereo S16
-  and let mpv resample and remap as needed. Map `init`/`uninit`, `start`, `reset`,
-  `set_pause` and `write` to `/dev/pcm0`. Report `free_samples`, `queued_samples`,
-  `playing` and `delay` from coherent `STATUS` snapshots, using stereo frames
-  (mpv calls them samples) and seconds for delay. Limit write sizes to promised
-  capacity and mind mpv's boolean `write` contract: reserve a full packet at
-  the device boundary (or stage it in a bounded AO buffer and count that buffer
-  in latency). Never report success after accepting only part of a packet or
-  let a blocking write hold the AO lock.
-  Use mpv's timed refill initially; add a poll-driven `ao_wakeup()` if measured
-  refill latency or underrun reporting needs it. Treat seek/quit as discard;
-  at natural EOF let mpv wait for pending audio instead of resetting early.
+- `ao_mario` is an [mpv push backend][mpv-ao] for `/dev/pcm0`. It requests
+  48 kHz stereo S16 and lets mpv resample and remap input. It accepts whole
+  mpv writes into a staging buffer bounded by the device capacity. Timed
+  refill uses nonblocking device writes, retaining any unwritten frames.
+  Latency includes both staged and device-pending frames.
+- Pause lets already-staged DMA samples play out, then resumes the queued
+  audio. Seek discards both queues; closing the player releases the PCM device.
+  At natural EOF the backend reports playback active until the device drains.
+  It does not fall back to null audio by default if `/dev/pcm0` cannot open.
 
 **Exit:** Play `stereo-markers-44100.mp4` and `stereo-markers-48000.mp4` with
 `--no-video --ao=mario`. The capture preserves channel activity and marker
 timing within AAC/resampling tolerance, plays the final marker to EOF, and
 does not repeat old audio after pause or seek beyond the measured host-buffer
 tail. A missing/busy device produces an explicit failure, not silent fallback.
+
+Run the capture gate with `N=1` and `N=2` after building the kernel, apps,
+and disk images. It tests both AAC rates, including an exact seek while paused,
+and rejects absent and busy PCM devices. QEMU captures 48 kHz stereo PCM without
+a host audio device. The WAV includes the transition around pause but does not
+record the full wall-clock pause while DMA is stopped.
+
+```sh
+.venv/bin/python tests/media/mpv_audio_test.py --smp "$N"
+```
 
 ## M6 — Native Video Output
 

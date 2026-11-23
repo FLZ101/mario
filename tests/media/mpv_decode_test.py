@@ -1,6 +1,7 @@
 """Decode the checked-in AAC fixtures in a guest using a disposable disk."""
 
 import argparse
+from contextlib import contextmanager
 from pathlib import Path
 import re
 import shutil
@@ -16,18 +17,27 @@ import pexpect
 
 
 MEDIA = Path(ROOT) / "app/usr/video"
+MPV = MEDIA / "install/bin/mpv"
 ASSETS = Path(__file__).resolve().with_name("assets")
 RATES = (44100, 48000)
 
 
-def run_checked(child, command):
+def start_command(child, command):
     send_line(child, command + "; printf '\\nmedia-exit:%s\\n' \"$?\"")
+
+
+def finish_command(child, success=True):
     child.expect(BOOT_PROMPT, timeout=30)
     output = child.before
     status = re.search(r"(?:^|\n)media-exit:(\d+)[\r\n]", output)
-    if not status or status[1] != "0":
-        raise AssertionError(f"guest command failed: {command}\n{output}")
+    if not status or (status[1] == "0") != success:
+        raise AssertionError(f"unexpected guest exit status:\n{output}")
     return output
+
+
+def run_checked(child, command, success=True):
+    start_command(child, command)
+    return finish_command(child, success)
 
 
 def verify_guest(child):
@@ -54,37 +64,41 @@ def verify_guest(child):
             )
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--smp", type=int, choices=(1, 2), default=1)
-    args = parser.parse_args()
-
-    binary = MEDIA / "install/bin/mpv"
-    if not binary.is_file():
-        parser.error("mpv is missing; run make app first")
-    require_files(require_kernel=True)
-
-    logs = Path(tempfile.mkdtemp(prefix="mario-mpv-"))
-    with tempfile.TemporaryDirectory(
-        prefix="decode-", dir=MEDIA / "build"
-    ) as directory:
+@contextmanager
+def media_command(smp, files=()):
+    with tempfile.TemporaryDirectory(prefix="guest-", dir=MEDIA / "build") as directory:
         work = Path(directory)
         staging = work / "root"
         staging.mkdir()
-        shutil.copy2(binary, staging)
+        shutil.copy2(MPV, staging)
         for rate in RATES:
             shutil.copy2(ASSETS / f"stereo-markers-{rate}.mp4", staging)
+        for name, contents in files:
+            (staging / name).write_text(contents, encoding="ascii")
         image = work / "media.img"
         subprocess.run(
             ["mke2fs", "-q", "-t", "ext2", "-d", staging, image, "32M"], check=True
         )
 
-        cmd = qemu_command(QEMU, args.smp) + [
+        yield qemu_command(QEMU, smp) + [
             "-drive",
             f"id=media,file={image},format=raw,if=none",
             "-device",
             "ide-hd,drive=media,bus=mario-test-ahci.3",
         ]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--smp", type=int, choices=(1, 2), default=1)
+    args = parser.parse_args()
+
+    if not MPV.is_file():
+        parser.error("mpv is missing; run make app first")
+    require_files(require_kernel=True)
+
+    logs = Path(tempfile.mkdtemp(prefix="mario-mpv-"))
+    with media_command(args.smp) as cmd:
         with (logs / "serial.log").open("w", encoding="latin-1") as serial:
             child = pexpect.spawn(cmd[0], cmd[1:], encoding="latin-1")
             child.logfile_read = serial

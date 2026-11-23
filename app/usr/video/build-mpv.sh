@@ -2,8 +2,8 @@
 
 set -e
 
-if [[ -z $CC || -z $MPV_SRC_DIR || -z $PLACEBO_SRC_DIR || -z $MEDIA_BUILD_DIR || -z $MEDIA_INSTALL_DIR ]] ; then
-    echo "CC, MPV_SRC_DIR, PLACEBO_SRC_DIR, MEDIA_BUILD_DIR and MEDIA_INSTALL_DIR are not all set"
+if [[ -z $CC || -z $MPV_SRC_DIR || -z $PLACEBO_SRC_DIR || -z $MEDIA_BUILD_DIR || -z $MEDIA_INSTALL_DIR || -z $PCM_UAPI_DIR ]] ; then
+    echo "CC, MPV_SRC_DIR, PLACEBO_SRC_DIR, MEDIA_BUILD_DIR, MEDIA_INSTALL_DIR and PCM_UAPI_DIR are not all set"
     exit 1
 fi
 
@@ -41,7 +41,7 @@ needs_exe_wrapper = true
 pkg_config_libdir = '$MEDIA_INSTALL_DIR/lib/pkgconfig'
 
 [built-in options]
-c_args = ['-idirafter', '$(gcc -print-file-name=include)', '-march=i686', '-mno-mmx', '-mno-sse', '-mno-sse2', '-ffunction-sections', '-fdata-sections']
+c_args = ['-I$PCM_UAPI_DIR', '-idirafter', '$(gcc -print-file-name=include)', '-march=i686', '-mno-mmx', '-mno-sse', '-mno-sse2', '-ffunction-sections', '-fdata-sections']
 EOF
 
 options=(--cross-file mario.cross --wrap-mode=nofallback --auto-features=disabled
