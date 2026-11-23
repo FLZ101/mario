@@ -98,8 +98,9 @@ map, whose physical limit is now 2036 MiB.
   -audiodev "wav,id=mario-audio,path=$capture_wav,out.frequency=48000,out.channels=2,out.format=s16"
   ```
 
-  Keep device/backend selection opt-in and use a real host sink for manual GTK
-  testing. Poll initially; do not assume MSI or working PCI interrupt routing.
+  The interactive QEMU targets attach HDA hardware by default, and Mario probes
+  for it automatically. Keep the automated runners independent of host audio.
+  Poll initially; do not assume MSI or working PCI interrupt routing.
 - Reset the controller with bounded waits, enumerate responding codec addresses,
   and send verbs through one command path (CORB/RIRB with polled responses).
   Validate response codec IDs and handle missing or nonresponsive codecs without
@@ -345,10 +346,10 @@ with `N=1` and `N=2`:
 ```
 
 The decode check requires all 60 H.264 frames to reach `--vo=null`. The GUI
-check uses `mcopy` (from `mtools`) and `sfdisk` to enable HDA on a disposable
-copy of the boot disk. It checks actual QEMU screen pixels with the video-only
-color markers and the A/V flash fixture. Neither test installs mpv in the
-normal or GTK images.
+check uses `mcopy` (from `mtools`) and `sfdisk` to select the resolution on a
+disposable copy of the boot disk. It checks actual QEMU screen pixels with the
+video-only color markers and the A/V flash fixture. Neither test installs mpv
+in the normal or GTK images.
 
 **Exit:** A focused GUI test observes frame changes, a stable paused frame,
 redraw on seek/resize, and clean close/EOF. Check both an A/V clip and a video-only

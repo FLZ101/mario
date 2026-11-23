@@ -1,9 +1,8 @@
 # Mario PCM playback
 
-Boot with `hda=on` to probe PCI High Definition Audio controllers. The driver
-selects one analog line-out or headphone path. It does not enable audio on
-ordinary boots or rely on a host audio device. Opening `/dev/pcm0` returns
-`ENODEV` without a suitable controller and codec.
+Mario automatically probes PCI High Definition Audio controllers at boot. The
+driver selects the first usable analog line-out or headphone path. Opening
+`/dev/pcm0` returns `ENODEV` without a suitable controller and codec.
 
 ## Interface
 
@@ -38,8 +37,8 @@ The driver polls roughly every 10 ms. A 35 ms service gap or implausible DMA
 position stops the stream and discards unaccountable PCM rather than guessing
 at a wrap. This cannot undo audio the hardware has already emitted: a stall
 longer than a full ring can replay data before software can stop it. Validate
-the polling deadline under load on the reference PC before enabling the port by
-default. If that deadline cannot be met, add completion interrupt servicing.
+the polling deadline under load on the reference PC. If that deadline cannot be
+met, add completion interrupt servicing.
 
 ## Validation
 
@@ -49,6 +48,8 @@ unique temporary directory. No FFmpeg or host audio device is required.
 
 ```sh
 .venv/bin/python tests/media/hda_test.py --mode device --smp "$N"
+.venv/bin/python tests/media/hda_test.py --mode no-codec --smp "$N"
+.venv/bin/python tests/media/hda_test.py --mode no-controller --smp "$N"
 .venv/bin/python tests/media/hda_test.py --mode late --smp "$N"
 ```
 
@@ -58,9 +59,9 @@ For the manual listening check, run
 both channels, followed by two short markers. An intentional pause falls
 inside the first marker.
 
-For the physical gate, boot a Mario-compatible PC with `hda=on` appended to
-the multiboot kernel command and run `/usr/bin/test/pcm.exe`. Use another task
-to read from the reference disk throughout. Confirm the analog jack, log the
-HDA controller and codec path from `dmesg`, and follow the cold-boot/reboot and
-recovery checklist in the [port plan](MPV_PORT_PLAN.md#m2h--physical-pc-audio-gate).
+For the physical gate, boot a Mario-compatible PC and run
+`/usr/bin/test/pcm.exe`. Use another task to read from the reference disk
+throughout. Confirm the analog jack, log the HDA controller and codec path
+from `dmesg`, and follow the cold-boot/reboot and recovery checklist in the
+[port plan](MPV_PORT_PLAN.md#m2h--physical-pc-audio-gate).
 Physical playback has not yet been verified.

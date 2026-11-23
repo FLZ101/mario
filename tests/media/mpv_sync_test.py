@@ -23,8 +23,8 @@ from mpv_video_test import (
     SAMPLE,
     WHITE,
     expect_color,
-    hda_boot_disk,
     sample_matches,
+    vbe_boot_disk,
 )
 from lit_gui_test import GuiTestError, Qmp, qemu_command, send_key
 from lit_shell_test import BOOT_PROMPT, HD1_IMAGE, QEMU
@@ -354,7 +354,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix="mario-sync-boot-") as work, media_disk(
             files=[("controls.conf", CONTROLS)], assets=("flash-beep.mp4", "flash-beep-drift.mp4")
         ) as media:
-            boot = hda_boot_disk(Path(work), args.kernel)
+            boot = vbe_boot_disk(Path(work), args.kernel)
             results = {
                 name: run_case(args, logs / name, probe, name, boot, media)
                 for name in dict.fromkeys(args.case or ("plain", "controls", "drift"))

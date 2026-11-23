@@ -112,8 +112,6 @@ def run_case(smp, logs, rate=None, seek=False):
         command += ["-monitor", f"unix:{monitor},server=on,wait=off"]
         if rate is not None:
             command += [
-                "-append",
-                "hda=on",
                 "-device",
                 "ich9-intel-hda,id=hda,msi=off",
                 "-device",

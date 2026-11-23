@@ -173,9 +173,10 @@ def main():
     cmd = qemu_command(QEMU, args.smp)
     cmd += ["-monitor", f"unix:{monitor},server=on,wait=off"]
     boot_option = {"probe": "probe", "pcm": "selftest", "late": "test-late"}.get(
-        args.mode, "on"
+        args.mode
     )
-    cmd += ["-append", f"hda={boot_option}"]
+    if boot_option:
+        cmd += ["-append", f"hda={boot_option}"]
     if args.mode != "no-controller":
         cmd += ["-device", "ich9-intel-hda,id=hda-root,msi=off"]
     if args.mode in ("probe", "pcm", "device", "late"):

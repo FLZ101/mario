@@ -81,7 +81,7 @@ _Static_assert(sizeof(struct hda_tables) <= PAGE_SIZE, "HDA tables fit one page"
 _Static_assert(HDA_PERIOD_BYTES <= PAGE_SIZE && !(HDA_PERIOD_BYTES % 128),
 	       "HDA periods fit an aligned DMA page");
 
-static enum { HDA_OFF, HDA_PROBE, HDA_SELFTEST, HDA_DEVICE, HDA_LATE_TEST } boot_mode;
+static enum { HDA_DEVICE, HDA_PROBE, HDA_SELFTEST, HDA_LATE_TEST } boot_mode;
 static unsigned char *controller, *stream;
 static struct hda_tables *tables;
 static int16_t *periods[HDA_PERIODS];
@@ -106,11 +106,6 @@ void hda_boot_options(const struct multiboot_info *boot)
 		if (!strncmp(option, "hda=selftest", 12) &&
 		    (!option[12] || option[12] == ' ')) {
 			boot_mode = HDA_SELFTEST;
-			return;
-		}
-		if (!strncmp(option, "hda=on", 6) &&
-		    (!option[6] || option[6] == ' ')) {
-			boot_mode = HDA_DEVICE;
 			return;
 		}
 		if (!strncmp(option, "hda=test-late", 13) &&
@@ -504,9 +499,7 @@ void hda_init(void)
 	if (boot_mode == HDA_PROBE)
 		pci_scan_class(HDA_CLASS, HDA_SUBCLASS, PCI_ANY_PROG_IF,
 			       hda_probe, NULL);
-	if ((boot_mode == HDA_SELFTEST || boot_mode == HDA_DEVICE ||
-	     boot_mode == HDA_LATE_TEST) &&
-	    !pci_scan_class(HDA_CLASS, HDA_SUBCLASS, PCI_ANY_PROG_IF,
-			    hda_try_play, NULL))
+	else if (!pci_scan_class(HDA_CLASS, HDA_SUBCLASS, PCI_ANY_PROG_IF,
+				hda_try_play, NULL))
 		pr_info("HDA: no playback device\n");
 }

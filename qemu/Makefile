@@ -78,6 +78,7 @@ endif
 
 BOOT_DISK ?= hd1.img
 USR_DISK ?= hd3.img
+QEMU_AUDIO ?= $(if $(PULSE_SERVER),pa)
 
 HD_FLAGS := \
 	-snapshot \
@@ -89,12 +90,18 @@ HD_FLAGS := \
 	-device ide-hd,drive=disk2,bus=ahci.1 \
 	-device ide-hd,drive=disk3,bus=ahci.2
 
+AUDIO_FLAGS := \
+	$(if $(QEMU_AUDIO),-audio "$(QEMU_AUDIO)") \
+	-device ich9-intel-hda,id=mario-hda,msi=off \
+	-device hda-output,bus=mario-hda.0
+
 QEMU_FLAGS := \
 	-boot order=c \
 	-m 256M \
 	-smp $(SMP) \
 	-display $(QEMU_DISPLAY) \
 	-machine vmport=$(QEMU_VMPORT) \
+	$(AUDIO_FLAGS) \
 	$(HD_FLAGS)
 
 QEMU_FLAGS_DEBUG := $(QEMU_FLAGS) -no-reboot -no-shutdown
@@ -115,6 +122,7 @@ QUICK_QEMU_FLAGS := \
 	-initrd $(RDX) \
 	-display $(QEMU_DISPLAY) \
 	-machine vmport=$(QEMU_VMPORT) \
+	$(AUDIO_FLAGS) \
 	$(HD_FLAGS)
 
 QUICK_QEMU_FLAGS_DEBUG := $(QUICK_QEMU_FLAGS) -no-reboot -no-shutdown

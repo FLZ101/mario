@@ -37,7 +37,7 @@ BLUE = (0, 0, 255)
 WHITE = (255, 255, 255)
 
 
-def hda_boot_disk(work, kernel=None):
+def vbe_boot_disk(work, kernel=None):
     boot = work / "hd1.img"
     subprocess.run(
         ["cp", "--reflink=auto", "--sparse=always", HD1_IMAGE, boot], check=True
@@ -46,11 +46,7 @@ def hda_boot_disk(work, kernel=None):
         "partitiontable"
     ]
     offset = table["partitions"][0]["start"] * table["sectorsize"]
-    menu = work / "menu.lst"
-    source = Path(ROOT) / "qemu/grub4dos-0.4.6a/menu.lst.vbe_1024x768"
-    menu.write_text(
-        source.read_text().replace("kernel /kernel.exe\n", "kernel /kernel.exe hda=on\n")
-    )
+    menu = Path(ROOT) / "qemu/grub4dos-0.4.6a/menu.lst.vbe_1024x768"
     subprocess.run(
         ["mcopy", "-o", "-i", f"{boot}@@{offset}", menu, "::menu.lst"], check=True
     )
@@ -193,7 +189,7 @@ def main():
     ) as media:
         qmp = Qmp(str(logs / "qmp.sock"))
         command = qemu_command(QEMU, qmp.path, args.smp, absolute_mouse=True)
-        boot = hda_boot_disk(Path(work))
+        boot = vbe_boot_disk(Path(work))
         command = [arg.replace(HD1_IMAGE, str(boot)) for arg in command]
         command += [
             "-drive",

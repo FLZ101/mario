@@ -183,6 +183,12 @@ one exists. This does not change standard images, quick GTK runs, or tests.
 `/dev` is generated separately, and runtime mounts such as `/proc` and `/sys`
 hide files placed underneath them.
 
+The QEMU run and debug targets (including GTK, quick, and tmux variants) enable
+HDA playback at `/dev/pcm0`. They use PulseAudio when `PULSE_SERVER` is set
+and let QEMU choose the host backend otherwise. Use `make run-gtk QEMU_AUDIO=none`
+to mute host output while keeping the guest device, or `QEMU_AUDIO=pa` to select
+PulseAudio explicitly.
+
 ## Debug
 
 ```
