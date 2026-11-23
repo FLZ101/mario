@@ -114,7 +114,7 @@ map, whose physical limit is now 2036 MiB.
   a buffer descriptor list with spec-compliant alignment; use 32-bit-addressable
   DMA memory for the initial driver. Track byte units (`CBL`, BDL lengths,
   `LPIB`) and convert to stereo frames for userspace. Start with 960-frame
-  periods (20 ms, 3,840 bytes) and an 80 ms queue budget. For bring-up, use a
+  periods (20 ms, 3,840 bytes) and a 160 ms queue budget. For bring-up, use a
   bounded integer PCM self-test and stop before the cyclic buffer repeats; do
   not add a temporary public ABI.
 - Add a focused capture runner: use a unique WAV path per QEMU run and quit
@@ -386,7 +386,7 @@ quiet Linux host, run the opt-in measurement separately from other QEMU jobs:
 ```
 
 This uses TCG, a 256 MiB guest, std VGA at 1024×768×32, emulated ICH9 HDA,
-48 kHz stereo S16 WAV capture, a 5 ms audio timer, Mario's 80 ms PCM ring and
+48 kHz stereo S16 WAV capture, a 5 ms audio timer, Mario's 160 ms PCM ring and
 mpv's default 200 ms software audio buffer. mpv uses audio-clock sync. The test
 uses the same disposable disks as the GUI check and needs a host C compiler
 and dynamically linked QEMU. No host sound server or FFmpeg is required.

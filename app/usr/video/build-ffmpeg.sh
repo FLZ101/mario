@@ -19,12 +19,12 @@ pushd "$MEDIA_BUILD_DIR/ffmpeg"
     --cc="$CC" --ld="$CC" --ar=ar --ranlib=ranlib \
     --enable-cross-compile --arch=i386 --cpu=i686 --target-os=linux \
     --disable-everything --disable-autodetect --disable-network \
-    --disable-programs --disable-doc --disable-debug --disable-asm --disable-avdevice \
+    --disable-programs --disable-doc --disable-debug --enable-asm --enable-x86asm --disable-avdevice \
     --disable-shared --enable-static \
     --enable-protocol=file --enable-demuxer=mov \
     --enable-decoder=aac,h264 --enable-parser=aac,h264 \
     --enable-filter=abuffer,abuffersink,aformat,aresample,anull \
-    --extra-cflags="-idirafter $(gcc -print-file-name=include) -mno-mmx -mno-sse -mno-sse2 -ffunction-sections -fdata-sections"
+    --extra-cflags="-idirafter $(gcc -print-file-name=include) -msse2 -ffunction-sections -fdata-sections"
 
 make -j "${JOBS:-1}"
 make install

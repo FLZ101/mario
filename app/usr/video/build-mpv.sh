@@ -42,7 +42,7 @@ pkg_config_libdir = '$MEDIA_INSTALL_DIR/lib/pkgconfig'
 mario_ui_lib = '$MARIO_UI_DIR/libmario-ui.a'
 
 [built-in options]
-c_args = ['-I$PCM_UAPI_DIR', '-I$MARIO_UI_DIR/include', '-I$MARIO_UI_DIR/../../include', '-idirafter', '$(gcc -print-file-name=include)', '-march=i686', '-mno-mmx', '-mno-sse', '-mno-sse2', '-ffunction-sections', '-fdata-sections']
+c_args = ['-I$PCM_UAPI_DIR', '-I$MARIO_UI_DIR/include', '-I$MARIO_UI_DIR/../../include', '-idirafter', '$(gcc -print-file-name=include)', '-march=i686', '-msse2', '-ffunction-sections', '-fdata-sections']
 EOF
 
 options=(--cross-file mario.cross --wrap-mode=nofallback --auto-features=disabled

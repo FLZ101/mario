@@ -106,6 +106,8 @@ def media_disk(files=(), assets=()):
 def media_command(smp, files=(), assets=()):
     with media_disk(files, assets) as image:
         yield qemu_command(QEMU, smp) + [
+            "-cpu",
+            "max",
             "-drive",
             f"id=media,file={image},format=raw,if=none",
             "-device",

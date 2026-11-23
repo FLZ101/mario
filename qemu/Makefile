@@ -99,6 +99,7 @@ QEMU_FLAGS := \
 	-boot order=c \
 	-m 256M \
 	-smp $(SMP) \
+	-cpu max \
 	-display $(QEMU_DISPLAY) \
 	-machine vmport=$(QEMU_VMPORT) \
 	$(AUDIO_FLAGS) \
@@ -118,6 +119,7 @@ debug:
 QUICK_QEMU_FLAGS := \
 	-m 256M \
 	-smp $(SMP) \
+	-cpu max \
 	-kernel $(KERNEL_EXE) \
 	-initrd $(RDX) \
 	-display $(QEMU_DISPLAY) \

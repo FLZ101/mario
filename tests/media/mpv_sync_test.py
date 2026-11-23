@@ -111,8 +111,10 @@ def scan_screen(child, qmp, logs, controls, drift, base):
                 frame = frame_number(screen)
                 white = all(low >= 192 for low, _ in marker)
                 black = all(high <= 63 for _, high in marker)
-                if frame is None or not (white or black) or white != (
-                    frame >= 15 and frame % 15 < 3
+                if (
+                    frame is None
+                    or not (white or black)
+                    or white != (frame >= 15 and frame % 15 < 3)
                 ):
                     frame = None
                     white = black = False
@@ -140,7 +142,9 @@ def scan_screen(child, qmp, logs, controls, drift, base):
                 send_key(qmp, "s")
                 sought = True
 
-            done = child.expect([r"media-done:(\d+)\r*\n", pexpect.TIMEOUT], timeout=0.001)
+            done = child.expect(
+                [r"media-done:(\d+)\r*\n", pexpect.TIMEOUT], timeout=0.001
+            )
             if done == 0:
                 if child.match[1] != "0":
                     raise AssertionError(child.after.strip())
@@ -186,7 +190,9 @@ def captured_beeps(logs, timer_us):
         while offsets and offsets[0] < covered:
             offsets.popleft()
             uncertainty = chunk_ms / 1000 + 0.005 + timer_us / 1e6
-            beeps.append((float(timestamp) - uncertainty, float(timestamp) + uncertainty))
+            beeps.append(
+                (float(timestamp) - uncertainty, float(timestamp) + uncertainty)
+            )
     if covered != len(samples) or offsets or not beeps:
         raise AssertionError("QEMU WAV writes were not fully timestamped")
     return beeps, max_chunk_ms
@@ -196,15 +202,24 @@ def run_case(args, logs, probe, name, boot, media):
     logs.mkdir()
     qmp = Qmp(str(logs / "qmp.sock"))
     command = [
-        arg.replace(HD1_IMAGE, str(boot)) for arg in qemu_command(QEMU, qmp.path, args.smp)
+        arg.replace(HD1_IMAGE, str(boot))
+        for arg in qemu_command(QEMU, qmp.path, args.smp)
     ]
     command += [
-        "-accel", args.accel,
-        "-drive", f"id=media,file={media},format=raw,if=none",
-        "-device", "ide-hd,drive=media,bus=gui-ahci.3",
-        "-device", "ich9-intel-hda,id=hda,msi=off",
-        "-device", "hda-output,bus=hda.0,audiodev=audio",
-        "-audiodev", f"wav,id=audio,path={logs / 'capture.wav'},timer-period={args.timer_us},"
+        "-cpu",
+        "max",
+        "-accel",
+        args.accel,
+        "-drive",
+        f"id=media,file={media},format=raw,if=none",
+        "-device",
+        "ide-hd,drive=media,bus=gui-ahci.3",
+        "-device",
+        "ich9-intel-hda,id=hda,msi=off",
+        "-device",
+        "hda-output,bus=hda.0,audiodev=audio",
+        "-audiodev",
+        f"wav,id=audio,path={logs / 'capture.wav'},timer-period={args.timer_us},"
         "out.frequency=48000,out.channels=2,out.format=s16",
     ]
     env = os.environ | {
@@ -216,20 +231,29 @@ def run_case(args, logs, probe, name, boot, media):
     controls = name == "controls"
     asset = "flash-beep-drift.mp4" if drift else "flash-beep.mp4"
     with (logs / "serial.log").open("w", encoding="latin-1") as serial:
-        child = pexpect.spawn(command[0], command[1:], env=env, encoding="latin-1", timeout=45)
+        child = pexpect.spawn(
+            command[0], command[1:], env=env, encoding="latin-1", timeout=45
+        )
         child.logfile_read = serial
         try:
             make_pexpect_raw(child)
             qmp.connect()
             child.expect(BOOT_PROMPT)
             run_checked(child, "mount -t ext2 -o ro /dev/hdd /mnt")
-            run_checked(child, "while ! test -e /tmp/mario-wm.started; do sleep 1; done")
+            run_checked(
+                child, "while ! test -e /tmp/mario-wm.started; do sleep 1; done"
+            )
             send_key(qmp, "f8")
             expect_color(qmp, (31, 41, 51))
             base = vram_base(qmp)
-            if not sample_matches(read_scanlines(qmp, base, SAMPLE[1], logs / "scanlines.bin"),
-                                  (SAMPLE[0], 0, SAMPLE[2], SAMPLE_ROWS), (31, 41, 51)):
-                raise AssertionError("VBE scanlines do not match the QMP desktop screenshot")
+            if not sample_matches(
+                read_scanlines(qmp, base, SAMPLE[1], logs / "scanlines.bin"),
+                (SAMPLE[0], 0, SAMPLE[2], SAMPLE_ROWS),
+                (31, 41, 51),
+            ):
+                raise AssertionError(
+                    "VBE scanlines do not match the QMP desktop screenshot"
+                )
             run_checked(child, "free -k >/tmp/memory.log")
             start_command(
                 child,
@@ -245,12 +269,21 @@ def run_case(args, logs, probe, name, boot, media):
             output = run_checked(child, "cat /tmp/mpv.log")
             (logs / "mpv.log").write_text(output)
             memory = run_checked(child, "cat /tmp/memory.log")
-            for marker in ("AO: [mario] 48000Hz", "VO: [mario] 320x180 yuv420p", "(End of file)"):
+            for marker in (
+                "AO: [mario] 48000Hz",
+                "VO: [mario] 320x180 yuv420p",
+                "(End of file)",
+            ):
                 if marker not in output:
                     raise AssertionError(f"missing {marker!r} in mpv.log")
-            if controls and not all(marker in output for marker in (
-                "media-paused:yes", "media-paused:no", "media-seek",
-            )):
+            if controls and not all(
+                marker in output
+                for marker in (
+                    "media-paused:yes",
+                    "media-paused:no",
+                    "media-seek",
+                )
+            ):
                 raise AssertionError("mpv did not acknowledge pause, resume and seek")
             qmp.command("quit")
             child.expect(pexpect.EOF)
@@ -294,7 +327,9 @@ def report_case(logs, timer_us, name, flashes, delivered, output, memory):
         "submitted": len(durations),
         "median_submission_ms": statistics.median(total for total, _ in durations),
         "median_conversion_ms": statistics.median(convert for _, convert in durations),
-        "median_upload_ms": statistics.median(total - convert for total, convert in durations),
+        "median_upload_ms": statistics.median(
+            total - convert for total, convert in durations
+        ),
         "vo_drops": max(map(int, re.findall(r"vo-drops:(\d+)", output)), default=None),
         "visible_distinct_frames": delivered if drift else None,
         "pcm_underruns_during_playback": sum(map(int, underruns.findall(playback))),
@@ -307,9 +342,9 @@ def report_case(logs, timer_us, name, flashes, delivered, output, memory):
         stats["audio_pulse_span_ms"] = (
             statistics.mean(beeps[-1]) - statistics.mean(beeps[0])
         ) * 1000
-        stats["drift_ms_first_to_last_5_pulses"] = (
-            statistics.mean(midpoints[-5:]) - statistics.mean(midpoints[:5])
-        )
+        stats["drift_ms_first_to_last_5_pulses"] = statistics.mean(
+            midpoints[-5:]
+        ) - statistics.mean(midpoints[:5])
     (logs / "stats.json").write_text(json.dumps(stats, indent=2) + "\n")
     if matched:
         skew = f"skew bounded by {stats['worst_case_skew_ms']:.1f} ms"
@@ -329,8 +364,12 @@ def main():
     parser.add_argument("--smp", type=int, choices=(1, 2), default=2)
     parser.add_argument("--accel", choices=("tcg", "kvm"), default="tcg")
     parser.add_argument("--timer-us", type=int, default=5000)
-    parser.add_argument("--kernel", type=Path, help="boot a different kernel on the disposable disk")
-    parser.add_argument("--case", choices=("plain", "controls", "drift"), action="append")
+    parser.add_argument(
+        "--kernel", type=Path, help="boot a different kernel on the disposable disk"
+    )
+    parser.add_argument(
+        "--case", choices=("plain", "controls", "drift"), action="append"
+    )
     args = parser.parse_args()
     if args.timer_us <= 0:
         parser.error("--timer-us must be positive")
@@ -345,14 +384,30 @@ def main():
         flush=True,
     )
     try:
-        subprocess.run([
-            "cc", "-Wall", "-Wextra", "-O2", "-shared", "-fPIC",
-            Path(__file__).with_name("qemu_wav_timing.c"), "-o", probe, "-ldl",
-        ], check=True)
-        (logs / "qemu-version.txt").write_bytes(subprocess.check_output([QEMU, "--version"]))
-        (logs / "settings.json").write_text(json.dumps(vars(args), default=str, indent=2) + "\n")
+        subprocess.run(
+            [
+                "cc",
+                "-Wall",
+                "-Wextra",
+                "-O2",
+                "-shared",
+                "-fPIC",
+                Path(__file__).with_name("qemu_wav_timing.c"),
+                "-o",
+                probe,
+                "-ldl",
+            ],
+            check=True,
+        )
+        (logs / "qemu-version.txt").write_bytes(
+            subprocess.check_output([QEMU, "--version"])
+        )
+        (logs / "settings.json").write_text(
+            json.dumps(vars(args), default=str, indent=2) + "\n"
+        )
         with tempfile.TemporaryDirectory(prefix="mario-sync-boot-") as work, media_disk(
-            files=[("controls.conf", CONTROLS)], assets=("flash-beep.mp4", "flash-beep-drift.mp4")
+            files=[("controls.conf", CONTROLS)],
+            assets=("flash-beep.mp4", "flash-beep-drift.mp4"),
         ) as media:
             boot = vbe_boot_disk(Path(work), args.kernel)
             results = {
@@ -361,7 +416,8 @@ def main():
             }
         failures = []
         if any(
-            stats["worst_case_skew_ms"] is None or stats["worst_case_skew_ms"] > MAX_SKEW_MS
+            stats["worst_case_skew_ms"] is None
+            or stats["worst_case_skew_ms"] > MAX_SKEW_MS
             for stats in results.values()
         ):
             failures.append(f"could not verify the {MAX_SKEW_MS} ms skew limit")

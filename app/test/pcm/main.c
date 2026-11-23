@@ -17,7 +17,7 @@
 #define FIXTURE "/usr/share/mario-tests/media/stereo-markers.wav"
 #define FIXTURE_FRAMES (MARIO_PCM_RATE * 2)
 #define SHORT_FRAMES 123
-#define CAPACITY 3840
+#define CAPACITY 7680
 
 static int16_t samples[FIXTURE_FRAMES][2];
 static int16_t discarded[CAPACITY + 1][2];

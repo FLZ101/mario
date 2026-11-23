@@ -65,7 +65,8 @@ def vbe_boot_disk(work, kernel=None, *, size=(1024, 768)):
     if kernel is not None:
         kernel_offset = table["partitions"][-1]["start"] * table["sectorsize"]
         subprocess.run(
-            ["mcopy", "-o", "-i", f"{boot}@@{kernel_offset}", kernel, "::kernel.exe"], check=True
+            ["mcopy", "-o", "-i", f"{boot}@@{kernel_offset}", kernel, "::kernel.exe"],
+            check=True,
         )
     return boot
 
@@ -172,7 +173,9 @@ def verify_guest(child, qmp):
     if "AO:" in output:
         raise AssertionError(f"video-only file initialized audio:\n{output}")
     expect_screen(
-        qmp, "desktop after close", lambda screen: screen.crop(SAMPLE).tobytes() == desktop
+        qmp,
+        "desktop after close",
+        lambda screen: screen.crop(SAMPLE).tobytes() == desktop,
     )
 
     start_player(child, "flash-beep.mp4", "--ao=mario --pause --start=1.07")
@@ -196,7 +199,9 @@ def verify_guest(child, qmp):
     if "AO: [mario] 48000Hz stereo" not in output:
         raise AssertionError(f"packaged mpv did not initialize PCM:\n{output}")
     expect_screen(
-        qmp, "desktop after EOF", lambda screen: screen.crop(SAMPLE).tobytes() == desktop
+        qmp,
+        "desktop after EOF",
+        lambda screen: screen.crop(SAMPLE).tobytes() == desktop,
     )
     run_checked(child, "(: 3>/dev/pcm0)")
 
@@ -210,7 +215,9 @@ def verify_guest(child, qmp):
     expect_color(qmp, BLUE, sample, timeout=2)
     finish_player(child, "(End of file)")
 
-    output = run_checked(child, "/usr/bin/mpv /mnt/stereo-markers-48000.mp4", success=False)
+    output = run_checked(
+        child, "/usr/bin/mpv /mnt/stereo-markers-48000.mp4", success=False
+    )
     if "Expected an MP4 file with H.264 video" not in output:
         raise AssertionError(f"packaged mpv did not reject audio-only MP4:\n{output}")
 
@@ -218,7 +225,9 @@ def verify_guest(child, qmp):
 def expect_no_drops(output):
     counts = re.findall(r"media-drops:(\d+/\d+)", output)
     if not counts or set(counts) != {"0/0"}:
-        raise AssertionError(f"expected zero VO/decoder drops, got {sorted(set(counts))}")
+        raise AssertionError(
+            f"expected zero VO/decoder drops, got {sorted(set(counts))}"
+        )
 
 
 def verify_1080p(child, qmp):
@@ -230,7 +239,9 @@ def verify_1080p(child, qmp):
         color = BLUE if number < HD_FRAMES // 2 else RED
 
         def matches(screen):
-            return all(sample_matches(screen, edge, color) for edge in HD_EDGES) and all(
+            return all(
+                sample_matches(screen, edge, color) for edge in HD_EDGES
+            ) and all(
                 sample_matches(screen, cell, WHITE if number & (1 << bit) else BLACK)
                 for bit, cell in enumerate(HD_BITS)
             )
@@ -250,7 +261,9 @@ def verify_1080p(child, qmp):
     expect_no_drops(output)
     submitted = output.count("Submitted surface ")
     if submitted != HD_FRAMES:
-        raise AssertionError(f"expected {HD_FRAMES} windowed frames, submitted {submitted}")
+        raise AssertionError(
+            f"expected {HD_FRAMES} windowed frames, submitted {submitted}"
+        )
 
     start_player(child, HD_ASSET, HD_OPTIONS + " --keep-open=yes")
     maximize_player(qmp, expect_color(qmp, BLUE))
@@ -281,6 +294,8 @@ def run_case(smp, size, verify, media):
         boot = vbe_boot_disk(Path(work), size=size)
         command = [arg.replace(HD1_IMAGE, str(boot)) for arg in command]
         command += [
+            "-cpu",
+            "max",
             "-drive",
             f"id=media,file={media},format=raw,if=none",
             "-device",
@@ -303,7 +318,12 @@ def run_case(smp, size, verify, media):
                 try:
                     dump_screen(qmp).save(logs / "failure.png")
                     run_checked(child, "cat /tmp/mpv.log 2>/dev/null || true")
-                except (AssertionError, OSError, GuiTestError, pexpect.ExceptionPexpect):
+                except (
+                    AssertionError,
+                    OSError,
+                    GuiTestError,
+                    pexpect.ExceptionPexpect,
+                ):
                     pass
                 print(f"FAIL: {test_name}: {error}; logs: {logs}")
                 return False
