@@ -22,7 +22,7 @@
 #include <app/gui-limits.h>
 
 #include "vt.h"
-#include "upload.h"
+#include <gui/surface_upload.h>
 #include "config.h"
 
 #define WM_SOCKET_PATH "/tmp/mario-wm.sock"
@@ -68,7 +68,7 @@ typedef struct {
 	uint64_t pending_configure_serial;
 	uint32_t pending_width;
 	uint32_t pending_height;
-	terminal_upload upload;
+	gui_surface_upload upload;
 	uint32_t capabilities;
 	uint64_t base_frame;
 	int render_pending;
@@ -803,7 +803,7 @@ static int terminal_send_surface(terminal_state *state)
 	gui_rect rectangle;
 	int patch;
 
-	if (!terminal_upload_ready(&state->upload) || !state->render_pending)
+	if (!gui_surface_upload_ready(&state->upload) || !state->render_pending)
 		return 0;
 	if (terminal_render(state) < 0)
 		return -1;
@@ -814,7 +814,7 @@ static int terminal_send_surface(terminal_state *state)
 		return -1;
 	patch = (state->capabilities & GUI_PROTOCOL_CAP_SURFACE_PATCH) && state->base_frame != 0;
 	rectangle = patch ? state->render_damage : (gui_rect) { 0, 0, state->width, state->height };
-	return terminal_upload_start(&state->upload, state->window_id, state->configure_serial,
+	return gui_surface_upload_start(&state->upload, state->window_id, state->configure_serial,
 		state->base_frame, ++state->frame_serial, &state->surface, rectangle, patch);
 }
 
@@ -981,7 +981,7 @@ static int terminal_send_title(terminal_state *state)
 	put16(message + 4, title_bytes);
 	memcpy(message + sizeof(gui_protocol_wire_window_set_title), title, title_bytes);
 	message_bytes = sizeof(gui_protocol_wire_window_set_title) + title_bytes;
-	return terminal_upload_control(&state->upload, GUI_PROTOCOL_WINDOW_SET_TITLE, message, message_bytes);
+	return gui_surface_upload_control(&state->upload, GUI_PROTOCOL_WINDOW_SET_TITLE, message, message_bytes);
 }
 
 static int terminal_spawn_pty(const char *command, const terminal_state *state,
@@ -1067,7 +1067,7 @@ static int terminal_process_message(terminal_state *state, const gui_protocol_he
 				    const uint8_t *payload, size_t bytes)
 {
 	if (header->type == GUI_PROTOCOL_SURFACE_DATA_REPLY)
-		return terminal_upload_reply(&state->upload, payload, bytes);
+		return gui_surface_upload_reply(&state->upload, payload, bytes);
 	if (header->type == GUI_PROTOCOL_ERROR && bytes == sizeof(gui_protocol_wire_error)) {
 		gui_protocol_type failed = get16(payload + 4);
 		int32_t status = (int32_t)get32(payload);
@@ -1078,12 +1078,12 @@ static int terminal_process_message(terminal_state *state, const gui_protocol_he
 		    failed == GUI_PROTOCOL_SURFACE_DATA || failed == GUI_PROTOCOL_SURFACE_COMMIT) {
 			int canceled = state->upload.canceled;
 
-			if (failed == GUI_PROTOCOL_SURFACE_DATA && terminal_upload_data_error(&state->upload) < 0)
+			if (failed == GUI_PROTOCOL_SURFACE_DATA && gui_surface_upload_data_error(&state->upload) < 0)
 				return -1;
 			if (status != -ENOMEM && status != -EBUSY && status != -EINVAL && status != -ESTALE && status != -EIO)
 				return -1;
 			if (!canceled || failed == GUI_PROTOCOL_SURFACE_COMMIT) {
-				terminal_upload_cancel(&state->upload, state->capabilities & GUI_PROTOCOL_CAP_SURFACE_PATCH);
+				gui_surface_upload_cancel(&state->upload, state->capabilities & GUI_PROTOCOL_CAP_SURFACE_PATCH);
 				state->base_frame = 0;
 				state->render_pending = 1;
 				app_gui_surface_defer(&state->surface_flow);
@@ -1095,7 +1095,7 @@ static int terminal_process_message(terminal_state *state, const gui_protocol_he
 	if (header->type == GUI_PROTOCOL_WINDOW_CONFIGURE) {
 		if (bytes != sizeof(gui_protocol_wire_window_configure) || get32(payload) != state->window_id)
 			return -1;
-		terminal_upload_cancel(&state->upload, 0);
+		gui_surface_upload_cancel(&state->upload, 0);
 		state->base_frame = 0;
 		state->render_pending = 1;
 	}
@@ -1208,7 +1208,7 @@ int main(int argc, char **argv)
 		}
 		if (state.close_requested) {
 			if (!closing) {
-				terminal_upload_cancel(&state.upload, state.capabilities & GUI_PROTOCOL_CAP_SURFACE_PATCH);
+				gui_surface_upload_cancel(&state.upload, state.capabilities & GUI_PROTOCOL_CAP_SURFACE_PATCH);
 				closing = 1;
 			}
 			if (!state.upload.active && state.upload.frame_bytes == 0) {
@@ -1217,7 +1217,7 @@ int main(int argc, char **argv)
 				if (state.destroy_queued)
 					break;
 				put32(window_id, state.window_id);
-				if (terminal_upload_control(&state.upload, GUI_PROTOCOL_WINDOW_DESTROY, window_id, sizeof(window_id)) < 0)
+				if (gui_surface_upload_control(&state.upload, GUI_PROTOCOL_WINDOW_DESTROY, window_id, sizeof(window_id)) < 0)
 					break;
 				state.destroy_queued = 1;
 			}
@@ -1230,7 +1230,7 @@ int main(int argc, char **argv)
 				break;
 			if (state.upload.frame_bytes == 0 && terminal_send_title(&state) < 0)
 				break;
-			if (pty_eof && terminal_upload_ready(&state.upload) && !state.render_pending && !state.surface_flow.retry_pending) {
+			if (pty_eof && gui_surface_upload_ready(&state.upload) && !state.render_pending && !state.surface_flow.retry_pending) {
 				status = terminal_finish_child(master, child) == 0 ? 0 : 1;
 				master = state.master = -1;
 				state.close_requested = 1;
@@ -1238,7 +1238,7 @@ int main(int argc, char **argv)
 			}
 		}
 		pollfds[0] = (struct pollfd) { .fd = state.fd, .events = POLLIN |
-			(terminal_upload_writable(&state.upload) ? POLLOUT : 0) };
+			(gui_surface_upload_writable(&state.upload) ? POLLOUT : 0) };
 		pollfds[1] = (struct pollfd) { .fd = pty_eof || state.close_requested ? -1 : master,
 			.events = POLLIN | (state.pty_input_bytes ? POLLOUT : 0) };
 		timeout = buffered ? 0 : state.surface_flow.retry_pending ? APP_GUI_SURFACE_RETRY_MS : -1;
@@ -1262,7 +1262,7 @@ int main(int argc, char **argv)
 			else if (count == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
 				break;
 		}
-		if ((pollfds[0].revents & POLLOUT) && terminal_upload_write(&state.upload, terminal_socket_write, &state.fd) < 0)
+		if ((pollfds[0].revents & POLLOUT) && gui_surface_upload_write(&state.upload, terminal_socket_write, &state.fd) < 0)
 			break;
 		if ((pollfds[1].revents & POLLOUT) && terminal_flush_input(&state) < 0)
 			break;

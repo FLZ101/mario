@@ -16,6 +16,7 @@ disk images do not include these fixtures.
 | `stereo-markers.wav` | Exact PCM reference: 48 kHz, signed 16-bit little-endian stereo. Four half-second segments: left only (440 Hz), right only (660 Hz), silence, then both. |
 | `stereo-markers-44100.mp4`, `stereo-markers-48000.mp4` | The same markers encoded as stereo AAC-LC in audio-only MP4 containers, for testing resampling, seek and EOF. Compare channel activity and marker timing with tolerance, not PCM bytes. |
 | `flash-beep.mp4` | A four-second H.264/AAC-LC clip with white flashes and 880 Hz beeps starting at 1, 2 and 3 seconds, each lasting 0.2 seconds. For A/V sync checks. |
+| `video-markers.mp4` | Video-only 320×180 H.264 clip: black until 1 s, red until 5 s, then blue until 8 s. For native video output, pause, seek and resize tests. |
 
 The two demo clips are 12-second excerpts starting at 00:10 of the original
 trailers, resized and letterboxed to 320×180, 15 fps, H.264 Baseline/YUV420p
@@ -60,6 +61,6 @@ bash tests/media/assets/generate.sh \
 ```
 
 For a non-default encoder binary, prefix the `bash` command with
-`FFMPEG=/path/to/ffmpeg`. The script overwrites all six assets next to itself.
+`FFMPEG=/path/to/ffmpeg`. The script overwrites all seven assets next to itself.
 Encoded bytes may vary with FFmpeg and encoder versions. The downloaded
 trailers are source material only; do not add them to the repository.

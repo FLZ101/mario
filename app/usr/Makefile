@@ -53,16 +53,18 @@ include libpng.mk
 include sqlite.mk
 
 include python.mk
-include video/mpv.mk
 
 TERMINAL_EXE := terminal/terminal.exe
-TERMINAL_UI_DIR := $(ROOT)/../gui/libmario-ui
-TERMINAL_UI_INPUTS := $(wildcard $(TERMINAL_UI_DIR)/src/*.c \
-	$(TERMINAL_UI_DIR)/include/gui/*.h)
+MARIO_UI_DIR := $(abspath $(ROOT)/../gui/libmario-ui)
+MARIO_UI_LIB := $(MARIO_UI_DIR)/libmario-ui.a
+MARIO_UI_INPUTS := $(wildcard $(MARIO_UI_DIR)/src/*.c \
+	$(MARIO_UI_DIR)/include/gui/*.h)
 IMAGEVIEWER_EXE := imageviewer/imageviewer.exe
 $(TERMINAL_EXE) $(IMAGEVIEWER_EXE): ../include/app/gui-limits.h
 LIBPNG_INSTALL_DIR := $(ROOT)/libpng-1.6.59-install
 ZLIB_INSTALL_DIR := $(ROOT)/zlib-1.3.2-install
+
+include video/mpv.mk
 
 .PHONY build:: build-terminal
 build-terminal: $(TERMINAL_EXE)
@@ -72,14 +74,14 @@ clean-terminal:
 	$(RM) $(TERMINAL_EXE) terminal/*.o terminal/*.d
 
 # Rebuild the archive before linking apps whenever any UI implementation changes.
-$(TERMINAL_UI_DIR)/libmario-ui.a: $(TERMINAL_UI_INPUTS)
-	$(MAKE) -C $(TERMINAL_UI_DIR)
+$(MARIO_UI_LIB): $(MARIO_UI_INPUTS) | build-freetype build-libpng
+	$(MAKE) -C $(MARIO_UI_DIR)
 
-terminal/terminal.exe: terminal/main.c terminal/config.c terminal/config.h terminal/vt.c terminal/upload.c terminal/upload.h $(TERMINAL_UI_DIR)/libmario-ui.a
-	$(CC) -o $@ terminal/main.c terminal/config.c terminal/vt.c terminal/upload.c -I$(ROOT)/../include \
-		-I$(TERMINAL_UI_DIR)/include \
+terminal/terminal.exe: terminal/main.c terminal/config.c terminal/config.h terminal/vt.c $(MARIO_UI_LIB)
+	$(CC) -o $@ terminal/main.c terminal/config.c terminal/vt.c -I$(ROOT)/../include \
+		-I$(MARIO_UI_DIR)/include \
 		-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
-		-L$(TERMINAL_UI_DIR) -L$(FREETYPE_INSTALL_DIR)/lib -static \
+		-L$(MARIO_UI_DIR) -L$(FREETYPE_INSTALL_DIR)/lib -static \
 		-lmario-ui -lfreetype
 
 .PHONY build:: build-imageviewer
@@ -89,10 +91,10 @@ build-imageviewer: $(IMAGEVIEWER_EXE)
 clean-imageviewer:
 	$(RM) $(IMAGEVIEWER_EXE) imageviewer/*.o imageviewer/*.d
 
-imageviewer/imageviewer.exe: imageviewer/main.c $(TERMINAL_UI_DIR)/libmario-ui.a
+imageviewer/imageviewer.exe: imageviewer/main.c $(MARIO_UI_LIB)
 	$(CC) -o $@ imageviewer/main.c -I$(ROOT)/../include \
-		-I$(TERMINAL_UI_DIR)/include \
+		-I$(MARIO_UI_DIR)/include \
 		-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
-		-L$(TERMINAL_UI_DIR) -L$(LIBPNG_INSTALL_DIR)/lib \
+		-L$(MARIO_UI_DIR) -L$(LIBPNG_INSTALL_DIR)/lib \
 		-L$(ZLIB_INSTALL_DIR)/lib -static -lmario-ui -lpng16 -lz
 

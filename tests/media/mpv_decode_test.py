@@ -1,4 +1,4 @@
-"""Decode the checked-in AAC fixtures in a guest using a disposable disk."""
+"""Decode the checked-in AAC and H.264 fixtures in a guest using a disposable disk."""
 
 import argparse
 from contextlib import contextmanager
@@ -63,9 +63,26 @@ def verify_guest(child):
                 f"{rate} Hz: expected two seconds at null AO, got {frames} frames"
             )
 
+    output = run_checked(
+        child,
+        "/mnt/mpv -v --no-config --no-input-terminal --no-audio --vo=null "
+        "--untimed --framedrop=no --no-msg-color --msg-level=cplayer=trace "
+        "/mnt/flash-beep.mp4",
+    )
+    for marker in (
+        "Selected decoder: h264",
+        "VO: [null] 320x180 yuv420p",
+        "(End of file)",
+    ):
+        if marker not in output:
+            raise AssertionError(f"H.264: missing {marker!r}\n{output}")
+    frames = output.count("[cplayer] frametime=")
+    if frames != 60:
+        raise AssertionError(f"H.264: expected 60 decoded frames, got {frames}")
+
 
 @contextmanager
-def media_command(smp, files=()):
+def media_disk(files=(), assets=()):
     with tempfile.TemporaryDirectory(prefix="guest-", dir=MEDIA / "build") as directory:
         work = Path(directory)
         staging = work / "root"
@@ -73,13 +90,21 @@ def media_command(smp, files=()):
         shutil.copy2(MPV, staging)
         for rate in RATES:
             shutil.copy2(ASSETS / f"stereo-markers-{rate}.mp4", staging)
+        for name in assets:
+            shutil.copy2(ASSETS / name, staging)
         for name, contents in files:
             (staging / name).write_text(contents, encoding="ascii")
         image = work / "media.img"
         subprocess.run(
-            ["mke2fs", "-q", "-t", "ext2", "-d", staging, image, "32M"], check=True
+            ["mke2fs", "-q", "-t", "ext2", "-d", staging, image, "64M"], check=True
         )
 
+        yield image
+
+
+@contextmanager
+def media_command(smp, files=(), assets=()):
+    with media_disk(files, assets) as image:
         yield qemu_command(QEMU, smp) + [
             "-drive",
             f"id=media,file={image},format=raw,if=none",
@@ -98,7 +123,7 @@ def main():
     require_files(require_kernel=True)
 
     logs = Path(tempfile.mkdtemp(prefix="mario-mpv-"))
-    with media_command(args.smp) as cmd:
+    with media_command(args.smp, assets=("flash-beep.mp4",)) as cmd:
         with (logs / "serial.log").open("w", encoding="latin-1") as serial:
             child = pexpect.spawn(cmd[0], cmd[1:], encoding="latin-1")
             child.logfile_read = serial
@@ -106,12 +131,12 @@ def main():
                 make_pexpect_raw(child)
                 verify_guest(child)
             except (AssertionError, pexpect.ExceptionPexpect) as error:
-                print(f"FAIL: mpv AAC decode (SMP={args.smp}): {error}; logs: {logs}")
+                print(f"FAIL: mpv decode (SMP={args.smp}): {error}; logs: {logs}")
                 return 1
             finally:
                 child.close(force=True)
 
-    print(f"PASS: mpv AAC decode (SMP={args.smp}); logs: {logs}")
+    print(f"PASS: mpv decode (SMP={args.smp}); logs: {logs}")
     return 0
 
 

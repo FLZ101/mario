@@ -494,12 +494,12 @@ continues consuming output while the rendered surface is frozen for upload;
 one pending-render flag coalesces subsequent changes against the last rendered
 cell snapshot. No extra full-frame pixel snapshot is allocated by the client.
 
-`terminal/upload.c` holds four FIFO chunk identities and one 4036-byte encoded
-frame. Each chunk has at most 1000 pixels and counts its 8-byte header and
-28-byte prefix in the unacknowledged-data budget: four maximum chunks occupy
-16144 bytes, below 16 KiB. Offset, count, window, configure, frame, and completed
-write must match before an acknowledgement retires a chunk. Duplicate/older
-replies never advance a newer transaction. There is one transaction per
+`app/gui/libmario-ui/src/surface_upload.c` holds four FIFO chunk identities and
+one 4036-byte encoded frame. Each chunk has at most 1000 pixels and counts its
+8-byte header and 28-byte prefix in the unacknowledged-data budget: four maximum
+chunks occupy 16144 bytes, below 16 KiB. Offset, count, window, configure, frame,
+and completed write must match before an acknowledgement retires a chunk.
+Duplicate/older replies never advance a newer transaction. There is one transaction per
 window; COMMIT follows all DATA replies, without introducing a commit reply.
 A late commit error invalidates the assumed base and schedules full recovery.
 

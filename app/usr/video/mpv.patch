@@ -76,6 +76,35 @@
 +endif
 +
  alsa = dependency('alsa', version: '>= 1.0.18', required: get_option('alsa'))
+@@ -932,2 +942,9 @@
+ # video output dependencies
++features += {'mario-video': host_machine.system() == 'mario'}
++if features['mario-video']
++    mario_ui_lib = meson.get_external_property('mario_ui_lib')
++    dependencies += declare_dependency(link_args: [mario_ui_lib])
++    sources += files('video/out/vo_mario.c')
++endif
++
+ caca_opt = get_option('caca').require(
+--- a/video/out/vo.c
++++ b/video/out/vo.c
+@@ -53,6 +53,7 @@
+ extern const struct vo_driver video_out_gpu;
+ extern const struct vo_driver video_out_gpu_next;
+ extern const struct vo_driver video_out_libmpv;
++extern const struct vo_driver video_out_mario;
+ extern const struct vo_driver video_out_null;
+ extern const struct vo_driver video_out_image;
+ extern const struct vo_driver video_out_lavc;
+@@ -70,5 +71,8 @@
+ static const struct vo_driver *const video_out_drivers[] =
+ {
++#if HAVE_MARIO_VIDEO
++    &video_out_mario,
++#endif
+     // high-quality and well-supported VOs first:
+     &video_out_gpu_next,
+     &video_out_gpu,
 --- a/audio/out/ao.c
 +++ b/audio/out/ao.c
 @@ -54,4 +54,5 @@

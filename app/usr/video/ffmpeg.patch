@@ -1,0 +1,8 @@
+--- a/libavcodec/h2645_sei.c
++++ b/libavcodec/h2645_sei.c
+@@ -934,3 +934,5 @@
+     ff_refstruct_unref(&s->film_grain_characteristics);
++#if CONFIG_HEVC_SEI
+     ff_aom_uninit_film_grain_params(&s->aom_film_grain);
++#endif
+ }

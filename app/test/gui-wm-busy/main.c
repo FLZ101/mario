@@ -7,7 +7,7 @@
 #include <sys/stat.h>
 #include <mario/input.h>
 #include <gui/surface.h>
-#include "../../usr/terminal/upload.c"
+#include <gui/surface_upload.h>
 
 static gui_flush_result scanout_result;
 static unsigned int scanout_calls;
@@ -2910,7 +2910,7 @@ static ssize_t upload_test_write(void *context, const void *bytes, size_t count)
 	return count;
 }
 
-static int upload_test_ack(terminal_upload *upload, uint64_t configure, uint64_t serial,
+static int upload_test_ack(gui_surface_upload *upload, uint64_t configure, uint64_t serial,
 			    uint32_t offset, uint32_t count)
 {
 	uint8_t payload[sizeof(gui_protocol_wire_surface_data_reply)];
@@ -2920,17 +2920,17 @@ static int upload_test_ack(terminal_upload *upload, uint64_t configure, uint64_t
 	put_u64(payload + 12, serial);
 	put_u32(payload + 20, offset);
 	put_u32(payload + 24, count);
-	return terminal_upload_reply(upload, payload, sizeof(payload));
+	return gui_surface_upload_reply(upload, payload, sizeof(payload));
 }
 
-static void upload_test_pump(terminal_upload *upload, upload_sink *sink)
+static void upload_test_pump(gui_surface_upload *upload, upload_sink *sink)
 {
 	unsigned int previous_calls = sink->calls;
 
-	assert(terminal_upload_write(upload, upload_test_write, sink) == 0);
+	assert(gui_surface_upload_write(upload, upload_test_write, sink) == 0);
 	assert(sink->calls - previous_calls <= 4);
-	assert(upload->outstanding_bytes <= TERMINAL_UPLOAD_WINDOW_BYTES);
-	assert(upload->chunk_count <= TERMINAL_UPLOAD_CHUNKS);
+	assert(upload->outstanding_bytes <= GUI_SURFACE_UPLOAD_WINDOW_BYTES);
+	assert(upload->chunk_count <= GUI_SURFACE_UPLOAD_CHUNKS);
 }
 
 static void assert_upload_pixels(const upload_sink *sink, const gui_surface *source, gui_rect rectangle,
@@ -2967,7 +2967,7 @@ static void assert_upload_pixels(const upload_sink *sink, const gui_surface *sou
 
 static void test_upload_window(void)
 {
-	static terminal_upload upload;
+	static gui_surface_upload upload;
 	static upload_sink sink;
 	gui_surface *source = gui_surface_create(64, 64);
 	gui_rect full = { 0, 0, 64, 64 };
@@ -2977,12 +2977,12 @@ static void test_upload_window(void)
 	assert(source != NULL);
 	for (unsigned int index = 0; index < 4096; index++)
 		source->pixels[index] = index ^ 0x00556677;
-	assert(terminal_upload_start(&upload, 1, 1, 0, 1, source, full, 0) == 0);
+	assert(gui_surface_upload_start(&upload, 1, 1, 0, 1, source, full, 0) == 0);
 	assert(upload_test_ack(&upload, 1, 1, 0, 1000) < 0);
 	while (upload.chunk_count < 4)
 		upload_test_pump(&upload, &sink);
 	assert(upload.next_pixel == 4000 && upload.outstanding_bytes == 16144);
-	assert(upload.peak_outstanding_bytes == 16144 && !terminal_upload_writable(&upload));
+	assert(upload.peak_outstanding_bytes == 16144 && !gui_surface_upload_writable(&upload));
 	previous_bytes = upload.outstanding_bytes;
 	assert(upload_test_ack(&upload, 2, 1, 0, 1000) < 0 && upload.outstanding_bytes == previous_bytes);
 	assert(upload_test_ack(&upload, 1, 1, 0, 999) < 0 && upload.outstanding_bytes == previous_bytes);
@@ -2995,49 +2995,49 @@ static void test_upload_window(void)
 		assert(upload_test_ack(&upload, 1, 1, offset, 1000) == 0);
 	assert(upload_test_ack(&upload, 1, 1, 4000, 96) == 0);
 	upload_test_pump(&upload, &sink);
-	assert(terminal_upload_ready(&upload) && upload.completed && upload.completed_serial == 1);
+	assert(gui_surface_upload_ready(&upload) && upload.completed && upload.completed_serial == 1);
 	assert(sink.count == 16636);
 	assert_upload_pixels(&sink, source, full, 1, 5);
 	memset(&sink, 0, sizeof(sink));
 	sink.short_write = 3;
 	sink.interrupt = 1;
-	assert(terminal_upload_start(&upload, 1, 1, 1, 2, source, cell, 1) == 0);
+	assert(gui_surface_upload_start(&upload, 1, 1, 1, 2, source, cell, 1) == 0);
 	upload_test_pump(&upload, &sink);
 	assert(sink.count == 0 && upload.frame_written == 0);
 	upload_test_pump(&upload, &sink);
 	assert(upload.frame_written == 12);
-	terminal_upload_cancel(&upload, 1);
-	while (terminal_upload_writable(&upload))
+	gui_surface_upload_cancel(&upload, 1);
+	while (gui_surface_upload_writable(&upload))
 		upload_test_pump(&upload, &sink);
-	assert(terminal_upload_ready(&upload) && !upload.completed && sink.count == 80);
+	assert(gui_surface_upload_ready(&upload) && !upload.completed && sink.count == 80);
 	memset(&sink, 0, sizeof(sink));
 	sink.stop_at = 54;
-	assert(terminal_upload_start(&upload, 1, 1, 1, 3, source, cell, 1) == 0);
+	assert(gui_surface_upload_start(&upload, 1, 1, 1, 3, source, cell, 1) == 0);
 	upload_test_pump(&upload, &sink);
 	assert(upload.frame_type == GUI_PROTOCOL_SURFACE_DATA && upload.frame_written == 2);
 	assert(upload_test_ack(&upload, 1, 3, 0, 256) < 0);
-	terminal_upload_cancel(&upload, 1);
+	gui_surface_upload_cancel(&upload, 1);
 	sink.stop_at = 0;
-	while (terminal_upload_writable(&upload))
+	while (gui_surface_upload_writable(&upload))
 		upload_test_pump(&upload, &sink);
-	assert(!terminal_upload_ready(&upload) && upload.chunk_count == 1);
-	assert(terminal_upload_start(&upload, 1, 1, 1, 4, source, cell, 1) < 0);
-	assert(terminal_upload_data_error(&upload) == 0 && terminal_upload_ready(&upload));
+	assert(!gui_surface_upload_ready(&upload) && upload.chunk_count == 1);
+	assert(gui_surface_upload_start(&upload, 1, 1, 1, 4, source, cell, 1) < 0);
+	assert(gui_surface_upload_data_error(&upload) == 0 && gui_surface_upload_ready(&upload));
 	assert_upload_pixels(&sink, source, cell, 3, 1);
 	memset(&sink, 0, sizeof(sink));
-	assert(terminal_upload_start(&upload, 1, 1, 1, 4, source, cell, 1) == 0);
+	assert(gui_surface_upload_start(&upload, 1, 1, 1, 4, source, cell, 1) == 0);
 	assert(upload_test_ack(&upload, 1, 3, 0, 256) == 0 && upload.chunk_count == 0);
 	upload_test_pump(&upload, &sink);
 	assert(upload.chunk_count == 1 && upload.outstanding_bytes == 1060);
 	assert(upload_test_ack(&upload, 1, 4, 0, 256) == 0);
 	upload_test_pump(&upload, &sink);
-	assert(sink.count == 1140 && terminal_upload_ready(&upload));
+	assert(sink.count == 1140 && gui_surface_upload_ready(&upload));
 	assert_upload_pixels(&sink, source, cell, 4, 1);
 	gui_surface_destroy(source);
 	puts("gui-wm-busy: upload window caps encoded bytes and survives short, delayed and stale replies");
 }
 
-static uint8_t held_upload_replies[TERMINAL_UPLOAD_CHUNKS *
+static uint8_t held_upload_replies[GUI_SURFACE_UPLOAD_CHUNKS *
 	(GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_data_reply))];
 static size_t held_upload_bytes;
 static int hold_upload_replies;

@@ -252,11 +252,11 @@ behavior before depending on it from the player.
   Python generators. No host FFmpeg executable or development libraries are used.
 - FFmpeg builds its six required static libraries with only local file I/O,
   the MOV/MP4 demuxer, AAC decoding and parsing, and minimal audio filtering
-  and resampling. Networking, assembly, SIMD, and H.264 decoding are disabled.
-  H.264 decoding belongs to M6.
+  and resampling. Networking, assembly, and SIMD are disabled. M6 adds the
+  H.264 decoder and parser to this build.
 - libplacebo runs without graphics backends or a target C++ runtime: its numeric
   conversions use C and musl. mpv builds the CLI without libmpv installation,
-  graphics backends, or [libass][libass]. Subtitle text rendering and graphical
+  upstream graphics backends, or [libass][libass]. Subtitle text rendering and graphical
   text OSD are unavailable in this build; terminal status still works.
 - Meson uses Mario's musl wrapper and staged target `pkg-config` metadata, with
   no target binaries executed on the host. The build verifies a static ELF32
@@ -325,6 +325,30 @@ record the full wall-clock pause while DMA is stopped.
   when the compositor is busy, respecting configure/frame serials and transaction
   boundaries. Measure full-frame uploads at the target size before proposing a
   new transport or shared memory.
+
+The native VO shares `libmario-ui`'s bounded uploader with the terminal. It
+finishes the in-flight transaction and keeps only the newest waiting frame.
+Resize/seek cancel stale uploads; a resize rerenders the retained frame even
+while paused. `--msg-level=vo/mario=trace` logs conversion-to-COMMIT times, not
+scanout timestamps. The full 320×180 RGB surface is 225 KiB before headers.
+In a QEMU smoke run of `flash-beep.mp4` through EOF, the player submitted
+32 surfaces on one vCPU (120 ms median) and 57 on two (10 ms median). These
+are submission counts and coarse guest clock measurements, not A/V sync or
+sustained frame-rate guarantees. M7 covers both of those gates.
+
+Build the VBE image with `make disk-image-vbe_1024x768`, then run both checks
+with `N=1` and `N=2`:
+
+```sh
+.venv/bin/python tests/media/mpv_decode_test.py --smp "$N"
+.venv/bin/python tests/media/mpv_video_test.py --smp "$N"
+```
+
+The decode check requires all 60 H.264 frames to reach `--vo=null`. The GUI
+check uses `mcopy` (from `mtools`) and `sfdisk` to enable HDA on a disposable
+copy of the boot disk. It checks actual QEMU screen pixels with the video-only
+color markers and the A/V flash fixture. Neither test installs mpv in the
+normal or GTK images.
 
 **Exit:** A focused GUI test observes frame changes, a stable paused frame,
 redraw on seek/resize, and clean close/EOF. Check both an A/V clip and a video-only

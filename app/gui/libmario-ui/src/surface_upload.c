@@ -2,7 +2,7 @@
 #include <limits.h>
 #include <string.h>
 
-#include "upload.h"
+#include <gui/surface_upload.h>
 
 static void upload_put32(uint8_t *bytes, uint32_t value)
 {
@@ -27,15 +27,15 @@ static uint64_t upload_get64(const uint8_t *bytes)
 	return upload_get32(bytes) | (uint64_t)upload_get32(bytes + 4) << 32;
 }
 
-int terminal_upload_ready(const terminal_upload *upload)
+int gui_surface_upload_ready(const gui_surface_upload *upload)
 {
 	return !upload->active && upload->chunk_count == 0 && upload->frame_bytes == 0;
 }
 
-int terminal_upload_start(terminal_upload *upload, uint32_t window, uint64_t configure,
+int gui_surface_upload_start(gui_surface_upload *upload, uint32_t window, uint64_t configure,
 	uint64_t base, uint64_t serial, const gui_surface *source, gui_rect rectangle, int patch)
 {
-	if (!terminal_upload_ready(upload) || source == NULL || source->pixels == NULL ||
+	if (!gui_surface_upload_ready(upload) || source == NULL || source->pixels == NULL ||
 	    source->width <= 0 || source->height <= 0 || source->stride < source->width ||
 	    rectangle.x < 0 || rectangle.y < 0 || rectangle.w <= 0 || rectangle.h <= 0 ||
 	    rectangle.x > source->width || rectangle.y > source->height ||
@@ -62,7 +62,7 @@ int terminal_upload_start(terminal_upload *upload, uint32_t window, uint64_t con
 	return 0;
 }
 
-int terminal_upload_control(terminal_upload *upload, gui_protocol_type type,
+int gui_surface_upload_control(gui_surface_upload *upload, gui_protocol_type type,
 	const void *payload, size_t bytes)
 {
 	if (upload->frame_bytes != 0 || bytes > sizeof(upload->frame) - GUI_PROTOCOL_HEADER_SIZE ||
@@ -77,15 +77,15 @@ int terminal_upload_control(terminal_upload *upload, gui_protocol_type type,
 	return 0;
 }
 
-int terminal_upload_writable(const terminal_upload *upload)
+int gui_surface_upload_writable(const gui_surface_upload *upload)
 {
 	return upload->frame_bytes != 0 || (upload->active &&
 		(upload->canceled || !upload->begun ||
-		 (upload->next_pixel < upload->total && upload->chunk_count < TERMINAL_UPLOAD_CHUNKS) ||
+		 (upload->next_pixel < upload->total && upload->chunk_count < GUI_SURFACE_UPLOAD_CHUNKS) ||
 		 (upload->next_pixel == upload->total && upload->chunk_count == 0)));
 }
 
-static int upload_prepare(terminal_upload *upload)
+static int upload_prepare(gui_surface_upload *upload)
 {
 	uint8_t payload[sizeof(gui_protocol_wire_surface_patch_begin)] = { 0 };
 
@@ -99,7 +99,7 @@ static int upload_prepare(terminal_upload *upload)
 	if (upload->canceled) {
 		if (upload->send_cancel && upload->begun) {
 			upload->send_cancel = 0;
-			return terminal_upload_control(upload, GUI_PROTOCOL_SURFACE_CANCEL, payload,
+			return gui_surface_upload_control(upload, GUI_PROTOCOL_SURFACE_CANCEL, payload,
 				sizeof(gui_protocol_wire_surface_cancel)) < 0 ? -1 : 1;
 		}
 		upload->active = 0;
@@ -113,25 +113,25 @@ static int upload_prepare(terminal_upload *upload)
 			upload_put32(payload + 32, upload->rectangle.y);
 			upload_put32(payload + 36, upload->rectangle.w);
 			upload_put32(payload + 40, upload->rectangle.h);
-			return terminal_upload_control(upload, GUI_PROTOCOL_SURFACE_PATCH_BEGIN, payload,
+			return gui_surface_upload_control(upload, GUI_PROTOCOL_SURFACE_PATCH_BEGIN, payload,
 				sizeof(gui_protocol_wire_surface_patch_begin)) < 0 ? -1 : 1;
 		}
 		upload_put32(payload + 28, upload->rectangle.w);
 		upload_put32(payload + 32, upload->rectangle.h);
-		return terminal_upload_control(upload, GUI_PROTOCOL_SURFACE_BEGIN, payload,
+		return gui_surface_upload_control(upload, GUI_PROTOCOL_SURFACE_BEGIN, payload,
 			sizeof(gui_protocol_wire_surface_begin)) < 0 ? -1 : 1;
 	}
 	if (upload->next_pixel < upload->total) {
 		uint32_t count = upload->total - upload->next_pixel;
 		size_t bytes;
-		terminal_upload_chunk *chunk;
+		gui_surface_upload_chunk *chunk;
 
-		if (upload->chunk_count == TERMINAL_UPLOAD_CHUNKS)
+		if (upload->chunk_count == GUI_SURFACE_UPLOAD_CHUNKS)
 			return 0;
-		if (count > TERMINAL_UPLOAD_PIXELS)
-			count = TERMINAL_UPLOAD_PIXELS;
+		if (count > GUI_SURFACE_UPLOAD_PIXELS)
+			count = GUI_SURFACE_UPLOAD_PIXELS;
 		bytes = GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_data) + count * sizeof(gui_color);
-		if (bytes > TERMINAL_UPLOAD_WINDOW_BYTES - upload->outstanding_bytes)
+		if (bytes > GUI_SURFACE_UPLOAD_WINDOW_BYTES - upload->outstanding_bytes)
 			return 0;
 		if (gui_protocol_encode_header(upload->frame, sizeof(upload->frame), GUI_PROTOCOL_SURFACE_DATA,
 			bytes - GUI_PROTOCOL_HEADER_SIZE) < 0)
@@ -147,8 +147,8 @@ static int upload_prepare(terminal_upload *upload)
 			upload_put32(upload->frame + GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_data) +
 				index * sizeof(gui_color), upload->source.pixels[row * upload->source.stride + column]);
 		}
-		chunk = &upload->chunks[(upload->chunk_head + upload->chunk_count) % TERMINAL_UPLOAD_CHUNKS];
-		*chunk = (terminal_upload_chunk) { upload->next_pixel, count, bytes };
+		chunk = &upload->chunks[(upload->chunk_head + upload->chunk_count) % GUI_SURFACE_UPLOAD_CHUNKS];
+		*chunk = (gui_surface_upload_chunk) { upload->next_pixel, count, bytes };
 		upload->chunk_count++;
 		upload->outstanding_bytes += bytes;
 		if (upload->peak_outstanding_bytes < upload->outstanding_bytes)
@@ -161,11 +161,11 @@ static int upload_prepare(terminal_upload *upload)
 	}
 	if (upload->chunk_count != 0)
 		return 0;
-	return terminal_upload_control(upload, GUI_PROTOCOL_SURFACE_COMMIT, payload,
+	return gui_surface_upload_control(upload, GUI_PROTOCOL_SURFACE_COMMIT, payload,
 		sizeof(gui_protocol_wire_surface_commit)) < 0 ? -1 : 1;
 }
 
-int terminal_upload_write(terminal_upload *upload, terminal_upload_writer writer, void *context)
+int gui_surface_upload_write(gui_surface_upload *upload, gui_surface_upload_writer writer, void *context)
 {
 	if (writer == NULL)
 		return -1;
@@ -187,7 +187,7 @@ int terminal_upload_write(terminal_upload *upload, terminal_upload_writer writer
 		if (upload->frame_type == GUI_PROTOCOL_SURFACE_BEGIN || upload->frame_type == GUI_PROTOCOL_SURFACE_PATCH_BEGIN)
 			upload->begun = 1;
 		if (upload->frame_type == GUI_PROTOCOL_SURFACE_DATA) {
-			unsigned int tail = (upload->chunk_head + upload->chunk_count - 1) % TERMINAL_UPLOAD_CHUNKS;
+			unsigned int tail = (upload->chunk_head + upload->chunk_count - 1) % GUI_SURFACE_UPLOAD_CHUNKS;
 
 			upload->chunks[tail].sent = 1;
 		}
@@ -206,20 +206,20 @@ int terminal_upload_write(terminal_upload *upload, terminal_upload_writer writer
 	return 0;
 }
 
-static void upload_retire_chunk(terminal_upload *upload)
+static void upload_retire_chunk(gui_surface_upload *upload)
 {
 	upload->outstanding_bytes -= upload->chunks[upload->chunk_head].bytes;
-	upload->chunk_head = (upload->chunk_head + 1) % TERMINAL_UPLOAD_CHUNKS;
+	upload->chunk_head = (upload->chunk_head + 1) % GUI_SURFACE_UPLOAD_CHUNKS;
 	upload->chunk_count--;
 }
 
-int terminal_upload_reply(terminal_upload *upload, const uint8_t *payload, size_t bytes)
+int gui_surface_upload_reply(gui_surface_upload *upload, const uint8_t *payload, size_t bytes)
 {
 	uint64_t configure;
 	uint64_t serial;
 	uint32_t offset;
 	uint32_t count;
-	terminal_upload_chunk *chunk;
+	gui_surface_upload_chunk *chunk;
 
 	if (payload == NULL || bytes != sizeof(gui_protocol_wire_surface_data_reply) || upload_get32(payload) != upload->window)
 		return -1;
@@ -227,7 +227,7 @@ int terminal_upload_reply(terminal_upload *upload, const uint8_t *payload, size_
 	serial = upload_get64(payload + 12);
 	offset = upload_get32(payload + 20);
 	count = upload_get32(payload + 24);
-	if (configure == 0 || serial == 0 || count == 0 || count > TERMINAL_UPLOAD_PIXELS || offset > UINT32_MAX - count)
+	if (configure == 0 || serial == 0 || count == 0 || count > GUI_SURFACE_UPLOAD_PIXELS || offset > UINT32_MAX - count)
 		return -1;
 	if (configure < upload->configure || (configure == upload->configure && serial < upload->serial))
 		return 0;
@@ -244,7 +244,7 @@ int terminal_upload_reply(terminal_upload *upload, const uint8_t *payload, size_
 	return 0;
 }
 
-int terminal_upload_data_error(terminal_upload *upload)
+int gui_surface_upload_data_error(gui_surface_upload *upload)
 {
 	if (upload->chunk_count == 0 || !upload->chunks[upload->chunk_head].sent)
 		return -1;
@@ -252,7 +252,7 @@ int terminal_upload_data_error(terminal_upload *upload)
 	return 0;
 }
 
-void terminal_upload_cancel(terminal_upload *upload, int send_cancel)
+void gui_surface_upload_cancel(gui_surface_upload *upload, int send_cancel)
 {
 	if (!upload->active)
 		return;
@@ -261,7 +261,7 @@ void terminal_upload_cancel(terminal_upload *upload, int send_cancel)
 	upload->source.pixels = NULL;
 	if (upload->frame_bytes != 0 && upload->frame_written == 0) {
 		if (upload->frame_type == GUI_PROTOCOL_SURFACE_DATA) {
-			unsigned int tail = (upload->chunk_head + upload->chunk_count - 1) % TERMINAL_UPLOAD_CHUNKS;
+			unsigned int tail = (upload->chunk_head + upload->chunk_count - 1) % GUI_SURFACE_UPLOAD_CHUNKS;
 
 			upload->outstanding_bytes -= upload->chunks[tail].bytes;
 			upload->chunk_count--;

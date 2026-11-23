@@ -41,3 +41,7 @@ done
     -f lavfi -i "color=c=black:s=320x180:r=15:d=4,drawbox=c=white:t=fill:enable='gte(n,15)*lt(mod(n,15),3)'" \
     -f lavfi -i "aevalsrc='0.4*sin(2*PI*880*t)*gte(t,1)*lt(mod(t,1),0.2)':s=48000:d=4" \
     "${video[@]}" "${audio[@]}" -ar 48000 -movflags +faststart "$output/flash-beep.mp4"
+
+"$ffmpeg" -hide_banner -loglevel error -y \
+    -f lavfi -i "color=c=blue:s=320x180:r=15:d=8,drawbox=c=black:t=fill:enable='lt(t,1)',drawbox=c=red:t=fill:enable='gte(t,1)*lt(t,5)'" \
+    "${video[@]}" -movflags +faststart "$output/video-markers.mp4"
