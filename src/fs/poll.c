@@ -84,6 +84,7 @@ static int poll_fds(struct poll_context *ctx, struct pollfd *fds,
          * idle waiter such as mario-desktop sees constant "readiness" and
          * spins in poll() forever.
          */
+        *revents = 0;
         if (fd < 0 || FD_IGNORE == fd)
             continue;
 
@@ -98,8 +99,6 @@ static int poll_fds(struct poll_context *ctx, struct pollfd *fds,
             ++n_done;
             continue;
         }
-        *revents = 0;
-
         short mask = f->f_op->poll(f, ctx);
         *revents = (events | POLLERR | POLLHUP) & mask;
         if (*revents)
@@ -111,7 +110,7 @@ static int poll_fds(struct poll_context *ctx, struct pollfd *fds,
 int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
 {
     struct poll_context ctx = { .qproc = count_qproc };
-    struct file **files;
+    struct file **files = NULL;
     struct poll_entry *entries = NULL;
     struct timer_list timeout_timer;
     int timeout_started = 0;
@@ -121,11 +120,13 @@ int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
     if (nfds > (unsigned int)-1 / sizeof(*files))
         return -ENOMEM;
 
-    // NOLINTNEXTLINE(bugprone-sizeof-expression)
-    files = kmalloc(nfds * sizeof(*files));
-    if (!files)
-        return -ENOMEM;
-    poll_get_files(files, fds, nfds);
+    if (nfds) {
+        // NOLINTNEXTLINE(bugprone-sizeof-expression)
+        files = kmalloc(nfds * sizeof(*files));
+        if (!files)
+            return -ENOMEM;
+        poll_get_files(files, fds, nfds);
+    }
 
     n_done = poll_fds(&ctx, fds, files, nfds);
     if (ctx.error) {
@@ -135,30 +136,29 @@ int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
     if (n_done > 0 || !timeout)
         goto out;
 
-    if (!ctx.n)
-        goto out;
-    if (ctx.n > (unsigned int)-1 / sizeof(*entries)) {
-        n_done = -ENOMEM;
-        goto out;
-    }
-    entries = kmalloc(ctx.n * sizeof(*entries));
-    if (!entries) {
-        n_done = -ENOMEM;
-        goto out;
-    }
+    if (ctx.n) {
+        if (ctx.n > (unsigned int)-1 / sizeof(*entries)) {
+            n_done = -ENOMEM;
+            goto out;
+        }
+        entries = kmalloc(ctx.n * sizeof(*entries));
+        if (!entries) {
+            n_done = -ENOMEM;
+            goto out;
+        }
 
-    ctx.entries = entries;
-    ctx.max = ctx.n;
-    ctx.n = 0;
-    ctx.error = 0;
-    ctx.qproc = collect_qproc;
-    n_done = poll_fds(&ctx, fds, files, nfds);
-    if (ctx.error) {
-        n_done = ctx.error;
-        goto out;
+        ctx.entries = entries;
+        ctx.max = ctx.n;
+        ctx.n = 0;
+        ctx.qproc = collect_qproc;
+        n_done = poll_fds(&ctx, fds, files, nfds);
+        if (ctx.error) {
+            n_done = ctx.error;
+            goto out;
+        }
+        if (n_done > 0)
+            goto out;
     }
-    if (n_done > 0 || !ctx.n)
-        goto out;
 
     current->state = TASK_INTERRUPTIBLE;
     for (unsigned int i = 0; i < ctx.n; ++i) {
@@ -201,7 +201,8 @@ out:
     if (entries)
         kfree(entries);
     poll_put_files(files, nfds);
-    kfree(files);
+    if (files)
+        kfree(files);
     return n_done;
 }
 
@@ -214,7 +215,7 @@ int sys_poll(struct pollfd *ufds, unsigned int nfds, long timeout)
     int error = 0;
 
     if (!nfds)
-        return 0;
+        return do_poll(NULL, 0, timeout);
 
     unsigned int sz = nfds * sizeof(struct pollfd);
 

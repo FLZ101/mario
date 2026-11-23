@@ -25,6 +25,7 @@ OBJDUMP	:=objdump
 INCLUDE	:=-I include
 CFLAGS	:=-c -D__KERNEL__ $(INCLUDE) \
 	-std=gnu11 -Wall -Werror \
+	-mgeneral-regs-only \
 	-ggdb $(OPTIMIZE) -fno-omit-frame-pointer \
 	-MMD -MP
 

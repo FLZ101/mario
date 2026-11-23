@@ -1,0 +1,8 @@
+RUN: /usr/bin/test/media_runtime.exe context
+CHECK: media-runtime: context and exec ok
+RUN: /usr/bin/test/media_runtime.exe signals
+CHECK: media-runtime: signals ok
+RUN: /usr/bin/test/media_runtime.exe waits
+CHECK: media-runtime: waits ok
+RUN: /usr/bin/test/media_runtime.exe io
+CHECK: media-runtime: io ok

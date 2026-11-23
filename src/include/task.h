@@ -10,6 +10,7 @@
 #include <resource.h>
 #include <ldt.h>
 #include <smp.h>
+#include <x87.h>
 
 #include <mm/page_alloc.h>
 #include <mm/mm.h>
@@ -30,6 +31,7 @@ struct thread_struct {
 
 	unsigned long cr2, trap_no, error_code;
 	struct user_desc user_descs[NR_USER_DESC];
+	struct x87_state x87;
 };
 
 struct fs_struct;

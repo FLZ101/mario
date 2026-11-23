@@ -135,6 +135,7 @@ DO_ERROR(10, SIGSEGV, "invalid TSS", invalid_TSS, current)
 DO_ERROR(11, SIGBUS,  "segment not present", segment_not_present, current)
 DO_ERROR(12, SIGBUS,  "stack segment", stack_segment, current)
 DO_ERROR(15, SIGSEGV, "reserved", reserved, current)
+DO_ERROR(16, SIGFPE,  "coprocessor error", coprocessor_error, current)
 DO_ERROR(17, SIGSEGV, "alignment check", alignment_check, current)
 
 void do_general_protection(struct trap_frame *tr, long error_code)
@@ -164,11 +165,6 @@ void do_debug(struct trap_frame *tr, long error_code)
 		return;
 	}
 	die_if_kernel("debug", tr, error_code);
-}
-
-void do_coprocessor_error(struct trap_frame *tr, long error_code)
-{
-	die("[ERROR] coprocessor error", tr, error_code);
 }
 
 void do_spurious_interrupt_bug(struct trap_frame *tr, long error_code)

@@ -552,6 +552,7 @@ void smp_ap_entry(void)
 
 	cpu_info[cpu].stack_canary = __stack_chk_guard;
 	ap_gdt_install(cpu);
+	x87_init_cpu();
 
 	memset(idle, 0, sizeof(*idle));
 	idle->state = TASK_RUNNING;

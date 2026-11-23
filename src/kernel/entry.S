@@ -683,7 +683,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_removexattr */
 	.long sys_not_exist /* SYS_lremovexattr */
 	.long sys_not_exist /* SYS_fremovexattr */
-	.long sys_not_exist /* SYS_tkill */
+	.long sys_tkill
 	.long sys_not_exist /* SYS_sendfile64 */
 	.long sys_futex /* SYS_futex */
 	.long sys_sched_setaffinity

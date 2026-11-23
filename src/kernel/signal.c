@@ -213,10 +213,19 @@ int do_sigreturn(struct trap_frame *tr)
 #define COPY(x) tr->x = context.x
 
 	struct sigcontext_struct context;
+	struct x87_state saved;
 	unsigned long flags;
 	if (verify_area(VERIFY_READ, (void *)tr->esp, sizeof(context)))
 		goto badframe;
 	memcpy_fromfs(&context,(void *)tr->esp, sizeof(context));
+	if (context.i387) {
+		if (verify_area(VERIFY_READ, (void *)context.i387, sizeof(saved)))
+			goto badframe;
+		memcpy_fromfs(&saved, (void *)context.i387, sizeof(saved));
+		x87_restore(&saved);
+	} else {
+		x87_reset();
+	}
 	spin_lock_irqsave(&current->lock, flags);
 	current->blocked = context.old_mask & _BLOCKABLE;
 	spin_unlock_irqrestore(&current->lock, flags);
@@ -252,10 +261,17 @@ void setup_frame(struct sigaction *sa, unsigned long **fp, unsigned long eip,
 #define CODE(x) ((unsigned long *) ((x)+__CODE))
 
 	unsigned long *frame = *fp;
+	struct x87_state saved = {0};
+	const unsigned int frame_words = 32;
+	const unsigned long frame_size = frame_words * sizeof(*frame) + sizeof(saved);
 
-	frame -= 32;
-	if (verify_area(VERIFY_WRITE, frame, 30*4))
+	frame -= ((frame_size + 15) & ~15UL) / sizeof(*frame);
+	if (verify_area(VERIFY_WRITE, frame, frame_size))
 		do_exit(SIGSEGV);
+	void *user_x87 = frame + frame_words;
+	x87_save(&saved);
+	x87_reset();
+	memcpy_tofs(user_x87, &saved, sizeof(saved));
 	/* set up the "normal" stack seen by the signal handler (iBCS2) */
 	put_fs_long(__CODE, frame);		// Return address
 	put_fs_long(signr, frame+1);	// 1st argument
@@ -278,7 +294,7 @@ void setup_frame(struct sigaction *sa, unsigned long **fp, unsigned long eip,
 	put_fs_long(tr->eflags, frame+18);
 	put_fs_long(tr->esp, frame+19);
 	put_fs_long(tr->ss, frame+20);
-	put_fs_long(0, frame+21);		/* 387 state pointer - not implemented*/
+	put_fs_long((unsigned long)user_x87, frame+21);
 	/* non-iBCS2 extensions.. */
 	put_fs_long(old_mask, frame+22);
 	put_fs_long(current->thread.cr2, frame+23);

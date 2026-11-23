@@ -112,6 +112,15 @@ static int select_task_cpu(struct task_struct *p)
 	return best;
 }
 
+static int enqueue_on_allowed_cpu(struct task_struct *p)
+{
+	if (!(p->cpus_allowed & (1UL << p->cpu)) &&
+	    cpu_info[p->cpu].current_task != p)
+		p->cpu = select_task_cpu(p);
+	__enqueue_task(p->cpu, p);
+	return p->cpu;
+}
+
 void wake_up_process(struct task_struct *p)
 {
 	unsigned long flags;
@@ -141,27 +150,13 @@ void wake_up_process(struct task_struct *p)
 		 */
 		if (p->counter < MAX_COUNTER)
 			p->counter = MAX_COUNTER;
-		if (!task_on_runqueue(p)) {
-			/*
-			 * Enqueue on the CPU the task last ran on.  At this point
-			 * p may still be executing on that CPU and about to call
-			 * schedule() (for example after down() released a
-			 * semaphore but before sleep_on() parks the task).  If we
-			 * changed p->cpu now, the still-running task would enter
-			 * schedule() with current->cpu pointing at the wrong
-			 * runqueue, corrupting scheduler state and losing the
-			 * wakeup.  Remote migration is deliberately deferred to
-			 * fork time and to schedule()'s pending-signal path.
-			 */
-			target = p->cpu;
-			__enqueue_task(target, p);
-		}
+		if (!task_on_runqueue(p))
+			target = enqueue_on_allowed_cpu(p);
 	} else if (!task_on_runqueue(p)) {
 		/* A runnable task must always be either running on a CPU (and
 		 * still linked) or queued.  Repair the invariant if a transition
 		 * ever leaves it unlinked. */
-		target = p->cpu;
-		__enqueue_task(target, p);
+		target = enqueue_on_allowed_cpu(p);
 	}
 	spin_unlock_irqrestore(&scheduler_lock, flags);
 
@@ -181,6 +176,7 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	struct thread_struct *next = &n->thread;
 	struct tss_struct *tss;
 	int exited = p->state == TASK_ZOMBIE;
+	int migrated = -1;
 
 	/*
 	 * The inline switch already changed the kernel stack.  Publish the new
@@ -189,6 +185,8 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	 */
 	cpu_info[n->cpu].current_task = n;
 	assert(current == n);
+	x87_save(&prev->x87);
+	x87_restore(&next->x87);
 
 	/* Every CPU must update its own ring-0 stack pointer. */
 	tss = (n->cpu == 0) ? &init_tss : &ap_tss[n->cpu];
@@ -220,7 +218,12 @@ void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)
 	 * this point is the previous task's kernel stack safely parked in
 	 * prev->thread, so another CPU may now be allowed to wake and run it.
 	 */
+	if (p->state == TASK_RUNNING && !task_on_runqueue(p) &&
+	    !(p->cpus_allowed & (1UL << p->cpu)))
+		migrated = enqueue_on_allowed_cpu(p);
 	spin_unlock(&scheduler_lock);
+	if (migrated >= 0)
+		smp_send_reschedule(migrated);
 
 	/*
 	 * If the previous task has become a zombie, its parent must not be
@@ -328,9 +331,10 @@ void schedule(void)
 		p->state = TASK_RUNNING;
 		spin_unlock(&p->lock);
 		if (!task_on_runqueue(p)) {
-			int target = select_task_cpu(p);
+			int target = p->cpu;
 
-			p->cpu = target;
+			if (cpu_info[target].current_task != p)
+				target = p->cpu = select_task_cpu(p);
 			__enqueue_task(target, p);
 			if (target != cpu)
 				smp_send_reschedule(target);
@@ -351,6 +355,8 @@ void schedule(void)
 	spin_unlock(&current->lock);
 	if (current_woke && !task_on_runqueue(current))
 		__enqueue_task(cpu, current);
+	if (!(current->cpus_allowed & (1UL << cpu)) && task_on_runqueue(current))
+		__dequeue_task(current);
 
 	c = -100;
 	next = idle;
@@ -386,31 +392,31 @@ int sched_set_cpus_allowed(struct task_struct *p, unsigned long mask)
 {
 	unsigned long allowed = mask & online_cpu_mask();
 	unsigned long flags;
+	int target = -1;
 
 	if (!allowed)
-		return -EINVAL;
-
-	/*
-	 * Keep migration explicit and safe for this step: a running task cannot
-	 * be atomically moved off the CPU it is executing on without a
-	 * stop-machine style handoff.  Accept masks that include the current CPU,
-	 * and defer migration of sleeping tasks to their next wakeup.
-	 */
-	if (p == current && !(allowed & (1UL << p->cpu)))
 		return -EINVAL;
 
 	spin_lock_irqsave(&scheduler_lock, flags);
 	spin_lock(&p->lock);
 	p->cpus_allowed = allowed;
-	if (!(allowed & (1UL << p->cpu)) && p->state != TASK_RUNNING) {
-		for (int cpu = 0; cpu < nr_cpu_ids; cpu++)
-			if (allowed & (1UL << cpu)) {
-				p->cpu = cpu;
-				break;
-			}
+	if (!(allowed & (1UL << p->cpu))) {
+		if (cpu_info[p->cpu].current_task == p) {
+			if (p == current)
+				p->need_resched = 1;
+			else
+				target = p->cpu;
+		} else if (task_on_runqueue(p)) {
+			__dequeue_task(p);
+			target = enqueue_on_allowed_cpu(p);
+		}
 	}
 	spin_unlock(&p->lock);
 	spin_unlock_irqrestore(&scheduler_lock, flags);
+	if (target >= 0 && target != current->cpu)
+		smp_send_reschedule(target);
+	else if (target >= 0)
+		current->need_resched = 1;
 	return 0;
 }
 

@@ -142,6 +142,13 @@ int kill_proc(int pid, int sig, int priv)
 	return ret;
 }
 
+int sys_tkill(pid_t tid, int sig)
+{
+	if (tid <= 0)
+		return -EINVAL;
+	return kill_proc(tid, sig, 0);
+}
+
 int sys_kill(int pid, int sig)
 {
 	int err, res = 0, cnt = 0;

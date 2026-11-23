@@ -7,6 +7,7 @@
 #include <smp.h>
 #include <futex.h>
 #include <hda.h>
+#include <x87.h>
 
 #define __KERNEL_SYSCALLS__
 #include <unistd.h>
@@ -94,6 +95,7 @@ void mario(struct multiboot_info *m)
 	page_alloc_init();
 	runtime_selftest();
 	trap_init();
+	x87_init_cpu();
 	irq_init();
 	time_init();
 

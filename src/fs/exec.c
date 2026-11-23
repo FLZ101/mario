@@ -467,6 +467,7 @@ static inline void start_thread(struct trap_frame *tr,
 	current->thread.fs = 0;
 	current->thread.gs = 0;
 	set_fs(USER_DS);
+	x87_reset();
 	tr->cs = USER_CS;
 	tr->ds = tr->es = tr->ss = USER_DS;
 	tr->eip = eip;

@@ -25,10 +25,11 @@ window.
 
 ## Milestone Map
 
-Complete each exit gate before starting the next milestone. A build that links
-or a QEMU command that starts is not proof of playback. M0 through M1b are
-verified, and M2 passes the automated QEMU gates. M2 still needs a listening
-check; M2H and the player milestones have not started.
+Complete each exit gate before starting the next milestone unless the gate is
+explicitly deferred. A build that links or a QEMU command that starts is not
+proof of playback. M0 through M1b and the automated M2 QEMU gates are verified.
+The M2 listening check and M2H physical-PC gate were deferred to start M3;
+both remain outstanding. M3 passes in QEMU; the player milestones have not started.
 
 | Milestone | Deliverable | Exit gate |
 | --- | --- | --- |
@@ -222,16 +223,20 @@ physical support remains unverified.
 
 ## M3 — Guest Runtime Prerequisites
 
-- Add an i386/musl guest probe for floating-point state across task switches, CPU
-  migration and signal delivery. The [scheduler switch path](../src/kernel/sched.c#L178)
-  does not visibly save x87/SIMD state. Prove x87 correctness on one and two vCPUs
-  before running mpv; disabling FFmpeg assembly does **not** remove compiler-emitted
-  floating-point instructions. Fix any failing kernel behavior separately before
-  proceeding. Leave SIMD off for bring-up and test it before enabling it.
-- Probe monotonic clocks, timed pthread waits, `poll`/`ppoll`, pipe wakeups, file
-  seeks and EOF, and AF_UNIX socket I/O against the actual guest. Patch only the
-  port assumptions these tests expose; a Meson link probe cannot prove that a
-  kernel syscall works.
+- The guest probes check x87 registers and the control word across task switches,
+  `fork`, `exec`, nested signals, and explicit CPU migration. The kernel saves
+  x87 state before allowing the outgoing task to run on another CPU. SIMD is
+  out of scope for bring-up; disabling FFmpeg assembly alone does not prevent
+  compiler-emitted floating-point instructions.
+- The probes also cover monotonic clocks, pthread wait timeout and wakeup,
+  `poll` with no descriptors, `ppoll` timeout and pipe wakeup, file seeks and
+  EOF, and AF_UNIX stream socket I/O. Run with `N=1` and `N=2` after building
+  the kernel, applications, and disk images:
+
+  ```sh
+  .venv/bin/python tests/lit_shell_test.py --smp "$N" --jobs 1 \
+    tests/shell/media-runtime.test tests/shell/media-runtime-migrate.test
+  ```
 
 **Exit:** Focused guest tests exercise the required behavior on one and two vCPUs,
 including migration on SMP. Fix or explicitly route around any missing runtime

@@ -1,0 +1,4 @@
+REQUIRES-SMP: >=2
+
+RUN: /usr/bin/test/media_runtime.exe migrate
+CHECK: media-runtime: migrated ok

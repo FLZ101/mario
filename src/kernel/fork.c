@@ -41,6 +41,8 @@ void copy_thread(struct task_struct *p, struct trap_frame *tr,
 	p->thread.esp0 = (unsigned long)(tr0 + 1);
 
 	p->thread.eip = (unsigned long)fork_ret;
+	x87_save(&p->thread.x87);
+	x87_restore(&p->thread.x87);
 
 	/* Save the user selectors from the trap frame, not the kernel %gs. */
 	p->thread.fs = tr->fs;
