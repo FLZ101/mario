@@ -128,7 +128,7 @@
 +	xx_cols = x_cols;
 +	xbp = xbuf;
 +	xlp_valid = false;
-+	x_redraw(-1);
++	x_redraw(0);
 +	x_flush();
 +}
 +
