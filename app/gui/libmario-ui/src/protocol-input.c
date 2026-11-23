@@ -48,6 +48,11 @@ int gui_protocol_input_pending(const gui_protocol_input *input)
 	return input != NULL && input->count != 0;
 }
 
+size_t gui_protocol_input_space(const gui_protocol_input *input)
+{
+	return sizeof(input->bytes) - input->count;
+}
+
 int gui_protocol_input_drain(gui_protocol_input *input,
 				     gui_protocol_message_fn callback, void *context)
 {

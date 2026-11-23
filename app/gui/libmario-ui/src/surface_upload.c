@@ -85,6 +85,33 @@ int gui_surface_upload_writable(const gui_surface_upload *upload)
 		 (upload->next_pixel == upload->total && upload->chunk_count == 0)));
 }
 
+static void upload_copy_pixels(const gui_surface_upload *upload, uint8_t *destination,
+	uint32_t remaining)
+{
+	const gui_rect *rectangle = &upload->rectangle;
+	uint32_t offset = upload->next_pixel;
+	while (remaining > 0) {
+		size_t row = rectangle->y + offset / rectangle->w;
+		uint32_t column = offset % rectangle->w;
+		uint32_t count = rectangle->w == upload->source.stride ?
+			remaining : (uint32_t)rectangle->w - column;
+		const gui_color *source = upload->source.pixels +
+			row * upload->source.stride + rectangle->x + column;
+
+		if (count > remaining)
+			count = remaining;
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+		memcpy(destination, source, count * sizeof(gui_color));
+#else
+		for (uint32_t index = 0; index < count; index++)
+			upload_put32(destination + index * sizeof(gui_color), source[index]);
+#endif
+		destination += count * sizeof(gui_color);
+		offset += count;
+		remaining -= count;
+	}
+}
+
 static int upload_prepare(gui_surface_upload *upload)
 {
 	uint8_t payload[sizeof(gui_protocol_wire_surface_patch_begin)] = { 0 };
@@ -123,15 +150,17 @@ static int upload_prepare(gui_surface_upload *upload)
 	}
 	if (upload->next_pixel < upload->total) {
 		uint32_t count = upload->total - upload->next_pixel;
+		uint32_t max_pixels = upload->batch ? GUI_SURFACE_UPLOAD_BATCH_PIXELS : GUI_SURFACE_UPLOAD_PIXELS;
+		size_t window_bytes = upload->batch ? GUI_SURFACE_UPLOAD_BATCH_BYTES : GUI_SURFACE_UPLOAD_WINDOW_BYTES;
 		size_t bytes;
 		gui_surface_upload_chunk *chunk;
 
 		if (upload->chunk_count == GUI_SURFACE_UPLOAD_CHUNKS)
 			return 0;
-		if (count > GUI_SURFACE_UPLOAD_PIXELS)
-			count = GUI_SURFACE_UPLOAD_PIXELS;
+		if (count > max_pixels)
+			count = max_pixels;
 		bytes = GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_data) + count * sizeof(gui_color);
-		if (bytes > GUI_SURFACE_UPLOAD_WINDOW_BYTES - upload->outstanding_bytes)
+		if (bytes > window_bytes - upload->outstanding_bytes)
 			return 0;
 		if (gui_protocol_encode_header(upload->frame, sizeof(upload->frame), GUI_PROTOCOL_SURFACE_DATA,
 			bytes - GUI_PROTOCOL_HEADER_SIZE) < 0)
@@ -139,14 +168,8 @@ static int upload_prepare(gui_surface_upload *upload)
 		memcpy(upload->frame + GUI_PROTOCOL_HEADER_SIZE, payload, 20);
 		upload_put32(upload->frame + GUI_PROTOCOL_HEADER_SIZE + 20, upload->next_pixel);
 		upload_put32(upload->frame + GUI_PROTOCOL_HEADER_SIZE + 24, count);
-		for (uint32_t index = 0; index < count; index++) {
-			uint32_t offset = upload->next_pixel + index;
-			size_t row = upload->rectangle.y + offset / upload->rectangle.w;
-			size_t column = upload->rectangle.x + offset % upload->rectangle.w;
-
-			upload_put32(upload->frame + GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_data) +
-				index * sizeof(gui_color), upload->source.pixels[row * upload->source.stride + column]);
-		}
+		upload_copy_pixels(upload,
+			upload->frame + GUI_PROTOCOL_HEADER_SIZE + sizeof(gui_protocol_wire_surface_data), count);
 		chunk = &upload->chunks[(upload->chunk_head + upload->chunk_count) % GUI_SURFACE_UPLOAD_CHUNKS];
 		*chunk = (gui_surface_upload_chunk) { upload->next_pixel, count, bytes };
 		upload->chunk_count++;
@@ -227,7 +250,8 @@ int gui_surface_upload_reply(gui_surface_upload *upload, const uint8_t *payload,
 	serial = upload_get64(payload + 12);
 	offset = upload_get32(payload + 20);
 	count = upload_get32(payload + 24);
-	if (configure == 0 || serial == 0 || count == 0 || count > GUI_SURFACE_UPLOAD_PIXELS || offset > UINT32_MAX - count)
+	if (configure == 0 || serial == 0 || count == 0 || offset > UINT32_MAX - count ||
+	    count > (upload->batch ? GUI_SURFACE_UPLOAD_BATCH_PIXELS : GUI_SURFACE_UPLOAD_PIXELS))
 		return -1;
 	if (configure < upload->configure || (configure == upload->configure && serial < upload->serial))
 		return 0;

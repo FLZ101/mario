@@ -14,6 +14,7 @@ struct priv {
     int fd;
     unsigned char *staging;
     int staged_frames;
+    uint32_t underruns;
     bool started;
     bool paused;
     bool failed;
@@ -36,6 +37,9 @@ static bool read_status(struct ao *ao, struct mario_pcm_status *status)
         return fail(ao, "Querying", errno);
     if (status->state == MARIO_PCM_FAILED)
         return fail(ao, "Playing through", EIO);
+    if (status->underruns > priv->underruns)
+        MP_VERBOSE(ao, "PCM underruns: +%u\n", status->underruns - priv->underruns);
+    priv->underruns = status->underruns;
     return true;
 }
 

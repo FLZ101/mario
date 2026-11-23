@@ -811,7 +811,7 @@ ENTRY(sys_call_table)
 	.long sys_listen
 	.long sys_accept4
 	.long sys_getsockopt
-	.long sys_not_exist /* SYS_setsockopt */
+	.long sys_setsockopt
 	.long sys_not_exist /* SYS_getsockname */
 	.long sys_not_exist /* SYS_getpeername */
 	.long sys_not_exist /* SYS_sendto */

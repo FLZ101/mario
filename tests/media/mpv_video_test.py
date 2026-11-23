@@ -37,7 +37,7 @@ BLUE = (0, 0, 255)
 WHITE = (255, 255, 255)
 
 
-def hda_boot_disk(work):
+def hda_boot_disk(work, kernel=None):
     boot = work / "hd1.img"
     subprocess.run(
         ["cp", "--reflink=auto", "--sparse=always", HD1_IMAGE, boot], check=True
@@ -54,6 +54,11 @@ def hda_boot_disk(work):
     subprocess.run(
         ["mcopy", "-o", "-i", f"{boot}@@{offset}", menu, "::menu.lst"], check=True
     )
+    if kernel is not None:
+        kernel_offset = table["partitions"][-1]["start"] * table["sectorsize"]
+        subprocess.run(
+            ["mcopy", "-o", "-i", f"{boot}@@{kernel_offset}", kernel, "::kernel.exe"], check=True
+        )
     return boot
 
 

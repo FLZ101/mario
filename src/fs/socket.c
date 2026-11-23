@@ -13,6 +13,7 @@
 #define SYS_SENDTO 11
 #define SYS_RECVFROM 12
 #define SYS_SHUTDOWN 13
+#define SYS_SETSOCKOPT 14
 #define SYS_GETSOCKOPT 15
 #define SYS_SENDMSG 16
 #define SYS_RECVMSG 17
@@ -25,6 +26,8 @@
 #define SCM_RIGHTS 1
 #define SO_TYPE 3
 #define SO_ERROR 4
+#define SO_SNDBUF 7
+#define UNIX_SNDBUF_MAX_ORDER 4
 #define SO_ACCEPTCONN 30
 #define SO_PEERCRED 17
 #define MSG_PEEK 0x02
@@ -767,6 +770,65 @@ int sys_shutdown(int fd, int how)
 	return 0;
 }
 
+int sys_setsockopt(int fd, int level, int option, const void *value,
+		   unsigned int length)
+{
+	struct file *file;
+	struct unix_socket *socket;
+	struct unix_socket *peer;
+	struct ring_buffer replacement;
+	unsigned int order = 0;
+	unsigned long flags;
+	int requested;
+	int result;
+
+	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
+		return -EBADF;
+	if (file->f_op != &socket_fops)
+		return -ENOTSOCK;
+	if (level != SOL_SOCKET || option != SO_SNDBUF)
+		return -ENOPROTOOPT;
+	if (length < sizeof(requested))
+		return -EINVAL;
+	if (verify_area(VERIFY_READ, value, sizeof(requested)))
+		return -EFAULT;
+	requested = get_fs_long(value);
+	if (requested <= 0)
+		return -EINVAL;
+	while (order < UNIX_SNDBUF_MAX_ORDER && (PAGE_SIZE << order) < (unsigned int)requested)
+		order++;
+
+	fref(file);
+	socket = socket_endpoint(file);
+	result = -ENOTCONN;
+	if (!socket->pair)
+		goto out;
+	result = ring_buffer_init_order(&replacement, order);
+	if (result)
+		goto out;
+
+	peer = socket_peer(socket);
+	spin_lock_irqsave(&socket->pair->lock, flags);
+	if (!peer->opens || socket->write_shutdown || peer->read_shutdown) {
+		result = -EPIPE;
+	} else if (peer->receive.len > replacement.size) {
+		result = -EBUSY;
+	} else if (peer->receive.size != replacement.size) {
+		struct ring_buffer old = peer->receive;
+
+		replacement.len = ring_buffer_read(&old, replacement.data, old.len, 0);
+		replacement.head = replacement.len & (replacement.size - 1);
+		peer->receive = replacement;
+		replacement = old;
+		wake_up_interruptible(&peer->wait_write);
+	}
+	spin_unlock_irqrestore(&socket->pair->lock, flags);
+	ring_buffer_destroy(&replacement);
+out:
+	release_file(file, 1);
+	return result;
+}
+
 int sys_getsockopt(int fd, int level, int option, void *value,
 		   unsigned int *length)
 {
@@ -801,7 +863,16 @@ int sys_getsockopt(int fd, int level, int option, void *value,
 			result = 0;
 		else if (option == SO_ACCEPTCONN)
 			result = socket->listening;
-		else
+		else if (option == SO_SNDBUF) {
+			unsigned long flags;
+
+			result = PAGE_SIZE;
+			if (socket->pair) {
+				spin_lock_irqsave(&socket->pair->lock, flags);
+				result = socket_peer(socket)->receive.size;
+				spin_unlock_irqrestore(&socket->pair->lock, flags);
+			}
+		} else
 			return -ENOPROTOOPT;
 		result_length = sizeof(result);
 		if (user_length < result_length ||
@@ -1087,6 +1158,7 @@ int sys_socketcall(int call, unsigned long *args)
 		[SYS_SENDTO] = 6,
 		[SYS_RECVFROM] = 6,
 		[SYS_SHUTDOWN] = 2,
+		[SYS_SETSOCKOPT] = 5,
 		[SYS_GETSOCKOPT] = 5,
 		[SYS_SENDMSG] = 3,
 		[SYS_RECVMSG] = 3,
@@ -1142,6 +1214,12 @@ int sys_socketcall(int call, unsigned long *args)
 	case SYS_SHUTDOWN:
 		return sys_shutdown(get_fs_long((int *)&args[0]),
 				    get_fs_long((int *)&args[1]));
+	case SYS_SETSOCKOPT:
+		return sys_setsockopt(get_fs_long((int *)&args[0]),
+				      get_fs_long((int *)&args[1]),
+				      get_fs_long((int *)&args[2]),
+				      (const void *)get_fs_long((int *)&args[3]),
+				      get_fs_long((int *)&args[4]));
 	case SYS_GETSOCKOPT:
 		return sys_getsockopt(get_fs_long((int *)&args[0]),
 				      get_fs_long((int *)&args[1]),

@@ -42,6 +42,18 @@ done
     -f lavfi -i "aevalsrc='0.4*sin(2*PI*880*t)*gte(t,1)*lt(mod(t,1),0.2)':s=48000:d=4" \
     "${video[@]}" "${audio[@]}" -ar 48000 -movflags +faststart "$output/flash-beep.mp4"
 
+drift='testsrc2=s=320x180:r=15:d=32,drawbox=x=32:y=60:w=64:h=64:c=black:t=fill'
+drift+=",drawbox=x=32:y=60:w=64:h=64:c=white:t=fill:enable='gte(n,15)*lt(mod(n,15),3)'"
+drift+=',drawbox=x=96:y=60:w=16:h=64:c=white:t=fill'
+drift+=',drawbox=x=112:y=60:w=144:h=64:c=black:t=fill'
+for ((bit = 0; bit < 9; bit++)); do
+    drift+=",drawbox=x=$((112 + bit * 16)):y=60:w=16:h=64:c=white:t=fill:enable='mod(floor(n/$((1 << bit))),2)'"
+done
+"$ffmpeg" -hide_banner -loglevel error -y \
+    -f lavfi -i "$drift" \
+    -f lavfi -i "aevalsrc='0.4*sin(2*PI*880*t)*gte(t,1)*lt(mod(t,1),0.2)':s=48000:d=32" \
+    "${video[@]}" "${audio[@]}" -ar 48000 -movflags +faststart "$output/flash-beep-drift.mp4"
+
 "$ffmpeg" -hide_banner -loglevel error -y \
     -f lavfi -i "color=c=blue:s=320x180:r=15:d=8,drawbox=c=black:t=fill:enable='lt(t,1)',drawbox=c=red:t=fill:enable='gte(t,1)*lt(t,5)'" \
     "${video[@]}" -movflags +faststart "$output/video-markers.mp4"

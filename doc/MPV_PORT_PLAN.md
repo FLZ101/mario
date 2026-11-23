@@ -368,6 +368,67 @@ another player open the device.
   PCM underruns, and peak memory. Keep ordinary GUI regressions based on
   observable state rather than asserting host timing in every CI job.
 
+### QEMU Measurement
+
+Build with `make app` and prepare the disk images as for the M6 GUI test. On a
+quiet Linux host, run the opt-in measurement separately from other QEMU jobs:
+
+```sh
+.venv/bin/python tests/media/mpv_sync_test.py --smp 2 --timer-us 5000
+```
+
+This uses TCG, a 256 MiB guest, std VGA at 1024×768×32, emulated ICH9 HDA,
+48 kHz stereo S16 WAV capture, a 5 ms audio timer, Mario's 80 ms PCM ring and
+mpv's default 200 ms software audio buffer. mpv uses audio-clock sync. The test
+uses the same disposable disks as the GUI check and needs a host C compiler
+and dynamically linked QEMU. No host sound server or FFmpeg is required.
+
+The test timestamps selected framebuffer scanlines via QMP and PCM writes at
+the QEMU WAV backend on the host's `CLOCK_MONOTONIC`. It brackets each flash by
+the previous and current QMP sample, and budgets the WAV write size, configured
+timer period, and a 5 ms tone-detection window for each beep. Timestamping
+individual writes preserves pauses and stalls that would be lost when using
+WAV offsets alone. This measures delivery to QEMU's framebuffer and capture
+backend, not physical display or speaker latency. It does not separately
+identify the latency inside QEMU's HDA pipeline or extrapolate to other host
+audio backends.
+
+The trace includes three uninterrupted pulse pairs, four pairs across pause
+and backward seek, and 31 pairs from a 32-second clip. The longer clip embeds
+a guard bar and frame IDs, with separate black and white thresholds so H.264
+compression around a marker does not look like a lost frame. The gate allows
+five missed observations out of 480, and reports mpv's drops separately.
+It also reports PCM underruns before EOF separately from drain-time underruns,
+and samples whole-guest memory usage every 0.5 s (not mpv process peak RSS).
+The capture, raw timestamps, player log, and JSON summary are retained under
+the path printed by the script. Positive skew means the video lagged the audio.
+
+### Transport Tuning
+
+On QEMU 9.2.4 (TCG, two vCPUs), the default 4 KiB socket ring took a median
+110 ms to send a converted frame and submit its `COMMIT`, longer than the
+66.7 ms frame period. The drift clip logged 203 mpv drops and reached 274 ms
+skew. Faster kernel user copies and larger rings alone were insufficient:
+with a 64 KiB experimental ring and the old upload window the median was
+70 ms and mpv dropped 64 frames. Batching up to four 16 KiB messages lowered
+median upload and composition times to 10 ms each in the instrumented run.
+
+mpv requests a 64 KiB send buffer on its compositor connection and keeps up
+to four messages in flight; on older kernels or allocation failure it uses
+the original upload limits. The compositor performs one bounded read per
+client per poll pass and never reads past the input parser's remaining space.
+The GUI wire format, terminal upload window, and default Unix socket, pipe,
+TTY and PTY ring sizes do not change.
+
+**Verified result:** On the default debug kernel at the settings above, the
+worst-case bounds were 58.0 ms uninterrupted, 57.0 ms across pause/seek, and
+61.7 ms during the drift run. At a median scanline sample interval of 4.2 ms,
+the drift run observed 479 of 480 frames, with zero mpv drops and no playback
+underruns. There was one underrun after EOF. Median upload time was 10 ms,
+and whole-guest memory peaked at 29 MiB. The difference between the average
+skew of the first and last five pulse pairs was about 3 ms. A repeat drift
+run passed at 71.9 ms, with 478 of 480 frames and no playback underruns.
+
 **Exit:** In the documented QEMU configuration, verify at most 100 ms of A/V
 skew, including after pause/resume and seek. Verify sustained 320×180 playback at
 15 fps with no audio underruns during steady playback in the 256 MiB guest.

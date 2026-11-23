@@ -31,6 +31,7 @@ struct priv {
     uint64_t serial;
     uint64_t frame_id;
     int64_t upload_start;
+    int64_t conversion_end;
     int width, height;
     gui_protocol_type expected;
     gui_protocol_input *input;
@@ -267,7 +268,8 @@ static bool start_upload(struct vo *vo)
     int left = (priv->width - width) / 2;
     int top = (priv->height - height) / 2;
     gui_rect full = {0, 0, priv->width, priv->height};
-    gui_fill_rect(priv->surface, full, 0);
+    if (width != priv->width || height != priv->height)
+        gui_fill_rect(priv->surface, full, 0);
     struct mp_image target = {0};
     mp_image_setfmt(&target, IMGFMT_BGR0);
     mp_image_set_size(&target, width, height);
@@ -275,6 +277,7 @@ static bool start_upload(struct vo *vo)
     target.planes[0] = (uint8_t *)(priv->surface->pixels + top * priv->surface->stride + left);
     if (mp_sws_scale(priv->sws, &target, priv->latest) < 0)
         return false;
+    priv->conversion_end = mp_time_ns();
     priv->dirty = false;
     return gui_surface_upload_start(&priv->upload, priv->window, priv->configure, 0,
                                     ++priv->serial, priv->surface, full, false) == 0;
@@ -317,13 +320,14 @@ static void wait_events(struct vo *vo, int64_t deadline)
             } while (result && !priv->stopped);
         }
     }
-    if (!priv->stopped && (fds[0].revents & POLLOUT)) {
+    if (!priv->stopped && gui_surface_upload_writable(&priv->upload)) {
         bool completed = priv->upload.completed;
         if (gui_surface_upload_write(&priv->upload, socket_write, &priv->fd) < 0)
             goto failed;
         if (!completed && priv->upload.completed)
-            MP_TRACE(vo, "Submitted surface %" PRIu64 " in %.1f ms\n",
-                     priv->upload.completed_serial, (mp_time_ns() - priv->upload_start) / 1e6);
+            MP_TRACE(vo, "Submitted surface %" PRIu64 " in %.1f ms (conversion %.1f ms)\n",
+                     priv->upload.completed_serial, (mp_time_ns() - priv->upload_start) / 1e6,
+                     (priv->conversion_end - priv->upload_start) / 1e6);
     }
     return;
 
@@ -368,6 +372,9 @@ static int preinit(struct vo *vo)
                             offsetof(struct sockaddr_un, sun_path) + sizeof(WM_SOCKET_PATH)) < 0 ||
         mp_make_wakeup_pipe(priv->wakeup_pipe) < 0)
         goto failed;
+    int send_buffer = GUI_SURFACE_UPLOAD_BATCH_BYTES;
+    if (setsockopt(priv->fd, SOL_SOCKET, SO_SNDBUF, &send_buffer, sizeof(send_buffer)) == 0)
+        priv->upload.batch = true;
     priv->input = gui_protocol_input_create();
     priv->sws = mp_sws_alloc(priv);
     priv->sws->log = vo->log;

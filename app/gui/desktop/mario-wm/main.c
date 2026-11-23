@@ -23,7 +23,7 @@
 #include <gui/surface.h>
 
 #define WM_SHELL_SNAPSHOT_QUANTUM 8U
-#define WM_CLIENT_INPUT_READ_QUANTUM 4096U
+#define WM_CLIENT_INPUT_READ_QUANTUM 16384U
 #define WM_INPUT_BATCH_RECORDS 16U
 #define WM_INPUT_READ_QUANTUM 4U
 #define WM_MOTION_FRAME_MS 16U
@@ -3955,8 +3955,9 @@ int main(int argc, char **argv)
 
 			if (client->fd < 0)
 				continue;
-			if (pollfds[poll_index].revents & (POLLIN | POLLHUP | POLLERR)) {
-				count = recv(client->fd, bytes, sizeof(bytes), 0);
+			size_t space = gui_protocol_input_space(client->input);
+			if (space && (pollfds[poll_index].revents & (POLLIN | POLLHUP | POLLERR))) {
+				count = recv(client->fd, bytes, space < sizeof(bytes) ? space : sizeof(bytes), 0);
 				if (count > 0 && gui_protocol_input_append(client->input,
 									 bytes, count) < 0)
 					client->hello = -1;

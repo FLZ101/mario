@@ -6,10 +6,12 @@
 #include <gui/surface.h>
 
 #define GUI_SURFACE_UPLOAD_WINDOW_BYTES (16U * 1024U)
+#define GUI_SURFACE_UPLOAD_BATCH_BYTES (64U * 1024U)
 #define GUI_SURFACE_UPLOAD_CHUNKS 4U
 #define GUI_SURFACE_UPLOAD_PIXELS 1000U
+#define GUI_SURFACE_UPLOAD_BATCH_PIXELS 4000U
 #define GUI_SURFACE_UPLOAD_FRAME_BYTES (GUI_PROTOCOL_HEADER_SIZE + \
-	sizeof(gui_protocol_wire_surface_data) + GUI_SURFACE_UPLOAD_PIXELS * sizeof(gui_color))
+	sizeof(gui_protocol_wire_surface_data) + GUI_SURFACE_UPLOAD_BATCH_PIXELS * sizeof(gui_color))
 
 typedef struct {
 	uint32_t offset;
@@ -19,6 +21,7 @@ typedef struct {
 } gui_surface_upload_chunk;
 
 typedef struct {
+	int batch;
 	int active;
 	int begun;
 	int canceled;
