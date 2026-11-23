@@ -45,7 +45,8 @@ int main(int argc, char **argv)
 #endif
         "--no-access-references", "--no-resume-playback", "--sid=no",
         "--vo=mario", "--ao=mario", "--no-audio-fallback-to-null",
-        "--framedrop=no", "--demuxer=+lavf", "--demuxer-lavf-mario-mp4=yes",
+        /* Keep video aligned to the audio clock by dropping late frames. */
+        "--framedrop=vo", "--demuxer=+lavf", "--demuxer-lavf-mario-mp4=yes",
         "--", source, NULL,
     };
     int result = mpv_main(sizeof(options) / sizeof(options[0]) - 1, options);
