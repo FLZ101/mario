@@ -114,6 +114,10 @@ static struct file *copy_fd(struct file *old_file)
 	int error;
 	struct file *new_file;
 
+	if (old_file->f_op && old_file->f_op->share_on_fork) {
+		fref(old_file);
+		return old_file;
+	}
 	if (!(new_file = get_empty_file()))
 		return NULL;
 	*new_file = *old_file;

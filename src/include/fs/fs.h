@@ -203,6 +203,7 @@ struct file_operations {
 	int (*mmap)(struct inode *, struct file *, struct vm_area_struct *);
 	int (*ioctl)(struct inode *, struct file *, unsigned int, unsigned long);
 	int (*poll)(struct file *, struct poll_context *);
+	int share_on_fork;
 };
 
 #define SEEK_SET 0

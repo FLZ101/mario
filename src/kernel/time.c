@@ -2,6 +2,7 @@
 #include <sched.h>
 #include <timer.h>
 #include <time.h>
+#include <hda.h>
 #include <trap.h>
 #include <misc.h>
 #include <task.h>
@@ -165,6 +166,7 @@ int sys_clock_gettime32(clockid_t clockid, struct timespec *tp)
 
 static void PIT_bh(void *unused)
 {
+	pcm_service();
 	run_timer_list();
 	futex_run_timeouts();
 }

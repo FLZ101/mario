@@ -1,4 +1,5 @@
 #include <fs/fs.h>
+#include <hda.h>
 
 #include <misc.h>
 #include <errno.h>
@@ -28,6 +29,7 @@ void chrdev_init(void)
 	tty_init();
 	fbdev_init();
 	gui_init();
+	pcm_init();
 }
 
 int register_chrdev(unsigned int major, struct file_operations *chrdev_fops)

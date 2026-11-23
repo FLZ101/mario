@@ -27,6 +27,9 @@ int register_chrdev(unsigned int, struct file_operations *);
 #define FB_MAJOR	13
 #define FB_MINOR	0
 
+#define PCM_MAJOR	14
+#define PCM_MINOR	0
+
 #define GUI_MAJOR	11
 #define GUI_MINOR	0
 

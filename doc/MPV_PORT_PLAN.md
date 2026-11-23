@@ -27,7 +27,8 @@ window.
 
 Complete each exit gate before starting the next milestone. A build that links
 or a QEMU command that starts is not proof of playback. M0 through M1b are
-verified in QEMU; the PCM device, physical audio, and the player are not verified.
+verified, and M2 passes the automated QEMU gates. M2 still needs a listening
+check; M2H and the player milestones have not started.
 
 | Milestone | Deliverable | Exit gate |
 | --- | --- | --- |
@@ -156,6 +157,7 @@ CPU counts. The boot self-test is opt-in through `hda=selftest`.
   consumed-frame counter and an underrun indication. Writable capacity must
   account for free descriptors, not just free payload bytes. `RESET` empties the
   queue and resets progress; close discards rather than waiting indefinitely.
+  The implemented interface and its limits are in [PCM ABI](PCM_ABI.md).
 - Treat the HDA BDL as cyclic, not an AC’97-style appendable descriptor queue.
   Keep software-queued valid data separate from the cyclic DMA buffer. Reuse
   only safe regions and ensure starvation cannot play old data on wrap. Track
@@ -190,6 +192,14 @@ CPU counts. The boot self-test is opt-in through `hda=selftest`.
 **Exit:** Guest counters and host capture agree, including pause continuity and
 no replay of discarded guest PCM after reset. Confirm audible output manually in
 GTK before moving to the physical machine.
+
+The `device`, `late`, `no-codec`, and `no-controller` test modes exercise the
+automated portion at both CPU counts. `device` compares the captured fixture
+and short markers with guest progress while a child performs exact-sector AHCI
+reads. `late` forces a missed poll and verifies that it reports an underrun
+rather than crediting unobserved DMA progress. GTK/PulseAudio smoke tests also
+pass at both CPU counts. These runs do not replace a human listening check or
+the physical analog test.
 
 ## M2H — Physical-PC Audio Gate
 

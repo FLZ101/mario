@@ -16,6 +16,7 @@
 #define HDA_WAKEEN 0x0c
 #define HDA_STATESTS 0x0e
 #define HDA_INTCTL 0x20
+#define HDA_WALLCLK 0x30
 #define HDA_CORBLBASE 0x40
 #define HDA_CORBUBASE 0x44
 #define HDA_CORBWP 0x48
@@ -57,10 +58,6 @@
 #define HDA_RIRB_UNSOLICITED (1 << 4)
 #define HDA_COMMAND_INT_DISABLE (1 << 10)
 #define HDA_TIMEOUT_TICKS (HZ / 10)
-#define HDA_PERIOD_FRAMES 960
-#define HDA_PERIOD_BYTES (HDA_PERIOD_FRAMES * 4)
-#define HDA_PERIODS 4
-#define HDA_BUFFER_BYTES (HDA_PERIODS * HDA_PERIOD_BYTES)
 
 struct hda_response {
 	uint32_t value;
@@ -84,13 +81,14 @@ _Static_assert(sizeof(struct hda_tables) <= PAGE_SIZE, "HDA tables fit one page"
 _Static_assert(HDA_PERIOD_BYTES <= PAGE_SIZE && !(HDA_PERIOD_BYTES % 128),
 	       "HDA periods fit an aligned DMA page");
 
-static enum { HDA_OFF, HDA_PROBE, HDA_SELFTEST } boot_mode;
+static enum { HDA_OFF, HDA_PROBE, HDA_SELFTEST, HDA_DEVICE, HDA_LATE_TEST } boot_mode;
 static unsigned char *controller, *stream;
 static struct hda_tables *tables;
 static int16_t *periods[HDA_PERIODS];
 static uint8_t corb_write, rirb_read;
 static uint8_t corb_mask, rirb_mask;
 static int verb_failed;
+static int pcm_present;
 
 void hda_boot_options(const struct multiboot_info *boot)
 {
@@ -108,6 +106,16 @@ void hda_boot_options(const struct multiboot_info *boot)
 		if (!strncmp(option, "hda=selftest", 12) &&
 		    (!option[12] || option[12] == ' ')) {
 			boot_mode = HDA_SELFTEST;
+			return;
+		}
+		if (!strncmp(option, "hda=on", 6) &&
+		    (!option[6] || option[6] == ' ')) {
+			boot_mode = HDA_DEVICE;
+			return;
+		}
+		if (!strncmp(option, "hda=test-late", 13) &&
+		    (!option[13] || option[13] == ' ')) {
+			boot_mode = HDA_LATE_TEST;
 			return;
 		}
 		while (*option && *option != ' ')
@@ -275,21 +283,39 @@ fail:
 	return -1;
 }
 
-static int hda_stop_stream(void)
+uint32_t hda_pcm_clock(void)
+{
+	return readl(controller + HDA_WALLCLK);
+}
+
+static int hda_stream_wait(uint8_t mask, uint8_t expected)
+{
+	uint32_t start = hda_pcm_clock();
+	for (unsigned int tries = 0; tries < 100000; tries++) {
+		if ((readb(stream + SD_CTL) & mask) == expected)
+			return 0;
+		if (hda_pcm_clock() - start >= HDA_WALL_TICKS_PER_MS / 2)
+			break;
+		asm volatile("pause" ::: "memory");
+	}
+	return -1;
+}
+
+int hda_pcm_stop(void)
 {
 	writeb(0, stream + SD_CTL);
-	return hda_wait(stream + SD_CTL, 1, SD_RUN, 0);
+	return hda_stream_wait(SD_RUN, 0);
 }
 
 static int hda_setup_stream(void)
 {
-	if (hda_stop_stream())
+	if (hda_pcm_stop())
 		return -1;
 	writeb(SD_RESET, stream + SD_CTL);
-	if (hda_wait(stream + SD_CTL, 1, SD_RESET, SD_RESET))
+	if (hda_stream_wait(SD_RESET, SD_RESET))
 		return -1;
 	writeb(0, stream + SD_CTL);
-	if (hda_wait(stream + SD_CTL, 1, SD_RESET, 0))
+	if (hda_stream_wait(SD_RESET, 0))
 		return -1;
 	writeb(HDA_STREAM_TAG << 4, stream + SD_CTL_TAG);
 	writeb(0x1c, stream + SD_STS);
@@ -299,6 +325,41 @@ static int hda_setup_stream(void)
 	writel(__phy(tables->bdl), stream + SD_BDPL);
 	writel(0, stream + SD_BDPU);
 	return 0;
+}
+
+int hda_pcm_start(void)
+{
+	if (hda_setup_stream())
+		return -1;
+	asm volatile("" ::: "memory");
+	writeb(SD_RUN, stream + SD_CTL);
+	return hda_stream_wait(SD_RUN, SD_RUN);
+}
+
+int hda_pcm_position(void)
+{
+	uint32_t bytes = readl(stream + SD_LPIB);
+	if (bytes >= HDA_BUFFER_BYTES || (readb(stream + SD_STS) & SD_ERROR))
+		return -1;
+	return bytes / 4;
+}
+
+int16_t *hda_pcm_period(unsigned int index)
+{
+	return periods[index];
+}
+
+int hda_pcm_present(void)
+{
+	return pcm_present;
+}
+
+int hda_pcm_defer_first_poll(void)
+{
+	if (boot_mode != HDA_LATE_TEST)
+		return 0;
+	boot_mode = HDA_DEVICE;
+	return 1;
 }
 
 static int hda_test_pcm(void)
@@ -311,14 +372,14 @@ static int hda_test_pcm(void)
 		periods[0][(frame + HDA_PERIOD_FRAMES / 2) * 2 + 1] =
 			frame % 64 < 32 ? 8000 : -8000;
 	}
-	asm volatile("" ::: "memory");
-	writeb(SD_RUN, stream + SD_CTL);
+	if (hda_pcm_start())
+		return -1;
 	do {
 		position = readl(stream + SD_LPIB);
 		if (position < last || readb(stream + SD_STS) & SD_ERROR)
 			return -1;
 		if (position >= 3 * HDA_PERIOD_BYTES)
-			return hda_stop_stream();
+			return hda_pcm_stop();
 		last = position;
 		safe_halt();
 	} while (hda_elapsed(start) < HDA_TIMEOUT_TICKS);
@@ -327,7 +388,9 @@ static int hda_test_pcm(void)
 
 static int hda_release(void)
 {
-	int error = stream ? hda_stop_stream() : 0;
+	if (!stream && !tables)
+		return 0;
+	int error = stream ? hda_pcm_stop() : 0;
 
 	writeb(0, controller + HDA_CORBCTL);
 	writeb(0, controller + HDA_RIRBCTL);
@@ -350,7 +413,7 @@ static int hda_release(void)
 	return 0;
 }
 
-static int hda_play_on_controller(void)
+static int hda_prepare_controller(void)
 {
 	uint16_t caps, codecs;
 	unsigned int input_streams, offset;
@@ -393,9 +456,7 @@ static int hda_play_on_controller(void)
 		tables->bdl[index].low = __phy(periods[index]);
 		tables->bdl[index].bytes = HDA_PERIOD_BYTES;
 	}
-	if (hda_setup_stream())
-		return -1;
-	return hda_test_pcm();
+	return hda_setup_stream();
 }
 
 static int hda_try_play(const struct pci_device *dev, void *context)
@@ -415,7 +476,14 @@ static int hda_try_play(const struct pci_device *dev, void *context)
 			       HDA_COMMAND_INT_DISABLE);
 	pr_info("HDA: controller %u:%u.%u vendor=%x device=%x\n", dev->bus,
 		dev->slot, dev->func, dev->vendor_id, dev->device_id);
-	error = hda_play_on_controller();
+	error = hda_prepare_controller();
+	if (!error && (boot_mode == HDA_DEVICE || boot_mode == HDA_LATE_TEST)) {
+		pcm_present = 1;
+		pr_info("HDA: PCM device ready\n");
+		return 1;
+	}
+	if (!error)
+		error = hda_test_pcm();
 	quiesced = !hda_release();
 	pci_write_command(dev, quiesced ? command : command & ~PCI_COMMAND_MASTER);
 	iounmap(controller);
@@ -436,7 +504,8 @@ void hda_init(void)
 	if (boot_mode == HDA_PROBE)
 		pci_scan_class(HDA_CLASS, HDA_SUBCLASS, PCI_ANY_PROG_IF,
 			       hda_probe, NULL);
-	if (boot_mode == HDA_SELFTEST &&
+	if ((boot_mode == HDA_SELFTEST || boot_mode == HDA_DEVICE ||
+	     boot_mode == HDA_LATE_TEST) &&
 	    !pci_scan_class(HDA_CLASS, HDA_SUBCLASS, PCI_ANY_PROG_IF,
 			    hda_try_play, NULL))
 		pr_info("HDA: no playback device\n");
