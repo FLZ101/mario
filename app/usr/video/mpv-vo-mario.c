@@ -12,6 +12,7 @@
 #include "common/msg.h"
 #include "input/input.h"
 #include "input/keycodes.h"
+#include "misc/bstr.h"
 #include "osdep/io.h"
 #include "osdep/poll_wrapper.h"
 #include "osdep/timer.h"
@@ -32,6 +33,7 @@ struct priv {
     uint64_t configure;
     uint64_t serial;
     uint64_t frame_id;
+    uint8_t mouse_buttons;
     int64_t upload_start;
     int64_t conversion_end;
     int width, height;
@@ -149,6 +151,43 @@ static void handle_key(struct vo *vo, const gui_protocol_wire_input_event *event
     mp_input_put_key(vo->input_ctx, key);
 }
 
+static void queue_mouse_command(struct vo *vo, const char *command)
+{
+    struct mp_cmd *cmd = mp_input_parse_cmd(vo->input_ctx, bstr0(command),
+                                            "vo_mario");
+    if (cmd != NULL && mp_input_queue_cmd(vo->input_ctx, cmd) < 0)
+        talloc_free(cmd);
+}
+
+static void handle_mouse(struct vo *vo, const gui_protocol_wire_input_event *event)
+{
+    struct priv *priv = vo->priv;
+    static const int buttons[3] = { MP_MBTN_LEFT, MP_MBTN_MID, MP_MBTN_RIGHT };
+    uint8_t previous = priv->mouse_buttons;
+    uint8_t current = event->buttons;
+
+    mp_input_set_mouse_pos(vo->input_ctx, event->x_le, event->y_le, false);
+    for (unsigned int index = 0; index < 3; index++) {
+        uint8_t mask = 1U << index;
+        uint8_t changed = (previous ^ current) & mask;
+
+        if (!changed)
+            continue;
+        if (current & mask)
+            mp_input_put_key(vo->input_ctx, buttons[index] | MP_KEY_STATE_DOWN);
+        else {
+            mp_input_put_key(vo->input_ctx, buttons[index] | MP_KEY_STATE_UP);
+            if (index == 0)
+                queue_mouse_command(vo, "cycle pause");
+            else if (index == 1)
+                queue_mouse_command(vo, "cycle mute");
+            else
+                queue_mouse_command(vo, "seek 10");
+        }
+    }
+    priv->mouse_buttons = current;
+}
+
 static bool surface_error(struct vo *vo, const void *payload, size_t bytes)
 {
     struct priv *priv = vo->priv;
@@ -217,6 +256,8 @@ static bool handle_message(struct vo *vo, gui_protocol_type type,
         memcpy(&event, payload, bytes);
         if (event.event_type_le == GUI_INPUT_EVENT_KEY)
             handle_key(vo, &event);
+        else if (event.event_type_le == GUI_INPUT_EVENT_MOUSE)
+            handle_mouse(vo, &event);
         return true;
     }
     case GUI_PROTOCOL_WINDOW_FOCUS:

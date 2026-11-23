@@ -20,6 +20,21 @@ MPV_SHA256 := ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
 MPV_PATCH := $(MEDIA_DIR)/mpv.patch
 MPV_OVERLAYS := mpv-osd-null.c:sub/osd_null.c mpv-ao-mario.c:audio/out/ao_mario.c \
 	mpv-vo-mario.c:video/out/vo_mario.c mpv-main-mario.c:osdep/main-fn-mario.c
+
+LIBASS_SRC := libass-0.17.5
+LIBASS_URL := https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.gz
+LIBASS_SHA256 := caab4b993dd7be6187c55623b789ed75dddefea6e65938af134637c732fe094a
+
+HARFBUZZ_SRC := harfbuzz-15.2.0
+HARFBUZZ_URL := https://github.com/harfbuzz/harfbuzz/releases/download/15.2.0/harfbuzz-15.2.0.tar.xz
+HARFBUZZ_SHA256 := e2ec49090744383cdbe7df808c1cedaafba06a97be8dc4211fe546ba585f12cb
+HARFBUZZ_ARCHIVE_EXT := tar.xz
+
+FRIBIDI_SRC := fribidi-1.0.18
+FRIBIDI_URL := https://github.com/fribidi/fribidi/releases/download/v1.0.18/fribidi-1.0.18.tar.xz
+FRIBIDI_SHA256 := 1de5e8073d035388b71d0b2d452b1da1f8caeea8a7702997b401fe1b6250727f
+FRIBIDI_ARCHIVE_EXT := tar.xz
+
 PCM_UAPI_DIR := $(abspath $(ROOT)/../../src/include/uapi)
 
 overlay_source = $(MEDIA_DIR)/$(word 1,$(subst :, ,$(1)))
@@ -27,7 +42,8 @@ overlay_dest = $(word 2,$(subst :, ,$(1)))
 
 define media_source
 $(1)_SRC_DIR := $(MEDIA_DIR)/$($(1)_SRC)
-$(1)_ARCHIVE := $(MEDIA_DIR)/$($(1)_SRC).tar.gz
+$(1)_ARCHIVE_EXT ?= tar.gz
+$(1)_ARCHIVE := $(MEDIA_DIR)/$($(1)_SRC).$$($(1)_ARCHIVE_EXT)
 
 $$($(1)_ARCHIVE):
 	wget --tries=3 '$($(1)_URL)' -O "$$@.tmp"
@@ -43,9 +59,11 @@ $$($(1)_SRC_DIR)/.prepared: $$($(1)_ARCHIVE) $($(1)_PATCH) $(foreach overlay,$($
 	touch "$$@"
 endef
 
-$(foreach project,FFMPEG PLACEBO MPV,$(eval $(call media_source,$(project))))
+$(foreach project,FFMPEG PLACEBO MPV LIBASS HARFBUZZ FRIBIDI,$(eval $(call media_source,$(project))))
 
-MEDIA_SOURCES := $(FFMPEG_SRC_DIR)/.prepared $(PLACEBO_SRC_DIR)/.prepared $(MPV_SRC_DIR)/.prepared
+MEDIA_SOURCES := $(FFMPEG_SRC_DIR)/.prepared $(PLACEBO_SRC_DIR)/.prepared \
+	$(MPV_SRC_DIR)/.prepared $(LIBASS_SRC_DIR)/.prepared \
+	$(HARFBUZZ_SRC_DIR)/.prepared $(FRIBIDI_SRC_DIR)/.prepared
 MEDIA_RECIPES := $(MEDIA_DIR)/build-ffmpeg.sh $(MEDIA_DIR)/build-mpv.sh
 MEDIA_ENV = CC="$(CC)" MEDIA_BUILD_DIR="$(MEDIA_BUILD_DIR)" MEDIA_INSTALL_DIR="$(MEDIA_INSTALL_DIR)"
 
@@ -65,8 +83,10 @@ $(MEDIA_INSTALL_DIR)/bin/mpv $(MEDIA_INSTALL_DIR)/bin/mario-mpv &: $(MEDIA_SOURC
 
 clean:: clean-mpv
 clean-mpv:
-	$(RM) -r "$(MEDIA_BUILD_DIR)" "$(MEDIA_INSTALL_DIR)" "$(FFMPEG_SRC_DIR)" "$(PLACEBO_SRC_DIR)" "$(MPV_SRC_DIR)"
+	$(RM) -r "$(MEDIA_BUILD_DIR)" "$(MEDIA_INSTALL_DIR)" "$(FFMPEG_SRC_DIR)" \
+		"$(PLACEBO_SRC_DIR)" "$(MPV_SRC_DIR)" "$(LIBASS_SRC_DIR)" \
+		"$(HARFBUZZ_SRC_DIR)" "$(FRIBIDI_SRC_DIR)"
 
 clean-src:: clean-src-mpv
 clean-src-mpv:
-	$(RM) $(foreach archive,$(FFMPEG_ARCHIVE) $(PLACEBO_ARCHIVE) $(MPV_ARCHIVE),"$(archive)" "$(archive).tmp")
+	$(RM) $(foreach archive,$(FFMPEG_ARCHIVE) $(PLACEBO_ARCHIVE) $(MPV_ARCHIVE) $(LIBASS_ARCHIVE) $(HARFBUZZ_ARCHIVE) $(FRIBIDI_ARCHIVE),"$(archive)" "$(archive).tmp")
