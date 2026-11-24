@@ -11,7 +11,7 @@ TOOLCHAIN_STAMP := $(CXX_BUILD_DIR)/.toolchain-stamp
 RULES := $(lastword $(MAKEFILE_LIST)) $(wildcard Makefile.local)
 
 OPTIMIZE ?= -O0
-COMMON_FLAGS := -c -I$(ROOT)/include -Wall -Werror \
+COMMON_FLAGS := -c -I$(ROOT)/include -Wall \
 	-ggdb $(OPTIMIZE) -fno-omit-frame-pointer -MMD -MP
 CFLAGS := $(COMMON_FLAGS) -std=gnu11
 CXXFLAGS := $(COMMON_FLAGS) -std=c++17

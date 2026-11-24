@@ -110,6 +110,17 @@ compiler builtins, and staged LLVM runtime archives. Clean debug builds keep
 the kernel's stack-protector flags out of musl startup, which runs before TLS
 is initialized.
 
+### M5 — Standard Library Coverage Suite
+
+Expand `app/test-cxx/` beyond the M4 demo with focused suites that exercise
+containers and algorithms, utility vocabulary types, string and character
+conversion, concurrency primitives, and numerics/chrono/random. Each suite
+has a matching `tests/shell/cxx-*.test` runner and is packaged by the existing
+image rules under `/usr/bin/test/`.
+
+- **Exit:** Every suite binary prints its success line and exits zero in
+  QEMU at `SMP=1` and `SMP=2`, alongside the M1-M4 runtime tests.
+
 ## Validation Rules
 
 - Inspect milestone executables with `readelf`: require `ELF32`, `EM_386`,

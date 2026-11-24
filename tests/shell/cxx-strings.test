@@ -1,0 +1,4 @@
+TIMEOUT: 10
+RUN: /usr/bin/test/cxx-strings.exe; printf 'cxx-strings exit: %s\n' "$?"
+CHECK: cxx-strings: string and character conversion ok
+CHECK: cxx-strings exit: 0

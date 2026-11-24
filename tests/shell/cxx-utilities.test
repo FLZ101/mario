@@ -1,0 +1,4 @@
+TIMEOUT: 10
+RUN: /usr/bin/test/cxx-utilities.exe; printf 'cxx-utilities exit: %s\n' "$?"
+CHECK: cxx-utilities: pair, tuple, variants, and smart pointers ok
+CHECK: cxx-utilities exit: 0

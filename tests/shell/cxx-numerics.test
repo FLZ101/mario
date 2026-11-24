@@ -1,0 +1,4 @@
+TIMEOUT: 10
+RUN: /usr/bin/test/cxx-numerics.exe; printf 'cxx-numerics exit: %s\n' "$?"
+CHECK: cxx-numerics: numbers, chrono, and random ok
+CHECK: cxx-numerics exit: 0

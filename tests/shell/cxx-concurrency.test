@@ -1,0 +1,4 @@
+TIMEOUT: 10
+RUN: /usr/bin/test/cxx-concurrency.exe; printf 'cxx-concurrency exit: %s\n' "$?"
+CHECK: cxx-concurrency: atomics, futures, and synchronization ok
+CHECK: cxx-concurrency exit: 0
