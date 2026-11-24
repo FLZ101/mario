@@ -291,7 +291,12 @@ static void test_desktop_appearance(void)
 			assert(state.text_surface == cached);
 			state.menu_open = 1;
 			desktop_prepare_text(&state);
-			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X, desktop_panel_y(&state) - 1) == 0);
+			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X,
+				desktop_menu_top(&state)) == DESKTOP_MENU_TERMINAL);
+			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X,
+				desktop_menu_top(&state) + desktop_button_height(&state)) == DESKTOP_MENU_REBOOT);
+			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X,
+				desktop_panel_y(&state) - 1) == DESKTOP_MENU_SHUTDOWN);
 			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X + desktop_menu_width(&state),
 				desktop_panel_y(&state) - 1) == -1);
 			gui_surface_destroy(state.text_surface);
@@ -1361,14 +1366,17 @@ static void test_menu_patch_upload(void)
 	pid_t child;
 	int status;
 	uint8_t *payload = desktop_frame;
-	uint32_t menu_pixels = DESKTOP_MENU_WIDTH * DESKTOP_MENU_ITEM_HEIGHT;
+	const uint32_t screen_height = 768;
+	const uint32_t popup_height = DESKTOP_MENU_ITEM_HEIGHT * DESKTOP_MENU_ITEM_COUNT;
+	const uint32_t popup_top = screen_height - DESKTOP_PANEL_HEIGHT - popup_height;
+	const uint32_t menu_pixels = DESKTOP_MENU_WIDTH * popup_height;
 
 	assert(socketpair(AF_UNIX, SOCK_STREAM, 0, descriptors) == 0);
 	child = fork();
 	assert(child >= 0);
 	if (child == 0) {
 		desktop_state model = { .window_id = 1, .configure_serial = 1,
-			.width = 1024, .height = 768, .frame_serial = 1, .base_frame_serial = 1,
+			.width = 1024, .height = screen_height, .frame_serial = 1, .base_frame_serial = 1,
 			.capabilities = GUI_PROTOCOL_CAP_SURFACE_PATCH, .redraw = DESKTOP_REDRAW_PANEL };
 		gui_protocol_header input = { .type = GUI_PROTOCOL_INPUT_EVENT };
 		uint8_t mouse[sizeof(gui_protocol_wire_input_event)] = { 0 };
@@ -1397,14 +1405,14 @@ static void test_menu_patch_upload(void)
 		gui_protocol_header header;
 		uint32_t offset = 0;
 		uint32_t menu_width = serial == 2 ? DESKTOP_MENU_WIDTH : 0;
-		uint32_t menu_height = serial == 2 ? DESKTOP_MENU_ITEM_HEIGHT : 0;
+		uint32_t menu_height = serial == 2 ? popup_height : 0;
 
 		assert(read_message(descriptors[0], &header, payload, sizeof(desktop_frame)) == 0);
 		assert(header.type == GUI_PROTOCOL_SURFACE_PATCH_BEGIN);
 		assert(get64(payload + 12) == serial - 1 && get64(payload + 20) == serial);
-		assert(get32(payload + 28) == DESKTOP_MENU_X && get32(payload + 32) == 720);
+		assert(get32(payload + 28) == DESKTOP_MENU_X && get32(payload + 32) == popup_top);
 		assert(get32(payload + 36) == DESKTOP_MENU_WIDTH &&
-			get32(payload + 40) == DESKTOP_MENU_ITEM_HEIGHT);
+			get32(payload + 40) == popup_height);
 		while (offset < menu_pixels) {
 			uint32_t count;
 
