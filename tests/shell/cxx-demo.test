@@ -1,4 +1,4 @@
 TIMEOUT: 10
-RUN: /usr/bin/cxx-demo.exe; printf 'cxx-demo exit: %s\n' "$?"
+RUN: /usr/bin/test/cxx-demo.exe; printf 'cxx-demo exit: %s\n' "$?"
 CHECK: cxx-demo: standard library ok
 CHECK: cxx-demo exit: 0

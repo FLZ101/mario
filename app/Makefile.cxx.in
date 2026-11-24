@@ -1,0 +1,51 @@
+.DEFAULT_GOAL := all
+
+SHELL := /bin/bash
+.PHONY: all clean
+
+ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+CXX_BUILD_DIR := $(ROOT)/usr/cxx/build
+BUILD_DIR := $(CXX_BUILD_DIR)/apps/$(patsubst $(ROOT)/%,%,$(CURDIR))
+EXE := $(BUILD_DIR)/$(notdir $(CURDIR)).exe
+TOOLCHAIN_STAMP := $(CXX_BUILD_DIR)/.toolchain-stamp
+RULES := $(lastword $(MAKEFILE_LIST)) $(wildcard Makefile.local)
+
+OPTIMIZE ?= -O0
+COMMON_FLAGS := -c -I$(ROOT)/include -Wall -Werror \
+	-ggdb $(OPTIMIZE) -fno-omit-frame-pointer -MMD -MP
+CFLAGS := $(COMMON_FLAGS) -std=gnu11
+CXXFLAGS := $(COMMON_FLAGS) -std=c++17
+LDFLAGS :=
+
+ifneq ($(filter default undefined,$(origin CC)),)
+CC := $(abspath $(ROOT)/../util/mario-musl-cc)
+endif
+ifneq ($(filter default undefined,$(origin CXX)),)
+CXX := $(abspath $(ROOT)/../util/mario-musl-c++)
+endif
+CXX_PYTHON ?= $(abspath $(ROOT)/../.venv/bin/python)
+export PATH := $(dir $(CXX_PYTHON)):$(PATH)
+
+-include Makefile.local
+
+SOURCES := $(wildcard *.c *.cpp) $(patsubst $(ROOT)/%,%,$(wildcard $(ROOT)/lib/*.c))
+OBJS := $(addprefix $(BUILD_DIR)/,$(addsuffix .o,$(SOURCES)))
+vpath lib/%.c $(ROOT)
+
+all: $(EXE)
+
+clean:
+	$(RM) -r "$(BUILD_DIR)"
+
+$(EXE): $(OBJS) $(TOOLCHAIN_STAMP) $(RULES)
+	cd "$(BUILD_DIR)" && $(CXX) -o "$@" $(OBJS) $(LDFLAGS)
+
+$(BUILD_DIR)/%.cpp.o: %.cpp $(RULES) $(TOOLCHAIN_STAMP)
+	mkdir -p "$(@D)"
+	cd "$(BUILD_DIR)" && $(CXX) $(CXXFLAGS) -o "$@" "$(abspath $<)"
+
+$(BUILD_DIR)/%.c.o: %.c $(RULES)
+	mkdir -p "$(@D)"
+	cd "$(BUILD_DIR)" && $(CC) $(CFLAGS) -o "$@" "$(abspath $<)"
+
+-include $(OBJS:.o=.d)

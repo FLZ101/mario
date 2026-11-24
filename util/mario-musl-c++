@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from compile_commands import record_compile_commands
+
 
 def main():
     root = Path(__file__).resolve().parents[1]
@@ -15,10 +17,10 @@ def main():
     command = ["g++", "-m32", "-march=i686"]
     if args == ["--mario-verify"]:
         return
-    if args in (["-dumpmachine"], ["-print-multiarch"]):
+    if args in (["-dumpmachine"], ["-print-multiarch"], ["--print-multiarch"]):
         print("i386-linux-musl")
         return
-    queries = {"--version", "-v", "--help"}
+    queries = {"--version", "-v", "-h", "--help"}
     if len(args) == 1 and args[0] in queries:
         os.execvp(command[0], command + args)
 
@@ -51,6 +53,9 @@ def main():
             "-Wl,--end-group", str(lib / "crtn.o"),
             "-Wl,--orphan-handling=warn,--gc-sections,--eh-frame-hdr,-T," + str(root / "musl/musl.ld"),
         ]
+    record_compile_commands(
+        command, (".C", ".cc", ".cp", ".cpp", ".CPP", ".cxx", ".c++", ".ii", ".c", ".S")
+    )
     os.execvp(command[0], command)
 
 

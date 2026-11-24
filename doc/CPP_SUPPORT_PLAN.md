@@ -10,9 +10,11 @@ userspace ABI fix is necessary. A compiler inside Mario, shared C++ libraries,
 dynamic loading, and binary compatibility with host `libstdc++` are out of scope.
 
 Run all C++ builds under `app/usr/cxx/` on both the host and in containers,
-including the runtime libraries, test probes, and apps. Keep their recipes,
-build directories, and staging outputs there. The shared toolchain wrappers,
-test definitions, and image assembly stay in their existing locations.
+including the runtime libraries, test probes, and apps. Keep runtime and probe
+recipes, build directories, and staging outputs there. Keep the shared app
+rules in `app/Makefile.cxx.in`, installable apps in `app/usr-cxx/`, and test
+programs in `app/test-cxx/`. The shared toolchain wrappers, test definitions,
+and image assembly stay in their existing locations.
 
 ## Baseline Before M1
 
@@ -86,12 +88,11 @@ probe has TLS and mapped `.gcc_except_table`, `.eh_frame`, and `PT_GNU_EH_FRAME`
 
 ### M4 — Normal App and Image Integration
 
-- Have `app/Makefile.in` dispatch `.cpp` builds to `app/usr/cxx/` with C++-specific
-  flags. Link C++ and mixed C/C++ apps through the C++ driver without changing
-  how C-only targets link. Build the runtime as a dependency of C++ apps, not of
+- Link C++ and mixed C/C++ apps through the C++ driver without changing how
+  C-only targets link. Build the runtime as a dependency of C++ apps, not of
   kernel-only builds.
 - Document how to build a standalone program and add a C++ app. Add a small
-  C++17 demo under `app/usr/cxx/` with no dependencies beyond the standard
+  C++17 demo under `app/test-cxx/` with no dependencies beyond the standard
   library. Have it exercise `std::string`, `std::vector`, `std::sort`, and
   `std::accumulate` on fixed inputs and check the results. Print a success
   line only when every check passes; otherwise report the failed check and

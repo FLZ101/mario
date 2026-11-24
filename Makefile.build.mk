@@ -65,6 +65,7 @@ export LD
 COMPILER_RT_MK := $(ROOT)/compiler-rt/compiler-rt.mk
 
 APP_CC	:= $(ROOT)/util/mario-musl-cc
+APP_CXX	:= $(ROOT)/util/mario-musl-c++
 APP_LD	:= $(ROOT)/util/mario-musl-ld
 
 compiler-rt:
@@ -134,7 +135,8 @@ $(APP_VENV_DIR)/.stamp: $(ROOT)/requirements.txt $(ROOT)/Makefile.setup.mk
 	$(PODMAN_RUN) $(MAKE) -f Makefile.setup.mk VENV_DIR="$(APP_VENV_DIR)" venv
 
 app: musl $(APP_VENV_DIR)/.stamp
-	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(APP_CC) LD=$(APP_LD) \
+	$(PODMAN_RUN) env COMPILE_COMMANDS_JSON="$(COMPILE_COMMANDS_JSON)" \
+		$(MAKE) $(BUILD_MAKE_FLAGS) CC=$(APP_CC) CXX="$(APP_CXX)" LD=$(APP_LD) \
 		MPV_PYTHON="$(APP_VENV_DIR)/bin/python" CXX_PYTHON="$(APP_VENV_DIR)/bin/python" -C app
 
 clean-all: clean-build clean-src

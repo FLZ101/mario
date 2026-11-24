@@ -3,14 +3,12 @@ SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard system/*/main.c))
 SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/*/main.c))
 SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/musl/*/main.c))
 SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard gui/desktop/*/main.c))
-CXX_SUBDIRS := $(patsubst %/main.cpp,%, $(wildcard example/*/main.cpp system/*/main.cpp \
-	test/*/main.cpp test/musl/*/main.cpp gui/desktop/*/main.cpp usr/cxx/apps/*/main.cpp))
-SUBDIRS += $(filter-out $(SUBDIRS),$(CXX_SUBDIRS))
+CXX_TESTS := $(patsubst %/main.cpp,%,$(wildcard test-cxx/*/main.cpp))
 
 SHELL := /bin/bash
 
-.PHONY: all example gui usr check
-.PHONY: clean clean-example clean-gui clean-usr
+.PHONY: all example cxx gui usr check
+.PHONY: clean clean-example clean-cxx clean-gui clean-usr
 
 ROOT := $(shell pwd)
 export ROOT
@@ -19,15 +17,23 @@ export OPTIMIZE
 
 unexport SMP BOOT_ENTRY
 
-all: example | check
+all: example cxx | check
 
 example: usr gui
 	@set -e ; for x in $(SUBDIRS) ; do $(MAKE) all -C $$x -f $(ROOT)/Makefile.in; done
 
-clean: clean-example clean-gui
+cxx: usr gui
+	$(MAKE) -C usr-cxx build
+	@set -e; for test in $(CXX_TESTS); do $(MAKE) all -C "$$test" -f "$(ROOT)/Makefile.cxx.in"; done
+
+clean: clean-example clean-cxx clean-gui
 
 clean-example:
 	@set -e ; for x in $(SUBDIRS) ; do $(MAKE) clean -C $$x -f $(ROOT)/Makefile.in; done
+
+clean-cxx:
+	$(MAKE) -C usr-cxx clean
+	@set -e; for test in $(CXX_TESTS); do $(MAKE) clean -C "$$test" -f "$(ROOT)/Makefile.cxx.in"; done
 
 gui:
 	$(MAKE) -C gui/libmario-ui
@@ -40,7 +46,7 @@ check:
 	@$(LD) --mario-verify
 
 usr:
-	$(MAKE) COMPILE_COMMANDS_JSON= -C usr
+	$(MAKE) -C usr
 
 clean-usr:
 	$(MAKE) -C usr clean

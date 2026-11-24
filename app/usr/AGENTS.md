@@ -2,9 +2,12 @@
 
 All third-party libraries and applications in `app/usr` must follow the build
 style of `build-ncurses.sh`. Do not introduce bespoke build-script conventions.
+Opt Mario-native build targets into `COMPILE_COMMANDS_JSON` in `Makefile`.
+Third-party builds do not record compile commands.
 
-Keep C++ build recipes, build directories, and staging outputs under
-`app/usr/cxx/`, including the runtime libraries and C++ applications.
+Keep C++ runtime and probe recipes, build directories, and staging outputs
+under `app/usr/cxx/`. Keep installable app sources in `app/usr-cxx/` and test
+programs in `app/test-cxx/`, with shared rules in `app/Makefile.cxx.in`.
 
 ## Build Tools
 

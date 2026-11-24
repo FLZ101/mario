@@ -3,10 +3,10 @@
 import os
 import sys
 import subprocess
-import json
-import fcntl
 
 from pathlib import Path
+
+from compile_commands import record_compile_commands
 
 
 class Unreachable(Exception):
@@ -111,46 +111,7 @@ def get_args():
             raise Unreachable()
 
     args = ["gcc"] + flags_before + args + flags
-
-    compile_commands_json = os.getenv("COMPILE_COMMANDS_JSON")
-    if compile_commands_json:
-        compile_commands_json = Path(compile_commands_json)
-        if not compile_commands_json.exists():
-            compile_commands_json.touch()
-
-        for x in args:
-            if x.endswith(".c") or x.endswith(".S"):
-                with open(compile_commands_json, "r+", encoding="utf-8") as f:
-                    fcntl.flock(f, fcntl.LOCK_EX)
-
-                    try:
-                        try:
-                            arr = json.load(f)
-                        except json.JSONDecodeError:
-                            arr = []
-
-                        item = {
-                            "directory": os.getcwd(),
-                            "arguments": args,
-                            "file": x,
-                        }
-                        for o in arr:
-                            if (
-                                item["directory"] == o["directory"]
-                                and item["file"] == o["file"]
-                            ):
-                                o["arguments"] = item["arguments"]
-                                break
-                        else:
-                            arr.append(item)
-
-                        f.seek(0, os.SEEK_SET)
-                        f.truncate()
-                        json.dump(arr, f, indent=2)
-
-                    finally:
-                        fcntl.flock(f, fcntl.LOCK_UN)
-
+    record_compile_commands(args, (".c", ".S"))
     return args
 
 

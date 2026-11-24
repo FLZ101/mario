@@ -16,9 +16,6 @@ CFLAGS	:=-c $(INCLUDE) \
 # LD :=$(CC)
 LDFLAGS	:=
 
-ifneq ($(wildcard *.cpp),)
-include $(ROOT)/usr/cxx/app.mk
-else
 OBJS	:= $(patsubst %.c,%.o, $(wildcard *.c))
 OBJS	+= $(patsubst %.c,%.o, $(wildcard $(ROOT)/lib/*.c))
 
@@ -47,4 +44,3 @@ $(EXE): $(OBJS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -o $@ $<
-endif

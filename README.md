@@ -141,31 +141,6 @@ automatically, including Meson, Ninja, and Jinja2 for the mpv build. Container a
 builds create a separate venv under `.venv/build-<image>` using the container's
 Python.
 
-### C++ apps
-
-`make app` builds the static i386 C++ runtime and `cxx-demo.exe`. It needs
-GCC/G++ 13+, CMake 3.20+, and Ninja from the project venv. The disk image
-includes the demo at `/usr/bin/cxx-demo.exe`.
-
-To add an app, put `main.cpp` in `app/usr/cxx/apps/<name>/`. Other `.cpp`
-and `.c` sources in that directory are compiled as C++17 and C respectively,
-then linked with the C++ driver. Use `Makefile.local` for additional `CFLAGS`,
-`CXXFLAGS`, or `LDFLAGS`; anchor paths in `$(CURDIR)`. The build outputs stay
-under `app/usr/cxx/build/`.
-
-For a standalone executable, run this from the repository root after
-`make app`, in the same build environment:
-
-```sh
-repo=$PWD
-cd app/usr/cxx/build
-"$repo/.venv/bin/python" "$repo/util/mario-musl-c++" -std=c++17 /path/to/main.cpp -o hello.exe
-```
-
-Inside a build container, use its `.venv/build-<image>/bin/python` instead.
-
-See the [C++ support plan](doc/CPP_SUPPORT_PLAN.md) for scope and validation.
-
 ## Test
 
 ```
