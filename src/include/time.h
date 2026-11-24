@@ -5,7 +5,17 @@
 
 #define HZ 100
 
+enum cpu_tick_type {
+	CPU_TICK_USER,
+	CPU_TICK_SYSTEM,
+	CPU_TICK_IDLE,
+	CPU_TICK_COUNT,
+};
+
 void time_init(void);
+void account_cpu_tick(int cpu, enum cpu_tick_type type);
+void account_task_tick(int user);
+uint64_t read_cpu_ticks(int cpu, enum cpu_tick_type type);
 
 struct timespec {
 	long	tv_sec;		/* seconds */

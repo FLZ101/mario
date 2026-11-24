@@ -7,7 +7,27 @@ RUN: cat /proc/version
 CHECK: Mario OS version 1.0
 
 RUN: cat /proc/uptime
-CHECK-REGEX: [0-9]+\.[0-9]+ 0\.00
+CHECK-REGEX: [0-9]+\.[0-9]{2} 0\.00
+
+RUN: cat /proc/stat
+CHECK-REGEX: (?m)^cpu [0-9]+ 0 [0-9]+ [0-9]+
+CHECK-REGEX: (?m)^cpu0 [0-9]+ 0 [0-9]+ [0-9]+
+
+RUN: [ "$(grep -c '^cpu[0-9]' /proc/stat)" -eq "$(grep -c '^processor' /proc/cpuinfo)" ] && echo proc-stat-cpus-ok
+CHECK: proc-stat-cpus-ok
+
+RUN: cpu_ticks() { read label user nice system idle rest < /proc/stat; echo "$((user + nice + system))"; }
+RUN: before=$(cpu_ticks); yes >/dev/null & worker=$!; sleep 1; after=$(cpu_ticks); kill "$worker"; wait "$worker" 2>/dev/null; [ "$after" -gt "$before" ] && echo proc-stat-busy-ok
+CHECK: proc-stat-busy-ok
+
+RUN: set -- $(grep '^MemTotal:' /proc/meminfo); total=$2; set -- $(grep '^MemFree:' /proc/meminfo); [ "$2" -gt 0 ] && [ "$2" -lt "$total" ] && echo proc-meminfo-ok
+CHECK: proc-meminfo-ok
+
+RUN: cat /proc/self/status
+CHECK-REGEX: Uid:\s+0\s+0\s+0\s+0
+
+RUN: cat /proc/1/comm
+CHECK: init.exe
 
 RUN: cat /proc/mounts
 CHECK: mariofs / mariofs rw 0 0

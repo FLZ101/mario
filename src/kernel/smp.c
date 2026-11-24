@@ -6,6 +6,7 @@
 #include <sched.h>
 #include <task.h>
 #include <time.h>
+#include <trap.h>
 #include <printk.h>
 #include <lib/string.h>
 #include <stack_protector.h>
@@ -388,14 +389,20 @@ void smp_send_reschedule(int cpu)
 
 void smp_send_scheduler_ticks(void)
 {
-	for (int cpu = 1; cpu < nr_cpu_ids; cpu++)
-		if (cpu_info[cpu].online && cpu_info[cpu].current_task != &idle_tasks[cpu])
+	for (int cpu = 1; cpu < nr_cpu_ids; cpu++) {
+		if (!cpu_info[cpu].online)
+			continue;
+		if (cpu_info[cpu].current_task == &idle_tasks[cpu])
+			account_cpu_tick(cpu, CPU_TICK_IDLE);
+		else
 			send_ipi(cpu, IPI_SCHEDULER_TICK_VECTOR);
+	}
 }
 
-void do_scheduler_tick_ipi(void)
+void do_scheduler_tick_ipi(struct trap_frame tr)
 {
 	apic_eoi();
+	account_task_tick(userland(&tr));
 	if (current == smp_idle_task(current->cpu))
 		return;
 	if (current->counter > 0 && !--current->counter)

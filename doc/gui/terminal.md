@@ -13,8 +13,9 @@ not implemented.
 
 ## Configuration
 
-The terminal reads configuration once at startup. Existing defaults remain a
-14-pixel DejaVu Sans Mono font, the original dark palette, and opaque content.
+The terminal reads configuration once at startup. By default, it uses the
+14-pixel DejaVu Sans Mono Nerd Font, a dark palette, and opaque content. The
+font includes Braille patterns for terminal graphs such as `btop`'s.
 The default 8 × 16 cells start at the edge of the window's content area.
 
 Configuration paths, in priority order:

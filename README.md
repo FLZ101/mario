@@ -174,6 +174,10 @@ including when the GTK display is scaled. Curses and existing headless GUI
 tests retain relative PS/2 input. `GUI-MOUSE-POSITION: x,y` opts a GUI fixture
 into GTK-style absolute positioning; do not mix it with `GUI-MOUSE-MOVE`.
 
+Run `btop` in an 80×24 or larger terminal to monitor CPU usage, system memory,
+and processes. The Mario port does not report per-process memory, load averages,
+GPU, network, or disk I/O statistics.
+
 `make run-gtk` and `make debug-gtk` use the separate disks built by
 `make disk-image-gtk`. Put files in `rd/_ramdisk0-gtk/` at their guest-relative
 paths to add or replace them. For example, `rd/_ramdisk0-gtk/etc/profile`

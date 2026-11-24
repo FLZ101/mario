@@ -74,6 +74,7 @@ struct task_struct {
 	 */
 	long stime, utime;
 	long stime_children, utime_children;
+	unsigned long start_ticks;
 
 	struct list_head run_list;
 	struct task_struct *next_task, *prev_task;

@@ -78,17 +78,20 @@ void print_free_area()
 	pr_debug("\n");
 }
 
-int get_free_area_size()
+int get_free_area_size(void)
 {
 	int n = 0;
 	int order;
 	struct list_head *pos;
+	unsigned long flags;
 
+	spin_lock_irqsave(&page_alloc_lock, flags);
 	for (order = 0; order < MAX_ORDER; ++order) {
 		list_for_each(pos, &free_area[order].free_list) {
 			n += (1 << order);
 		}
 	}
+	spin_unlock_irqrestore(&page_alloc_lock, flags);
 	return n;
 }
 

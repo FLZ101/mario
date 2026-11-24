@@ -8,6 +8,7 @@
 #include <gui/font.h>
 
 #define FONT_PATH "/usr/share/fonts/DejaVuSansMono.ttf"
+#define TERMINAL_FONT_PATH "/usr/share/fonts/DejaVuSansMNerdFontMono-Regular.ttf"
 
 static uint32_t hash_bytes(const uint8_t *bytes, size_t count)
 {
@@ -72,6 +73,19 @@ static void test_glyph_golden(gui_font *font)
 	gui_surface_destroy(surface);
 }
 
+static void test_terminal_braille(void)
+{
+	gui_font *font = gui_font_load(TERMINAL_FONT_PATH, 14);
+	gui_font_glyph letter, braille;
+
+	assert(font != NULL);
+	assert(gui_font_get_glyph(font, 'M', &letter));
+	assert(gui_font_get_glyph(font, 0x28ff, &braille));
+	assert(braille.width > 0 && braille.height > 0 && braille.alpha != NULL);
+	assert(braille.advance == letter.advance);
+	gui_font_destroy(font);
+}
+
 int main(void)
 {
 	gui_font *font = gui_font_load(FONT_PATH, 16);
@@ -85,5 +99,7 @@ int main(void)
 	gui_font_destroy(font);
 	puts("gui-font: cache ok");
 	puts("gui-font: glyph ok");
+	test_terminal_braille();
+	puts("gui-font: terminal braille ok");
 	return 0;
 }

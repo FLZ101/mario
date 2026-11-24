@@ -1,0 +1,9 @@
+TIMEOUT: 10
+TTY-SEND: /usr/bin/btop --version
+TTY-CHECK: btop version:
+TTY-SEND: /usr/bin/btop; printf 'btop exit: %s\n' "$?"
+TTY-CHECK: Total:
+TTY-CHECK: Cpu%
+TTY-CHECK-REGEX: \d+ +oksh +root +N/A
+TTY-SEND-RAW: q
+TTY-CHECK-REGEX: (?m)^btop exit: 0$

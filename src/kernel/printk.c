@@ -74,26 +74,17 @@ static void sput_x(char **buf, char *end, unsigned int n)
 	sput_s(buf, end, s);
 }
 
-static void sput_u(char **buf, char *end, unsigned int n)
+static void sput_u(char **buf, char *end, uint64_t n)
 {
-	int i, j;
-	char s[11] = {0};
+	char digits[21];
+	char *digit = digits + sizeof(digits) - 1;
 
-	if (n == 0) {
-		sput_s(buf, end, "0");
-		return;
-	}
-
-	for (i = 9; i >= 0; i--) {
-		if (n) {
-			j = n;
-			n = n/10;
-			s[i] = j - n*10 + '0';
-		} else {
-			break;
-		}
-	}
-	sput_s(buf, end, s + i + 1);
+	*digit = '\0';
+	do {
+		*--digit = '0' + n % 10;
+		n /= 10;
+	} while (n);
+	sput_s(buf, end, digit);
 }
 
 static void sput_d(char **buf, char *end, int n)
@@ -107,7 +98,7 @@ static void sput_d(char **buf, char *end, int n)
 }
 
 /*
- * %u, %d, %x, %c, %s
+ * %u, %llu, %d, %x, %c, %s
  */
 static int vformat(char *buf, char *end, const char *fmt, va_list ap)
 {
@@ -119,6 +110,12 @@ static int vformat(char *buf, char *end, const char *fmt, va_list ap)
 			switch (c) {
 			case 'u':
 				sput_u(&p1, end, va_arg(ap, unsigned int));
+				break;
+			case 'l':
+				if (fmt[0] == 'l' && fmt[1] == 'u') {
+					fmt += 2;
+					sput_u(&p1, end, va_arg(ap, unsigned long long));
+				}
 				break;
 			case 'd':
 				sput_d(&p1, end, va_arg(ap, int));

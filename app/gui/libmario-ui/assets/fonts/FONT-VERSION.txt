@@ -11,3 +11,14 @@ e6476c1b80502924294eed40894c5b18e06c181444ca953e5334262df9c27724  DejaVuSans-Bol
 b4a6c3e4faab8773f4ff761d56451646409f29abedd68f05d38c2df667d3c582  DejaVuSansMono.ttf
 bce60f1b4421acd9ea51ba6623d7024ecbe6817a953e3654df62a5e6bdf8f769  DejaVuSansMono-Bold.ttf
 7a083b136e64d064794c3419751e5c7dd10d2f64c108fe5ba161eae5e5958a93  LICENSE-DejaVu.txt
+
+DejaVu Sans Mono Nerd Font Mono 3.5.1
+
+Source archive:
+https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/DejaVuSansMono.zip
+Source archive SHA-256: 45d26b54728e01a665de4a1899ec146c79ea0752f6a0b09e1335e49187d04652
+
+License and icon attributions: see LICENSE-DejaVuNerdFont.txt and README-DejaVuNerdFont.md.
+
+SHA-256:
+9b55ade625f2d3f2a273ed16d9db2d924ad6236222920f9fd1324941cdc3c712  DejaVuSansMNerdFontMono-Regular.ttf

@@ -1,0 +1,197 @@
+--- a/src/btop.cpp
++++ b/src/btop.cpp
+@@ -737,3 +737,15 @@
+ 
++	static int start() {
++		constexpr size_t stack_size = 1024 * 1024;
++		pthread_attr_t attr;
++		int result = pthread_attr_init(&attr);
++		if (result != 0) return result;
++		result = pthread_attr_setstacksize(&attr, stack_size);
++		if (result == 0)
++			result = pthread_create(&runner_id, &attr, &_runner, nullptr);
++		pthread_attr_destroy(&attr);
++		return result;
++	}
++
+ 	//* Runs collect and draw in a secondary thread, unlocks and locks config to update cached values
+ 	void run(const string& box, bool no_update, bool force_redraw) {
+@@ -754 +766 @@
+-			if (pthread_create(&Runner::runner_id, nullptr, &Runner::_runner, nullptr) != 0) {
++			if (Runner::start() != 0) {
+@@ -987,2 +999,4 @@
+ 		}
++		if (found.empty() and std::setlocale(LC_ALL, "C.UTF-8") != nullptr)
++			found = "C.UTF-8";
+ 	//
+@@ -1056,4 +1070,4 @@
+ 	if (not Config::set_boxes(Config::getS("shown_boxes"))) {
+-		Config::set_boxes("cpu mem net proc");
+-		Config::set("shown_boxes", "cpu mem net proc"s);
++		Config::set_boxes("cpu mem proc");
++		Config::set("shown_boxes", "cpu mem proc"s);
+ 	}
+@@ -1085 +1099 @@
+-	if (pthread_create(&Runner::runner_id, nullptr, &Runner::_runner, nullptr) != 0) {
++	if (Runner::start() != 0) {
+--- a/src/btop_config.cpp
++++ b/src/btop_config.cpp
+@@ -253,3 +253,3 @@
+ 		{"color_theme", "Default"},
+-		{"shown_boxes", "cpu mem net proc"},
++		{"shown_boxes", "cpu mem proc"},
+ 		{"graph_symbol", "braille"},
+@@ -313,6 +313,6 @@
+ 		{"show_uptime", true},
+-		{"show_cpu_watts", true},
+-		{"check_temp", true},
++		{"show_cpu_watts", false},
++		{"check_temp", false},
+ 		{"show_coretemp", true},
+-		{"show_cpu_freq", true},
++		{"show_cpu_freq", false},
+ 		{"background_update", true},
+@@ -321,9 +321,9 @@
+ 		{"zfs_arc_cached", true},
+-		{"show_swap", true},
+-		{"swap_disk", true},
+-		{"show_disks", true},
+-		{"only_physical", true},
+-		{"use_fstab", true},
++		{"show_swap", false},
++		{"swap_disk", false},
++		{"show_disks", false},
++		{"only_physical", false},
++		{"use_fstab", false},
+ 		{"zfs_hide_datasets", false},
+-		{"show_io_stat", true},
++		{"show_io_stat", false},
+ 		{"io_mode", false},
+@@ -334,3 +334,3 @@
+ 		{"net_sync", true},
+-		{"show_battery", true},
++		{"show_battery", false},
+ 		{"show_battery_watts", true},
+--- a/src/btop_draw.cpp
++++ b/src/btop_draw.cpp
+@@ -928,17 +928,2 @@
+ 
+-		//? Load average
+-		if (cy < b_height - 1 and cc <= b_columns) {
+-			cy = b_height - 2 - n_gpus_to_show;
+-
+-			string load_avg_pre = "Load avg:";
+-			string load_avg;
+-
+-			for (const auto& val : cpu.load_avg) {
+-				load_avg += fmt::format(" {:.2f}", val);
+-			}
+-
+-			int len = load_avg_pre.size() + load_avg.size();
+-			out += Mv::to(b_y + cy, b_x + 1) + string(max(b_width - len - 2, 0), ' ') + Theme::c("main_fg") + Fx::b + load_avg_pre + Fx::ub + load_avg;
+-		}
+-
+ 	#ifdef GPU_SUPPORT
+@@ -1587,3 +1572,2 @@
+ 	Draw::Graph detailed_cpu_graph;
+-	Draw::Graph detailed_mem_graph;
+ 	int user_size, thread_size, prog_size, cmd_size, tree_size;
+@@ -1797,3 +1781,2 @@
+ 					detailed_cpu_graph = Draw::Graph{dgraph_width - 1, 7, "cpu", detailed.cpu_percent, graph_symbol, false, true};
+-					detailed_mem_graph = Draw::Graph{d_width / 3, 1, "", detailed.mem_bytes, graph_symbol, false, false, detailed.first_mem};
+ 				}
+@@ -1994,10 +1977,3 @@
+ 
+-			const double mem_p = detailed.mem_bytes.back() * 100.0 / totalMem;
+-			string mem_str = fmt::format("{:.2f}", mem_p);
+-			mem_str.resize(4);
+-			if (mem_str.ends_with('.')) mem_str.pop_back();
+-			out += Mv::to(d_y + 4, d_x + 1) + Theme::c("title") + Fx::b + rjust((item_fit > 4 ? "Memory: " : "M:") + rjust(mem_str, 4) + "% ", (d_width / 3) - 2)
+-				+ Theme::c("inactive_fg") + Fx::ub + graph_bg * (d_width / 3) + Mv::l(d_width / 3)
+-				+ Theme::c("proc_misc") + detailed_mem_graph(detailed.mem_bytes, (redraw or data_same or not alive)) + ' '
+-				+ Theme::c("title") + Fx::b + detailed.memory;
++			out += Mv::to(d_y + 4, d_x + 1) + Theme::c("title") + Fx::b + "Memory: N/A";
+ 		}
+@@ -2115,11 +2091,2 @@
+ 			}
+-			string mem_str = (mem_bytes ? floating_humanizer(p.mem, true) : "");
+-			if (not mem_bytes) {
+-				double mem_p = clamp((double)p.mem * 100 / totalMem, 0.0, 100.0);
+-				mem_str = mem_p < 0.01 ? "0" : fmt::format("{:.1f}", mem_p);
+-				if (mem_str.size() > 3) mem_str.resize(3);
+-				if (mem_str.ends_with('.')) mem_str.pop_back();
+-				mem_str += '%';
+-			}
+-
+ 			// Shorten process thread representation when larger than 5 digits: 10000 -> 10K ...
+@@ -2135,3 +2102,3 @@
+ 				+ g_color + ljust((cmp_greater(p.user.size(), user_size) ? p.user.substr(0, user_size - 1) + '+' : p.user), user_size) + ' '
+-				+ m_color + rjust(mem_str, 5) + end + ' '
++				+ m_color + rjust("N/A", 5) + end + ' '
+ 				+ (is_selected or is_followed ? "" : Theme::c("inactive_fg")) + (show_graphs ? graph_bg * 5: "")
+--- a/src/btop_input.cpp
++++ b/src/btop_input.cpp
+@@ -25,3 +25,3 @@
+ #include <signal.h>
+-#include <sys/select.h>
++#include <poll.h>
+ #include <utility>
+@@ -96,5 +96,3 @@
+ 		atomic_lock lck(polling);
+-		fd_set fds;
+-		FD_ZERO(&fds);
+-		FD_SET(STDIN_FILENO, &fds);
++		struct pollfd tty { STDIN_FILENO, POLLIN, 0 };
+ 		struct timespec wait;
+@@ -108,11 +106,12 @@
+ 
+-		if(pselect(STDIN_FILENO + 1, &fds, nullptr, nullptr, waitptr, &signal_mask) > 0) {
++		if (ppoll(&tty, 1, waitptr, &signal_mask) > 0 and (tty.revents & POLLIN)) {
+ 			input.clear();
+ 			char buf[1024];
+-			ssize_t count = 0;
+-			while((count = read(STDIN_FILENO, buf, sizeof(buf))) > 0) {
++			do {
++				const auto count = read(STDIN_FILENO, buf, sizeof(buf));
++				if (count <= 0) break;
+ 				input.append(std::string_view(buf, count));
+-			}
++			} while (::poll(&tty, 1, 0) > 0 and (tty.revents & POLLIN));
+ 
+-			return true;
++			return not input.empty();
+ 		}
+--- a/src/linux/btop_collect.cpp
++++ b/src/linux/btop_collect.cpp
+@@ -321,8 +321,6 @@
+-		coreCount = sysconf(_SC_NPROCESSORS_ONLN);
+-		if (coreCount < 1) {
+-			coreCount = sysconf(_SC_NPROCESSORS_CONF);
+-			if (coreCount < 1) {
+-				coreCount = 1;
+-				Logger::warning("Could not determine number of cores, defaulting to 1.");
+-			}
+-		}
++		coreCount = 1;
++		ifstream stat(procPath / "stat");
++		for (string line; getline(stat, line);) {
++			if (line.starts_with("cpu") and line.size() > 3 and isdigit(line[3]))
++				coreCount = max(coreCount, 1L + stol(line.substr(3)));
++		}
+@@ -1086,6 +1084,2 @@
+ 
+-		if (getloadavg(cpu.load_avg.data(), cpu.load_avg.size()) < 0) {
+-			Logger::error("failed to get load averages");
+-		}
+-
+ 		ifstream cread;
+@@ -2274,3 +2268,3 @@
+ 				//? Get mounts from /etc/mtab or /proc/self/mounts
+-				diskread.open((fs::exists("/etc/mtab") ? fs::path("/etc/mtab") : Shared::procPath / "self/mounts"));
++				diskread.open(Shared::procPath / "mounts");
+ 				if (diskread.good()) {
+@@ -2361,3 +2355,3 @@
+ 				else
+-					throw std::runtime_error("Failed to get mounts from /etc/mtab and /proc/self/mounts");
++					throw std::runtime_error("Failed to get mounts from /proc/mounts");
+ 				diskread.close();

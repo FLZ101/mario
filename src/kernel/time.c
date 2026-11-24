@@ -17,6 +17,44 @@ volatile time_t boot_time_sec = 0;
 #define LATCH (1193180/HZ)
 
 volatile long jiffies = 0;
+static uint64_t cpu_ticks[NR_CPUS][CPU_TICK_COUNT];
+static spinlock_t cpu_ticks_lock = SPINLOCK_UNLOCKED;
+
+void account_cpu_tick(int cpu, enum cpu_tick_type type)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&cpu_ticks_lock, flags);
+	cpu_ticks[cpu][type]++;
+	spin_unlock_irqrestore(&cpu_ticks_lock, flags);
+}
+
+uint64_t read_cpu_ticks(int cpu, enum cpu_tick_type type)
+{
+	unsigned long flags;
+	uint64_t ticks;
+
+	spin_lock_irqsave(&cpu_ticks_lock, flags);
+	ticks = cpu_ticks[cpu][type];
+	spin_unlock_irqrestore(&cpu_ticks_lock, flags);
+	return ticks;
+}
+
+void account_task_tick(int user)
+{
+	struct task_struct *task = current;
+	int cpu = task->cpu;
+
+	if (task == smp_idle_task(cpu)) {
+		account_cpu_tick(cpu, CPU_TICK_IDLE);
+	} else if (user) {
+		++task->utime;
+		account_cpu_tick(cpu, CPU_TICK_USER);
+	} else {
+		++task->stime;
+		account_cpu_tick(cpu, CPU_TICK_SYSTEM);
+	}
+}
 
 #define CMOS_READ(addr) ({ \
 outb(0x70, 0x80+(addr)); \
@@ -195,10 +233,7 @@ void irq_PIT(struct trap_frame tr)
 	jiffies++;
 	smp_send_scheduler_ticks();
 
-	if userland(&tr)
-		++current->utime;
-	else
-		++current->stime;
+	account_task_tick(userland(&tr));
 
 	if (&init_task == current) {
 		current->need_resched = 1;

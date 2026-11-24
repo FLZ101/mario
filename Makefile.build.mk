@@ -12,7 +12,7 @@ ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 	selftest-fb-write-generation selftest-fb-write-chunks \
 	selftest-fb-transition-race selftest-fbcon-start-failure
 .PHONY: clean-all clean-build clean-src clean-compiler-rt clean-kernel \
-	clean-app clean-app-example clean-app-usr clean-app-usr-src \
+	clean-app clean-app-example clean-app-usr clean-app-usr-src clean-app-usr-cxx-src \
 	clean-musl clean-musl-src
 
 all: kernel app
@@ -146,7 +146,7 @@ clean-build: clean-kernel clean-compiler-rt clean-musl clean-app
 
 clean-app: clean-app-example clean-app-usr
 
-clean-src: clean-app-usr-src clean-musl-src
+clean-src: clean-app-usr-src clean-app-usr-cxx-src clean-musl-src
 
 clean-compiler-rt:
 	$(PODMAN_RUN) $(MAKE) $(CLEAN_MAKE_FLAGS) -f $(COMPILER_RT_MK) clean
@@ -162,6 +162,9 @@ clean-app-usr:
 
 clean-app-usr-src:
 	$(PODMAN_RUN) $(MAKE) $(CLEAN_MAKE_FLAGS) clean-src -C app/usr
+
+clean-app-usr-cxx-src:
+	$(PODMAN_RUN) $(MAKE) $(CLEAN_MAKE_FLAGS) clean-src -C app/usr-cxx
 
 clean-musl:
 	$(PODMAN_RUN) $(MAKE) $(CLEAN_MAKE_FLAGS) clean -C musl

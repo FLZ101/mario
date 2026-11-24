@@ -40,7 +40,7 @@
 #define TERMINAL_CURSOR_BLINK_MS 500U
 #define TERMINAL_SCROLLBACK_LINES 128U
 #define TERMINAL_WHEEL_LINES 3
-#define TERMINAL_FONT_PATH "/usr/share/fonts/DejaVuSansMono.ttf"
+#define TERMINAL_FONT_PATH "/usr/share/fonts/DejaVuSansMNerdFontMono-Regular.ttf"
 
 typedef struct {
 	int fd;

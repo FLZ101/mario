@@ -28,6 +28,8 @@ static struct super_block *proc_sb;
 #define PROC_INO_MOUNTS	5UL
 #define PROC_INO_PARTITIONS	6UL
 #define PROC_INO_CPUINFO	7UL
+#define PROC_INO_STAT	8UL
+#define PROC_INO_MEMINFO	9UL
 
 #define PROC_INO_PID	0x01000000UL
 #define PROC_INO_FD_DIR	0x02000000UL
@@ -35,9 +37,12 @@ static struct super_block *proc_sb;
 #define PROC_INO_PID_STAT	0x04000000UL
 #define PROC_INO_PID_CMDLINE	0x05000000UL
 #define PROC_INO_PID_EXE	0x06000000UL
+#define PROC_INO_PID_STATUS	0x07000000UL
+#define PROC_INO_PID_COMM	0x08000000UL
 
 #define PROC_INO_TYPE_MASK 0xff000000UL
 #define PROC_INO_PID_MASK	0x0000ffffUL
+#define PROC_CONTENT_SIZE	768
 
 static unsigned long proc_pid_ino(pid_t pid)
 {
@@ -83,19 +88,24 @@ static int proc_name_is(char *name, int len, char *want)
 	return len == n && !memcmp(name, want, n);
 }
 
-static struct task_struct *proc_find_task(pid_t pid)
+static struct task_struct *proc_find_task_locked(pid_t pid)
 {
 	struct task_struct *p;
-	struct task_struct *ret = NULL;
+
+	for_each_task(p) {
+		if (p->pid == pid)
+			return p;
+	}
+	return NULL;
+}
+
+static struct task_struct *proc_find_task(pid_t pid)
+{
+	struct task_struct *ret;
 	unsigned long flags;
 
 	spin_lock_irqsave(&tasklist_lock, flags);
-	for_each_task(p) {
-		if (p->pid == pid) {
-			ret = p;
-			break;
-		}
-	}
+	ret = proc_find_task_locked(pid);
 	spin_unlock_irqrestore(&tasklist_lock, flags);
 	return ret;
 }
@@ -206,11 +216,16 @@ static char proc_task_state(struct task_struct *task)
 
 static int proc_pid_stat_content(pid_t pid, char *buf, size_t size)
 {
-	struct task_struct *task = proc_find_task(pid);
+	struct task_struct *task;
+	unsigned long flags;
 	int n;
 
-	if (!task)
+	spin_lock_irqsave(&tasklist_lock, flags);
+	task = proc_find_task_locked(pid);
+	if (!task) {
+		spin_unlock_irqrestore(&tasklist_lock, flags);
 		return -ENOENT;
+	}
 
 	n = sprintkn(buf, size, "%d (%s) %c", task->pid, task->comm,
 		     proc_task_state(task));
@@ -226,8 +241,10 @@ static int proc_pid_stat_content(pid_t pid, char *buf, size_t size)
 		      (int)task->utime_children, (int)task->stime_children,
 		      task->priority, NZERO - task->priority);
 	n += sprintkn(buf + n, size - n,
-		      " 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0");
+		      " 0 %u 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
+		      (unsigned int)task->start_ticks);
 	n += sprintkn(buf + n, size - n, " %d", task->exit_signal);
+	spin_unlock_irqrestore(&tasklist_lock, flags);
 	n += sprintkn(buf + n, size - n, " 0 0 0 0 0 0 0 0\n");
 	return n;
 }
@@ -394,6 +411,48 @@ static int proc_cpuinfo_content(char *buf, size_t size)
 	return n;
 }
 
+static int proc_stat_content(char *buf, size_t size)
+{
+	uint64_t ticks[NR_CPUS][CPU_TICK_COUNT];
+	uint64_t totals[CPU_TICK_COUNT] = {0};
+	unsigned long online = online_cpu_mask();
+	int length;
+
+	for (int cpu = 0; cpu < NR_CPUS; cpu++) {
+		if (!(online & (1UL << cpu)))
+			continue;
+		for (int type = 0; type < CPU_TICK_COUNT; type++) {
+			ticks[cpu][type] = read_cpu_ticks(cpu, type);
+			totals[type] += ticks[cpu][type];
+		}
+	}
+	length = sprintkn(buf, size, "cpu %llu 0 %llu %llu 0 0 0 0 0 0\n",
+			  totals[CPU_TICK_USER], totals[CPU_TICK_SYSTEM],
+			  totals[CPU_TICK_IDLE]);
+	for (int cpu = 0; cpu < NR_CPUS; cpu++) {
+		if (!(online & (1UL << cpu)))
+			continue;
+		length += sprintkn(buf + length, size - length,
+				   "cpu%d %llu 0 %llu %llu 0 0 0 0 0 0\n", cpu,
+				   ticks[cpu][CPU_TICK_USER], ticks[cpu][CPU_TICK_SYSTEM],
+				   ticks[cpu][CPU_TICK_IDLE]);
+	}
+	return length;
+}
+
+static int proc_meminfo_content(char *buf, size_t size)
+{
+	struct filemap_stats stats;
+	unsigned int total = max_pfn * (PAGE_SIZE / 1024);
+	unsigned int free = (unsigned int)get_free_area_size() * (PAGE_SIZE / 1024);
+
+	filemap_get_stats(&stats);
+	return sprintkn(buf, size,
+			"MemTotal: %u kB\nMemFree: %u kB\nMemAvailable: %u kB\nCached: %u kB\n",
+			total, free, free,
+			(unsigned int)(stats.cached_pages * (PAGE_SIZE / 1024)));
+}
+
 static int proc_file_content(unsigned long ino, char *buf, size_t size)
 {
 	switch (ino) {
@@ -404,13 +463,17 @@ static int proc_file_content(unsigned long ino, char *buf, size_t size)
 		long up = jiffies / HZ;
 		long up_cs = (jiffies % HZ) * 100 / HZ;
 
-		return sprintkn(buf, size, "%d.%d 0.00\n",
-				(int)up, (int)up_cs);
+		return sprintkn(buf, size, "%d.%s%d 0.00\n",
+				(int)up, up_cs < 10 ? "0" : "", (int)up_cs);
 	}
 	case PROC_INO_PARTITIONS:
 		return proc_partitions_content(buf, size);
 	case PROC_INO_CPUINFO:
 		return proc_cpuinfo_content(buf, size);
+	case PROC_INO_STAT:
+		return proc_stat_content(buf, size);
+	case PROC_INO_MEMINFO:
+		return proc_meminfo_content(buf, size);
 	default:
 		break;
 	}
@@ -419,6 +482,22 @@ static int proc_file_content(unsigned long ino, char *buf, size_t size)
 		return proc_pid_stat_content(proc_ino_pid(ino), buf, size);
 	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_CMDLINE)
 		return proc_pid_cmdline_content(proc_ino_pid(ino), buf, size);
+	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_STATUS) {
+		if (!proc_find_task(proc_ino_pid(ino)))
+			return -ENOENT;
+		return sprintkn(buf, size, "Uid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n");
+	}
+	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_COMM) {
+		struct task_struct *task;
+		unsigned long flags;
+		int length;
+
+		spin_lock_irqsave(&tasklist_lock, flags);
+		task = proc_find_task_locked(proc_ino_pid(ino));
+		length = task ? sprintkn(buf, size, "%s\n", task->comm) : -ENOENT;
+		spin_unlock_irqrestore(&tasklist_lock, flags);
+		return length;
+	}
 
 	return -EINVAL;
 }
@@ -426,7 +505,7 @@ static int proc_file_content(unsigned long ino, char *buf, size_t size)
 static int proc_file_read(struct inode *inode, struct file *file,
 			  char *buf, int count)
 {
-	char content[512];
+	char content[PROC_CONTENT_SIZE];
 	int size;
 
 	if (inode->i_ino == PROC_INO_MOUNTS) {
@@ -574,7 +653,7 @@ static struct inode_operations proc_link_iops = {
 
 static struct inode *proc_make_file(unsigned long ino)
 {
-	char content[512];
+	char content[PROC_CONTENT_SIZE];
 	int size;
 
 	if (ino == PROC_INO_MOUNTS)
@@ -619,6 +698,10 @@ static int proc_lookup_child(unsigned long dir_ino, char *name, int len,
 			*res = proc_make_file(PROC_INO_PARTITIONS);
 		else if (proc_name_is(name, len, "cpuinfo"))
 			*res = proc_make_file(PROC_INO_CPUINFO);
+		else if (proc_name_is(name, len, "stat"))
+			*res = proc_make_file(PROC_INO_STAT);
+		else if (proc_name_is(name, len, "meminfo"))
+			*res = proc_make_file(PROC_INO_MEMINFO);
 		else {
 			pid_t pid;
 			if (proc_parse_pid(name, len, &pid) &&
@@ -634,6 +717,10 @@ static int proc_lookup_child(unsigned long dir_ino, char *name, int len,
 			*res = proc_make_dir(proc_fd_dir_ino(pid));
 		else if (proc_name_is(name, len, "stat"))
 			*res = proc_make_file(proc_pid_file_ino(PROC_INO_PID_STAT, pid));
+		else if (proc_name_is(name, len, "status"))
+			*res = proc_make_file(proc_pid_file_ino(PROC_INO_PID_STATUS, pid));
+		else if (proc_name_is(name, len, "comm"))
+			*res = proc_make_file(proc_pid_file_ino(PROC_INO_PID_COMM, pid));
 		else if (proc_name_is(name, len, "cmdline"))
 			*res = proc_make_file(proc_pid_file_ino(PROC_INO_PID_CMDLINE, pid));
 		else if (proc_name_is(name, len, "exe"))
@@ -759,8 +846,18 @@ static int proc_root_entry(int index, char *name, size_t size, ino_t *ino,
 		*ino = PROC_INO_CPUINFO;
 		*type = DT_REG;
 		return 0;
+	case 6:
+		sprintkn(name, size, "%s", "stat");
+		*ino = PROC_INO_STAT;
+		*type = DT_REG;
+		return 0;
+	case 7:
+		sprintkn(name, size, "%s", "meminfo");
+		*ino = PROC_INO_MEMINFO;
+		*type = DT_REG;
+		return 0;
 	default:
-		index -= 6;
+		index -= 8;
 		{
 			unsigned long flags;
 			int ret = -ENOENT;
@@ -803,6 +900,16 @@ static int proc_pid_entry(pid_t pid, int index, char *name, size_t size,
 	case 3:
 		sprintkn(name, size, "%s", "stat");
 		*ino = proc_pid_file_ino(PROC_INO_PID_STAT, pid);
+		*type = DT_REG;
+		return 0;
+	case 4:
+		sprintkn(name, size, "%s", "status");
+		*ino = proc_pid_file_ino(PROC_INO_PID_STATUS, pid);
+		*type = DT_REG;
+		return 0;
+	case 5:
+		sprintkn(name, size, "%s", "comm");
+		*ino = proc_pid_file_ino(PROC_INO_PID_COMM, pid);
 		*type = DT_REG;
 		return 0;
 	default:

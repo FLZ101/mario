@@ -130,6 +130,7 @@ int do_fork(struct trap_frame *tr, int vfork)
 	p->real_timer.data = (unsigned long)p;
 
 	p->stime = p->utime = p->stime_children = p->utime_children = 0;
+	p->start_ticks = jiffies;
 
 	copy_thread(p, tr, 0);
 	if (copy_mm(p))
@@ -268,6 +269,7 @@ int do_clone(struct trap_frame *tr, unsigned long flags,
 	p->real_timer.data = (unsigned long)p;
 
 	p->stime = p->utime = p->stime_children = p->utime_children = 0;
+	p->start_ticks = jiffies;
 
 	copy_thread(p, tr, child_stack);
 
