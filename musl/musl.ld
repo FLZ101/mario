@@ -27,6 +27,8 @@ SECTIONS
 		*(.text.*)
 	}
 
+	__lcxx_override : { *(__lcxx_override) } :text
+
 	.fini :
 	{
 		KEEP (*(SORT_NONE(.fini)))
@@ -48,6 +50,7 @@ SECTIONS
 
 	.data :
 	{
+		PROVIDE_HIDDEN(__dso_handle = .);
 		*(.data)
 		*(.data.*)
 	} :data
@@ -107,6 +110,7 @@ SECTIONS
 		*(.rel.text)
 		*(.rel.text.*)
 		*(.rel.rodata.*)
+		*(.rel.data .rel.data.* .rel__lcxx_override)
 	}
 	.got : { *(.got) }
 	.got.plt : { *(.got.plt) }

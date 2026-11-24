@@ -135,7 +135,7 @@ $(APP_VENV_DIR)/.stamp: $(ROOT)/requirements.txt $(ROOT)/Makefile.setup.mk
 
 app: musl $(APP_VENV_DIR)/.stamp
 	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(APP_CC) LD=$(APP_LD) \
-		MPV_PYTHON="$(APP_VENV_DIR)/bin/python" -C app
+		MPV_PYTHON="$(APP_VENV_DIR)/bin/python" CXX_PYTHON="$(APP_VENV_DIR)/bin/python" -C app
 
 clean-all: clean-build clean-src
 

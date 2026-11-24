@@ -3,9 +3,10 @@
 # Toolchain.
 make
 gcc
-clang
+gcc-c++
 binutils
 nasm
+cmake
 
 # Host file comparison used to require diffutils (for cmp).  The build now
 # uses make/bash built-ins and no longer calls cmp.
@@ -25,6 +26,7 @@ wget
 patch
 tar
 gzip
+xz
 unzip
 bison
 byacc

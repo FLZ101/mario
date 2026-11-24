@@ -46,10 +46,11 @@ and `media-runtime.test`; the existing C `pthread.test` passed at `SMP=8`.
 ### M2 — Static Standard Library and ABI
 
 - Follow the [LLVM runtime build guide](https://libcxx.llvm.org/VendorDocumentation.html)
-  and existing `app/usr` recipe conventions. Pin the LLVM release and source
-  checksum, document the supported host compiler and CMake versions, and
-  reuse Ninja from the project venv. Stage target headers and archives under
-  `app/usr/cxx/`; do not install them on the host system or guest image.
+  and existing `app/usr` recipe conventions. Use GCC 13 or later, CMake 3.20
+  or later, and Ninja from the project venv. Pin LLVM 18.1.8 and fetch only
+  the checksummed runtime component archives and required CMake helpers, not
+  the full LLVM tree. Stage target headers and archives under `app/usr/cxx/`;
+  do not install them on the host system or guest image.
 - Configure CMake to cross-build static `libc++` and `libc++abi` against
   Mario's musl and compatible compiler builtins. Do not execute target
   binaries during host configuration or allow host libc or C++ dependencies
@@ -59,6 +60,10 @@ and `media-runtime.test`; the existing C `pthread.test` passed at `SMP=8`.
   function-local statics, and `std::thread` with mutex and condition-variable
   synchronization. Test a timed wait too: a successful link does not establish
   that musl's time and futex paths work in Mario.
+
+Verified with GCC 15.2 and at `SMP=1` and `SMP=2` with `cxx-stdlib.test` and
+`cxx-startup.test`. `readelf` confirms a static i386 executable with no
+interpreter or dynamic dependencies.
 
 ### M3 — Exceptions, RTTI, and Thread-Local Destruction
 

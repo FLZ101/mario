@@ -1,0 +1,19 @@
+--- a/include/__type_traits/decay.h
++++ b/include/__type_traits/decay.h
+@@ -28 +28 @@
+-#if __has_builtin(__decay)
++#if __has_builtin(__decay) && !defined(_LIBCPP_COMPILER_GCC)
+@@ -39 +39 @@
+-struct __decay {
++struct __decay_impl {
+@@ -44 +44 @@
+-struct __decay<_Up, true> {
++struct __decay_impl<_Up, true> {
+@@ -59 +59 @@
+-  typedef _LIBCPP_NODEBUG typename __decay<_Up, __libcpp_is_referenceable<_Up>::value>::type type;
++  typedef _LIBCPP_NODEBUG typename __decay_impl<_Up, __libcpp_is_referenceable<_Up>::value>::type type;
+--- a/include/__type_traits/remove_pointer.h
++++ b/include/__type_traits/remove_pointer.h
+@@ -20 +20 @@
+-#if !defined(_LIBCPP_WORKAROUND_OBJCXX_COMPILER_INTRINSICS) && __has_builtin(__remove_pointer)
++#if !defined(_LIBCPP_WORKAROUND_OBJCXX_COMPILER_INTRINSICS) && __has_builtin(__remove_pointer) && !defined(_LIBCPP_COMPILER_GCC)

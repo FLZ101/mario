@@ -1,0 +1,11 @@
+--- a/src/atomic.cpp
++++ b/src/atomic.cpp
+@@ -19 +19,2 @@
+-#  include <linux/futex.h>
++#  define FUTEX_WAIT_PRIVATE 128
++#  define FUTEX_WAKE_PRIVATE 129
+@@ -58,2 +59,2 @@
+-  static constexpr timespec __timeout = {2, 0};
+-  _LIBCPP_FUTEX(__ptr, FUTEX_WAIT_PRIVATE, __val, &__timeout, 0, 0);
++  static constexpr long __timeout[2] = {2, 0};
++  _LIBCPP_FUTEX(__ptr, FUTEX_WAIT_PRIVATE, __val, __timeout, 0, 0);

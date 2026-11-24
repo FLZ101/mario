@@ -1,0 +1,4 @@
+TIMEOUT: 10
+RUN: /usr/bin/test/cxx-stdlib.exe; printf 'cxx stdlib exit: %s\n' "$?"
+CHECK: cxx stdlib and threads ok
+CHECK: cxx stdlib exit: 0

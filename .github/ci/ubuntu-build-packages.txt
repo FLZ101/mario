@@ -3,11 +3,12 @@
 # Toolchain.
 make
 gcc
-clang
+g++
 # Mario links compiler-rt instead of 32-bit libgcc.
 # gcc-multilib
 binutils
 nasm
+cmake
 
 # Host file comparison used to require diffutils (for cmp).  The build now
 # uses make/bash built-ins and no longer calls cmp.
@@ -23,6 +24,7 @@ wget
 patch
 tar
 gzip
+xz-utils
 unzip
 bison
 byacc
