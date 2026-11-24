@@ -141,6 +141,9 @@ automatically, including Meson, Ninja, and Jinja2 for the mpv build. Container a
 builds create a separate venv under `.venv/build-<image>` using the container's
 Python.
 
+See the [C++ support plan](doc/CPP_SUPPORT_PLAN.md) for the proposed guest
+toolchain and runtime.
+
 ## Test
 
 ```

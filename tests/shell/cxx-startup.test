@@ -1,0 +1,5 @@
+TIMEOUT: 10
+RUN: /usr/bin/test/cxx-startup.exe; printf 'cxx startup exit: %s\n' "$?"
+CHECK: cxx startup and TLS ok
+CHECK: cxx finalization ok
+CHECK: cxx startup exit: 0

@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+from pathlib import Path
+
+
+def main():
+    root = Path(__file__).resolve().parents[1]
+    musl = root / "musl" / "musl-1.2.5-install"
+    lib = musl / "lib"
+    args = sys.argv[1:]
+    command = ["clang++", "--target=i386-unknown-linux-musl", "-march=i686"]
+    if args == ["--mario-verify"]:
+        return
+    queries = {"--version", "-v", "--help", "-dumpmachine", "-print-resource-dir"}
+    if len(args) == 1 and args[0] in queries:
+        os.execvp(command[0], command + args)
+
+    command += [
+        "-nostdlibinc", "-nostdinc++", "-fno-pic", "-fno-pie",
+        "-fno-stack-protector", "-isystem", str(musl / "include"),
+    ]
+    link = not {"-c", "-E", "-S", "-M", "-MM", "-fsyntax-only"}.intersection(args)
+    if link:
+        command += ["-static", "-nostdlib", "-fuse-ld=bfd",
+                    str(lib / "crt1.o"), str(lib / "crti.o")]
+    command += args
+    if link:
+        command += [
+            "-x", "none", str(lib / "libc.a"),
+            str(root / "compiler-rt" / "libcompiler_rt.a"), str(lib / "crtn.o"),
+            "-Wl,--orphan-handling=warn,--gc-sections,-T," + str(root / "musl/musl.ld"),
+        ]
+    os.execvp(command[0], command)
+
+
+if __name__ == "__main__":
+    main()

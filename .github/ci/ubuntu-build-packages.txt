@@ -3,6 +3,7 @@
 # Toolchain.
 make
 gcc
+clang
 # Mario links compiler-rt instead of 32-bit libgcc.
 # gcc-multilib
 binutils

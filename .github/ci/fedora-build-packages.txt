@@ -3,6 +3,7 @@
 # Toolchain.
 make
 gcc
+clang
 binutils
 nasm
 

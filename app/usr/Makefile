@@ -65,6 +65,7 @@ LIBPNG_INSTALL_DIR := $(ROOT)/libpng-1.6.59-install
 ZLIB_INSTALL_DIR := $(ROOT)/zlib-1.3.2-install
 
 include video/mpv.mk
+include cxx/cxx.mk
 
 .PHONY build:: build-terminal
 build-terminal: $(TERMINAL_EXE)

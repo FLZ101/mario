@@ -198,6 +198,7 @@ def copy_rootfs_files(
         "app/example/*/*.exe": "usr/bin/example",
         "app/test/*/*.exe": "usr/bin/test",
         "app/test/musl/*/*.exe": "usr/bin/test",
+        "app/usr/cxx/build/tests/*.exe": "usr/bin/test",
         "app/test/gui-wm-client/gui-wm-client.exe": "usr/bin/gui-wm-client",
         "app/gui/desktop/mario-desktop/mario-desktop.exe": "usr/bin/mario-desktop",
         "app/gui/desktop/mario-wm/mario-wm.exe": "usr/bin/mario-wm",
