@@ -10,6 +10,7 @@ PHDRS
 	rodata PT_LOAD ;
 	data PT_LOAD ;
 	tls PT_TLS ;
+	eh_frame PT_GNU_EH_FRAME ;
 }
 
 SECTIONS
@@ -44,10 +45,13 @@ SECTIONS
 		PROVIDE(__tm_clone_table_start = .);
 		*(.tm_clone_table)
 		PROVIDE(__tm_clone_table_end = .);
-
-		. = ALIGN(0x1000);
 	} :rodata
 
+	.gcc_except_table : { *(.gcc_except_table .gcc_except_table.*) } :rodata
+	.eh_frame : { KEEP (*(.eh_frame .eh_frame.*)) } :rodata
+	.eh_frame_hdr : { *(.eh_frame_hdr) } :rodata :eh_frame
+
+	. = ALIGN(0x1000);
 	.data :
 	{
 		PROVIDE_HIDDEN(__dso_handle = .);
@@ -98,9 +102,6 @@ SECTIONS
 	.debug_str 0 : { *(.debug_str) }
 	.debug_loclists 0 : { *(.debug_loclists) }
 
-	.eh_frame : { *(.eh_frame) }
-	.eh_frame_hdr : { *(.eh_frame_hdr) }
-
 	/*
 	 * Silence warnings. The following sections should not exist in the output binary
 	 */
@@ -111,6 +112,7 @@ SECTIONS
 		*(.rel.text.*)
 		*(.rel.rodata.*)
 		*(.rel.data .rel.data.* .rel__lcxx_override)
+		*(.rel.gcc_except_table .rel.gcc_except_table.*)
 	}
 	.got : { *(.got) }
 	.got.plt : { *(.got.plt) }

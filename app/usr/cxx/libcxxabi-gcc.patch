@@ -1,0 +1,13 @@
+--- a/src/cxa_exception.cpp
++++ b/src/cxa_exception.cpp
+@@ -444,2 +444,10 @@
++_LIBCXXABI_FUNC_VIS [[noreturn]] void
++__cxa_call_terminate(void* unwind_exception) noexcept
++{
++    if (unwind_exception)
++        __cxa_begin_catch(unwind_exception);
++    std::terminate();
++}
++
+ void*
+ __cxa_begin_catch(void* unwind_arg) throw()

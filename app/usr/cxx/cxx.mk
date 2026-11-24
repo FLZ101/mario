@@ -11,10 +11,10 @@ CXX_RUNTIME_STAMP := $(CXX_INSTALL_DIR)/.stamp
 .PHONY:: build-cxx-runtime build-cxx-probes clean-cxx clean-src-cxx
 build:: build-cxx-probes
 build-cxx-runtime: $(CXX_RUNTIME_STAMP)
-build-cxx-probes: $(CXX_BUILD_DIR)/tests/cxx-startup.exe $(CXX_BUILD_DIR)/tests/cxx-stdlib.exe
+build-cxx-probes: $(addprefix $(CXX_BUILD_DIR)/tests/,cxx-startup.exe cxx-stdlib.exe cxx-exceptions.exe)
 
 $(CXX_RUNTIME_STAMP): $(CXX_DIR)/build-runtime.sh $(CXX_DIR)/llvm-sources.sha256 \
-		$(CXX_DIR)/libcxx-gcc.patch $(CXX_DIR)/libcxx-mario.patch $(CXX_LIBC)
+		$(CXX_DIR)/libcxx-gcc.patch $(CXX_DIR)/libcxx-mario.patch $(CXX_DIR)/libcxxabi-gcc.patch $(CXX_LIBC)
 	PYTHON="$(CXX_PYTHON)" CXX_DIR="$(CXX_DIR)" CXX_BUILD_DIR="$(CXX_BUILD_DIR)" \
 		CXX_INSTALL_DIR="$(CXX_INSTALL_DIR)" MUSL_DIR="$(abspath $(dir $(CXX_LIBC))/..)" \
 		bash "$(CXX_DIR)/build-runtime.sh"
@@ -28,6 +28,11 @@ $(CXX_BUILD_DIR)/tests/cxx-startup.exe: $(CXX_DIR)/startup.cpp $(CXX_LINK_DEPS) 
 $(CXX_BUILD_DIR)/tests/cxx-stdlib.exe: $(CXX_DIR)/stdlib.cpp $(CXX_LINK_DEPS) $(CXX_RUNTIME_STAMP)
 	mkdir -p "$(@D)"
 	cd "$(CXX_BUILD_DIR)" && "$(MARIO_CXX)" -std=c++17 -Wall -Wextra -Werror $(OPTIMIZE) "$<" -o "$@"
+
+CXX_EXCEPTION_SOURCES := $(addprefix $(CXX_DIR)/,exceptions.cpp exceptions-throw.cpp)
+$(CXX_BUILD_DIR)/tests/cxx-exceptions.exe: $(CXX_EXCEPTION_SOURCES) $(CXX_LINK_DEPS) $(CXX_RUNTIME_STAMP)
+	mkdir -p "$(@D)"
+	cd "$(CXX_BUILD_DIR)" && "$(MARIO_CXX)" -std=c++17 -Wall -Wextra -Werror $(OPTIMIZE) $(CXX_EXCEPTION_SOURCES) -o "$@"
 
 clean:: clean-cxx
 clean-cxx:

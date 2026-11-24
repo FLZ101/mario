@@ -1,0 +1,8 @@
+TIMEOUT: 10
+RUN: /usr/bin/test/cxx-exceptions.exe; printf 'cxx exceptions exit: %s\n' "$?"
+CHECK: cxx exceptions, RTTI, and thread-local destructors ok
+CHECK: cxx global destructor ok
+CHECK: cxx exceptions exit: 0
+RUN: /usr/bin/test/cxx-exceptions.exe noexcept; printf 'cxx noexcept exit: %s\n' "$?"
+CHECK: cxx noexcept handler ok
+CHECK: cxx noexcept exit: 42

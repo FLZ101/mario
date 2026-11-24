@@ -79,6 +79,11 @@ interpreter or dynamic dependencies.
   exactly once; `thread_local` instances stay isolated and run their destructors
   when the worker threads exit.
 
+Verified in QEMU at `SMP=1` and `SMP=2` with `cxx-exceptions.test`, including
+the `noexcept` terminate path, alongside the startup, standard-library,
+shell, and media-runtime tests. `readelf` confirms the static i386 exception
+probe has TLS and mapped `.gcc_except_table`, `.eh_frame`, and `PT_GNU_EH_FRAME`.
+
 ### M4 — Normal App and Image Integration
 
 - Have `app/Makefile.in` dispatch `.cpp` builds to `app/usr/cxx/` with C++-specific
