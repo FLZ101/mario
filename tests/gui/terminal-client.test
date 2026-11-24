@@ -4,7 +4,8 @@ SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8
 SERIAL: /usr/bin/terminal >/tmp/terminal.log 2>&1 & echo $! >/tmp/terminal.pid
-SERIAL: sleep 1; cat /tmp/terminal.log
+SERIAL: while ! grep -q 'terminal: window ready' /tmp/terminal.log && kill -0 "$(cat /tmp/terminal.pid)" 2>/dev/null; do sleep 1; done
+SERIAL: cat /tmp/terminal.log
 SERIAL-CHECK: terminal: window ready
 GUI-CHECK-RECT: 130 130 8 8 17 24 39
 GUI-SEND-KEYS: meta_l,w
