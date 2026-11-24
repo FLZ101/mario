@@ -522,17 +522,17 @@ support for `oksh`, `vim`, `top`, `less`, and interactive Python.
 
 Terminal behavior details:
 
-- Keep at least 4096 lines of scrollback per terminal window. Normal screen
-  scrolling appends old lines to a ring buffer; alternate-screen scrolling does
-  not add to scrollback.
+- Keep 128 lines of scrollback per terminal window. Normal screen scrolling
+  appends old lines to a ring buffer; alternate-screen scrolling does not add
+  to scrollback. The wheel browses this history without moving the live cursor.
 - Implement tab stops every eight columns, clear-tab, and set-tab behavior.
 - Text selection and clipboard are deferred. The first terminal has no mouse
   selection or copy/paste because it requires a system clipboard service and
   more complete OSC 52 support. Keep `src/term.c` data structures ready for
   selection rectangles but do not ship the feature in the initial milestone.
-- Mouse reporting modes (`1000`, `1002`, `1003`, `1006`) are deferred; apps
-  that request them must still run without input breakage, so the emulator
-  should ignore or store the mode rather than corrupt the terminal grid.
+- Report wheel steps to apps that enable `1000`, `1002`, or `1003` tracking,
+  using SGR coordinates with `1006` or the legacy mouse encoding otherwise.
+  Button clicks and motion reporting are not implemented.
 - Resize behavior: the terminal computes the largest grid that fits the window
   minus scrollbar/chrome, then calls `TIOCSWINSZ` on the retained master with
   row/column counts. The primary grid is hard-reflowed when the column count

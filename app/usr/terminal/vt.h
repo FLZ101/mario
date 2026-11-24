@@ -37,6 +37,7 @@ typedef struct {
 	uint32_t scrollback_lines;
 	uint32_t scrollback_head;
 	uint32_t scrollback_count;
+	uint32_t view_offset;
 	uint32_t cursor_row;
 	uint32_t cursor_column;
 	uint32_t saved_cursor_row;
@@ -79,6 +80,8 @@ typedef struct {
 	uint8_t primary_attributes;
 	uint8_t using_alternate;
 	uint8_t application_cursor;
+	uint16_t mouse_tracking;
+	uint8_t mouse_sgr;
 	uint8_t cursor_visible;
 	terminal_vt_cursor_shape cursor_shape;
 	uint8_t cursor_blink;
@@ -105,6 +108,8 @@ int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 		       uint32_t scrollback_lines, uint32_t rows, uint32_t columns);
 const terminal_vt_cell *terminal_vt_scrollback_line(const terminal_vt *terminal,
 					     uint32_t line);
+int terminal_vt_scroll_view(terminal_vt *terminal, int lines);
+const terminal_vt_cell *terminal_vt_view_line(const terminal_vt *terminal, uint32_t row);
 int terminal_vt_take_title(terminal_vt *terminal, const uint8_t **title,
 				   uint16_t *title_bytes);
 size_t terminal_vt_take_response(terminal_vt *terminal, uint8_t *bytes,

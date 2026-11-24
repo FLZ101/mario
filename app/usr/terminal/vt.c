@@ -45,6 +45,8 @@ static void terminal_vt_scroll_region(terminal_vt *terminal)
 		else
 			terminal->scrollback_head = (terminal->scrollback_head + 1) %
 				terminal->scrollback_lines;
+		if (terminal->view_offset != 0 && terminal->view_offset < terminal->scrollback_count)
+			terminal->view_offset++;
 	}
 
 	/* A one-row margin clears its only line instead of reading past it. */
@@ -362,6 +364,7 @@ static void terminal_vt_enter_alternate(terminal_vt *terminal)
 	terminal->primary_attributes = terminal->attributes;
 	terminal->cells = terminal->alternate_cells;
 	terminal->using_alternate = 1;
+	terminal->view_offset = 0;
 	terminal->cursor_row = 0;
 	terminal->cursor_column = 0;
 	terminal->wrap_pending = 0;
@@ -395,10 +398,13 @@ static void terminal_vt_reset(terminal_vt *terminal)
 	terminal->cells = terminal->primary_cells;
 	terminal->using_alternate = 0;
 	terminal->cursor_row = 0;
+	terminal->view_offset = 0;
 	terminal->cursor_column = 0;
 	terminal->scroll_top = 0;
 	terminal->scroll_bottom = terminal->rows - 1;
 	terminal->application_cursor = 0;
+	terminal->mouse_tracking = 0;
+	terminal->mouse_sgr = 0;
 	terminal->wrap_pending = 0;
 	terminal->cursor_visible = 1;
 	terminal->cursor_shape = TERMINAL_VT_CURSOR_BLOCK;
@@ -566,6 +572,13 @@ static void terminal_vt_execute_private_csi(terminal_vt *terminal,
 			terminal->cursor_blink = final == 'h';
 		else if (parameter == 25)
 			terminal->cursor_visible = final == 'h';
+		else if (parameter == 1000 || parameter == 1002 || parameter == 1003) {
+			if (final == 'h')
+				terminal->mouse_tracking = parameter;
+			else if (terminal->mouse_tracking == parameter)
+				terminal->mouse_tracking = 0;
+		} else if (parameter == 1006)
+			terminal->mouse_sgr = final == 'h';
 		else if (parameter == 1049 && final == 'h')
 			terminal_vt_enter_alternate(terminal);
 		else if (parameter == 1049 && final == 'l')
@@ -939,6 +952,7 @@ int terminal_vt_set_scrollback(terminal_vt *terminal,
 	terminal->scrollback_lines = scrollback_lines;
 	terminal->scrollback_head = 0;
 	terminal->scrollback_count = 0;
+	terminal->view_offset = 0;
 	if (scrollback_lines != 0)
 		terminal_vt_blank_cells(scrollback_cells, (size_t)scrollback_lines * terminal->columns,
 			TERMINAL_VT_COLOR_DEFAULT);
@@ -1060,6 +1074,8 @@ int terminal_vt_resize(terminal_vt *terminal, terminal_vt_cell *primary_cells,
 	resized.scrollback_lines = scrollback_lines;
 	resized.scrollback_head = 0;
 	resized.scrollback_count = copied_scrollback;
+	if (resized.view_offset > copied_scrollback)
+		resized.view_offset = copied_scrollback;
 	for (uint32_t column = terminal->columns;
 	     column < columns && column < sizeof(resized.tab_stops); column++)
 		resized.tab_stops[column] = column != 0 && column % 8 == 0;
@@ -1091,6 +1107,30 @@ const terminal_vt_cell *terminal_vt_scrollback_line(const terminal_vt *terminal,
 	return terminal->scrollback_cells +
 		(size_t)((terminal->scrollback_head + line) % terminal->scrollback_lines) *
 		terminal->columns;
+}
+
+int terminal_vt_scroll_view(terminal_vt *terminal, int lines)
+{
+	int64_t offset = (int64_t)terminal->view_offset + lines;
+
+	if (terminal->using_alternate)
+		return 0;
+	if (offset < 0)
+		offset = 0;
+	if (offset > terminal->scrollback_count)
+		offset = terminal->scrollback_count;
+	if (offset == terminal->view_offset)
+		return 0;
+	terminal->view_offset = offset;
+	return 1;
+}
+
+const terminal_vt_cell *terminal_vt_view_line(const terminal_vt *terminal, uint32_t row)
+{
+	if (row < terminal->view_offset)
+		return terminal_vt_scrollback_line(terminal,
+			terminal->scrollback_count - terminal->view_offset + row);
+	return terminal->cells + (size_t)(row - terminal->view_offset) * terminal->columns;
 }
 
 int terminal_vt_take_title(terminal_vt *terminal, const uint8_t **title,

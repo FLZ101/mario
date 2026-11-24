@@ -2975,6 +2975,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	wm_state *state = &server->state;
 	wm_window *client;
 	wm_window *popup_target = NULL;
+	wm_window *wheel_target = NULL;
 	uint8_t message[sizeof(gui_protocol_wire_input_event)] = { 0 };
 	uint32_t keysym = 0;
 	int32_t x;
@@ -3032,7 +3033,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	}
 	if (event->type == GUI_INPUT_EVENT_MOUSE) {
 		uint8_t previous_buttons = state->mouse_buttons;
-		int motion_only = previous_buttons == event->mouse.buttons;
+		int motion_only = previous_buttons == event->mouse.buttons && event->mouse.dz == 0;
 		uint32_t cursor_x = state->cursor_x;
 		uint32_t cursor_y = state->cursor_y;
 
@@ -3067,6 +3068,8 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 			wm_hit_region region;
 			wm_window *hit = wm_hit_test(server, state->cursor_x, state->cursor_y, &region);
 
+			if (event->mouse.dz != 0 && region == WM_HIT_CONTENT)
+				wheel_target = hit;
 			compose |= wm_update_title_buttons(server, hit, region,
 				state->mouse_buttons & 1);
 			if (!(previous_buttons & 1) && (state->mouse_buttons & 1)) {
@@ -3147,6 +3150,8 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 		wm_present_input(server, compose, motion_only);
 	}
 	client = popup_target != NULL ? popup_target : server->input_owner;
+	if (event->type == GUI_INPUT_EVENT_MOUSE && event->mouse.dz != 0)
+		client = wheel_target;
 	if (event->type == GUI_INPUT_EVENT_KEY && keysym == GUI_KEYSYM_ESCAPE &&
 	    wm_popup_bounds(server).w != 0)
 		client = wm_shell_client(server);
@@ -3165,8 +3170,10 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	}
 	put_u32(message + 16, (uint32_t)x);
 	put_u32(message + 20, (uint32_t)y);
-	if (event->type == GUI_INPUT_EVENT_MOUSE)
+	if (event->type == GUI_INPUT_EVENT_MOUSE) {
 		message[24] = event->mouse.buttons;
+		message[offsetof(gui_protocol_wire_input_event, wheel)] = (uint8_t)event->mouse.dz;
+	}
 	put_u32(message + 28, event->ticks);
 	if (window_enqueue(client, GUI_PROTOCOL_INPUT_EVENT, message,
 			   sizeof(message)) < 0)

@@ -13,6 +13,7 @@ from lit_gui_test import (
     _run_test_locked,
     qemu_command,
     send_mouse_position,
+    send_mouse_wheel,
 )
 
 
@@ -30,6 +31,23 @@ class AbsoluteMouseTests(unittest.TestCase):
         self.assertEqual(
             fixture.actions,
             [("mouse-position", (1023, 767)), ("mouse-button", ("left", True))],
+        )
+
+    def test_wheel_directive(self):
+        fixture = self.parse("GUI-MOUSE-WHEEL: up\nGUI-MOUSE-WHEEL: down")
+        self.assertEqual(fixture.actions, [("mouse-wheel", "up"), ("mouse-wheel", "down")])
+        with self.assertRaisesRegex(GuiTestError, "invalid GUI-MOUSE-WHEEL"):
+            self.parse("GUI-MOUSE-WHEEL: left")
+        qmp = MagicMock()
+        send_mouse_wheel(qmp, "down")
+        qmp.command.assert_called_once_with(
+            "input-send-event",
+            {
+                "events": [
+                    {"type": "btn", "data": {"button": "wheel-down", "down": True}},
+                    {"type": "btn", "data": {"button": "wheel-down", "down": False}},
+                ]
+            },
         )
 
     def test_rejects_invalid_positions(self):

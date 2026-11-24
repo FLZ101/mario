@@ -618,6 +618,76 @@ static void test_scrollback_and_tabs(void)
 	assert(cells[0].codepoint == 'B' && cells[4].codepoint == 'C');
 }
 
+static void test_scrollback_view(void)
+{
+	static const uint8_t lines[] = "A\r\nB\r\nC\r\nD";
+	static const uint8_t more[] = "\r\nE\r\nF\r\nG";
+	static const uint8_t alternate_on[] = "\x1b[?1049h";
+	static const uint8_t alternate_off[] = "\x1b[?1049l";
+	terminal_vt_cell cells[8];
+	terminal_vt_cell alternate_cells[8];
+	terminal_vt_cell scrollback_cells[12];
+	terminal_vt terminal;
+
+	assert(terminal_vt_init(&terminal, cells, alternate_cells, 2, 4) == 0);
+	assert(terminal_vt_set_scrollback(&terminal, scrollback_cells, 3) == 0);
+	terminal_vt_feed(&terminal, lines, sizeof(lines) - 1);
+	assert(terminal_vt_view_line(&terminal, 0)[0].codepoint == 'C');
+	assert(terminal_vt_scroll_view(&terminal, 1));
+	assert(terminal_vt_view_line(&terminal, 0)[0].codepoint == 'B');
+	assert(terminal_vt_view_line(&terminal, 1)[0].codepoint == 'C');
+	terminal_vt_feed(&terminal, more, 2);
+	assert(terminal.view_offset == 2);
+	assert(terminal_vt_view_line(&terminal, 0)[0].codepoint == 'B');
+	terminal_vt_feed(&terminal, more + 2, sizeof(more) - 3);
+	assert(terminal.view_offset == 3);
+	assert(terminal_vt_view_line(&terminal, 0)[0].codepoint == 'C');
+	assert(!terminal_vt_scroll_view(&terminal, 100));
+	assert(terminal_vt_scroll_view(&terminal, -100));
+	assert(terminal_vt_view_line(&terminal, 0)[0].codepoint == 'F');
+	assert(terminal_vt_scroll_view(&terminal, 2));
+	terminal_vt_feed(&terminal, alternate_on, sizeof(alternate_on) - 1);
+	assert(!terminal_vt_scroll_view(&terminal, 1));
+	assert(terminal_vt_view_line(&terminal, 0)[0].codepoint == 0);
+	terminal_vt_feed(&terminal, alternate_off, sizeof(alternate_off) - 1);
+	assert(terminal_vt_view_line(&terminal, 0)[0].codepoint == 'F');
+	assert(terminal.scrollback_count == 3);
+	puts("terminal-vt: scrollback view follows output only at the live edge");
+}
+
+static void test_wheel_reporting(void)
+{
+	static const uint8_t history[] = "A\r\nB\r\nC";
+	static const uint8_t tracking[] = "\x1b[?1002h";
+	static const uint8_t sgr[] = "\x1b[?1003;1006h";
+	static const uint8_t reset[] = "\x1b" "c";
+	static const uint8_t legacy_report[] = "\x1b[M\x61\x22\x21";
+	static const uint8_t sgr_report[] = "\x1b[<80;2;1M\x1b[<80;2;1M";
+	terminal_state state = { .master = 0, .content = { 0, 0, 32, 32 } };
+	terminal_vt_cell cells[8];
+	terminal_vt_cell alternate_cells[8];
+	terminal_vt_cell scrollback_cells[12];
+
+	assert(terminal_vt_init(&state.vt, cells, alternate_cells, 2, 4) == 0);
+	assert(terminal_vt_set_scrollback(&state.vt, scrollback_cells, 3) == 0);
+	terminal_vt_feed(&state.vt, history, sizeof(history) - 1);
+	terminal_vt_feed(&state.vt, tracking, sizeof(tracking) - 1);
+	terminal_write_wheel(&state, 10, 4, GUI_MOD_SHIFT, -1);
+	assert(state.vt.view_offset == 1 && state.pty_input_bytes == 0);
+	terminal_write_wheel(&state, 10, 4, 0, 1);
+	assert(state.vt.view_offset == 0);
+	assert(state.pty_input_bytes == sizeof(legacy_report) - 1);
+	assert(memcmp(state.pty_input, legacy_report, sizeof(legacy_report) - 1) == 0);
+	state.pty_input_bytes = 0;
+	terminal_vt_feed(&state.vt, sgr, sizeof(sgr) - 1);
+	terminal_write_wheel(&state, 10, 4, GUI_MOD_CTRL, -2);
+	assert(state.pty_input_bytes == sizeof(sgr_report) - 1);
+	assert(memcmp(state.pty_input, sgr_report, sizeof(sgr_report) - 1) == 0);
+	terminal_vt_feed(&state.vt, reset, sizeof(reset) - 1);
+	assert(!state.vt.mouse_tracking && !state.vt.mouse_sgr);
+	puts("terminal-vt: wheel reports legacy and SGR events with a Shift override");
+}
+
 static void test_titles_and_direct_color(void)
 {
 	static const uint8_t semicolon_rgb[] =
@@ -1183,6 +1253,8 @@ int main(void)
 	test_resize();
 	test_primary_reflow();
 	test_scrollback_and_tabs();
+	test_scrollback_view();
+	test_wheel_reporting();
 	test_titles_and_direct_color();
 	test_dec_private_modes();
 	test_cursor_styles();

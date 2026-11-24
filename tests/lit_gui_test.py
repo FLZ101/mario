@@ -17,6 +17,7 @@ Directives:
   GUI-MOUSE-MOVE: dx,dy
   GUI-MOUSE-POSITION: x,y
   GUI-MOUSE-BUTTON: left,down
+  GUI-MOUSE-WHEEL: up
   GUI-CHECK-SCREEN: golden.ppm
   GUI-CHECK-RECT: x y width height red green blue
   GUI-CHECK-SCREEN-RECT: golden.ppm,x,y,width,height
@@ -278,6 +279,11 @@ class GuiTest:
                 if state not in {"down", "up"}:
                     raise GuiTestError(f"{self.path}: invalid GUI-MOUSE-BUTTON")
                 self.actions.append(("mouse-button", (values[0], state == "down")))
+            elif line.startswith("GUI-MOUSE-WHEEL:"):
+                direction = line.split(":", 1)[1].strip()
+                if direction not in {"up", "down"}:
+                    raise GuiTestError(f"{self.path}: invalid GUI-MOUSE-WHEEL")
+                self.actions.append(("mouse-wheel", direction))
             elif line.startswith("GUI-CHECK-SCREEN:"):
                 golden = parse_visual_asset(
                     self.path, line.split(":", 1)[1], "GUI-CHECK-SCREEN"
@@ -376,6 +382,7 @@ class GuiTest:
                 "mouse-move",
                 "mouse-position",
                 "mouse-button",
+                "mouse-wheel",
                 "wait-frame",
                 "screen",
                 "rect",
@@ -781,6 +788,18 @@ def send_mouse_button(qmp: Qmp, button: str, down: bool) -> None:
     )
 
 
+def send_mouse_wheel(qmp: Qmp, direction: str) -> None:
+    qmp.command(
+        "input-send-event",
+        {
+            "events": [
+                {"type": "btn", "data": {"button": f"wheel-{direction}", "down": down}}
+                for down in (True, False)
+            ]
+        },
+    )
+
+
 def run_serial_script(
     child: pexpect.spawn, script: str, timeout: float, description: str
 ) -> str:
@@ -1013,6 +1032,10 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                 if track_frames:
                     frame_baseline = snapshot_guest_frame_counter(child, timeout)
                 send_mouse_button(qmp, *value)
+            elif action == "mouse-wheel":
+                if track_frames:
+                    frame_baseline = snapshot_guest_frame_counter(child, timeout)
+                send_mouse_wheel(qmp, value)
             elif action == "wait-frame":
                 if frame_baseline is None:
                     raise GuiTestError(

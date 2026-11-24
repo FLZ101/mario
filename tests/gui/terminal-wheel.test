@@ -1,0 +1,36 @@
+GUI-VISUAL-TEST:
+SERIAL: rm -f /tmp/mario-wm.* /tmp/terminal-wheel.*; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+GUI-SEND-KEY: f8
+SERIAL: <<END
+cat >/tmp/terminal-wheel.sh <<'SCRIPT'
+stty raw -echo
+printf '\033[?25l\033[41m\033[2J\033[3S\033[44m\033[2J\033[3S\033[42m\033[2J'
+dd bs=1 count=2 >/dev/null 2>&1
+printf '\033[?1049;1000;1006h\033[45m\033[2J'
+dd bs=1 count=22 2>/dev/null | xxd -p >/tmp/terminal-wheel.hex
+SCRIPT
+terminal --command 'exec /bin/oksh /tmp/terminal-wheel.sh' >/tmp/terminal-wheel.log 2>&1 &
+END
+GUI-CHECK-RECT: 128 100 8 8 34 197 94
+# Wheel input follows the pointer, not keyboard focus.
+GUI-MOUSE-POSITION: 650,400
+GUI-MOUSE-WHEEL: up
+GUI-MOUSE-POSITION: 203,164
+GUI-MOUSE-WHEEL: up
+GUI-CHECK-RECT: 128 100 8 8 59 130 246
+GUI-MOUSE-WHEEL: up
+GUI-CHECK-RECT: 128 100 8 8 239 68 68
+GUI-MOUSE-WHEEL: down
+GUI-CHECK-RECT: 128 100 8 8 59 130 246
+GUI-SEND-KEY: a
+GUI-CHECK-RECT: 128 100 8 8 34 197 94
+GUI-SEND-KEY: b
+GUI-CHECK-RECT: 128 100 8 8 217 70 239
+GUI-MOUSE-WHEEL: up
+GUI-MOUSE-WHEEL: down
+SERIAL: while ! grep -q 'terminal: child exit 0' /tmp/terminal-wheel.log; do sleep 1; done; cat /tmp/terminal-wheel.hex
+SERIAL-CHECK: 1b5b3c36343b31303b354d1b5b3c36353b31303b354d
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

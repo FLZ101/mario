@@ -39,6 +39,7 @@
 #define TERMINAL_CURSOR 0x00f8fafcU
 #define TERMINAL_CURSOR_BLINK_MS 500U
 #define TERMINAL_SCROLLBACK_LINES 128U
+#define TERMINAL_WHEEL_LINES 3
 #define TERMINAL_FONT_PATH "/usr/share/fonts/DejaVuSansMono.ttf"
 
 typedef struct {
@@ -100,7 +101,7 @@ static uint64_t terminal_now_ms(void)
 
 static int terminal_cursor_visible(const terminal_state *state)
 {
-	return state->vt.cursor_visible && state->vt.cursor_row < state->vt.rows &&
+	return state->vt.view_offset == 0 && state->vt.cursor_visible && state->vt.cursor_row < state->vt.rows &&
 		state->vt.cursor_column < state->vt.columns &&
 		(!state->vt.cursor_blink || state->cursor_blink_deadline == 0 || state->cursor_blink_on);
 }
@@ -114,7 +115,7 @@ static void terminal_reset_cursor_blink(terminal_state *state)
 
 static void terminal_update_cursor_blink(terminal_state *state, uint64_t now)
 {
-	if (!state->vt.cursor_blink || !state->vt.cursor_visible ||
+	if (state->vt.view_offset != 0 || !state->vt.cursor_blink || !state->vt.cursor_visible ||
 	    state->vt.cursor_row >= state->vt.rows || state->vt.cursor_column >= state->vt.columns) {
 		state->cursor_blink_deadline = 0;
 		state->cursor_blink_on = 1;
@@ -493,9 +494,9 @@ static void terminal_cell_colors(const terminal_state *state, const terminal_vt_
 
 static void terminal_draw_cell_background(const terminal_state *state,
 					  gui_surface *surface, uint32_t row,
-					  uint32_t column, int offset_x, int offset_y)
+					  uint32_t column, const terminal_vt_cell *cell,
+					  int offset_x, int offset_y)
 {
-	const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
 	gui_rect bounds = terminal_cell_bounds(state, row, column);
 	gui_color foreground;
 	gui_color background;
@@ -509,9 +510,9 @@ static void terminal_draw_cell_background(const terminal_state *state,
 
 static void terminal_draw_cell_foreground(const terminal_state *state,
 					  gui_surface *surface, uint32_t row,
-					  uint32_t column, int offset_x, int offset_y)
+					  uint32_t column, const terminal_vt_cell *cell,
+					  int offset_x, int offset_y)
 {
-	const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
 	gui_rect bounds = terminal_cell_bounds(state, row, column);
 	gui_color foreground;
 	gui_color background;
@@ -588,10 +589,12 @@ static int terminal_render(terminal_state *state)
 	if (!state->rendered) {
 		damage = state->content;
 	} else {
-		for (uint32_t row = 0; row < state->vt.rows; row++)
+		for (uint32_t row = 0; row < state->vt.rows; row++) {
+			const terminal_vt_cell *line = terminal_vt_view_line(&state->vt, row);
+
 			for (uint32_t column = 0; column < state->vt.columns; column++) {
 				size_t index = (size_t)row * state->vt.columns + column;
-				const terminal_vt_cell *cell = state->vt.cells + index;
+				const terminal_vt_cell *cell = line + column;
 				const terminal_vt_cell *old = state->rendered_cells + index;
 
 				if (terminal_same_cell(cell, old))
@@ -600,6 +603,7 @@ static int terminal_render(terminal_state *state)
 				terminal_add_damage(state->content, &damage, terminal_glyph_bounds(state, row, column, old->codepoint));
 				terminal_add_damage(state->content, &damage, terminal_glyph_bounds(state, row, column, cell->codepoint));
 			}
+		}
 		if (cursor_visible != state->rendered_cursor_visible ||
 		    state->vt.cursor_shape != state->rendered_cursor_shape ||
 		    state->vt.cursor_row != state->rendered_cursor_row ||
@@ -623,27 +627,37 @@ static int terminal_render(terminal_state *state)
 	} else {
 		gui_fill_rect(&clipped, (gui_rect) { 0, 0, damage.w, damage.h }, background);
 	}
-	for (uint32_t row = 0; row < state->vt.rows; row++)
+	for (uint32_t row = 0; row < state->vt.rows; row++) {
+		const terminal_vt_cell *line = terminal_vt_view_line(&state->vt, row);
+
 		for (uint32_t column = 0; column < state->vt.columns; column++) {
-			const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
+			const terminal_vt_cell *cell = line + column;
 
 			if (terminal_rect_intersects(damage, terminal_cell_bounds(state, row, column)) ||
 			    terminal_rect_intersects(damage, terminal_glyph_bounds(state, row, column, cell->codepoint)))
-				terminal_draw_cell_background(state, &clipped, row, column,
+				terminal_draw_cell_background(state, &clipped, row, column, cell,
 					damage.x, damage.y);
 		}
-	for (uint32_t row = 0; row < state->vt.rows; row++)
+	}
+	for (uint32_t row = 0; row < state->vt.rows; row++) {
+		const terminal_vt_cell *line = terminal_vt_view_line(&state->vt, row);
+
 		for (uint32_t column = 0; column < state->vt.columns; column++) {
-			const terminal_vt_cell *cell = state->vt.cells + (size_t)row * state->vt.columns + column;
+			const terminal_vt_cell *cell = line + column;
 
 			if (terminal_rect_intersects(damage, terminal_cell_bounds(state, row, column)) ||
 			    terminal_rect_intersects(damage, terminal_glyph_bounds(state, row, column, cell->codepoint)))
-				terminal_draw_cell_foreground(state, &clipped, row, column,
+				terminal_draw_cell_foreground(state, &clipped, row, column, cell,
 					damage.x, damage.y);
 		}
+		if (state->vt.view_offset != 0)
+			memcpy(state->rendered_cells + (size_t)row * state->vt.columns, line,
+				(size_t)state->vt.columns * sizeof(*line));
+	}
 	if (cursor_visible)
 		terminal_draw_cursor(state, &clipped, damage.x, damage.y);
-	memcpy(state->rendered_cells, state->vt.cells, state->rendered_cell_bytes);
+	if (state->vt.view_offset == 0)
+		memcpy(state->rendered_cells, state->vt.cells, state->rendered_cell_bytes);
 	state->rendered_cursor_row = state->vt.cursor_row;
 	state->rendered_cursor_column = state->vt.cursor_column;
 	state->rendered_cursor_visible = cursor_visible;
@@ -730,6 +744,51 @@ static int terminal_write_input(terminal_state *state, uint32_t keysym,
 	return terminal_enqueue_input(state, &byte, sizeof(byte));
 }
 
+static void terminal_write_wheel(terminal_state *state, int32_t x, int32_t y,
+				 uint32_t modifiers, int wheel)
+{
+	unsigned int button = wheel < 0 ? 64 : 65;
+	unsigned int column;
+	unsigned int row;
+	char report[32];
+	int length;
+
+	if (state->vt.mouse_tracking == 0 || (modifiers & GUI_MOD_SHIFT)) {
+		if (terminal_vt_scroll_view(&state->vt, -wheel * TERMINAL_WHEEL_LINES))
+			terminal_reset_cursor_blink(state);
+		return;
+	}
+	if (state->master < 0 || x < state->content.x || y < state->content.y ||
+	    x - state->content.x >= state->content.w || y - state->content.y >= state->content.h)
+		return;
+	column = (x - state->content.x) / terminal_cell_width(state) + 1;
+	row = (y - state->content.y) / terminal_cell_height(state) + 1;
+	if (column > state->vt.columns || row > state->vt.rows)
+		return;
+	if (modifiers & GUI_MOD_ALT)
+		button |= 8;
+	if (modifiers & GUI_MOD_CTRL)
+		button |= 16;
+	if (state->vt.mouse_sgr) {
+		length = snprintf(report, sizeof(report), "\x1b[<%u;%u;%uM", button, column, row);
+	} else {
+		if (column > 223 || row > 223)
+			return;
+		memcpy(report, "\x1b[M", 3);
+		report[3] = 32 + button;
+		report[4] = 32 + column;
+		report[5] = 32 + row;
+		length = 6;
+	}
+	if (length <= 0 || (size_t)length >= sizeof(report))
+		return;
+	state->vt.view_offset = 0;
+	terminal_reset_cursor_blink(state);
+	for (int steps = abs(wheel); steps > 0; steps--)
+		if (terminal_enqueue_input(state, report, length) < 0)
+			break;
+}
+
 static int terminal_handle_message(terminal_state *state,
 				   const gui_protocol_header *header,
 				   const uint8_t *payload, size_t payload_bytes)
@@ -791,7 +850,14 @@ static int terminal_handle_message(terminal_state *state,
 		if (get32(payload + 4) == GUI_INPUT_EVENT_KEY && get32(payload + 8) != 0) {
 			if (terminal_write_input(state, get32(payload + 8), get32(payload + 12)) < 0)
 				return -1;
+			state->vt.view_offset = 0;
 			terminal_reset_cursor_blink(state);
+		} else if (get32(payload + 4) == GUI_INPUT_EVENT_MOUSE) {
+			int8_t wheel = payload[offsetof(gui_protocol_wire_input_event, wheel)];
+
+			if (wheel != 0)
+				terminal_write_wheel(state, (int32_t)get32(payload + 16),
+					(int32_t)get32(payload + 20), get32(payload + 12), wheel);
 		}
 		return 0;
 	}

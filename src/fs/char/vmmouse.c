@@ -83,6 +83,7 @@ int vmmouse_read_event(struct mario_psaux_event *event)
 	*event = (struct mario_psaux_event) {
 		.x = result.ebx,
 		.y = result.ecx,
+		.dz = (int8_t)result.edx,
 		.buttons = ((result.eax & 0x20) ? 1 : 0) |
 			   ((result.eax & 0x10) ? 2 : 0) |
 			   ((result.eax & 0x08) ? 4 : 0),

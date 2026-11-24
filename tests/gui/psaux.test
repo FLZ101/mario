@@ -6,8 +6,12 @@ SERIAL-CHECK: psaux: ready
 GUI-MOUSE-MOVE: 12,7
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-WHEEL: up
+GUI-MOUSE-WHEEL: down
 SERIAL: sleep 1; cat /tmp/psaux.log
-SERIAL-CHECK: psaux: 12 -7 0
-SERIAL-CHECK: psaux: 0 0 1
-SERIAL-CHECK: psaux: 0 0 0
+SERIAL-CHECK: psaux: 12 -7 0 wheel 0
+SERIAL-CHECK: psaux: 0 0 1 wheel 0
+SERIAL-CHECK: psaux: 0 0 0 wheel 0
+SERIAL-CHECK: psaux: 0 0 0 wheel -1
+SERIAL-CHECK: psaux: 0 0 0 wheel 1
 EXIT:

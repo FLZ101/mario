@@ -12,6 +12,8 @@ CHECK: terminal-vt: tmux resize cursor, erase and scroll controls ok
 CHECK: terminal-vt: attributes ok
 CHECK: terminal-vt: resize ok
 CHECK: terminal-vt: scrollback and tabs ok
+CHECK: terminal-vt: scrollback view follows output only at the live edge
+CHECK: terminal-vt: wheel reports legacy and SGR events with a Shift override
 CHECK: terminal-vt: titles and RGB ok
 CHECK: terminal-vt: DEC modes ok
 CHECK: terminal-vt: cursor styles and blink modes preserve cells across split reads

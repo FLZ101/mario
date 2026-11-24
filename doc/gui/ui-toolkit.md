@@ -601,8 +601,9 @@ surface.
 `gui_input_event` values. A marked overflow first produces the corresponding
 key or mouse reset with the marked record's tick, then the copied record. This
 normalization preserves raw scancodes, relative mouse fields or normalized
-absolute coordinates, button masks, and ticks. `PSAUX_EVENT_ABSOLUTE` selects
-unsigned `x`/`y` in the existing 12-byte mouse record, in the range 0..65535;
+absolute coordinates, button masks, wheel steps, and ticks.
+`PSAUX_EVENT_ABSOLUTE` selects unsigned `x`/`y` in the existing 12-byte mouse
+record, in the range 0..65535;
 without it, signed `dx`/`dy` retain their PS/2 meanings. The normalized event's
 `mouse.absolute` distinguishes these modes. `gui_input_apply_mouse_motion()`
 maps absolute positions to framebuffer pixels with nearest rounding and
@@ -610,8 +611,11 @@ edge clamping, or applies relative deltas with PS/2 Y inversion.
 Keysym translation, button-edge detection,
 and focused-window policy remain above this layer.
 
-Events are timestamped, queued, and dispatched to the focused window or the
-window manager. `poll()` uses a 16 ms timeout; every timeout produces one
+Events are timestamped and queued. Wheel events go to the content under the
+pointer without changing keyboard focus, unless the window manager has captured
+the pointer. The signed `wheel` byte in `gui_protocol_wire_input_event` is zero
+for other events; it is negative for up and positive for down.
+`poll()` uses a 16 ms timeout; every timeout produces one
 `GUI_EVENT_TIMER`. The first GUI does not require a timer fd, signal, or extra
 pipe.
 

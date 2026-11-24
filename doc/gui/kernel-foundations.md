@@ -536,8 +536,8 @@ Keyboard translation details:
 
 ## 6. Mouse Input
 
-Mouse support is required for a useful window manager and file manager. The
-current `ps2_init()` disables the PS/2 auxiliary port; this must be changed.
+Mouse input uses the PS/2 auxiliary port, including as the interrupt source
+for QEMU's absolute virtual mouse.
 
 Kernel work:
 
@@ -545,16 +545,18 @@ Kernel work:
 - Decode the standard 3-byte PS/2 mouse packet:
   - left/middle/right buttons;
   - signed X/Y deltas;
-  - `dz` fixed to zero in the first ABI.
+  - `dz` is zero on a standard PS/2 mouse.
+- Probe IntelliMouse wheel mode while streaming is disabled. Read four-byte
+  packets only when the device advertises that format; otherwise keep basic
+  three-byte packets. In QEMU absolute mode, read the wheel from the VMPort
+  event.
 - Synchronize packet framing on the mandatory first-byte bit 3. Discard bytes
   until that bit appears, discard packets reporting PS/2 X/Y overflow rather
   than applying wrapped deltas, and mark the next queued event with the normal
   overflow flag so userspace clears button/grab state. Controller command/ACK
   waits have bounded timeouts; a failed auxiliary-port probe leaves the desktop
   keyboard-only instead of delaying boot.
-- Expose relative movement only through `/dev/psaux` in the first GUI
-  milestone; `/dev/input/mouse0` and IntelliMouse wheel negotiation are
-  deferred.
+- Expose relative and absolute events through `/dev/psaux`.
 - Make the device `read()`/`poll()` compatible so the GUI event loop can wait
   on both keyboard and mouse fds.
 
@@ -577,7 +579,7 @@ format is:
 struct mario_psaux_event {
     int16_t dx;
     int16_t dy;
-    int8_t  dz;      /* always 0 in the first ABI */
+    int8_t  dz;      /* vertical wheel steps: negative up, positive down */
     uint8_t buttons; /* bit 0 left, bit 1 right, bit 2 middle */
     uint8_t flags;
     uint8_t reserved;

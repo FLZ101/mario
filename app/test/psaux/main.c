@@ -25,12 +25,12 @@ int main(void)
 	printf("psaux: ready\n");
 	fflush(stdout);
 	pollfd = (struct pollfd) { .fd = fd, .events = POLLIN };
-	for (unsigned int index = 0; index < 3; index++) {
+	for (unsigned int index = 0; index < 5; index++) {
 		assert(poll(&pollfd, 1, -1) == 1);
 		assert(pollfd.revents == POLLIN);
 		assert(read(fd, &event, sizeof(event)) == sizeof(event));
-		assert(event.dz == 0 && event.flags == 0 && event.reserved == 0);
-		printf("psaux: %d %d %u\n", event.dx, event.dy, event.buttons);
+		assert(event.flags == 0 && event.reserved == 0);
+		printf("psaux: %d %d %u wheel %d\n", event.dx, event.dy, event.buttons, event.dz);
 		fflush(stdout);
 		pollfd.revents = 0;
 	}

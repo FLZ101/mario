@@ -35,7 +35,7 @@ struct mario_psaux_event {
 		int16_t dy;
 		uint16_t y;
 	};
-	int8_t dz;      /* Always zero until wheel support is introduced. */
+	int8_t dz;      /* Vertical wheel steps: negative up, positive down. */
 	uint8_t buttons; /* Bit 0 left, bit 1 right, bit 2 middle. */
 	uint8_t flags;
 	uint8_t reserved;

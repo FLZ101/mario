@@ -204,7 +204,8 @@ typedef struct __attribute__((packed)) {
 	int32_t x_le;
 	int32_t y_le;
 	uint8_t buttons;
-	uint8_t reserved[3];
+	int8_t wheel;
+	uint8_t reserved[2];
 	uint32_t ticks_le;
 } gui_protocol_wire_input_event;
 

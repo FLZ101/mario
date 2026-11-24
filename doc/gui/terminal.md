@@ -1,4 +1,17 @@
-# Terminal Configuration
+# Terminal
+
+## Mouse wheel
+
+Scroll over the terminal to browse up to 128 lines of scrollback, three lines
+per wheel step. Typing returns to the live screen. The alternate screen does
+not use scrollback.
+
+Apps that enable mouse tracking (for example Vim with `:set mouse=a` or tmux
+with `set -g mouse on`) receive wheel events instead. Hold Shift to scroll the
+terminal's own history. Click and drag reporting and mouse text selection are
+not implemented.
+
+## Configuration
 
 The terminal reads configuration once at startup. Existing defaults remain a
 14-pixel DejaVu Sans Mono font, the original dark palette, and opaque content.

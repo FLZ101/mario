@@ -61,23 +61,47 @@ static int ps2_write_config(unsigned char config)
 	return ps2_data(config);
 }
 
-static int ps2_aux_command(unsigned char command)
+static int ps2_aux_read(unsigned char *response)
 {
 	unsigned int index;
 	unsigned char status;
-	unsigned char response;
 
-	if (ps2_command(0xd4) || ps2_data(command))
-		return -ETIMEDOUT;
 	for (index = 0; index < PS2_WAIT_LIMIT; index++) {
 		status = inb(0x64);
 		if (!(status & 0x01))
 			continue;
-		response = inb(0x60);
+		*response = inb(0x60);
 		if (status & 0x20)
-			return response == 0xfa ? 0 : -EIO;
+			return 0;
 	}
 	return -ETIMEDOUT;
+}
+
+static int ps2_aux_command(unsigned char command)
+{
+	unsigned char response;
+
+	if (ps2_command(0xd4) || ps2_data(command) || ps2_aux_read(&response))
+		return -ETIMEDOUT;
+	return response == 0xfa ? 0 : -EIO;
+}
+
+static int ps2_aux_detect_wheel(unsigned char *device_id)
+{
+	static const unsigned char rates[] = { 200, 100, 80 };
+	unsigned char result;
+
+	for (unsigned int index = 0; index < sizeof(rates); index++)
+		if (ps2_aux_command(0xf3) || ps2_aux_command(rates[index]))
+			goto reset;
+	if (!ps2_aux_command(0xf2) && !ps2_aux_read(device_id) &&
+	    (*device_id == 0 || *device_id == 3 || *device_id == 4))
+		return 0;
+reset:
+	if (ps2_aux_command(0xff) || ps2_aux_read(&result) || result != 0xaa ||
+	    ps2_aux_read(device_id) || *device_id != 0)
+		return -EIO;
+	return 0;
 }
 
 static void ps2_flush_output(void)
@@ -565,6 +589,7 @@ void ps2_init(void)
 {
 	unsigned char config;
 	unsigned char result;
+	unsigned char device_id;
 	int have_config = 0;
 
 	/* Every controller wait is bounded so a missing mouse cannot stall boot. */
@@ -583,14 +608,14 @@ void ps2_init(void)
 		goto failed;
 	if (ps2_command(0xa9) || ps2_read(&result) || result)
 		goto failed;
-	if (ps2_command(0xa8) || ps2_aux_command(0xf6) ||
+	if (ps2_command(0xa8) || ps2_aux_command(0xf6) || ps2_aux_detect_wheel(&device_id) ||
 	    ps2_aux_command(0xf4))
 		goto failed;
 	/* Enable IRQ12 only after defaults and streaming mode were acknowledged. */
 	config |= 0x02;
 	if (ps2_write_config(config))
 		goto failed;
-	psaux_controller_ready();
+	psaux_controller_ready(device_id);
 	return;
 
 failed:

@@ -20,7 +20,8 @@ static struct mario_psaux_event psaux_events[PSAUX_EVENT_COUNT];
 static unsigned int psaux_event_head;
 static unsigned int psaux_event_tail;
 static unsigned int psaux_event_count;
-static uint8_t psaux_packet[3];
+static uint8_t psaux_packet[4];
+static uint8_t psaux_device_id;
 static unsigned int psaux_packet_count;
 static int psaux_packet_lost;
 
@@ -32,7 +33,6 @@ static void psaux_reset_locked(void)
 	psaux_event_head = 0;
 	psaux_event_tail = 0;
 	psaux_event_count = 0;
-	psaux_packet_count = 0;
 	psaux_packet_lost = 0;
 }
 
@@ -144,12 +144,14 @@ static struct file_operations psaux_fops = {
 	.poll = psaux_poll,
 };
 
-void psaux_controller_ready(void)
+void psaux_controller_ready(uint8_t device_id)
 {
 	unsigned long flags;
 
 	spin_lock_irqsave(&psaux_lock, flags);
 	psaux_absolute = vmmouse_init();
+	psaux_device_id = device_id;
+	psaux_packet_count = 0;
 	psaux_available = 1;
 	psaux_reset_locked();
 	spin_unlock_irqrestore(&psaux_lock, flags);
@@ -193,7 +195,7 @@ void psaux_receive_byte(uint8_t byte)
 	int wake = 0;
 
 	spin_lock_irqsave(&psaux_lock, flags);
-	if (!psaux_available || (!psaux_owner_refs && !psaux_absolute)) {
+	if (!psaux_available) {
 		psaux_packet_count = 0;
 		spin_unlock_irqrestore(&psaux_lock, flags);
 		return;
@@ -205,7 +207,7 @@ void psaux_receive_byte(uint8_t byte)
 		return;
 	}
 	psaux_packet[psaux_packet_count++] = byte;
-	if (psaux_packet_count != sizeof(psaux_packet)) {
+	if (psaux_packet_count != (psaux_device_id == 0 ? 3U : 4U)) {
 		spin_unlock_irqrestore(&psaux_lock, flags);
 		return;
 	}
@@ -234,8 +236,14 @@ void psaux_receive_byte(uint8_t byte)
 	event = (struct mario_psaux_event) {
 		.dx = (int8_t)psaux_packet[1],
 		.dy = (int8_t)psaux_packet[2],
+		.dz = psaux_device_id == 3 ? (int8_t)psaux_packet[3] : 0,
 		.buttons = psaux_packet[0] & 0x07,
 	};
+	if (psaux_device_id == 4 && !(psaux_packet[3] & 0xc0)) {
+		int wheel = psaux_packet[3] & 0x0f;
+
+		event.dz = wheel >= 8 ? wheel - 16 : wheel;
+	}
 	/* Retain recent input and mark the record after a FIFO overrun. */
 	wake = psaux_enqueue_locked(event);
 done:
