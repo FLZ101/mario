@@ -16,7 +16,7 @@ fi
 
 llvm_version=18.1.8
 release="https://github.com/llvm/llvm-project/releases/download/llvmorg-$llvm_version"
-helpers="https://api.github.com/repos/llvm/llvm-project/contents"
+raw="https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-$llvm_version"
 downloads="$CXX_DIR/downloads"
 sources="$CXX_BUILD_DIR/llvm-src"
 build="$CXX_BUILD_DIR/runtime"
@@ -25,12 +25,12 @@ mkdir -p "$downloads" "$sources"
 cd "$downloads"
 while read -r checksum file; do
     case "$file" in
-        llvm/*) url="$helpers/$file?ref=llvmorg-$llvm_version" ;;
+        llvm/*) url="$raw/$file" ;;
         *) url="$release/$file" ;;
     esac
     if [[ ! -f $file ]]; then
         mkdir -p "$(dirname "$file")"
-        wget --tries=3 --header='Accept: application/vnd.github.raw+json' "$url" -O "$file.tmp"
+        wget --tries=3 "$url" -O "$file.tmp"
         printf '%s  %s\n' "$checksum" "$file.tmp" | sha256sum -c -
         mv "$file.tmp" "$file"
     else
