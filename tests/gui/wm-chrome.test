@@ -8,7 +8,7 @@ SERIAL: /usr/bin/test/gui-wm-client.exe --chrome-only >/tmp/wm-chrome.log 2>&1 &
 SERIAL: while ! grep -q 'wm-client: chrome ready' /tmp/wm-chrome.log; do sleep 1; done
 GUI-CHECK-RECT: 64 64 1 1 255 0 0
 SERIAL: touch /tmp/gui-chrome.initial-checked
-GUI-MOUSE-MOVE: 208,36
+GUI-MOUSE-POSITION: 224,52
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,down
 SERIAL-WAIT-FILE: /tmp/gui-chrome.minimized
@@ -18,20 +18,20 @@ SERIAL: touch /tmp/gui-chrome.minimized-checked
 SERIAL-WAIT-FILE: /tmp/gui-chrome.restored
 GUI-CHECK-RECT: 64 64 1 1 255 0 0
 SERIAL: touch /tmp/gui-chrome.restored-checked
-GUI-MOUSE-MOVE: 16,0
+GUI-MOUSE-POSITION: 240,52
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,down
 SERIAL-WAIT-FILE: /tmp/gui-chrome.maximized
 GUI-MOUSE-BUTTON: left,up
 GUI-CHECK-RECT: 4 28 1 1 255 0 0
 SERIAL: touch /tmp/gui-chrome.maximized-checked
-GUI-MOUSE-MOVE: 759,-40
+GUI-MOUSE-POSITION: 999,12
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,down
 SERIAL-WAIT-FILE: /tmp/gui-chrome.unmaximized
 GUI-MOUSE-BUTTON: left,up
 GUI-CHECK-RECT: 64 64 1 1 255 0 0
-GUI-MOUSE-MOVE: -743,40
+GUI-MOUSE-POSITION: 256,52
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,down
 SERIAL: while ! grep -q 'wm-client: chrome requests pass' /tmp/wm-chrome.log; do sleep 1; done

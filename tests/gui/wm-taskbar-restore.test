@@ -6,13 +6,13 @@ GUI-SEND-KEY: f8
 SERIAL: /usr/bin/terminal --command 'sleep 70' >/tmp/terminal-taskbar-restore.log 2>&1 & echo $! >/tmp/terminal-taskbar-restore.pid
 SERIAL: while ! grep -q 'terminal: window ready' /tmp/terminal-taskbar-restore.log; do sleep 1; done
 GUI-CHECK-RECT: 160 84 1 1 37 99 235
-GUI-MOUSE-MOVE: 392,68
+GUI-MOUSE-POSITION: 408,84
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,down
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
 GUI-CHECK-RECT: 160 84 1 1 31 41 51
-GUI-MOUSE-MOVE: -296,666
+GUI-MOUSE-POSITION: 112,750
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,down
 GUI-WAIT-FRAME:

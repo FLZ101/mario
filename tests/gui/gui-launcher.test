@@ -4,25 +4,20 @@ SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-# Move from the WM's initial cursor to the MENU panel button at (24,754).
-GUI-MOUSE-MOVE: 16,127
-GUI-MOUSE-MOVE: 0,127
-GUI-MOUSE-MOVE: 0,127
-GUI-MOUSE-MOVE: 0,127
-GUI-MOUSE-MOVE: 0,127
-GUI-MOUSE-MOVE: 0,111
+GUI-MOUSE-POSITION: 24,754
+GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,down
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-# The one-entry popup occupies y=720..740 above the bottom panel.
-GUI-CHECK-RECT: 100 690 1 1 31 41 51
-GUI-CHECK-RECT: 100 720 1 1 37 99 235
-# Terminal is the only entry at y=720..740.
-GUI-MOUSE-MOVE: 0,-32
+# The three-row popup starts at y=680, with Terminal in the top row.
+GUI-CHECK-RECT: 100 679 1 1 31 41 51
+GUI-CHECK-RECT: 100 680 1 1 37 99 235
+GUI-MOUSE-POSITION: 24,690
+GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,down
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 100 720 1 1 31 41 51
+GUI-CHECK-RECT: 100 680 1 1 31 41 51
 SERIAL: while ! pgrep terminal >/dev/null; do sleep 1; done; echo launcher: terminal started
 SERIAL-CHECK: launcher: terminal started
 GUI-CHECK-RECT: 100 690 1 1 31 41 51

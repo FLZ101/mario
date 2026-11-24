@@ -35,10 +35,10 @@ between text and graphics modes. No network access is needed to run the test.
 The guest loads the image through a temporary symlink, which is removed to
 test caching without copying the large photograph into the small root ramdisk.
 
-The host-only reference `desktop-wallpaper-blue-marble.png` is generated
-independently of QEMU: crop 160 pixels from each side of the source, then
-sample `(floor(x * 25 / 16), floor(y * 25 / 16))` from that 1600 × 1200 crop
-to cover 1024 × 768. Copy the bottom 28 rows from `desktop-idle.png` and
-overlay `app/gui/desktop/assets/cursor-arrow-16.rgba` at `(16, 752)`.
+To generate the host-only reference `desktop-wallpaper-blue-marble.png`, crop
+160 pixels from each side of the source, then sample
+`(floor(x * 25 / 16), floor(y * 25 / 16))` from that 1600 × 1200 crop to
+cover 1024 × 768. Copy the bottom 28 rows from `desktop-default.png`, which
+includes the panel and the pointer at `(16, 752)`.
 Reference SHA-256:
-`9c6568526bb3e1abe5c060f314ce447dd1ea94090305c7eee31b0d3a8ec30a93`.
+`dfe5912c72f4190fb565d8566858e3c16886a80d22e37f915e6f99b96e2a39ca`.
