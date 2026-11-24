@@ -4,7 +4,14 @@ SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8
 SERIAL: /usr/bin/imageviewer /usr/share/mario-tests/gui/alpha-128.png >/tmp/imageviewer.log 2>&1 & echo $! >/tmp/imageviewer.pid
-SERIAL: while ! grep -q 'imageviewer: window ready' /tmp/imageviewer.log; do sleep 1; done
+# Bound the readiness wait: if imageviewer dies during window setup, fail with
+# its log instead of spinning until the harness times out.
+SERIAL: while ! grep -q 'imageviewer: window ready' /tmp/imageviewer.log && kill -0 "$(cat /tmp/imageviewer.pid)" 2>/dev/null; do sleep 1; done
+SERIAL: cat /tmp/imageviewer.log
+SERIAL-CHECK: imageviewer: window ready
+# "window ready" is printed before the WM composes the commit, so wait for a
+# completed frame before sampling the screen.
+GUI-WAIT-FRAME:
 GUI-CHECK-RECT: 224 160 1 1 255 255 255
 GUI-SEND-KEYS: meta_l,w
 SERIAL: while pgrep imageviewer >/dev/null; do sleep 1; done
