@@ -110,7 +110,9 @@ SECTIONS
 		*(.rel.iplt)
 		*(.rel.text)
 		*(.rel.text.*)
+		*(.rel.rodata)
 		*(.rel.rodata.*)
+		*(.rel.eh_frame .rel.eh_frame.*)
 		*(.rel.data .rel.data.* .rel__lcxx_override)
 		*(.rel.gcc_except_table .rel.gcc_except_table.*)
 	}
