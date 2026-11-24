@@ -63,11 +63,11 @@ struct bucket_desc {
 };
 
 struct bucket_desc buckets[] = {
-	{NULL, 0, 34, 120},
+	{NULL, 0, 36, 113},
 	{NULL, 0, 60, 68},
 	{NULL, 0, 120, 34},
-	{NULL, 0, 255, 16},
-	{NULL, 0, 510, 8},
+	{NULL, 0, 256, 15},
+	{NULL, 0, 512, 7},
 	{NULL, 0, 1020, 4},
 	{NULL, 0, 2040, 2},
 	{NULL, 0, 4096-16, 1},
