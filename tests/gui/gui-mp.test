@@ -20,7 +20,11 @@ GUI-CHECK-SCREEN: assets/fb-tty.ppm
 SERIAL: /usr/bin/terminal >/tmp/mp-terminal.log 2>&1 & terminal_pid=$!
 SERIAL: while ! grep -q 'terminal: window ready' /tmp/mp-terminal.log; do sleep 1; done
 SERIAL: /usr/bin/imageviewer /usr/share/mario-tests/gui/alpha-128.png >/tmp/mp-imageviewer.log 2>&1 & viewer_pid=$!
-SERIAL: while ! grep -q 'imageviewer: window ready' /tmp/mp-imageviewer.log; do sleep 1; done
+# Bound the wait and surface imageviewer's own output when it cannot become
+# ready, instead of spinning until the harness serial timeout.
+SERIAL: while ! grep -q 'imageviewer: window ready' /tmp/mp-imageviewer.log && kill -0 "$viewer_pid" 2>/dev/null; do sleep 1; done
+SERIAL: cat /tmp/mp-imageviewer.log
+SERIAL-CHECK: imageviewer: window ready
 SERIAL: while ! grep -q 'terminal: window ready' /tmp/mp-terminal.log || ! grep -q 'imageviewer: window ready' /tmp/mp-imageviewer.log; do sleep 1; done; printf 'gui-mp: %s\n' 'clients ready'
 SERIAL-CHECK: gui-mp: clients ready
 GUI-SEND-KEY: f8
@@ -51,7 +55,9 @@ GUI-CHECK-RECT: 32 32 1 1 31 41 51
 SERIAL: /usr/bin/terminal >/tmp/mp-terminal.log 2>&1 & terminal_pid=$!
 SERIAL: while ! grep -q 'terminal: window ready' /tmp/mp-terminal.log; do sleep 1; done
 SERIAL: /usr/bin/imageviewer /usr/share/mario-tests/gui/alpha-128.png >/tmp/mp-imageviewer.log 2>&1 & viewer_pid=$!
-SERIAL: while ! grep -q 'imageviewer: window ready' /tmp/mp-imageviewer.log; do sleep 1; done
+SERIAL: while ! grep -q 'imageviewer: window ready' /tmp/mp-imageviewer.log && kill -0 "$viewer_pid" 2>/dev/null; do sleep 1; done
+SERIAL: cat /tmp/mp-imageviewer.log
+SERIAL-CHECK: imageviewer: window ready
 SERIAL: while ! grep -q 'terminal: window ready' /tmp/mp-terminal.log || ! grep -q 'imageviewer: window ready' /tmp/mp-imageviewer.log; do sleep 1; done; printf 'gui-mp: %s\n' 'clients relaunched'
 SERIAL-CHECK: gui-mp: clients relaunched
 GUI-WAIT-FRAME:
