@@ -69,7 +69,7 @@ APP_CXX	:= $(ROOT)/util/mario-musl-c++
 APP_LD	:= $(ROOT)/util/mario-musl-ld
 
 compiler-rt:
-	$(PODMAN_RUN) $(MAKE) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld -f $(COMPILER_RT_MK)
+	$(PODMAN_RUN) $(MAKE) STACK_PROTECTOR=0 CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld -f $(COMPILER_RT_MK)
 
 kernel: compiler-rt
 	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld \

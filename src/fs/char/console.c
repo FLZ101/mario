@@ -177,6 +177,15 @@ static uint16_t makec(struct console *con, unsigned char c)
 
 #define SPACE makec(con, ' ')
 
+static void console_fill_glyph(struct console *con, unsigned int start,
+			       unsigned int count, uint32_t codepoint)
+{
+	uint32_t *glyphs = &con->glyph[0][0];
+
+	for (unsigned int index = 0; index < count; index++)
+		glyphs[start + index] = codepoint;
+}
+
 static void hide_cursor(struct console *con) {
 	con->cursor_hidden = 1;
 
@@ -243,6 +252,7 @@ static void erase_screen(struct console *con, unsigned row_start, unsigned row_e
 	unsigned n = N_COL * (row_end + 1 - row_start);
 
 	memsetw((void *)con->mem + addr, SPACE, n);
+	console_fill_glyph(con, addr / sizeof(uint16_t), n, ' ');
 	if (legacy_present(con))
 		memsetw((void *)VIDEO_MEM + addr, SPACE, n);
 }
@@ -263,6 +273,7 @@ static void __erase_line(struct console *con, int start, int end)
 
 	for (int i = start; i < end + 1; ++i) {
 		con->mem[con->pos_y][i] = SPACE;
+		con->glyph[con->pos_y][i] = ' ';
 		if (legacy_present(con))
 			VIDEO_MEM[con->pos_y][i] = SPACE;
 	}
@@ -309,11 +320,15 @@ static void __scroll(struct console *con, unsigned start, unsigned end, int up)
 		memmove((void *)con->mem + dst, (void *)con->mem + src, size);
 		if (legacy_present(con))
 			memmove((void *)VIDEO_MEM + dst, (void *)VIDEO_MEM + src, size);
+		memmove(&con->glyph[0][0] + dst / sizeof(uint16_t),
+			&con->glyph[0][0] + src / sizeof(uint16_t),
+			size / sizeof(uint16_t) * sizeof(uint32_t));
 	}
 
 	dst = up ? end : start;
 	dst *= SCREEN_ROW_BYTE_SIZE;
 	memsetw((void *)con->mem + dst, SPACE, N_COL);
+	console_fill_glyph(con, dst / sizeof(uint16_t), N_COL, ' ');
 	if (legacy_present(con))
 		memsetw((void *)VIDEO_MEM + dst, SPACE, N_COL);
 }
@@ -329,8 +344,12 @@ static void delete_one_char(struct console *con, unsigned y, unsigned x)
 		memmove((void *)con->mem + start, (void *)con->mem + start + sizeof(uint16_t), sz);
 		if (legacy_present(con))
 			memmove((void *)VIDEO_MEM + start, (void *)VIDEO_MEM + start + sizeof(uint16_t), sz);
+		memmove(&con->glyph[0][0] + start / sizeof(uint16_t),
+			&con->glyph[0][0] + start / sizeof(uint16_t) + 1,
+			sz / sizeof(uint16_t) * sizeof(uint32_t));
 	}
 	memsetw((void *)con->mem + end, SPACE, 1);
+	(&con->glyph[0][0])[end / sizeof(uint16_t)] = ' ';
 	if (legacy_present(con))
 		memsetw((void *)VIDEO_MEM + end, SPACE, 1);
 }
@@ -346,8 +365,12 @@ static void insert_one_char(struct console *con, unsigned y, unsigned x)
 		memmove((void *)con->mem + start + sizeof(uint16_t), (void *)con->mem + start, sz);
 		if (legacy_present(con))
 			memmove((void *)VIDEO_MEM + start + sizeof(uint16_t), (void *)VIDEO_MEM + start, sz);
+		memmove(&con->glyph[0][0] + start / sizeof(uint16_t) + 1,
+			&con->glyph[0][0] + start / sizeof(uint16_t),
+			sz / sizeof(uint16_t) * sizeof(uint32_t));
 	}
 	memsetw((void *)con->mem + start, SPACE, 1);
+	(&con->glyph[0][0])[start / sizeof(uint16_t)] = ' ';
 	if (legacy_present(con))
 		memsetw((void *)VIDEO_MEM + start, SPACE, 1);
 }
@@ -370,7 +393,7 @@ int can_rep(unsigned char c) {
 	return 0;
 }
 
-void write_char(struct console *con, unsigned char c, int translate)
+void write_char(struct console *con, unsigned char c, uint32_t glyph, int translate)
 {
 	if (con->pending_wrap) {
 		if (c != '\n' && c != '\r') {
@@ -401,22 +424,74 @@ void write_char(struct console *con, unsigned char c, int translate)
 			return;
 		con->pos_x--;
 	} else if (c >= ' ') {
-		uint16_t _x = c;
+		unsigned char byte = c;
 		if (translate) {
 			if (con->charset_G0 == '0') {
-				_x = translate_dec_to_cp437(c);
+				byte = translate_dec_to_cp437(c);
 			}
 		}
-		if (can_rep(_x))
-			con->pgc = _x;
+		if (can_rep(byte))
+			con->pgc = byte;
 
-		_x = makec(con, _x);
+		uint16_t _x = makec(con, byte);
 		con->mem[con->pos_y][con->pos_x] = _x;
+		con->glyph[con->pos_y][con->pos_x] = glyph;
 		if (legacy_present(con))
 			VIDEO_MEM[con->pos_y][con->pos_x] = _x;
 		con->pos_x++;
 	}
 
+	if (con->pos_x >= N_COL) {
+		con->pending_wrap = 1;
+		con->pos_x = N_COL;
+	}
+	move_cursor(con);
+}
+
+static unsigned char unicode_fallback_byte(uint32_t codepoint)
+{
+	switch (codepoint) {
+	case 0x2500: return 0xc4; /* light horizontal */
+	case 0x2502: return 0xb3; /* light vertical */
+	case 0x250c: return 0xda; /* light down and right */
+	case 0x2510: return 0xbf; /* light down and left */
+	case 0x2514: return 0xc0; /* light up and right */
+	case 0x2518: return 0xd9; /* light up and left */
+	case 0x251c: return 0xc3; /* light vertical and right */
+	case 0x2524: return 0xb4; /* light vertical and left */
+	case 0x252c: return 0xc2; /* light down and horizontal */
+	case 0x2534: return 0xc1; /* light up and horizontal */
+	case 0x253c: return 0xc5; /* light vertical and horizontal */
+	case 0x2580: return 0xdf; /* upper half block */
+	case 0x2584: return 0xdc; /* lower half block */
+	case 0x2588: return 0xdb; /* full block */
+	case 0x258c: return 0xdd; /* left half block */
+	case 0x2590: return 0xde; /* right half block */
+	case 0x2591: return 0xb0; /* light shade */
+	case 0x2592: return 0xb1; /* medium shade */
+	case 0x2593: return 0xb2; /* dark shade */
+	default: return '?';
+	}
+}
+
+static void write_unicode_char(struct console *con, uint32_t codepoint)
+{
+	unsigned char byte = unicode_fallback_byte(codepoint);
+
+	if (con->pending_wrap) {
+		con->pos_x = 0;
+		con->pos_y++;
+		if (con->pos_y == con->scr_end + 1) {
+			con->pos_y = con->scr_end;
+			__scroll(con, con->scr_start, con->scr_end, 1);
+		}
+		con->pending_wrap = 0;
+	}
+	con->mem[con->pos_y][con->pos_x] = makec(con, byte);
+	con->glyph[con->pos_y][con->pos_x] = codepoint;
+	if (legacy_present(con))
+		VIDEO_MEM[con->pos_y][con->pos_x] = con->mem[con->pos_y][con->pos_x];
+	con->pos_x++;
 	if (con->pos_x >= N_COL) {
 		con->pending_wrap = 1;
 		con->pos_x = N_COL;
@@ -831,6 +906,7 @@ static void use_alt_screen_buffer(struct console *con)
 {
 	// save
 	memcpy(con->orig.mem, con->mem, SCREEN_BUF_BYTE_SIZE);
+	memcpy(con->orig.glyph, con->glyph, sizeof(con->glyph));
 
 #define __do(NAME) con->orig.NAME = con->NAME
 	__do(pos_x);
@@ -854,6 +930,7 @@ static void use_alt_screen_buffer(struct console *con)
 	console_soft_reset(con);
 
 	memsetw(con->mem, SPACE, SCREEN_BUF_SIZE);
+	console_fill_glyph(con, 0, SCREEN_BUF_SIZE, ' ');
 	con->pos_x = 0;
 	con->pos_y = 0;
 
@@ -867,6 +944,7 @@ static void use_normal_screen_buffer(struct console *con)
 {
 	// restore
 	memcpy(con->mem, con->orig.mem, SCREEN_BUF_BYTE_SIZE);
+	memcpy(con->glyph, con->orig.glyph, sizeof(con->glyph));
 #define __do(NAME) con->NAME = con->orig.NAME
 	__do(pos_x);
 	__do(pos_y);
@@ -999,7 +1077,7 @@ static void csi_b(struct console *con)
 	if (get_esc_uint_1(&esc_buf, &m))
 		m = 1;
 	for (unsigned i = 0; i < m; ++i)
-		write_char(con, con->pgc, 0);
+		write_char(con, con->pgc, con->pgc, 0);
 }
 
 // Scroll up Ps lines (default = 1) (SU), VT420, ECMA-48.
@@ -1161,9 +1239,46 @@ void console_write_char(struct console *con, unsigned char c)
 	switch (con->state) {
 	case NORMAL:
 		if (c == '\033') {
+			con->utf8_remaining = 0;
 			con->state = ESC;
+		} else if (c >= 0x80) {
+			if (con->utf8_remaining != 0) {
+				if ((c & 0xc0) != 0x80) {
+					con->utf8_remaining = 0;
+					return write_char(con, '?', '?', 1);
+				}
+				con->utf8_codepoint = (con->utf8_codepoint << 6) |
+					(c & 0x3f);
+				if (--con->utf8_remaining != 0)
+					break;
+				if (con->utf8_codepoint < con->utf8_minimum ||
+				    con->utf8_codepoint > 0x10ffff ||
+				    (con->utf8_codepoint >= 0xd800 &&
+				     con->utf8_codepoint <= 0xdfff))
+					return write_char(con, '?', '?', 1);
+				if (con->utf8_codepoint >= 0x100)
+					return write_unicode_char(con, con->utf8_codepoint);
+				return write_char(con, con->utf8_codepoint,
+						  con->utf8_codepoint, 1);
+			}
+			if ((c & 0xe0) == 0xc0) {
+				con->utf8_codepoint = c & 0x1f;
+				con->utf8_minimum = 0x80;
+				con->utf8_remaining = 1;
+			} else if ((c & 0xf0) == 0xe0) {
+				con->utf8_codepoint = c & 0x0f;
+				con->utf8_minimum = 0x800;
+				con->utf8_remaining = 2;
+			} else if ((c & 0xf8) == 0xf0) {
+				con->utf8_codepoint = c & 0x07;
+				con->utf8_minimum = 0x10000;
+				con->utf8_remaining = 3;
+			} else {
+				return write_char(con, '?', '?', 1);
+			}
 		} else {
-			return write_char(con, c, 1);
+			con->utf8_remaining = 0;
+			return write_char(con, c, c, 1);
 		}
 		break;
 
@@ -1407,11 +1522,15 @@ void console_sync(struct console *con)
 
 	spin_lock_irqsave(&console_lock, flags);
 	memcpy(con->mem, VIDEO_MEM, SCREEN_BUF_BYTE_SIZE);
+	for (unsigned int y = 0; y < N_ROW; y++)
+		for (unsigned int x = 0; x < N_COL; x++)
+			con->glyph[y][x] = con->mem[y][x] & 0xff;
 	get_cursor(&con->pos_y, &con->pos_x);
 	spin_unlock_irqrestore(&console_lock, flags);
 }
 
 void console_snapshot_foreground(uint16_t mem[N_ROW][N_COL],
+				 uint32_t glyph[N_ROW][N_COL],
 				 unsigned int *pos_y, unsigned int *pos_x,
 				 int *cursor_hidden)
 {
@@ -1421,6 +1540,7 @@ void console_snapshot_foreground(uint16_t mem[N_ROW][N_COL],
 	spin_lock_irqsave(&console_lock, flags);
 	con = &console_table[fg_text_console];
 	memcpy(mem, con->mem, SCREEN_BUF_BYTE_SIZE);
+	memcpy(glyph, con->glyph, sizeof(con->glyph));
 	*pos_y = con->pos_y;
 	*pos_x = con->pos_x;
 	*cursor_hidden = con->cursor_hidden;
@@ -1442,6 +1562,9 @@ void console_soft_reset(struct console *con)
 	con->pgc = '\0';
 	con->charset_G0 = 'B';
 	con->charset_G1 = 'B';
+	con->utf8_remaining = 0;
+	con->utf8_codepoint = 0;
+	con->utf8_minimum = 0;
 }
 
 void console_reset(struct console *con)
@@ -1451,6 +1574,7 @@ void console_reset(struct console *con)
 	con->pos_x = 0;
 	con->pos_y = 0;
 	memsetw(con->mem, SPACE, SCREEN_BUF_SIZE);
+	console_fill_glyph(con, 0, SCREEN_BUF_SIZE, ' ');
 
 	con->k = (struct kbd) { 0 };
 	memset(con->esc_buf, 0, ESC_BUF_SIZE);

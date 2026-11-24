@@ -31,6 +31,39 @@ static const uint8_t font_cp437[256][FONT_GLYPH_HEIGHT][FONT_GLYPH_WIDTH] = {
 #include "font_cp437_18x32_gray.inc"
 };
 
+static const uint8_t font_unicode[720][FONT_GLYPH_HEIGHT][FONT_GLYPH_WIDTH] = {
+#include "font_unicode_18x32_gray.inc"
+};
+
+static int unicode_glyph_index(uint32_t codepoint)
+{
+	if (codepoint >= 0x2500 && codepoint < 0x2580)
+		return 96 + codepoint - 0x2500;
+	if (codepoint >= 0x2580 && codepoint < 0x25a0)
+		return 224 + codepoint - 0x2580;
+	if (codepoint >= 0x2800 && codepoint < 0x2900)
+		return 256 + codepoint - 0x2800;
+	if (codepoint >= 0x2190 && codepoint < 0x2200)
+		return 512 + codepoint - 0x2190;
+	if (codepoint >= 0x25a0 && codepoint < 0x2600)
+		return 624 + codepoint - 0x25a0;
+	return -1;
+}
+
+static const uint8_t (*fbcon_glyph(uint32_t codepoint))[FONT_GLYPH_WIDTH]
+{
+	int index;
+
+	if (codepoint >= 0x20 && codepoint <= 0x7f)
+		return font_cp437[codepoint];
+	if (codepoint >= 0xa0 && codepoint < 0x100)
+		return font_unicode[codepoint - 0xa0];
+	index = unicode_glyph_index(codepoint);
+	if (index >= 0)
+		return font_unicode[index];
+	return font_cp437['?'];
+}
+
 static const uint8_t palette[16][3] = {
 	{ 0, 0, 0 }, { 0, 0, 170 }, { 0, 170, 0 }, { 0, 170, 170 },
 	{ 170, 0, 0 }, { 170, 0, 170 }, { 170, 85, 0 }, { 170, 170, 170 },
@@ -54,7 +87,9 @@ struct fbcon_layout {
 
 struct fbcon_snapshot {
 	uint16_t mem[N_ROW][N_COL];
+	uint32_t glyph[N_ROW][N_COL];
 	uint16_t last_mem[N_ROW][N_COL];
+	uint32_t last_glyph[N_ROW][N_COL];
 	unsigned int pos_y, pos_x;
 	unsigned int last_pos_y, last_pos_x;
 	int cursor_hidden;
@@ -207,11 +242,11 @@ static void fbcon_glyph_bounds(unsigned int top, unsigned int bottom,
 }
 
 static void fbcon_cell(const struct fbcon_layout *layout, unsigned int row,
-			unsigned int col, uint16_t cell)
+			unsigned int col, uint16_t cell, uint32_t codepoint)
 {
 	const uint8_t *fg = palette[(cell >> 8) & 0x0f];
 	const uint8_t *bg = palette[(cell >> 12) & 0x0f];
-	const uint8_t (*glyph)[FONT_GLYPH_WIDTH] = font_cp437[cell & 0xff];
+	const uint8_t (*glyph)[FONT_GLYPH_WIDTH] = fbcon_glyph(codepoint);
 	unsigned int left = layout->left + col * layout->width / N_COL;
 	unsigned int right = layout->left + (col + 1) * layout->width / N_COL;
 	unsigned int top = layout->top + row * layout->height / N_ROW;
@@ -266,7 +301,8 @@ static void fbcon_paint(int full)
 
 	if (fb->width < CANVAS_WIDTH || fb->height < N_ROW * FONT_HEIGHT)
 		return;
-	console_snapshot_foreground(snapshot.mem, &snapshot.pos_y, &snapshot.pos_x,
+	console_snapshot_foreground(snapshot.mem, snapshot.glyph,
+				    &snapshot.pos_y, &snapshot.pos_x,
 				    &snapshot.cursor_hidden);
 	fbcon_layout(&layout);
 	if (full || !snapshot.initialized)
@@ -277,19 +313,23 @@ static void fbcon_paint(int full)
 	     snapshot.last_pos_y != snapshot.pos_y ||
 	     snapshot.last_cursor_hidden != snapshot.cursor_hidden))
 		fbcon_cell(&layout, snapshot.last_pos_y, snapshot.last_pos_x,
-			   snapshot.mem[snapshot.last_pos_y][snapshot.last_pos_x]);
+			   snapshot.mem[snapshot.last_pos_y][snapshot.last_pos_x],
+			   snapshot.glyph[snapshot.last_pos_y][snapshot.last_pos_x]);
 
 	for (y = 0; y < N_ROW; y++)
 		for (x = 0; x < N_COL; x++)
 			if (full || !snapshot.initialized ||
-			    snapshot.mem[y][x] != snapshot.last_mem[y][x])
-				fbcon_cell(&layout, y, x, snapshot.mem[y][x]);
+			    snapshot.mem[y][x] != snapshot.last_mem[y][x] ||
+			    snapshot.glyph[y][x] != snapshot.last_glyph[y][x])
+				fbcon_cell(&layout, y, x, snapshot.mem[y][x],
+					   snapshot.glyph[y][x]);
 
 	if (!snapshot.cursor_hidden)
 		fbcon_cursor(&layout, snapshot.pos_y, snapshot.pos_x,
 			     snapshot.mem[snapshot.pos_y][snapshot.pos_x]);
 
 	memcpy(snapshot.last_mem, snapshot.mem, sizeof(snapshot.mem));
+	memcpy(snapshot.last_glyph, snapshot.glyph, sizeof(snapshot.glyph));
 	snapshot.last_pos_x = snapshot.pos_x;
 	snapshot.last_pos_y = snapshot.pos_y;
 	snapshot.last_cursor_hidden = snapshot.cursor_hidden;

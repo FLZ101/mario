@@ -42,6 +42,9 @@ struct console {
 
 	unsigned char charset_G0;
 	unsigned char charset_G1;
+	uint32_t utf8_codepoint;
+	uint32_t utf8_minimum;
+	uint8_t utf8_remaining;
 
 	unsigned char pgc; // preceding graphic character
 
@@ -59,9 +62,11 @@ struct console {
 	int scr_start, scr_end; // scrolling region
 
 	uint16_t mem[N_ROW][N_COL];
+	uint32_t glyph[N_ROW][N_COL];
 
 	struct {
 		uint16_t mem[N_ROW][N_COL];
+		uint32_t glyph[N_ROW][N_COL];
 		unsigned int pos_x, pos_y;
 		unsigned int save_x, save_y;
 		int scr_start, scr_end; // scrolling region
@@ -92,6 +97,7 @@ void switch_fg_console(int i);
 void switch_text_console(unsigned int index);
 int enter_graphics_console(void);
 void console_snapshot_foreground(uint16_t mem[N_ROW][N_COL],
+				 uint32_t glyph[N_ROW][N_COL],
 				 unsigned int *pos_y, unsigned int *pos_x,
 				 int *cursor_hidden);
 
