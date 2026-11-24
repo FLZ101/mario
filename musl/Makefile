@@ -21,7 +21,7 @@ MUSL_INSTALL_DIR	:=$(ROOT)/$(MUSL_SRC_DIR)-install
 all: build
 
 build: src | check
-	CC=$(CC) MUSL_SRC_DIR=$(MUSL_SRC_DIR) MUSL_INSTALL_DIR=$(MUSL_INSTALL_DIR) ./build-musl.sh
+	STACK_PROTECTOR=0 CC=$(CC) MUSL_SRC_DIR=$(MUSL_SRC_DIR) MUSL_INSTALL_DIR=$(MUSL_INSTALL_DIR) ./build-musl.sh
 
 check:
 	@$(CC) --mario-verify

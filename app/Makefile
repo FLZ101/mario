@@ -3,6 +3,9 @@ SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard system/*/main.c))
 SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/*/main.c))
 SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard test/musl/*/main.c))
 SUBDIRS	+= $(patsubst %/main.c,%, $(wildcard gui/desktop/*/main.c))
+CXX_SUBDIRS := $(patsubst %/main.cpp,%, $(wildcard example/*/main.cpp system/*/main.cpp \
+	test/*/main.cpp test/musl/*/main.cpp gui/desktop/*/main.cpp usr/cxx/apps/*/main.cpp))
+SUBDIRS += $(filter-out $(SUBDIRS),$(CXX_SUBDIRS))
 
 SHELL := /bin/bash
 

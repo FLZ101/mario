@@ -101,6 +101,14 @@ probe has TLS and mapped `.gcc_except_table`, `.eh_frame`, and `PT_GNU_EH_FRAME`
   QEMU. The demo needs no guest data files and does not replace the focused
   runtime tests from earlier milestones.
 
+Verified with a clean host C++ build and a clean Ubuntu 26.04 container build.
+The demo and runtime probes from both builds pass in QEMU at `SMP=1` and
+`SMP=2`, as does a mixed C/C++ smoke app built in the container. `readelf`
+confirms the demo is static i386, and its link trace shows only Mario's musl,
+compiler builtins, and staged LLVM runtime archives. Clean debug builds keep
+the kernel's stack-protector flags out of musl startup, which runs before TLS
+is initialized.
+
 ## Validation Rules
 
 - Inspect milestone executables with `readelf`: require `ELF32`, `EM_386`,
