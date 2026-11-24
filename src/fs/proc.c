@@ -251,12 +251,19 @@ static int proc_pid_stat_content(pid_t pid, char *buf, size_t size)
 
 static int proc_pid_cmdline_content(pid_t pid, char *buf, size_t size)
 {
-	struct task_struct *task = proc_find_task(pid);
+	struct task_struct *task;
+	unsigned long flags;
+	int n;
 
-	if (!task)
+	spin_lock_irqsave(&tasklist_lock, flags);
+	task = proc_find_task_locked(pid);
+	if (!task) {
+		spin_unlock_irqrestore(&tasklist_lock, flags);
 		return -ENOENT;
-
-	return sprintkn(buf, size, "%s", task->comm);
+	}
+	n = sprintkn(buf, size, "%s", task->comm);
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return n;
 }
 
 static int proc_blkdev_name(unsigned int major, unsigned int minor,
@@ -540,11 +547,19 @@ static int proc_link_target(unsigned long ino, char *buf, size_t size)
 		return sprintkn(buf, size, "/proc/%d", current->pid);
 
 	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_EXE) {
-		struct task_struct *task = proc_find_task(proc_ino_pid(ino));
+		struct task_struct *task;
+		unsigned long flags;
+		int n;
 
-		if (!task)
+		spin_lock_irqsave(&tasklist_lock, flags);
+		task = proc_find_task_locked(proc_ino_pid(ino));
+		if (!task) {
+			spin_unlock_irqrestore(&tasklist_lock, flags);
 			return -ENOENT;
-		return sprintkn(buf, size, "/bin/%s", task->comm);
+		}
+		n = sprintkn(buf, size, "/bin/%s", task->comm);
+		spin_unlock_irqrestore(&tasklist_lock, flags);
+		return n;
 	}
 
 	if ((ino & PROC_INO_TYPE_MASK) != PROC_INO_FD)
@@ -730,12 +745,21 @@ static int proc_lookup_child(unsigned long dir_ino, char *name, int len,
 
 	if ((dir_ino & PROC_INO_TYPE_MASK) == PROC_INO_FD_DIR) {
 		pid_t pid = proc_ino_pid(dir_ino);
-		struct task_struct *task = proc_find_task(pid);
-		int fd;
+		unsigned long flags;
+		int fd = -1;
+		int exists = 0;
 
-		if (task && proc_parse_fd(name, len, &fd) &&
-		    fd < NR_OPEN && task->files->fd[fd] &&
-		    task->files->fd[fd]->f_inode)
+		if (proc_parse_fd(name, len, &fd)) {
+			struct task_struct *task;
+
+			spin_lock_irqsave(&tasklist_lock, flags);
+			task = proc_find_task_locked(pid);
+			if (task && fd < NR_OPEN && task->files->fd[fd] &&
+			    task->files->fd[fd]->f_inode)
+				exists = 1;
+			spin_unlock_irqrestore(&tasklist_lock, flags);
+		}
+		if (exists)
 			*res = proc_make_link(proc_fd_ino(pid, fd));
 		return *res ? 0 : -ENOENT;
 	}
@@ -920,12 +944,17 @@ static int proc_pid_entry(pid_t pid, int index, char *name, size_t size,
 static int proc_fd_dir_entry(pid_t pid, int index, char *name, size_t size,
 			     ino_t *ino, unsigned char *type)
 {
-	struct task_struct *task = proc_find_task(pid);
+	struct task_struct *task;
+	unsigned long flags;
 	int seen = 0;
 	int fd;
 
-	if (!task)
+	spin_lock_irqsave(&tasklist_lock, flags);
+	task = proc_find_task_locked(pid);
+	if (!task) {
+		spin_unlock_irqrestore(&tasklist_lock, flags);
 		return -ENOENT;
+	}
 
 	for (fd = 0; fd < NR_OPEN; fd++) {
 		if (!task->files->fd[fd])
@@ -934,9 +963,11 @@ static int proc_fd_dir_entry(pid_t pid, int index, char *name, size_t size,
 			sprintkn(name, size, "%d", fd);
 			*ino = proc_fd_ino(pid, fd);
 			*type = DT_LNK;
+			spin_unlock_irqrestore(&tasklist_lock, flags);
 			return 0;
 		}
 	}
+	spin_unlock_irqrestore(&tasklist_lock, flags);
 	return -ENOENT;
 }
 
