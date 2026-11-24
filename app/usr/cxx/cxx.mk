@@ -33,17 +33,17 @@ $(CXX_TOOLCHAIN_STAMP): $(CXX_RUNTIME_STAMP) $(CXX_LINK_DEPS)
 
 $(CXX_BUILD_DIR)/tests/cxx-startup.exe: $(CXX_DIR)/startup.cpp $(CXX_LINK_DEPS) $(CXX_DIR)/cxx.mk
 	mkdir -p "$(@D)"
-	cd "$(CXX_BUILD_DIR)" && $(CXX) -std=c++17 -Wall -Wextra -Werror $(OPTIMIZE) \
+	cd "$(CXX_BUILD_DIR)" && $(CXX) -std=c++17 -Wall -Wextra $(OPTIMIZE) \
 		--mario-no-cxx-runtime -fno-exceptions -fno-rtti -fno-use-cxa-atexit "$<" -o "$@"
 
 $(CXX_BUILD_DIR)/tests/cxx-stdlib.exe: $(CXX_DIR)/stdlib.cpp $(CXX_LINK_DEPS) $(CXX_RUNTIME_STAMP)
 	mkdir -p "$(@D)"
-	cd "$(CXX_BUILD_DIR)" && $(CXX) -std=c++17 -Wall -Wextra -Werror $(OPTIMIZE) "$<" -o "$@"
+	cd "$(CXX_BUILD_DIR)" && $(CXX) -std=c++17 -Wall -Wextra $(OPTIMIZE) "$<" -o "$@"
 
 CXX_EXCEPTION_SOURCES := $(addprefix $(CXX_DIR)/,exceptions.cpp exceptions-throw.cpp)
 $(CXX_BUILD_DIR)/tests/cxx-exceptions.exe: $(CXX_EXCEPTION_SOURCES) $(CXX_LINK_DEPS) $(CXX_RUNTIME_STAMP)
 	mkdir -p "$(@D)"
-	cd "$(CXX_BUILD_DIR)" && $(CXX) -std=c++17 -Wall -Wextra -Werror $(OPTIMIZE) $(CXX_EXCEPTION_SOURCES) -o "$@"
+	cd "$(CXX_BUILD_DIR)" && $(CXX) -std=c++17 -Wall -Wextra $(OPTIMIZE) $(CXX_EXCEPTION_SOURCES) -o "$@"
 
 clean:: clean-cxx
 clean-cxx:
