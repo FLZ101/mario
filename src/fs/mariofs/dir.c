@@ -329,12 +329,13 @@ int mario_mkdir(struct inode *dir, char *name, int len, int mode)
 		goto tail_1;
 	}
 
+	down(&dir->i_sem);
 	if (mario_find_entry(dir, name, len)) {
 		ret = -EEXIST;
-		goto tail_1;
+		goto unlock;
 	}
 	if ((ret = mario_get_block(dir->i_sb, 1, &block, &block)))
-		goto tail_1;
+		goto unlock;
 
 	entry.data = block;
 	entry.mode = MODE_DIR | (mode & 0777);
@@ -370,13 +371,14 @@ int mario_mkdir(struct inode *dir, char *name, int len, int mode)
 
 	set_dirty(bh);
 	brelse(bh);
-	iput(dir);
-	return 0;
+	goto unlock;
 
 tail_3:
 	brelse(bh);
 tail_2:
 	mario_put_block(dir->i_sb, block, block);
+unlock:
+	up(&dir->i_sem);
 tail_1:
 	iput(dir);
 	return ret;

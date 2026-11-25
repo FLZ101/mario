@@ -119,6 +119,8 @@ int ext2_alloc_inode(struct super_block *sb, uint16_t mode, uint32_t *ino)
 		if (error)
 			goto out;
 		bit = find_first_zero_bit(bitmap, EXT2_INODES_PER_GROUP(sb));
+		while (bit >= 0 && inode_is_busy(sb, group * EXT2_INODES_PER_GROUP(sb) + bit + 1))
+			bit = find_next_zero_bit(bitmap, EXT2_INODES_PER_GROUP(sb), bit);
 		if (bit < 0)
 			continue;
 
@@ -150,6 +152,7 @@ int ext2_alloc_inode(struct super_block *sb, uint16_t mode, uint32_t *ino)
 			ext2_write_block(sb, bitmap_block, bitmap);
 			goto out;
 		}
+		inode_invalidate(sb, *ino);
 
 		ext2_write16((uint8_t *)&desc->bg_free_inodes_count,
 			     ext2_read16((const uint8_t *)&desc->bg_free_inodes_count) - 1);

@@ -216,6 +216,7 @@ def copy_rootfs_files(
         "tests/gui/assets/alpha-128.png": "usr/share/mario-tests/gui/alpha-128.png",
         "tests/gui/assets/large-1600x1200.png": "usr/share/mario-tests/gui/large-1600x1200.png",
         "tests/gui/assets/wallpaper-blue-marble-1920x1200.png": "usr/share/mario-tests/gui/wallpaper-blue-marble-1920x1200.png",
+        "tests/shell/assets/filemanager/*.gz": "usr/share/mario-tests/filemanager",
         "tests/media/assets/stereo-markers.wav": "usr/share/mario-tests/media/stereo-markers.wav",
         "tests/media/assets/big-buck-bunny.mp4": "usr/share/mario-tests/media/big-buck-bunny.mp4",
         "tests/media/assets/big-buck-bunny-720p.mp4": "usr/share/mario-tests/media/big-buck-bunny-720p.mp4",

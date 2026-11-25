@@ -148,7 +148,7 @@ static int ext2_file_write_at(struct inode *inode, struct file *file, char *buf,
 
 		physical = ext2_bmap(inode, block_index, 1);
 		if (!physical) {
-			error = -EIO;
+			error = EXT2_SB(sb).free_blocks_count ? -EIO : -ENOSPC;
 			break;
 		}
 

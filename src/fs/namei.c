@@ -318,6 +318,10 @@ int open_namei(char *pathname, int flags, struct inode **res_inode,
 		}
 		goto SHE__;
 	}
+	if (dir->i_sb && (dir->i_sb->s_flags & MS_RDONLY)) {
+		error = -EROFS;
+		goto SHE__;
+	}
 	if (!dir->i_op || !dir->i_op->create) {
 		error = -EACCES;
 		goto SHE__;
@@ -420,6 +424,10 @@ static int do_mkdir(char *name, struct inode *base, int mode)
 	if (!namelen) {		/* !!! */
 		iput(dir);
 		return -ENOENT;
+	}
+	if (dir->i_sb && (dir->i_sb->s_flags & MS_RDONLY)) {
+		iput(dir);
+		return -EROFS;
 	}
 	if (!dir->i_op || !dir->i_op->mkdir) {
 		iput(dir);

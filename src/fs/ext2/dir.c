@@ -1816,6 +1816,10 @@ static int ext2_symlink(struct inode *dir, char *name, int len, char *target)
 		return -ENAMETOOLONG;
 
 	target_len = strlen(target);
+	if (target_len > EXT2_BLOCK_SIZE(dir->i_sb)) {
+		iput(dir);
+		return -ENAMETOOLONG;
+	}
 	down(&dir->i_sem);
 	error = ext2_find_entry(dir, name, len, &block, &offset);
 	if (!error) {

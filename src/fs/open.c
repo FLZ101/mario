@@ -124,6 +124,11 @@ int sys_symlinkat(char *target, int newdirfd, char *linkpath)
 		goto tail_1;
 	}
 
+	if (inode->i_sb && (inode->i_sb->s_flags & MS_RDONLY)) {
+		iput(inode);
+		error = -EROFS;
+		goto tail_1;
+	}
 	if (!inode->i_op || !inode->i_op->symlink) {
 		iput(inode);
 		error = -EBADF;

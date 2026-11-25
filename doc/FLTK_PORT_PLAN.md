@@ -225,6 +225,21 @@ symlinks, and read-only/full destinations on the guest filesystem matrix.
 `tests/gui/fltk-filemanager-copy.test` copies between panes, handles a name
 conflict, and verifies output and worker teardown over serial.
 
+Use **Edit → Copy** (`Ctrl+C`) and **Edit → Paste** (`Ctrl+V`) with a pane
+active. The status strip reports progress, offers Skip or Keep Both for a
+conflict, and lets you cancel. **Edit → Last Copy Summary** lists failures
+and unsupported items. Copy preserves file bytes and supported symlinks,
+not metadata or hard-link relationships. Directories never merge. The
+guest supports relative `fstatat` through `statx`; rollback uses
+`fchdir`/`rmdir` because `unlinkat` does not implement `AT_REMOVEDIR`.
+
+Each selected item is copied independently. Cancelling or failing an item
+rolls back its journal of created entries without scanning for other files
+to remove. Rollback checks inode identities, but is not atomic against
+external changes to the destination. If cleanup fails, the summary flags
+possible partial output. Copies use 32 KiB chunks and limit each selected
+tree to 48 levels and 16,384 created entries.
+
 ### F8 — File Manager: move, trash, and recovery
 
 1. Add new folder, rename, and cut/paste on the F7 job model. Do not use an

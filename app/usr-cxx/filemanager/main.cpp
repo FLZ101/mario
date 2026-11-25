@@ -1,4 +1,5 @@
 #include "browser.h"
+#include "copy_worker.h"
 #include "preview.h"
 
 #include <FL/Fl.H>
@@ -19,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -218,7 +220,8 @@ public:
 		location_(217, 29, 602, 26), go_(823, 29, 43, 26, "Go"), split_(870, 29, 46, 26, "Split"),
 		sidebar_(8, 64, 144, 459), tabs_(160, 60, 578, 463),
 		preview_text_(746, 78, 170, 445, "Preview"), preview_image_(746, 86, 170, 136),
-		status_(8, 525, 908, 23)
+		status_(8, 525, 908, 23), job_status_(8, 525, 656, 23),
+		skip_(670, 525, 66, 23, "Skip"), keep_(742, 525, 92, 23, "Keep Both"), cancel_(840, 525, 76, 23, "Cancel")
 	{
 		window_.end();
 		window_.resizable(tabs_);
@@ -238,6 +241,14 @@ public:
 		location_.callback(invoke<&Browser::go>, this);
 		split_.callback(invoke<&Browser::toggle_split>, this);
 		status_.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_CLIP);
+		job_status_.align(status_.align());
+		job_status_.hide();
+		skip_.hide();
+		keep_.hide();
+		cancel_.hide();
+		skip_.callback(invoke<&Browser::skip_conflict>, this);
+		keep_.callback(invoke<&Browser::keep_conflict>, this);
+		cancel_.callback(invoke<&Browser::cancel_copy>, this);
 		preview_text_.align(FL_ALIGN_TOP_LEFT);
 		preview_text_.textsize(13);
 		add_menus();
@@ -253,6 +264,8 @@ public:
 	{
 		Fl::remove_timeout(tick, this);
 		Fl::remove_timeout(show_preview, this);
+		if (worker_.fd() >= 0)
+			Fl::remove_fd(worker_.fd());
 		preview_image_.image(nullptr);
 	}
 
@@ -267,6 +280,9 @@ private:
 		menu_.add("&File/&Open Selected", FL_CTRL + FL_Enter, invoke<&Browser::open_selected>, this);
 		menu_.add("&File/&Properties", FL_ALT + FL_Enter, invoke<&Browser::properties>, this);
 		menu_.add("&File/&Quit", FL_CTRL + 'q', invoke<&Browser::close>, this);
+		menu_.add("&Edit/&Copy", FL_CTRL + 'c', invoke<&Browser::copy_selection>, this);
+		menu_.add("&Edit/&Paste", FL_CTRL + 'v', invoke<&Browser::paste>, this);
+		menu_.add("&Edit/&Last Copy Summary", 0, invoke<&Browser::copy_summary>, this);
 		menu_.add("&View/&Refresh", FL_CTRL + 'r', invoke<&Browser::refresh>, this);
 		menu_.add("&View/Toggle &Hidden Files", FL_CTRL + 'h', invoke<&Browser::toggle_hidden>, this);
 		menu_.add("&View/Toggle &Split", FL_CTRL + '\\', invoke<&Browser::toggle_split>, this);
@@ -400,6 +416,7 @@ private:
 
 	void update_status()
 	{
+		showing_copy_summary_ = false;
 		auto &target = pane();
 		if (target.queued || target.scan.pending())
 			message("Reading directory... " + std::to_string(target.scan.entries.size()));
@@ -491,6 +508,145 @@ private:
 		queue_scan(pane());
 		fill_sidebar();
 		update_active();
+	}
+	void copy_selection()
+	{
+		auto names = pane().listing.selection();
+		if (names.empty()) {
+			message("Select the files or folders to copy first");
+			return;
+		}
+		clipboard_ = {pane().path, {}, std::move(names)};
+		message(std::to_string(clipboard_.names.size()) + " selected for Copy");
+	}
+	void paste()
+	{
+		if (worker_.active())
+			return;
+		if (clipboard_.names.empty()) {
+			message("Copy a selection before pasting");
+			return;
+		}
+		copy_ = clipboard_;
+		copy_.destination = pane().path;
+		const int error = worker_.start(copy_);
+		if (error) {
+			message(std::string("Cannot start copy: ") + std::strerror(error));
+			return;
+		}
+		copy_results_.clear();
+		copy_cancelling_ = false;
+		status_.hide();
+		job_status_.show();
+		job_status_.copy_label("Copying...");
+		cancel_.activate();
+		cancel_.show();
+		Fl::add_fd(worker_.fd(), copy_ready, this);
+	}
+	void decide(files::CopyDecision decision)
+	{
+		skip_.hide();
+		keep_.hide();
+		if (worker_.decide(decision))
+			job_status_.copy_label("Copying...");
+		else
+			cancel_copy();
+	}
+	void skip_conflict() { decide(files::CopyDecision::skip); }
+	void keep_conflict() { decide(files::CopyDecision::keep_both); }
+	void cancel_copy()
+	{
+		copy_cancelling_ = true;
+		worker_.cancel();
+		skip_.hide();
+		keep_.hide();
+		cancel_.deactivate();
+		job_status_.copy_label("Cancelling copy and cleaning up...");
+	}
+	static void copy_ready(int fd, void *data)
+	{
+		auto &browser = *static_cast<Browser *>(data);
+		for (unsigned budget = 0; budget < 32; ++budget) {
+			files::CopyEvent event{};
+			const auto state = browser.worker_.next(event);
+			if (state == files::CopyWorker::Read::pending)
+				break;
+			if (state == files::CopyWorker::Read::closed) {
+				Fl::remove_fd(fd);
+				browser.worker_.close_events();
+				break;
+			}
+			if (event.type == files::CopyEventType::result) {
+				if (event.item == browser.copy_results_.size() && event.item < browser.copy_.names.size())
+					browser.copy_results_.push_back(event.result);
+				continue;
+			}
+			if (browser.copy_cancelling_)
+				continue;
+			if (event.type == files::CopyEventType::conflict) {
+				const auto text = "Already exists: " + files::display(event.name.data());
+				browser.job_status_.copy_label(text.c_str());
+				browser.skip_.show();
+				browser.keep_.show();
+			} else {
+				const auto text = "Copying item " + std::to_string(event.item + 1) + " of " +
+					std::to_string(browser.copy_.names.size()) + " | " + std::to_string(event.bytes) + " bytes written";
+				browser.job_status_.copy_label(text.c_str());
+			}
+		}
+	}
+	void finish_copy(bool success)
+	{
+		constexpr const char *labels[] = {"copied", "skipped", "failed", "cancelled", "unsupported"};
+		std::array<unsigned, std::size(labels)> counts{};
+		std::string details;
+		unsigned issues = 0, partial = 0;
+		for (std::size_t index = 0; index < std::min(copy_results_.size(), copy_.names.size()); ++index) {
+			const auto result = copy_results_[index];
+			const auto state = static_cast<std::size_t>(result.state);
+			++counts[state];
+			partial += result.partial;
+			if (result.state != files::CopyState::copied && issues++ < 6) {
+				details += "\n" + files::display(copy_.names[index]) + ": " + labels[state];
+				if (result.error)
+					details += std::string(" — ") + std::strerror(result.error);
+				if (result.partial)
+					details += " (check destination for partial output)";
+			}
+		}
+		std::string summary = "Copy: " + std::to_string(counts[0]) + " copied";
+		for (std::size_t state = 1; state < counts.size(); ++state)
+			if (counts[state])
+				summary += ", " + std::to_string(counts[state]) + " " + labels[state];
+		if (!success || copy_results_.size() != copy_.names.size())
+			summary += " | worker stopped unexpectedly; check destination";
+		else if (partial)
+			summary += " | partial output may remain";
+		last_copy_ = summary + details;
+		if (issues > 6)
+			last_copy_ += "\nAnd " + std::to_string(issues - 6) + " more.";
+		last_copy_ += "\n\nCopy preserves file data and supported symlinks, not permissions, timestamps, or hard links.";
+		job_status_.hide();
+		skip_.hide();
+		keep_.hide();
+		cancel_.hide();
+		status_.show();
+		cache_.clear();
+		for (int index = 0; index < tabs_.children(); ++index)
+			for (auto *target : static_cast<Tab *>(tabs_.child(index))->panes)
+				if (target->path == copy_.destination || (target->path.size() > copy_.destination.size() &&
+				    target->path.compare(0, copy_.destination.size(), copy_.destination) == 0 &&
+				    (copy_.destination == "/" || target->path[copy_.destination.size()] == '/')))
+					queue_scan(*target);
+		schedule_preview();
+		message(summary);
+		showing_copy_summary_ = true;
+		if (close_after_copy_)
+			window_.hide();
+	}
+	void copy_summary()
+	{
+		fl_message("%s", last_copy_.empty() ? "No copy job has finished yet." : last_copy_.c_str());
 	}
 
 	void fill_sidebar()
@@ -669,6 +825,12 @@ private:
 			browser.last_height_ = browser.tabs_.h();
 			browser.layout_tabs();
 		}
+		bool success;
+		if (browser.worker_.reap(success)) {
+			browser.finish_copy(success);
+			if (!browser.window_.shown())
+				return;
+		}
 		for (auto child = browser.viewers_.begin(); child != browser.viewers_.end();) {
 			int status;
 			const auto result = waitpid(*child, &status, WNOHANG);
@@ -687,7 +849,7 @@ private:
 			if (target->queued) {
 				target->queued = false;
 				target->scan.start(target->path);
-				if (!target->scan.pending() && target == &browser.pane())
+				if (!target->scan.pending() && target == &browser.pane() && !browser.showing_copy_summary_)
 					browser.update_status();
 			}
 			if (target->scan.pending()) {
@@ -695,13 +857,31 @@ private:
 				scanning |= target->scan.pending();
 				if (!target->scan.pending())
 					browser.rebuild(*target);
-				if (target == &browser.pane())
+				if (target == &browser.pane() && !browser.showing_copy_summary_)
 					browser.update_status();
 			}
 		}
 		Fl::repeat_timeout(scanning ? 0.02 : 0.10, tick, data);
 	}
-	void close() { window_.hide(); }
+	void close()
+	{
+		if (!worker_.active()) {
+			window_.hide();
+			return;
+		}
+		if (close_after_copy_)
+			return;
+		const int choice = fl_choice("A copy job is still in progress.", "Keep Open", "Wait and Close", "&Cancel and Close");
+		if (!choice)
+			return;
+		if (!worker_.active()) {
+			window_.hide();
+			return;
+		}
+		close_after_copy_ = true;
+		if (choice == 2)
+			cancel_copy();
+	}
 
 	Fl_Double_Window window_;
 	Fl_Menu_Bar menu_;
@@ -711,7 +891,8 @@ private:
 	Fl_Tree sidebar_;
 	TabStrip tabs_;
 	Fl_Multiline_Output preview_text_;
-	Fl_Box preview_image_, status_;
+	Fl_Box preview_image_, status_, job_status_;
+	Fl_Button skip_, keep_, cancel_;
 	std::string home_;
 	files::Preferences preferences_;
 	files::PreviewCache cache_;
@@ -719,6 +900,11 @@ private:
 	std::unique_ptr<Fl_RGB_Image> image_;
 	std::vector<std::pair<Fl_Tree_Item *, std::string>> places_;
 	std::vector<pid_t> viewers_;
+	files::CopyRequest clipboard_, copy_;
+	files::CopyWorker worker_;
+	std::vector<files::CopyResult> copy_results_;
+	std::string last_copy_;
+	bool copy_cancelling_ = false, close_after_copy_ = false, showing_copy_summary_ = false;
 	int last_width_ = 0, last_height_ = 0;
 };
 
@@ -730,6 +916,7 @@ int main(int argc, char **argv)
 		std::fprintf(stderr, "usage: filemanager [directory]\n");
 		return 2;
 	}
+	std::signal(SIGPIPE, SIG_IGN);
 	Browser browser(argc == 2 ? argv[1] : nullptr);
 	return Fl::run();
 }

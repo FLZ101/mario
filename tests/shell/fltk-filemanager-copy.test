@@ -1,0 +1,40 @@
+TIMEOUT: 90
+
+RUN: export PATH=/bin/toybox:/bin
+RUN: /usr/bin/test/fltk-filemanager-copy.exe /tmp mariofs
+CHECK: filemanager copy: mariofs passed
+RUN: mount -t mariofs /dev/rd2 /mnt && /usr/bin/test/fltk-filemanager-copy.exe /mnt mariofs-full
+CHECK: filemanager copy: mariofs-full passed
+RUN: umount /mnt && mount -t mariofs -o ro /dev/rd2 /mnt && /usr/bin/test/fltk-filemanager-copy.exe /mnt mariofs-ro
+CHECK: filemanager copy: mariofs-ro passed
+RUN: umount /mnt; echo unmount:$?
+CHECK: unmount:0
+
+RUN: mount -t ext2 /dev/hdc3 /mnt && /usr/bin/test/fltk-filemanager-copy.exe /mnt ext2
+CHECK: filemanager copy: ext2 passed
+RUN: umount /mnt && mount -t ext2 -o ro /dev/hdc3 /mnt && /usr/bin/test/fltk-filemanager-copy.exe /mnt ext2-ro
+CHECK: filemanager copy: ext2-ro passed
+RUN: umount /mnt; echo unmount:$?
+CHECK: unmount:0
+
+RUN: mount -t vfat /dev/hdc2 /mnt && /usr/bin/test/fltk-filemanager-copy.exe /mnt vfat
+CHECK: filemanager copy: vfat passed
+RUN: umount /mnt && mount -t vfat -o ro /dev/hdc2 /mnt && /usr/bin/test/fltk-filemanager-copy.exe /mnt vfat-ro
+CHECK: filemanager copy: vfat-ro passed
+RUN: umount /mnt; echo unmount:$?
+CHECK: unmount:0
+
+# Replace only unused guest partitions in this test's QEMU snapshot.
+RUN: gzip -cd /usr/share/mario-tests/filemanager/compact.ext2.gz >/dev/hdb1 && mount -t ext2 /dev/hdb1 /mnt && /usr/bin/test/fltk-filemanager-copy.exe /mnt ext2-full
+CHECK: filemanager copy: ext2-full passed
+RUN: umount /mnt; echo unmount:$?
+CHECK: unmount:0
+RUN: gzip -cd /usr/share/mario-tests/filemanager/compact.fat32.gz >/dev/hdb3 && mount -t vfat /dev/hdb3 /mnt && /usr/bin/test/fltk-filemanager-copy.exe /mnt vfat-full
+CHECK: filemanager copy: vfat-full passed
+RUN: umount /mnt; echo unmount:$?
+CHECK: unmount:0
+
+RUN: mkdir -p /tmp/fm-mount/volume /tmp/fm-mount-dst && mount -t ext2 /dev/hdc3 /tmp/fm-mount/volume && /usr/bin/test/fltk-filemanager-copy.exe /tmp/fm-mount-dst mount
+CHECK: filemanager copy: mount passed
+RUN: umount /tmp/fm-mount/volume; echo unmount:$?
+CHECK: unmount:0
