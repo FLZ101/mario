@@ -947,27 +947,28 @@ private:
 		else if (S_ISDIR(item.info.st_mode) || (S_ISLNK(item.info.st_mode) && !item.broken))
 			navigate(path);
 		else if (S_ISREG(item.info.st_mode) && files::image_name(path))
-			launch_viewer(path);
+			launch_viewer("/usr/bin/imageviewer", path);
+		else if (S_ISREG(item.info.st_mode) && files::mp4_name(path))
+			launch_viewer("/usr/bin/mpv", path);
 		else
 			message(item.broken ? "This link is broken" : "No external viewer for this file");
 	}
-	void launch_viewer(const std::string &path)
+	void launch_viewer(const char *program, const std::string &path)
 	{
 		if (viewers_.size() >= 8) {
-			message("Close an Image Viewer window first");
+			message("Close an external viewer or player first");
 			return;
 		}
-		char program[] = "/usr/bin/imageviewer";
-		char *argv[] = {program, const_cast<char *>(path.c_str()), nullptr};
+		char *argv[] = {const_cast<char *>(program), const_cast<char *>(path.c_str()), nullptr};
 		const auto pid = fork();
 		if (!pid) {
 			execv(program, argv);
 			_exit(127);
 		}
 		if (pid < 0)
-			message(std::string("Could not launch Image Viewer: ") + std::strerror(errno));
+			message(std::string("Could not launch ") + program + ": " + std::strerror(errno));
 		else
-			viewers_.push_back(pid);
+			viewers_.push_back({pid, program});
 	}
 
 	void schedule_preview()
@@ -1022,11 +1023,12 @@ private:
 		}
 		for (auto child = browser.viewers_.begin(); child != browser.viewers_.end();) {
 			int status;
-			const auto result = waitpid(*child, &status, WNOHANG);
+			const auto result = waitpid(child->pid, &status, WNOHANG);
 			if (result > 0 || (result < 0 && errno == ECHILD)) {
 				if (result > 0 && (!WIFEXITED(status) || WEXITSTATUS(status)))
 					browser.message(WIFEXITED(status) && WEXITSTATUS(status) == 127 ?
-						"Could not execute /usr/bin/imageviewer" : "Image Viewer exited with an error");
+						std::string("Could not execute ") + child->program :
+						std::string(child->program) + " exited with an error");
 				child = browser.viewers_.erase(child);
 			} else
 				++child;
@@ -1088,7 +1090,11 @@ private:
 	files::Preview preview_;
 	std::unique_ptr<Fl_RGB_Image> image_;
 	std::vector<std::pair<Fl_Tree_Item *, std::string>> places_;
-	std::vector<pid_t> viewers_;
+	struct Viewer {
+		pid_t pid;
+		const char *program;
+	};
+	std::vector<Viewer> viewers_;
 	files::CopyRequest clipboard_, copy_;
 	files::CopyWorker worker_;
 	std::vector<files::CopyResult> copy_results_;

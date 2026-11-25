@@ -146,6 +146,28 @@ def prepare_guest(child, qmp):
     return expect_color(qmp, (31, 41, 51))
 
 
+def verify_filemanager_open(child, qmp):
+    run_checked(
+        child,
+        "mkdir /tmp/fm-media && cp /mnt/video-markers.mp4 '/tmp/fm-media/Video with spaces.MP4'",
+    )
+    run_checked(
+        child,
+        "HOME=/tmp /usr/bin/filemanager /tmp/fm-media >/tmp/fm-media.log 2>&1 & fm_pid=$!",
+    )
+    row = (410, 250, 416, 256)
+    expect_color(qmp, WHITE, row)
+    send_mouse_position(qmp, 315, 256)
+    send_mouse_button(qmp, "left", True)
+    send_mouse_button(qmp, "left", False)
+    expect_color(qmp, (188, 217, 251), row)
+    send_keys(qmp, ("ctrl", "ret"))
+    expect_color(qmp, RED, (320, 216, 336, 232))
+    expect_color(qmp, (188, 217, 251), row, timeout=12)
+    send_keys(qmp, ("ctrl", "q"))
+    run_checked(child, 'wait "$fm_pid"')
+
+
 def verify_guest(child, qmp):
     desktop = prepare_guest(child, qmp).crop(SAMPLE).tobytes()
 
@@ -221,6 +243,8 @@ def verify_guest(child, qmp):
     if "Expected an MP4 file with H.264 video" not in output:
         raise AssertionError(f"packaged mpv did not reject audio-only MP4:\n{output}")
 
+    verify_filemanager_open(child, qmp)
+
 
 def expect_no_drops(output):
     counts = re.findall(r"media-drops:(\d+/\d+)", output)
@@ -259,10 +283,12 @@ def verify_1080p(child, qmp):
     send_key(qmp, "p")
     output = finish_player(child, "(End of file)", size=HD_SIZE)
     expect_no_drops(output)
-    submitted = output.count("Submitted surface ")
-    if submitted != HD_FRAMES:
+    submitted = set(
+        re.findall(r"Submitted surface [^\r\n]+ for PTS (\d+\.\d+)", output)
+    )
+    if len(submitted) != HD_FRAMES:
         raise AssertionError(
-            f"expected {HD_FRAMES} windowed frames, submitted {submitted}"
+            f"expected {HD_FRAMES} distinct windowed frames, submitted {len(submitted)}"
         )
 
     start_player(child, HD_ASSET, HD_OPTIONS + " --keep-open=yes")

@@ -125,6 +125,8 @@ int main(int argc, char **argv)
 		files::Preferences loaded;
 		check(loaded.load(directory) && loaded.hidden && loaded.split && loaded.column == preferences.column &&
 			loaded.bookmarks == preferences.bookmarks, "preferences round trip preserves raw bookmark bytes");
+		check(files::mp4_name("video with spaces.MP4") && files::mp4_name("video.mp4") &&
+			!files::mp4_name("video.mp4.txt") && !files::mp4_name("audio.wav"), "mpv file types");
 		files::PreviewCache preview;
 		const auto bmp = preview.read("/usr/share/mario-tests/gui/checker-64.bmp");
 		check(bmp.width == 64 && bmp.height == 64 && bmp.rgb.size() == 64 * 64 * 3, "bounded BMP decode");

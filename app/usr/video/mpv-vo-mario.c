@@ -45,6 +45,7 @@ struct priv {
     uint64_t serial;
     uint64_t frame_id;
     uint8_t mouse_buttons;
+    double upload_pts;
     int64_t upload_start;
     int64_t conversion_end;
     int width, height;
@@ -455,6 +456,7 @@ static bool start_upload(struct vo *vo)
     if (!priv->dirty || !gui_surface_upload_ready(&priv->upload) ||
         (priv->flow.retry_pending && !app_gui_surface_retry_ready(&priv->flow)))
         return true;
+    priv->upload_pts = priv->latest->pts;
     priv->upload_start = mp_time_ns();
     if (!priv->surface || priv->surface->width != priv->width || priv->surface->height != priv->height) {
         gui_surface_destroy(priv->surface);
@@ -533,9 +535,9 @@ static void pump_events(struct vo *vo, int64_t deadline, bool interruptible)
         if (gui_surface_upload_write(&priv->upload, socket_write, &priv->fd) < 0)
             goto failed;
         if (!completed && priv->upload.completed)
-            MP_TRACE(vo, "Submitted surface %" PRIu64 " in %.1f ms (conversion %.1f ms)\n",
+            MP_TRACE(vo, "Submitted surface %" PRIu64 " in %.1f ms (conversion %.1f ms) for PTS %.6f\n",
                      priv->upload.completed_serial, (mp_time_ns() - priv->upload_start) / 1e6,
-                     (priv->conversion_end - priv->upload_start) / 1e6);
+                     (priv->conversion_end - priv->upload_start) / 1e6, priv->upload_pts);
     }
     return;
 
@@ -617,7 +619,7 @@ static int preinit(struct vo *vo)
         goto failed;
     int64_t deadline = mp_time_ns() + MP_TIME_S_TO_NS(3);
     while (!priv->stopped && !priv->window && mp_time_ns() < deadline)
-        wait_events(vo, deadline);
+        pump_events(vo, deadline, false);
     if (priv->window && !priv->stopped)
         return 0;
 
@@ -675,7 +677,7 @@ static void flip_page(struct vo *vo)
         priv->dirty = true;
     }
     if (priv->can_drop)
-        wait_events(vo, 0);
+        pump_events(vo, 0, false);
     else
         drain_upload(vo);
 }
@@ -685,7 +687,7 @@ static int control(struct vo *vo, uint32_t request, void *data)
     struct priv *priv = vo->priv;
     switch (request) {
     case VOCTRL_CHECK_EVENTS:
-        wait_events(vo, 0);
+        pump_events(vo, 0, false);
         return VO_TRUE;
     case VOCTRL_RESET:
         gui_surface_upload_cancel(&priv->upload, true);

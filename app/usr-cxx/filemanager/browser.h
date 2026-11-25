@@ -25,6 +25,7 @@ std::string display(std::string_view raw);
 std::string join(const std::string &parent, std::string_view name);
 std::string parent(const std::string &path);
 const char *kind(const Entry &entry);
+bool mp4_name(std::string_view name);
 Entry inspect(const std::string &directory, const std::string &name);
 std::vector<std::size_t> order(const std::vector<Entry> &entries, std::string_view filter,
 			       bool hidden, Column column, bool descending);

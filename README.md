@@ -193,10 +193,10 @@ and let QEMU choose the host backend otherwise. Use `make run-gtk QEMU_AUDIO=non
 to mute host output while keeping the guest device, or `QEMU_AUDIO=pa` to select
 PulseAudio explicitly.
 
-Play a local MP4 from the desktop terminal with `mpv FILE.mp4`. The player
-accepts one regular file with H.264 video and optional AAC audio, not URLs or
-playlists. Use Space to pause, Left/Right to seek, and Q to quit. The images
-include Big Buck Bunny demos in `/usr/share/mario-tests/media`.
+Open a local MP4 in File Manager, or run `mpv FILE.mp4` from the desktop
+terminal. The player accepts one regular file with H.264 video and optional
+AAC audio, not URLs or playlists. Use Space to pause, Left/Right to seek, and Q
+to quit. The images include Big Buck Bunny demos in `/usr/share/mario-tests/media`.
 
 ## Debug
 

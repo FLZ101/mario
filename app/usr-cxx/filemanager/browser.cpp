@@ -119,6 +119,11 @@ const char *kind(const Entry &entry)
 	return S_ISREG(entry.info.st_mode) ? "File" : "Special";
 }
 
+bool mp4_name(std::string_view name)
+{
+	return name.size() >= 4 && fold(name.substr(name.size() - 4)) == ".mp4";
+}
+
 Entry inspect(const std::string &directory, const std::string &name)
 {
 	Entry entry{name, display(name)};
