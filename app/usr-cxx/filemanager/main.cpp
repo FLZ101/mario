@@ -34,6 +34,33 @@ namespace {
 
 constexpr const char *columns[] = {"Name", "Type", "Size", "Modified"};
 
+const char *action_label(files::CopyAction action)
+{
+	using files::CopyAction;
+	switch (action) {
+	case CopyAction::copy: return "Copy";
+	case CopyAction::move: return "Move";
+	case CopyAction::rename: return "Rename";
+	case CopyAction::mkdir: return "New Folder";
+	case CopyAction::trash: return "Trash";
+	case CopyAction::restore: return "Restore";
+	case CopyAction::recover: return "Recover Copy";
+	case CopyAction::remove: return "Permanent Delete";
+	}
+	return "File operation";
+}
+
+std::string describe_selection(const std::vector<std::string> &names)
+{
+	std::string summary = std::to_string(names.size()) + " selected item(s)";
+	const auto shown = std::min<std::size_t>(names.size(), 5);
+	for (std::size_t index = 0; index < shown; ++index)
+		summary += "\n  " + files::display(names[index]);
+	if (names.size() > shown)
+		summary += "\n  … and " + std::to_string(names.size() - shown) + " more";
+	return summary;
+}
+
 std::string modified(const files::Entry &entry)
 {
 	char buffer[32];
@@ -278,11 +305,17 @@ private:
 		menu_.add("&File/&New Tab", FL_CTRL + 't', invoke<&Browser::new_tab_here>, this);
 		menu_.add("&File/&Close Tab", FL_CTRL + 'w', invoke<&Browser::close_tab>, this);
 		menu_.add("&File/&Open Selected", FL_CTRL + FL_Enter, invoke<&Browser::open_selected>, this);
+		menu_.add("&File/New &Folder", FL_CTRL + FL_SHIFT + 'n', invoke<&Browser::new_folder>, this);
+		menu_.add("&File/&Rename", FL_F + 2, invoke<&Browser::rename_selection>, this);
 		menu_.add("&File/&Properties", FL_ALT + FL_Enter, invoke<&Browser::properties>, this);
 		menu_.add("&File/&Quit", FL_CTRL + 'q', invoke<&Browser::close>, this);
 		menu_.add("&Edit/&Copy", FL_CTRL + 'c', invoke<&Browser::copy_selection>, this);
+		menu_.add("&Edit/Cu&t", FL_CTRL + 'x', invoke<&Browser::cut_selection>, this);
 		menu_.add("&Edit/&Paste", FL_CTRL + 'v', invoke<&Browser::paste>, this);
-		menu_.add("&Edit/&Last Copy Summary", 0, invoke<&Browser::copy_summary>, this);
+		menu_.add("&Edit/Move to &Trash", FL_Delete, invoke<&Browser::trash_selection>, this);
+		menu_.add("&Edit/Delete &Permanently", FL_SHIFT + FL_Delete, invoke<&Browser::delete_selection>, this);
+		menu_.add("&Edit/Restore or Recover Selected", FL_CTRL + FL_SHIFT + 'r', invoke<&Browser::restore_selection>, this);
+		menu_.add("&Edit/&Last Job Summary", 0, invoke<&Browser::copy_summary>, this);
 		menu_.add("&View/&Refresh", FL_CTRL + 'r', invoke<&Browser::refresh>, this);
 		menu_.add("&View/Toggle &Hidden Files", FL_CTRL + 'h', invoke<&Browser::toggle_hidden>, this);
 		menu_.add("&View/Toggle &Split", FL_CTRL + '\\', invoke<&Browser::toggle_split>, this);
@@ -292,6 +325,7 @@ private:
 		menu_.add("&Go/&Forward", FL_ALT + FL_Right, invoke<&Browser::forward>, this);
 		menu_.add("&Go/&Up", FL_ALT + FL_Up, invoke<&Browser::up>, this);
 		menu_.add("&Go/&Home", FL_ALT + FL_Home, invoke<&Browser::home>, this);
+		menu_.add("&Go/Volume &Trash", FL_CTRL + FL_SHIFT + 't', invoke<&Browser::open_trash>, this);
 		menu_.add("&Bookmarks/&Add or Remove Current", FL_CTRL + 'd', invoke<&Browser::bookmark>, this);
 	}
 
@@ -509,36 +543,139 @@ private:
 		fill_sidebar();
 		update_active();
 	}
-	void copy_selection()
+	void set_clipboard(files::CopyAction action)
 	{
+		if (worker_.active())
+			return;
 		auto names = pane().listing.selection();
 		if (names.empty()) {
-			message("Select the files or folders to copy first");
+			message("Select the files or folders first");
 			return;
 		}
-		clipboard_ = {pane().path, {}, std::move(names)};
-		message(std::to_string(clipboard_.names.size()) + " selected for Copy");
+		clipboard_ = {pane().path, {}, std::move(names), action};
+		message(std::to_string(clipboard_.names.size()) + " selected for " + action_label(action));
 	}
+	void copy_selection() { set_clipboard(files::CopyAction::copy); }
+	void cut_selection() { set_clipboard(files::CopyAction::move); }
 	void paste()
 	{
 		if (worker_.active())
 			return;
 		if (clipboard_.names.empty()) {
-			message("Copy a selection before pasting");
+			message("Copy or cut a selection before pasting");
 			return;
 		}
-		copy_ = clipboard_;
-		copy_.destination = pane().path;
+		auto request = clipboard_;
+		request.destination = pane().path;
+		if (request.action == files::CopyAction::move) {
+			if (request.source == request.destination) {
+				message("Choose a different folder for the move");
+				return;
+			}
+			if (fl_choice("Move %s\n\nFrom: %s\nTo: %s", "Cancel", "&Move", nullptr,
+				      describe_selection(request.names).c_str(), files::display(request.source).c_str(),
+				      files::display(request.destination).c_str()) != 1)
+				return;
+		}
+		start_job(std::move(request));
+	}
+	void new_folder()
+	{
+		if (worker_.active())
+			return;
+		if (const auto *name = fl_input("Name of the new folder:", ""))
+			start_job({pane().path, {}, {name}, files::CopyAction::mkdir});
+	}
+	void rename_selection()
+	{
+		if (worker_.active())
+			return;
+		auto names = pane().listing.selection();
+		if (names.size() != 1) {
+			message("Select one item to rename");
+			return;
+		}
+		const auto label = files::display(names.front());
+		const auto *name = fl_input("New name for %s:", label == names.front() ? label.c_str() : "", label.c_str());
+		if (name && name != names.front())
+			start_job({pane().path, name, std::move(names), files::CopyAction::rename});
+	}
+	void trash_selection()
+	{
+		if (worker_.active())
+			return;
+		auto names = pane().listing.selection();
+		if (!names.empty())
+			start_job({pane().path, {}, std::move(names), files::CopyAction::trash});
+	}
+	void delete_selection()
+	{
+		if (worker_.active())
+			return;
+		auto names = pane().listing.selection();
+		if (!names.empty() && fl_choice("Permanently delete %s\n\nFrom: %s\nThis bypasses Trash.",
+						nullptr, "&Cancel", "&Delete Permanently", describe_selection(names).c_str(),
+						files::display(pane().path).c_str()) == 2)
+			start_job({pane().path, {}, std::move(names), files::CopyAction::remove});
+	}
+	void open_trash()
+	{
+		std::string path;
+		if (const int error = files::trash_directory(pane().path, path)) {
+			message(std::string("No accessible Trash on this volume: ") + std::strerror(error));
+			return;
+		}
+		navigate(path);
+	}
+	void restore_selection()
+	{
+		if (worker_.active())
+			return;
+		auto names = pane().listing.selection();
+		if (names.size() != 1) {
+			message("Select one slot in Volume Trash");
+			return;
+		}
+		files::TrashItem slot;
+		if (const int error = files::trash_item(pane().path, names.front(), slot)) {
+			message(std::string("Cannot read the Trash slot: ") + std::strerror(error));
+			return;
+		}
+		if (slot.ready) {
+			if (fl_choice("Restore to:\n%s", "Cancel", "&Restore", nullptr, files::display(slot.original).c_str()) == 1)
+				start_job({pane().path, slot.original, std::move(names), files::CopyAction::restore});
+			return;
+		}
+		if (!slot.has_payload) {
+			fl_message("Incomplete Trash slot: no saved item. Use Delete Permanently to discard the slot.");
+			return;
+		}
+		const auto *folder = fl_input("Incomplete Trash slot: %s\nThe copy may be partial. The slot will be kept.\n"
+			"Enter an existing folder for the recovered copy:", "",
+			files::display(slot.original.empty() ? names.front() : slot.original).c_str());
+		std::string path;
+		if (folder && *folder && resolve(absolute(folder), path)) {
+			const auto output = slot.original.empty() ? names.front() : slot.original.substr(slot.original.rfind('/') + 1);
+			if (fl_choice("Recover a copy to:\n%s", "Cancel", "&Recover Copy", nullptr,
+				      files::display(files::join(path, output)).c_str()) == 1)
+				start_job({pane().path, std::move(path), std::move(names), files::CopyAction::recover});
+		}
+	}
+	void start_job(files::CopyRequest request)
+	{
+		if (worker_.active())
+			return;
+		copy_ = std::move(request);
 		const int error = worker_.start(copy_);
 		if (error) {
-			message(std::string("Cannot start copy: ") + std::strerror(error));
+			message(std::string("Cannot start ") + action_label(copy_.action) + ": " + std::strerror(error));
 			return;
 		}
 		copy_results_.clear();
 		copy_cancelling_ = false;
 		status_.hide();
 		job_status_.show();
-		job_status_.copy_label("Copying...");
+		job_status_.copy_label(action_label(copy_.action));
 		cancel_.activate();
 		cancel_.show();
 		Fl::add_fd(worker_.fd(), copy_ready, this);
@@ -548,7 +685,7 @@ private:
 		skip_.hide();
 		keep_.hide();
 		if (worker_.decide(decision))
-			job_status_.copy_label("Copying...");
+			job_status_.copy_label(action_label(copy_.action));
 		else
 			cancel_copy();
 	}
@@ -561,7 +698,7 @@ private:
 		skip_.hide();
 		keep_.hide();
 		cancel_.deactivate();
-		job_status_.copy_label("Cancelling copy and cleaning up...");
+		job_status_.copy_label("Cancellation requested; finishing safe cleanup...");
 	}
 	static void copy_ready(int fd, void *data)
 	{
@@ -589,7 +726,7 @@ private:
 				browser.skip_.show();
 				browser.keep_.show();
 			} else {
-				const auto text = "Copying item " + std::to_string(event.item + 1) + " of " +
+				const auto text = std::string(action_label(browser.copy_.action)) + ": item " + std::to_string(event.item + 1) + " of " +
 					std::to_string(browser.copy_.names.size()) + " | " + std::to_string(event.bytes) + " bytes written";
 				browser.job_status_.copy_label(text.c_str());
 			}
@@ -597,35 +734,52 @@ private:
 	}
 	void finish_copy(bool success)
 	{
-		constexpr const char *labels[] = {"copied", "skipped", "failed", "cancelled", "unsupported"};
+		constexpr const char *labels[] = {"completed", "skipped", "failed", "cancelled", "unsupported"};
 		std::array<unsigned, std::size(labels)> counts{};
 		std::string details;
-		unsigned issues = 0, partial = 0;
+		unsigned issues = 0, partial = 0, retained = 0;
+		std::vector<std::string> pending_cut;
 		for (std::size_t index = 0; index < std::min(copy_results_.size(), copy_.names.size()); ++index) {
 			const auto result = copy_results_[index];
 			const auto state = static_cast<std::size_t>(result.state);
 			++counts[state];
 			partial += result.partial;
+			retained += result.source_remaining > 0;
+			if (copy_.action == files::CopyAction::move && result.state != files::CopyState::copied)
+				pending_cut.push_back(copy_.names[index]);
 			if (result.state != files::CopyState::copied && issues++ < 6) {
 				details += "\n" + files::display(copy_.names[index]) + ": " + labels[state];
 				if (result.error)
 					details += std::string(" — ") + std::strerror(result.error);
+				if (result.destination_complete)
+					details += " (completed destination kept)";
+				if (result.source_remaining)
+					details += "\n  Stopped at " + files::display(result.first_remaining.data()) + "; " +
+						std::to_string(result.source_remaining) + " recorded source entries not removed";
 				if (result.partial)
-					details += " (check destination for partial output)";
+					details += " (check for partial output or an incomplete Trash slot)";
 			}
 		}
-		std::string summary = "Copy: " + std::to_string(counts[0]) + " copied";
+		if (copy_.action == files::CopyAction::move) {
+			pending_cut.insert(pending_cut.end(), copy_.names.begin() + copy_results_.size(), copy_.names.end());
+			clipboard_.names = std::move(pending_cut);
+		}
+		std::string summary = std::string(action_label(copy_.action)) + ": " + std::to_string(counts[0]) +
+			(copy_.action == files::CopyAction::copy ? " copied" : " completed");
 		for (std::size_t state = 1; state < counts.size(); ++state)
 			if (counts[state])
 				summary += ", " + std::to_string(counts[state]) + " " + labels[state];
 		if (!success || copy_results_.size() != copy_.names.size())
-			summary += " | worker stopped unexpectedly; check destination";
+			summary += " | worker stopped unexpectedly; check source and destination";
+		else if (retained)
+			summary += " | source entries remain";
 		else if (partial)
 			summary += " | partial output may remain";
 		last_copy_ = summary + details;
 		if (issues > 6)
 			last_copy_ += "\nAnd " + std::to_string(issues - 6) + " more.";
-		last_copy_ += "\n\nCopy preserves file data and supported symlinks, not permissions, timestamps, or hard links.";
+		if (copy_.action != files::CopyAction::mkdir && copy_.action != files::CopyAction::remove)
+			last_copy_ += "\n\nCopy-based operations preserve file data and supported symlinks, not permissions, timestamps, or hard links.";
 		job_status_.hide();
 		skip_.hide();
 		keep_.hide();
@@ -634,7 +788,8 @@ private:
 		cache_.clear();
 		for (int index = 0; index < tabs_.children(); ++index)
 			for (auto *target : static_cast<Tab *>(tabs_.child(index))->panes)
-				if (target->path == copy_.destination || (target->path.size() > copy_.destination.size() &&
+				if (copy_.action != files::CopyAction::copy || target->path == copy_.destination ||
+				    (target->path.size() > copy_.destination.size() &&
 				    target->path.compare(0, copy_.destination.size(), copy_.destination) == 0 &&
 				    (copy_.destination == "/" || target->path[copy_.destination.size()] == '/')))
 					queue_scan(*target);
@@ -646,7 +801,7 @@ private:
 	}
 	void copy_summary()
 	{
-		fl_message("%s", last_copy_.empty() ? "No copy job has finished yet." : last_copy_.c_str());
+		fl_message("%s", last_copy_.empty() ? "No file job has finished yet." : last_copy_.c_str());
 	}
 
 	void fill_sidebar()
@@ -807,7 +962,20 @@ private:
 	static void show_preview(void *data)
 	{
 		auto &browser = *static_cast<Browser *>(data);
-		browser.preview_ = browser.cache_.read(browser.selected_path());
+		const auto selected = browser.selected_path();
+		const auto &directory = browser.pane().path;
+		if (directory.substr(directory.rfind('/') + 1) == ".mario-trash") {
+			files::TrashItem slot;
+			if (!files::trash_item(directory, selected.substr(selected.rfind('/') + 1), slot)) {
+				std::string text = slot.ready ? "Ready to restore" : slot.has_payload ?
+					"Incomplete: recover a copy" : "Incomplete: no saved item";
+				if (!slot.original.empty())
+					text += "\n\nOriginal path:\n" + files::display(slot.original);
+				browser.preview_text_.value(text.c_str());
+				return;
+			}
+		}
+		browser.preview_ = browser.cache_.read(selected);
 		browser.preview_text_.value(browser.preview_.text.c_str());
 		if (!browser.preview_.rgb.empty()) {
 			browser.image_ = std::make_unique<Fl_RGB_Image>(browser.preview_.rgb.data(),
@@ -871,7 +1039,7 @@ private:
 		}
 		if (close_after_copy_)
 			return;
-		const int choice = fl_choice("A copy job is still in progress.", "Keep Open", "Wait and Close", "&Cancel and Close");
+		const int choice = fl_choice("A file job is still in progress.", "Keep Open", "Wait and Close", "&Cancel and Close");
 		if (!choice)
 			return;
 		if (!worker_.active()) {

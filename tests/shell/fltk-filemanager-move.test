@@ -1,0 +1,23 @@
+TIMEOUT: 90
+
+RUN: export PATH=/bin/toybox:/bin
+RUN: /usr/bin/test/fltk-filemanager-move.exe interrupted
+CHECK: filemanager move: interrupted passed
+RUN: /usr/bin/test/fltk-filemanager-move.exe trash /
+CHECK: filemanager move: trash / passed
+
+RUN: mount -t ext2 /dev/hdc3 /mnt && mkdir /mnt/fm-ext2 && /usr/bin/test/fltk-filemanager-move.exe moves /mnt/fm-ext2
+CHECK: filemanager move: moves /mnt/fm-ext2 passed
+RUN: /usr/bin/test/fltk-filemanager-move.exe trash /mnt
+CHECK: filemanager move: trash /mnt passed
+RUN: printf 'read-only source' > /mnt/original && umount /mnt && mount -t ext2 -o ro /dev/hdc3 /mnt && /usr/bin/test/fltk-filemanager-move.exe protected /mnt
+CHECK: filemanager move: protected /mnt passed
+RUN: umount /mnt; echo unmount:$?
+CHECK: unmount:0
+
+RUN: mount -t vfat /dev/hdc2 /mnt && mkdir /mnt/fm-vfat && /usr/bin/test/fltk-filemanager-move.exe moves /mnt/fm-vfat
+CHECK: filemanager move: moves /mnt/fm-vfat passed
+RUN: /usr/bin/test/fltk-filemanager-move.exe trash /mnt
+CHECK: filemanager move: trash /mnt passed
+RUN: umount /mnt; echo unmount:$?
+CHECK: unmount:0

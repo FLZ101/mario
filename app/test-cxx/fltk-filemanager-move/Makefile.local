@@ -1,0 +1,12 @@
+MODEL := $(ROOT)/usr-cxx/filemanager
+MODEL_OBJECTS := $(addprefix $(BUILD_DIR)/,copy.o mutations.o)
+CXXFLAGS += -I$(MODEL)
+LDFLAGS += $(MODEL_OBJECTS)
+
+$(EXE): $(MODEL_OBJECTS)
+
+$(MODEL_OBJECTS): $(BUILD_DIR)/%.o: $(MODEL)/%.cpp $(RULES) $(TOOLCHAIN_STAMP)
+	mkdir -p "$(@D)"
+	cd "$(BUILD_DIR)" && $(CXX) $(CXXFLAGS) -o "$@" "$<"
+
+-include $(MODEL_OBJECTS:.o=.d)

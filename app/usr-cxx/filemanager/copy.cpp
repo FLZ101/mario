@@ -1,50 +1,12 @@
-#include "copy.h"
+#include "copy_internal.h"
 
 #include <algorithm>
-#include <array>
 #include <cerrno>
 #include <dirent.h>
-#include <fcntl.h>
 #include <memory>
-#include <sys/stat.h>
 #include <sys/statvfs.h>
-#include <unistd.h>
 
-namespace files {
-namespace {
-
-constexpr std::size_t depth_limit = 48;
-constexpr std::size_t journal_limit = 16384;
-constexpr std::size_t path_limit = 2047;
-constexpr int directory_flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
-constexpr std::size_t root = journal_limit;
-
-class Fd {
-public:
-	explicit Fd(int fd = -1) : fd_(fd) {}
-	~Fd() { if (fd_ >= 0) close(fd_); }
-	Fd(const Fd &) = delete;
-	Fd &operator=(const Fd &) = delete;
-	Fd(Fd &&other) noexcept : fd_(other.release()) {}
-	Fd &operator=(Fd &&other) noexcept
-	{
-		if (fd_ >= 0)
-			close(fd_);
-		fd_ = other.release();
-		return *this;
-	}
-	int get() const { return fd_; }
-	explicit operator bool() const { return fd_ >= 0; }
-	int release()
-	{
-		const int fd = fd_;
-		fd_ = -1;
-		return fd;
-	}
-
-private:
-	int fd_;
-};
+namespace files::detail {
 
 bool component(std::string_view name)
 {
@@ -78,28 +40,11 @@ Fd open_directory(std::string_view path)
 	return directory;
 }
 
-struct Identity {
-	dev_t device = 0;
-	ino_t inode = 0;
-	mode_t type = 0;
-	explicit Identity(const struct stat &info = {}) : device(info.st_dev), inode(info.st_ino),
-		type(info.st_mode & S_IFMT) {}
-	bool operator==(const Identity &other) const
-	{
-		return device == other.device && inode == other.inode && type == other.type;
-	}
-};
-
 bool matches(int fd, const Identity &expected)
 {
 	struct stat info{};
 	return fstat(fd, &info) == 0 && Identity(info) == expected;
 }
-
-CopyResult failure(int error) { return {CopyState::failed, error}; }
-constexpr CopyResult copied{CopyState::copied};
-constexpr CopyResult skipped{CopyState::skipped};
-constexpr CopyResult cancelled{CopyState::cancelled};
 
 int check_ancestors(int fd, const Identity &source)
 {
@@ -122,6 +67,45 @@ int check_ancestors(int fd, const Identity &source)
 	return ELOOP;
 }
 
+ssize_t read_chunk(int fd, char *data, std::size_t size)
+{
+	ssize_t count;
+	do {
+		count = read(fd, data, size);
+	} while (count < 0 && errno == EINTR);
+	return count;
+}
+
+bool read_exact(int fd, char *data, std::size_t size)
+{
+	while (size) {
+		const auto count = read_chunk(fd, data, size);
+		if (count <= 0)
+			return false;
+		data += count;
+		size -= count;
+	}
+	return true;
+}
+
+int erase(int parent, const std::string &name, mode_t type, const Fd &cwd)
+{
+	if (type != S_IFDIR)
+		return unlinkat(parent, name.c_str(), 0) < 0 ? errno : 0;
+	if (!cwd)
+		return EBADF;
+	if (fchdir(parent) < 0)
+		return errno;
+	const int error = rmdir(name.c_str()) < 0 ? errno : 0;
+	return fchdir(cwd.get()) < 0 ? errno : error;
+}
+
+namespace {
+
+constexpr std::size_t depth_limit = 48;
+constexpr std::size_t journal_limit = 16384;
+constexpr std::size_t root = journal_limit;
+
 std::string alternate(std::string_view original, unsigned number, std::size_t max_size)
 {
 	const auto dot = original.rfind('.');
@@ -141,28 +125,55 @@ std::string alternate(std::string_view original, unsigned number, std::size_t ma
 
 struct Created {
 	std::size_t parent;
-	std::string name;
+	std::string name, original;
 	Identity identity;
+	struct stat before;
+	std::size_t end = 0, children = 0;
 };
+
+bool unchanged(const struct stat &before, const struct stat &after, bool removing = false)
+{
+	return Identity(before) == Identity(after) &&
+		((removing && S_ISDIR(before.st_mode)) ||
+		 (before.st_size == after.st_size && before.st_mtim.tv_sec == after.st_mtim.tv_sec &&
+		  before.st_mtim.tv_nsec == after.st_mtim.tv_nsec &&
+		  (removing || (before.st_ctim.tv_sec == after.st_ctim.tv_sec &&
+				before.st_ctim.tv_nsec == after.st_ctim.tv_nsec))));
+}
 
 class CopyJob {
 public:
-	CopyJob(CopyObserver &observer, int destination, dev_t source_device, Identity destination_id)
-		: observer_(observer), destination_(destination), source_device_(source_device),
+	CopyJob(CopyObserver &observer, int source, int destination, dev_t source_device, Identity destination_id)
+		: observer_(observer), source_(source), destination_(destination), source_device_(source_device),
 		  destination_id_(destination_id) {}
 
-	CopyResult item(std::size_t index, int source, const std::string &name)
+	CopyResult item(std::size_t index, const std::string &name, const std::string &new_name,
+			bool remove_source, bool offer_conflict, const std::function<int()> &before_remove)
 	{
 		item_ = index;
-		auto result = node(source, name, destination_, root, 0);
-		if (result.state != CopyState::copied && !rollback())
+		offer_conflict_ = offer_conflict;
+		if (!component(new_name))
+			return failure(EINVAL);
+		auto result = node(source_, name, destination_, root, 0, &new_name);
+		if (result.state == CopyState::copied && remove_source) {
+			result = verify(0, source_, destination_);
+			if (result.state == CopyState::copied) {
+				if (observer_.cancelled())
+					result = cancelled;
+				else if (const int error = before_remove ? before_remove() : 0)
+					result = failure(error);
+				else
+					result = remove();
+			}
+		}
+		if (result.state != CopyState::copied && !result.source_remaining && destination_ >= 0 && !rollback())
 			result.partial = true;
-		journal_.clear();
 		return result;
 	}
 
 private:
-	CopyResult node(int source, const std::string &name, int destination, std::size_t parent, std::size_t depth)
+	CopyResult node(int source, const std::string &name, int destination, std::size_t parent, std::size_t depth,
+			const std::string *new_name = nullptr)
 	{
 		if (observer_.cancelled())
 			return cancelled;
@@ -176,6 +187,8 @@ private:
 		if (before.st_dev != source_device_)
 			return {CopyState::unsupported, EXDEV};
 		const bool directory = S_ISDIR(before.st_mode), link = S_ISLNK(before.st_mode);
+		if (destination < 0)
+			return record(source, name, before, parent, depth);
 		if (!directory && !link && !S_ISREG(before.st_mode))
 			return {CopyState::unsupported, ENOTSUP};
 		const Identity original(before);
@@ -208,7 +221,8 @@ private:
 			}
 		}
 
-		std::string output_name = name;
+		const auto &requested = new_name ? *new_name : name;
+		std::string output_name = requested;
 		Fd output;
 		unsigned number = 0;
 		for (;;) {
@@ -234,16 +248,18 @@ private:
 				if (fstatvfs(destination, &volume) == 0 && volume.f_namemax >= 12 &&
 				    volume.f_namemax < output_name.size()) {
 					max_name_ = volume.f_namemax;
-					output_name = alternate(name, number, max_name_);
+					output_name = alternate(requested, number, max_name_);
 					continue;
 				}
 			}
 			if (link && error == ENAMETOOLONG)
 				return {CopyState::unsupported, ENAMETOOLONG};
-			if (error != EEXIST)
+			if (error != EEXIST || !offer_conflict_)
 				return failure(error);
+			if (parent != root)
+				return skipped;
 			if (!number) {
-				const auto decision = observer_.conflict(item_, name);
+				const auto decision = observer_.conflict(item_, requested);
 				if (decision == CopyDecision::cancel)
 					return cancelled;
 				if (decision == CopyDecision::skip)
@@ -251,7 +267,7 @@ private:
 			}
 			if (++number > 999)
 				return failure(EEXIST);
-			output_name = alternate(name, number, max_name_);
+			output_name = alternate(requested, number, max_name_);
 		}
 
 		struct stat created{};
@@ -261,18 +277,39 @@ private:
 		    (created.st_mode & S_IFMT) != original.type)
 			return {CopyState::failed, status < 0 ? errno : ESTALE, true};
 		const auto slot = journal_.size();
-		journal_.push_back({parent, output_name, Identity(created)});
+		journal_.push_back({parent, output_name, name, Identity(created), before, slot + 1});
+		if (parent != root)
+			++journal_[parent].children;
 		if (observer_.cancelled())
 			return cancelled;
 		if (directory) {
 			output = Fd(openat(destination, output_name.c_str(), directory_flags));
 			if (!output || !matches(output.get(), journal_[slot].identity))
 				return failure(ESTALE);
-			return children(input, output.get(), slot, depth + 1);
+			const auto result = children(input, output.get(), slot, depth + 1);
+			journal_[slot].end = journal_.size();
+			return result;
 		}
 		if (link)
 			return copied;
 		return data(input.get(), output, before);
+	}
+
+	CopyResult record(int parent_fd, const std::string &name, const struct stat &before, std::size_t parent,
+			  std::size_t depth)
+	{
+		const auto slot = journal_.size();
+		journal_.push_back({parent, {}, name, Identity{}, before, slot + 1});
+		if (parent != root)
+			++journal_[parent].children;
+		if (!S_ISDIR(before.st_mode))
+			return copied;
+		Fd input(openat(parent_fd, name.c_str(), directory_flags));
+		if (!input || !matches(input.get(), Identity(before)))
+			return failure(ESTALE);
+		const auto result = children(input, -1, slot, depth + 1);
+		journal_[slot].end = journal_.size();
+		return result;
 	}
 
 	CopyResult children(Fd &input, int destination, std::size_t parent, std::size_t depth)
@@ -336,6 +373,144 @@ private:
 		return copied;
 	}
 
+	CopyResult verify(std::size_t slot, int source, int destination)
+	{
+		if (observer_.cancelled())
+			return cancelled;
+		const auto &entry = journal_[slot];
+		struct stat current{}, output{};
+		if (fstatat(source, entry.original.c_str(), &current, AT_SYMLINK_NOFOLLOW) < 0 ||
+		    !unchanged(entry.before, current))
+			return failure(ESTALE);
+		if (destination >= 0 && (fstatat(destination, entry.name.c_str(), &output, AT_SYMLINK_NOFOLLOW) < 0 ||
+		    !(Identity(output) == entry.identity)))
+			return failure(ESTALE);
+		if (S_ISDIR(current.st_mode)) {
+			Fd from(openat(source, entry.original.c_str(), directory_flags));
+			if (!from || !matches(from.get(), Identity(current)))
+				return failure(ESTALE);
+			Fd to;
+			if (destination >= 0) {
+				to = Fd(openat(destination, entry.name.c_str(), directory_flags));
+				if (!to || !matches(to.get(), entry.identity))
+					return failure(ESTALE);
+			}
+			for (auto child = slot + 1; child < entry.end; child = journal_[child].end) {
+				const auto result = verify(child, from.get(), to.get());
+				if (result.state != CopyState::copied)
+					return result;
+			}
+			const auto result = count_children(from, entry.children);
+			if (result.state != CopyState::copied || !to)
+				return result;
+			return count_children(to, entry.children);
+		}
+		if (destination < 0)
+			return copied;
+		if (S_ISLNK(current.st_mode)) {
+			const auto first = readlinkat(source, entry.original.c_str(), buffer_.data(), buffer_.size());
+			const auto second = readlinkat(destination, entry.name.c_str(), compare_.data(), compare_.size());
+			struct stat after{}, final_output{};
+			return first >= 0 && static_cast<std::size_t>(first) < buffer_.size() && first == second &&
+			       std::equal(buffer_.data(), buffer_.data() + first, compare_.data()) &&
+			       fstatat(source, entry.original.c_str(), &after, AT_SYMLINK_NOFOLLOW) == 0 && unchanged(current, after) &&
+			       fstatat(destination, entry.name.c_str(), &final_output, AT_SYMLINK_NOFOLLOW) == 0 &&
+			       unchanged(output, final_output) ? copied : failure(ESTALE);
+		}
+		if (current.st_size != output.st_size)
+			return failure(ESTALE);
+		constexpr int flags = O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC;
+		Fd from(openat(source, entry.original.c_str(), flags));
+		Fd to(openat(destination, entry.name.c_str(), flags));
+		if (!from || !to || !matches(from.get(), Identity(current)) || !matches(to.get(), entry.identity))
+			return failure(ESTALE);
+		for (off_t left = current.st_size; left > 0;) {
+			if (observer_.cancelled())
+				return cancelled;
+			const auto size = std::min<off_t>(left, buffer_.size());
+			if (!read_exact(from.get(), buffer_.data(), size) || !read_exact(to.get(), compare_.data(), size) ||
+			    !std::equal(buffer_.data(), buffer_.data() + size, compare_.data()))
+				return failure(ESTALE);
+			left -= size;
+		}
+		struct stat after{}, final_output{};
+		return fstat(from.get(), &after) == 0 && unchanged(current, after) &&
+		       fstat(to.get(), &final_output) == 0 && unchanged(output, final_output) ? copied : failure(ESTALE);
+	}
+
+	CopyResult count_children(Fd &directory, std::size_t expected)
+	{
+		std::unique_ptr<DIR, decltype(&closedir)> entries(fdopendir(directory.get()), closedir);
+		if (!entries)
+			return failure(errno);
+		directory.release();
+		while (!observer_.cancelled()) {
+			errno = 0;
+			const auto *entry = readdir(entries.get());
+			if (!entry)
+				return errno ? failure(errno) : expected ? failure(ESTALE) : copied;
+			const std::string_view name(entry->d_name);
+			if (name != "." && name != "..") {
+				if (!expected)
+					return failure(ESTALE);
+				--expected;
+			}
+		}
+		return cancelled;
+	}
+
+	int open_parent(const Created &node, bool destination, Fd &current, std::string *path = nullptr)
+	{
+		std::array<std::size_t, depth_limit> chain;
+		std::size_t depth = 0;
+		for (auto slot = node.parent; slot != root; slot = journal_[slot].parent)
+			chain[depth++] = slot;
+		if (path)
+			for (auto index = depth; index > 0; --index)
+				*path += journal_[chain[index - 1]].original + '/';
+		int parent = destination ? destination_ : source_;
+		while (depth) {
+			const auto &part = journal_[chain[--depth]];
+			const auto &name = destination ? part.name : part.original;
+			Fd next(openat(parent, name.c_str(), directory_flags));
+			if (!next || !matches(next.get(), destination ? part.identity : Identity(part.before)))
+				return -1;
+			current = std::move(next);
+			parent = current.get();
+		}
+		return parent;
+	}
+
+	CopyResult remove()
+	{
+		Fd cwd(open(".", directory_flags));
+		for (std::size_t remaining = journal_.size(); remaining > 0; --remaining) {
+			const auto &entry = journal_[remaining - 1];
+			Fd current;
+			const int parent = open_parent(entry, false, current);
+			struct stat info{};
+			int error = ESTALE;
+			if (parent >= 0 && fstatat(parent, entry.original.c_str(), &info, AT_SYMLINK_NOFOLLOW) == 0 &&
+			    unchanged(entry.before, info, true))
+				error = erase(parent, entry.original, info.st_mode & S_IFMT, cwd);
+			if (error) {
+				auto result = failure(error);
+				result.destination_complete = destination_ >= 0;
+				result.source_remaining = remaining;
+				std::string path;
+				Fd ignored;
+				open_parent(entry, false, ignored, &path);
+				path += entry.original;
+				const auto cap = result.first_remaining.size() - 1;
+				if (path.size() > cap)
+					path = ".../" + path.substr(path.size() - (cap - 4));
+				std::copy(path.begin(), path.end(), result.first_remaining.begin());
+				return result;
+			}
+		}
+		return copied;
+	}
+
 	bool rollback()
 	{
 		if (journal_.empty())
@@ -343,24 +518,9 @@ private:
 		Fd cwd(open(".", directory_flags));
 		bool complete = true;
 		for (auto node = journal_.rbegin(); node != journal_.rend(); ++node) {
-			std::array<std::size_t, depth_limit> chain;
-			std::size_t depth = 0;
-			for (auto slot = node->parent; slot != root; slot = journal_[slot].parent)
-				chain[depth++] = slot;
-			int parent = destination_;
 			Fd current;
-			bool valid = true;
-			while (depth) {
-				const auto &part = journal_[chain[--depth]];
-				Fd next(openat(parent, part.name.c_str(), directory_flags));
-				if (!next || !matches(next.get(), part.identity)) {
-					valid = false;
-					break;
-				}
-				current = std::move(next);
-				parent = current.get();
-			}
-			if (!valid) {
+			const int parent = open_parent(*node, true, current);
+			if (parent < 0) {
 				complete = false;
 				continue;
 			}
@@ -373,54 +533,33 @@ private:
 				complete = false;
 				continue;
 			}
-			if (node->identity.type == S_IFDIR) {
-				if (!cwd || fchdir(parent) < 0) {
-					complete = false;
-					continue;
-				}
-				complete &= rmdir(node->name.c_str()) == 0;
-				if (fchdir(cwd.get()) < 0)
-					return false;
-			} else
-				complete &= unlinkat(parent, node->name.c_str(), 0) == 0;
+			complete &= erase(parent, node->name, node->identity.type, cwd) == 0;
 		}
 		return complete;
 	}
 
 	CopyObserver &observer_;
-	int destination_;
+	int source_, destination_;
 	dev_t source_device_;
 	Identity destination_id_;
 	std::size_t max_name_ = copy_name_limit;
 	std::size_t item_ = 0;
 	uint64_t bytes_ = 0;
-	std::array<char, copy_chunk> buffer_;
+	bool offer_conflict_ = true;
+	std::array<char, copy_chunk> buffer_, compare_;
 	std::vector<Created> journal_;
 };
 
 }
 
-void copy_items(const CopyRequest &request, CopyObserver &observer)
+CopyResult TreeJob::run(CopyObserver &observer, std::size_t index, const std::string &name,
+		       const std::string &output, const std::function<int()> &before_remove) const
 {
-	if (request.names.empty() || request.names.size() > copy_selection_limit)
-		return;
-	Fd source = open_directory(request.source);
-	int error = source ? 0 : errno;
-	Fd destination = open_directory(request.destination);
-	if (!error && !destination)
-		error = errno;
 	struct stat from{}, to{};
-	if (!error && (fstat(source.get(), &from) < 0 || fstat(destination.get(), &to) < 0))
-		error = errno;
-	CopyJob job(observer, destination.get(), from.st_dev, Identity(to));
-	bool stopping = false;
-	for (std::size_t index = 0; index < request.names.size(); ++index) {
-		stopping = stopping || observer.cancelled();
-		const auto outcome = stopping ? cancelled : error ? failure(error) :
-			job.item(index, source.get(), request.names[index]);
-		stopping |= outcome.state == CopyState::cancelled;
-		observer.result(index, outcome);
-	}
+	if (fstat(source, &from) < 0 || (destination >= 0 && fstat(destination, &to) < 0))
+		return failure(errno);
+	return CopyJob(observer, source, destination, from.st_dev, Identity(to))
+		.item(index, name, output, remove_source, offer_conflict, before_remove);
 }
 
 }

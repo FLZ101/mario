@@ -1,5 +1,5 @@
 MODEL := $(ROOT)/usr-cxx/filemanager
-MODEL_OBJECTS := $(addprefix $(BUILD_DIR)/,copy.o copy_worker.o)
+MODEL_OBJECTS := $(addprefix $(BUILD_DIR)/,copy.o copy_worker.o mutations.o)
 CXXFLAGS += -I$(MODEL)
 LDFLAGS += $(MODEL_OBJECTS)
 

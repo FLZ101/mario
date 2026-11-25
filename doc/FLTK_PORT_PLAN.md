@@ -227,7 +227,7 @@ conflict, and verifies output and worker teardown over serial.
 
 Use **Edit → Copy** (`Ctrl+C`) and **Edit → Paste** (`Ctrl+V`) with a pane
 active. The status strip reports progress, offers Skip or Keep Both for a
-conflict, and lets you cancel. **Edit → Last Copy Summary** lists failures
+conflict, and lets you cancel. **Edit → Last Job Summary** lists failures
 and unsupported items. Copy preserves file bytes and supported symlinks,
 not metadata or hard-link relationships. Directories never merge. The
 guest supports relative `fstatat` through `statx`; rollback uses
@@ -267,6 +267,29 @@ skipped copies, plus rename conflicts, trash/restore, and protected paths.
 `tests/gui/fltk-filemanager-mutations.test` trashes and restores an item and
 declines a permanent-delete confirmation; serial checks verify paths and
 bytes after each operation.
+
+Use **File → New Folder** (`Ctrl+Shift+N`) or **Rename** (`F2`), or cut
+with `Ctrl+X` and paste into a different folder with `Ctrl+V`. Mario uses
+copy-then-remove, even on one volume: before removing anything, the worker
+rechecks the recorded trees and compares file bytes and symlink targets.
+Cancel before removal to retain the current source item. Once removal
+starts, the worker finishes that item or stops at its first error, keeps the
+complete destination, and reports where it stopped and how many recorded
+entries it did not remove. These are not atomic operations against crashes
+or concurrent external filesystem changes.
+
+`Delete` moves selected entries to `.mario-trash` at the root of their
+volume. The File Manager checks the store's owner marker and never falls
+back to permanent deletion if it cannot use the store. **Go → Volume Trash**
+(`Ctrl+Shift+T`) opens it. Select a slot and use **Edit → Restore or Recover
+Selected** (`Ctrl+Shift+R`) to see its original path. Ready slots restore
+without overwriting. Incomplete slots may contain partial data; recover a
+copy into a folder you choose and compare it with the original or completed
+destination before discarding anything. Restoration clears the ready marker
+before removing the saved payload, so an interrupted restore cannot offer
+its remaining payload as a complete item. `Shift+Delete` permanently
+deletes a selection only after confirmation; use it on a Trash slot to
+discard it, including incomplete slots with no payload.
 
 ### F9 — System Monitor: telemetry model
 

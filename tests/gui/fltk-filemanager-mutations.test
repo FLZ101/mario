@@ -1,0 +1,55 @@
+GUI-VISUAL-TEST:
+TIMEOUT: 12
+SERIAL: mkdir -p /tmp/fm-trash-ui/home /tmp/fm-trash-ui/files; printf 'round trip\n' >/tmp/fm-trash-ui/files/note.txt; printf 'test removal\n' >/tmp/fm-trash-ui/files/remove.txt; /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: for attempt in 1 2 3 4 5; do grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log && break; sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: (HOME=/tmp/fm-trash-ui/home /usr/bin/test/filemanager.exe /tmp/fm-trash-ui/files; printf '%d\n' "$?" >/tmp/filemanager.exit) >/tmp/filemanager.log 2>&1 &
+GUI-CHECK-RECT: 410 272 6 6 246 248 251
+GUI-MOUSE-POSITION: 315,256
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 445 250 6 6 188 217 251
+GUI-SEND-KEY: delete
+SERIAL: for attempt in 1 2 3 4 5; do test ! -f /tmp/fm-trash-ui/files/note.txt && ! pgrep -x fm-copy-worker && break; sleep 1; done; test ! -e /tmp/fm-trash-ui/files/note.txt && test "$(cat /.mario-trash/item-*/item)" = 'round trip' && test "$(cat /.mario-trash/item-*/original)" = /tmp/fm-trash-ui/files/note.txt && printf 'filemanager mutations: %s\n' 'original moved to volume trash'
+SERIAL-CHECK: filemanager mutations: original moved to volume trash
+GUI-SEND-KEYS: ctrl,shift,t
+GUI-CHECK-RECT: 410 272 6 6 246 248 251
+GUI-MOUSE-POSITION: 315,256
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 445 250 6 6 188 217 251
+GUI-SEND-KEYS: ctrl,shift,r
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: alt,r
+SERIAL: for attempt in 1 2 3 4 5; do test -f /tmp/fm-trash-ui/files/note.txt && ! pgrep -x fm-copy-worker && break; sleep 1; done; test "$(cat /tmp/fm-trash-ui/files/note.txt)" = 'round trip' && test ! -e /.mario-trash/item-*/item && printf 'filemanager mutations: %s\n' 'original restored and slot removed'
+SERIAL-CHECK: filemanager mutations: original restored and slot removed
+GUI-MOUSE-POSITION: 79,122
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 410 272 6 6 246 248 251
+GUI-MOUSE-POSITION: 315,256
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 410 250 6 6 188 217 251
+GUI-SEND-KEYS: shift,delete
+GUI-WAIT-FRAME:
+GUI-SEND-KEY: ret
+SERIAL: test "$(cat /tmp/fm-trash-ui/files/note.txt)" = 'round trip' && test ! -e /.mario-trash/item-*/item && printf 'filemanager mutations: %s\n' 'permanent delete declined'
+SERIAL-CHECK: filemanager mutations: permanent delete declined
+GUI-MOUSE-POSITION: 315,278
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 410 272 6 6 188 217 251
+GUI-SEND-KEYS: shift,delete
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: alt,d
+SERIAL: for attempt in 1 2 3 4 5; do test ! -e /tmp/fm-trash-ui/files/remove.txt && ! pgrep -x fm-copy-worker && break; sleep 1; done; test ! -e /tmp/fm-trash-ui/files/remove.txt && test "$(cat /tmp/fm-trash-ui/files/note.txt)" = 'round trip' && test ! -e /.mario-trash/item-*/item && printf 'filemanager mutations: %s\n' 'confirmed delete bypassed trash'
+SERIAL-CHECK: filemanager mutations: confirmed delete bypassed trash
+GUI-SEND-KEYS: ctrl,q
+SERIAL-WAIT-FILE: /tmp/filemanager.exit
+SERIAL: test "$(cat /tmp/filemanager.exit)" = 0 && ! pgrep -x fm-copy-worker && printf 'filemanager mutations: %s\n' 'closed with no helper'
+SERIAL-CHECK: filemanager mutations: closed with no helper
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid)
+EXIT:
