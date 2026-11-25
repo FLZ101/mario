@@ -112,7 +112,9 @@ class DiskImageTests(unittest.TestCase):
             patch.object(mkdisk, "_attach_loop", return_value="/dev/loop-test"),
             patch.object(mkdisk, "_wait_for_partition_devices"),
             patch.object(mkdisk, "_make_filesystem"),
-            patch.object(mkdisk, "_populate_filesystem", side_effect=populate_filesystem),
+            patch.object(
+                mkdisk, "_populate_filesystem", side_effect=populate_filesystem
+            ),
             patch.object(mkdisk, "_unmount", side_effect=unmount),
         ):
             mkdisk.build(disk)

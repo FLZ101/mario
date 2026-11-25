@@ -138,9 +138,7 @@ class FixtureSkipTests(unittest.TestCase):
                 self.assertIn("PASS: fixture.test", output)
 
     def test_gui_skip_does_not_require_disk_images(self):
-        self.fixture.write_text(
-            "SKIP: tracked regression\nEXIT:\n", encoding="utf-8"
-        )
+        self.fixture.write_text("SKIP: tracked regression\nEXIT:\n", encoding="utf-8")
         with patch("sys.argv", ["runner", str(self.fixture)]), patch.object(
             lit_gui_test, "HD_IMAGES", [self.root / "missing.img"]
         ), patch.object(lit_gui_test, "run_test") as launch, redirect_stdout(

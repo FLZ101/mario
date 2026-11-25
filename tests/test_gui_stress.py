@@ -17,9 +17,11 @@ class GuiStressReclamationTests(unittest.TestCase):
             for action, value in test.actions
             if action == "serial-script" and "/tmp/gui-stress-helpers" in value
         )
-        cls.helper = script.split("<<'FUNCTIONS'\n", 1)[1].rsplit(
-            "\nFUNCTIONS", 1
-        )[0].replace("/usr/bin/test/gui-cleanup.exe --pty-pool", "stress_pty_pool")
+        cls.helper = (
+            script.split("<<'FUNCTIONS'\n", 1)[1]
+            .rsplit("\nFUNCTIONS", 1)[0]
+            .replace("/usr/bin/test/gui-cleanup.exe --pty-pool", "stress_pty_pool")
+        )
 
     def run_reclamation(self, **overrides):
         environment = {
@@ -80,12 +82,15 @@ sleep() {
     sleep_count=$((sleep_count + 1))
 }
 """
-        script += self.helper + """
+        script += (
+            self.helper
+            + """
 stress_reclaimed
 result=$?
 echo "sleeps=$sleep_count"
 exit "$result"
 """
+        )
         return subprocess.run(
             ["/bin/sh"],
             input=script,

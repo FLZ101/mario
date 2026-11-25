@@ -251,9 +251,7 @@ class GuiTest:
                 try:
                     move = (int(values[0]), int(values[1]))
                 except ValueError as exc:
-                    raise GuiTestError(
-                        f"{self.path}: invalid GUI-MOUSE-MOVE"
-                    ) from exc
+                    raise GuiTestError(f"{self.path}: invalid GUI-MOUSE-MOVE") from exc
                 self.actions.append(("mouse-move", move))
             elif line.startswith("GUI-MOUSE-POSITION:"):
                 values = line.split(":", 1)[1].strip().split(",")
@@ -270,10 +268,7 @@ class GuiTest:
                 self.actions.append(("mouse-position", position))
             elif line.startswith("GUI-MOUSE-BUTTON:"):
                 values = line.split(":", 1)[1].strip().split(",")
-                if (
-                    len(values) != 2
-                    or values[0] not in {"left", "middle", "right"}
-                ):
+                if len(values) != 2 or values[0] not in {"left", "middle", "right"}:
                     raise GuiTestError(f"{self.path}: invalid GUI-MOUSE-BUTTON")
                 state = values[1].strip()
                 if state not in {"down", "up"}:
@@ -292,13 +287,10 @@ class GuiTest:
             elif line.startswith("GUI-CHECK-RECT:"):
                 try:
                     values = tuple(
-                        int(value)
-                        for value in line.split(":", 1)[1].split()
+                        int(value) for value in line.split(":", 1)[1].split()
                     )
                 except ValueError as exc:
-                    raise GuiTestError(
-                        f"{self.path}: invalid GUI-CHECK-RECT"
-                    ) from exc
+                    raise GuiTestError(f"{self.path}: invalid GUI-CHECK-RECT") from exc
                 if (
                     len(values) != 7
                     or values[2] <= 0
@@ -426,9 +418,7 @@ class Qmp:
         if self.socket is None:
             raise GuiTestError(f"QMP socket was not created: {self.path}")
         self._read_message(max(0.0, deadline - time.monotonic()))
-        self.command(
-            "qmp_capabilities", timeout=max(0.0, deadline - time.monotonic())
-        )
+        self.command("qmp_capabilities", timeout=max(0.0, deadline - time.monotonic()))
 
     def _read_message(self, timeout: float) -> dict:
         if self.socket is None:
@@ -719,9 +709,7 @@ def send_key(qmp: Qmp, key: str) -> None:
 
 
 def send_keys(qmp: Qmp, keys: tuple[str, ...]) -> None:
-    qmp.command(
-        "send-key", {"keys": [{"type": "qcode", "data": key} for key in keys]}
-    )
+    qmp.command("send-key", {"keys": [{"type": "qcode", "data": key} for key in keys]})
 
 
 def type_text(qmp: Qmp, text: str) -> None:
@@ -747,9 +735,7 @@ def type_text(qmp: Qmp, text: str) -> None:
 
 def send_mouse_move(qmp: Qmp, dx: int, dy: int) -> None:
     # HMP targets QEMU's active PS/2 mouse, unlike unstable frontend device IDs.
-    qmp.command(
-        "human-monitor-command", {"command-line": f"mouse_move {dx} {dy}"}
-    )
+    qmp.command("human-monitor-command", {"command-line": f"mouse_move {dx} {dy}"})
 
 
 def send_mouse_position(qmp: Qmp, x: int, y: int) -> None:

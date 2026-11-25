@@ -142,9 +142,7 @@ class GuiDirectiveParserTests(unittest.TestCase):
         self.assertIsNone(parse_frame_probe(FRAME_MISSING))
 
     def test_ignores_markers_echoed_in_a_present_frame_probe(self) -> None:
-        command_echo = (
-            f"{FRAME_PRESENT_BEGIN} {FRAME_PRESENT_END} {FRAME_MISSING}"
-        )
+        command_echo = f"{FRAME_PRESENT_BEGIN} {FRAME_PRESENT_END} {FRAME_MISSING}"
         output = f"{command_echo}\n{FRAME_PRESENT_BEGIN}42\n{FRAME_PRESENT_END}"
         self.assertEqual(parse_frame_probe(output), 42)
 
@@ -155,9 +153,7 @@ class GuiDirectiveParserTests(unittest.TestCase):
             clock[0] += seconds
 
         with self.assertRaisesRegex(GuiTestError, r"greater than 9.*last value: 9"):
-            wait_for_frame_advance(
-                lambda: 9, 9, 0.1, now=lambda: clock[0], pause=pause
-            )
+            wait_for_frame_advance(lambda: 9, 9, 0.1, now=lambda: clock[0], pause=pause)
 
     def test_accepts_marked_and_unmarked_fixtures(self) -> None:
         marked = self.parse(
@@ -222,7 +218,9 @@ class GuiDirectiveParserTests(unittest.TestCase):
         self.assertEqual(state["query-status"], {"status": "running"})
         self.assertEqual(state["mouse-buttons"], 3)
 
-    def test_caps_all_visual_check_timeouts_without_shortening_serial_waits(self) -> None:
+    def test_caps_all_visual_check_timeouts_without_shortening_serial_waits(
+        self,
+    ) -> None:
         cases = (
             (None, VISUAL_CHECK_TIMEOUT),
             (120.0, VISUAL_CHECK_TIMEOUT),

@@ -31,7 +31,11 @@ def verify_disk(child):
 
 def wav_frames(path):
     with wave.open(str(path), "rb") as wav:
-        if (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) != (48000, 2, 2):
+        if (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) != (
+            48000,
+            2,
+            2,
+        ):
             raise AssertionError("expected 48 kHz stereo S16 capture")
         return list(struct.iter_unpack("<hh", wav.readframes(wav.getnframes())))
 
@@ -69,12 +73,18 @@ def verify_device_capture(path, pause):
         if got != want:
             raise AssertionError(f"nonzero frame {index}: expected {want}, got {got}")
     if len(actual) != len(expected):
-        raise AssertionError(f"expected {len(expected)} nonzero frames, got {len(actual)}")
+        raise AssertionError(
+            f"expected {len(expected)} nonzero frames, got {len(actual)}"
+        )
     for index in range(1, len(expected_markers)):
         before, after = expected_markers[index - 1][0], expected_markers[index][0]
-        extra = actual_markers[index][0] - actual_markers[index - 1][0] - (after - before)
+        extra = (
+            actual_markers[index][0] - actual_markers[index - 1][0] - (after - before)
+        )
         if extra != 0 and not (before < pause <= after and 0 < extra < 48000 // 5):
-            raise AssertionError(f"unexpected silence change of {extra} frames at {after}")
+            raise AssertionError(
+                f"unexpected silence change of {extra} frames at {after}"
+            )
 
 
 def verify_late_capture(path):
@@ -102,7 +112,9 @@ def verify_guest(child, args):
     boot = boot_log(child)
     if args.mode == "probe":
         if boot.count("; unmapped") != 2 or (args.bridge and "probe 1:" not in boot):
-            raise AssertionError("expected two stable HDA probes on the requested buses")
+            raise AssertionError(
+                "expected two stable HDA probes on the requested buses"
+            )
         if not 0 <= boot.find("AHCI controller found") < boot.find("probe "):
             raise AssertionError("AHCI must already be mapped while probing HDA")
     elif args.mode == "pcm":

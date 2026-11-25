@@ -97,7 +97,9 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument(
         "--deps", action="store_true", help="print rd0 prerequisites for Make"
     )
-    mode.add_argument("--gtk", action="store_true", help="build rd0-gtk from staged rd0 files")
+    mode.add_argument(
+        "--gtk", action="store_true", help="build rd0-gtk from staged rd0 files"
+    )
     args = parser.parse_args(argv)
 
     if args.deps:

@@ -50,7 +50,11 @@ class AbsoluteMouseTests(unittest.TestCase):
             [
                 call(
                     "input-send-event",
-                    {"events": [{"type": "btn", "data": {"button": "right", "down": down}}]},
+                    {
+                        "events": [
+                            {"type": "btn", "data": {"button": "right", "down": down}}
+                        ]
+                    },
                 )
                 for down in (True, False)
             ],
@@ -58,7 +62,9 @@ class AbsoluteMouseTests(unittest.TestCase):
 
     def test_wheel_directive(self):
         fixture = self.parse("GUI-MOUSE-WHEEL: up\nGUI-MOUSE-WHEEL: down")
-        self.assertEqual(fixture.actions, [("mouse-wheel", "up"), ("mouse-wheel", "down")])
+        self.assertEqual(
+            fixture.actions, [("mouse-wheel", "up"), ("mouse-wheel", "down")]
+        )
         with self.assertRaisesRegex(GuiTestError, "invalid GUI-MOUSE-WHEEL"):
             self.parse("GUI-MOUSE-WHEEL: left")
         qmp = MagicMock()
@@ -112,7 +118,9 @@ class AbsoluteMouseTests(unittest.TestCase):
                     with self.assertRaises(OSError):
                         _run_test_locked(fixture, "qemu", 0, 1)
                 command = spawn.call_args.args[1]
-                self.assertEqual(command[command.index("-machine") + 1], f"vmport={mode}")
+                self.assertEqual(
+                    command[command.index("-machine") + 1], f"vmport={mode}"
+                )
 
     def test_positions_match_gtk_scaling(self):
         for width, height, pixel_x, pixel_y in (
@@ -134,11 +142,17 @@ class AbsoluteMouseTests(unittest.TestCase):
                         "events": [
                             {
                                 "type": "abs",
-                                "data": {"axis": "x", "value": pixel_x * 32767 // width},
+                                "data": {
+                                    "axis": "x",
+                                    "value": pixel_x * 32767 // width,
+                                },
                             },
                             {
                                 "type": "abs",
-                                "data": {"axis": "y", "value": pixel_y * 32767 // height},
+                                "data": {
+                                    "axis": "y",
+                                    "value": pixel_y * 32767 // height,
+                                },
                             },
                         ]
                     },

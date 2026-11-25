@@ -469,7 +469,9 @@ def run_test(test: TtyLitTest, qemu: str, smp: int, index: int):
                     )
                 elif action == "check_panel":
                     expected_path = resolve_test_path(test.path, str(value))
-                    expected = normalize_panel(expected_path.read_text(encoding="utf-8"))
+                    expected = normalize_panel(
+                        expected_path.read_text(encoding="utf-8")
+                    )
                     actual = session.capture_panel()
                     if actual != expected:
                         failures.append(
