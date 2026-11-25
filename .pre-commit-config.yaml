@@ -9,6 +9,6 @@ repos:
         name: clang-tidy
         entry: clang-tidy
         language: system
-        args: ["-p", ".", "--quiet"]
+        args: ["-p", ".", "--quiet", "--extra-arg=-Wno-unknown-warning-option"]
         files: ^src/.*\.c$
         require_serial: true
