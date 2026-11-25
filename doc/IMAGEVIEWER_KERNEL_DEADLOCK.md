@@ -1,4 +1,4 @@
-# imageviewer kernel deadlock (WIP)
+# imageviewer kernel deadlock
 
 ## Summary
 
@@ -7,17 +7,19 @@
 `imageviewer: window ready`. The timeout is not a test bug and is not a slow
 imageviewer: the optimized imageviewer triggers a kernel deadlock. The window
 manager's `poll()` spins forever in `socket_poll` on a `unix_socket_pair`
-whose memory has been poisoned with `0xcc`.
+whose lock never becomes free.
 
-Two things are known-fixed, and one root-cause remains open:
+The deadlock had three contributing findings:
 
 1. Fixed: kmalloc returned 2-byte/1-byte aligned blocks from three buckets,
    which misaligned the 12-byte socket pair. See commit `fda830e`.
-2. Fixed (workaround): imageviewer is built `-O0` regardless of the global
-   `OPTIMIZE`. See commit `98d0a7e`.
-3. Open: the actual write that poisons the pair while the window manager's
-   socket still references it (a use-after-free / wild write) has not been
-   identified.
+2. Fixed (workaround, since removed): imageviewer was built `-O0` regardless of
+   the global `OPTIMIZE`. See commit `98d0a7e`.
+3. Fixed: `socket_read_data()`, `socket_write()`, and `sys_sendmsg()` copied
+   user buffers while holding the AF_UNIX pair spinlock. A user-memory page
+   fault could therefore sleep with the spinlock held, leaving `mario-wm`
+   spinning in `socket_poll` on the locked pair. The socket paths now stage
+   user copies outside the lock.
 
 ## Symptom
 
@@ -89,16 +91,17 @@ The relevant frames are:
 
 1. The window manager is the task stuck in `socket_poll`, not imageviewer.
    imageviewer is `state=0` (`TASK_RUNNING`, runnable on the runqueue), so it
-   is not holding the lock.
-2. `socket_poll` spins on `socket->pair->lock`. The pair pointer is valid (it
-   points at the block kmalloc returned), but the pair's memory has been
-   poisoned, so the lock word never reads `0`.
-3. Therefore the pair was freed/poisoned while the window manager's accepted
-   socket still referenced it: a use-after-free.
+   is not currently executing on the CPU.
+2. imageviewer's kernel stack shows it sleeping in `do_page_fault` while still
+   inside `socket_read_data`; it holds `socket->pair->lock`.
+3. `socket_poll` spins on `socket->pair->lock` because that lock remains held
+   across imageviewer's page-fault sleep.
 
-### Captured corruption snapshot
+### Earlier corruption snapshot
 
-At the moment of the deadlock, the pair's kmalloc block header and body read:
+Before the lock-holder root cause was identified, a captured deadlock showed
+the pair block already poisoned. This snapshot drove the now-fixed alignment
+and use-after-free investigation:
 
 ```
 block+0  (magic)   = 0x10        # should be KMALLOC_MAGIC_ALLOC 0x6d6b616c
@@ -140,29 +143,29 @@ blocks-per-board:
 This is commit `fda830e`. It is a correct allocator fix, but it only reduces
 the failure; it does not eliminate it.
 
-## Remaining use-after-free (open)
+## Root cause
 
-With alignment fixed and imageviewer at `-O3`, the deadlock still reproduces
-roughly half the time. The pair is poisoned even though neither endpoint
-socket has been closed, and no `kfree(pair)` is observed in the same run.
+With alignment fixed and imageviewer at `-O3`, the deadlock still reproduced
+intermittently. A gdb backtrace of the optimized fixture showed imageviewer in
+the middle of a socket read while holding `pair->lock`; its kernel stack
+contained `do_page_fault` and `sys_read`. `socket_read_data()` was calling
+`ring_buffer_read(..., u=1)` while holding `pair->lock`, and `socket_write()`
+and `sys_sendmsg()` were calling `ring_buffer_write(..., u=1)` under the same
+lock. Those `u=1` paths copy to or from user memory with
+`memcpy_tofs`/`memcpy_fromfs`, and a page fault can sleep. The window manager
+then runs, enters `socket_poll`, and spins on the still-locked pair.
 
-Attempts to catch the writer with a hardware watchpoint on `pair->lock` were
-inconclusive: the watchpoint round-trips through gdb on every spin-lock/unlock,
-which slows TCG enough that the race no longer triggers.
-
-Candidate areas for the next pass:
-
-- AF_UNIX socket lifetime / `socket_release` / `socket_destroy` refcounting.
-- The kmalloc/page-allocator buddy path returning or freeing the same page
-  twice.
-- The ext2 / filemap block-read path interacting with freed memory.
+The fix stages the user copy in a kmalloc buffer and performs the actual
+ring-buffer update with `u=0` while holding the lock. User memory is touched
+only before `spin_lock_irqsave` (for writes) or after
+`spin_unlock_irqrestore` (for reads).
 
 ## Current mitigations
 
 - kmalloc is now 4-byte aligned: `fda830e`.
-- imageviewer is built `-O0` regardless of global `OPTIMIZE`: `98d0a7e`.
 - imageviewer readiness waits are bounded with `kill -0` and print the app log
   on failure, so future failures are self-diagnosing.
 
-With the alignment fix and the unoptimized imageviewer, all three
-imageviewer-using fixtures pass under SMP 1 and SMP 16.
+With the alignment fix and the socket copy staging fix, all three
+imageviewer-using fixtures pass with an optimized imageviewer under SMP 1 and
+SMP 16.

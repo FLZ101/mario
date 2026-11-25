@@ -33,6 +33,9 @@
 #define MSG_PEEK 0x02
 #define MSG_DONTWAIT 0x40
 
+/* Largest AF_UNIX receive buffer; keeps socket staging buffers bounded. */
+#define UNIX_RING_MAX_BYTES (PAGE_SIZE << UNIX_SNDBUF_MAX_ORDER)
+
 extern int sys_write(unsigned int fd, char *buf, unsigned int count);
 
 struct unix_socket;
@@ -214,25 +217,42 @@ static int socket_read_data(struct file *f, char *buf, int count,
 {
 	struct unix_socket *socket = socket_endpoint(f);
 	struct unix_socket *peer;
+	char *staging;
+	size_t stage;
 	unsigned long flags;
 	unsigned long start;
+	size_t read_size;
 	int n;
 
 	if (right)
 		*right = NULL;
 	if (!socket->pair)
 		return -ENOTCONN;
-	if (!count)
+	if (count <= 0)
 		return 0;
+	/*
+	 * Stage the read in kernel memory. ring_buffer_read(u=1) would touch
+	 * user memory while holding pair->lock; a page fault there can sleep
+	 * with interrupts disabled and leave the pair locked forever.
+	 */
+	stage = (unsigned int)count > UNIX_RING_MAX_BYTES ?
+		UNIX_RING_MAX_BYTES : (unsigned int)count;
+	staging = kmalloc(stage);
+	if (!staging)
+		return -ENOMEM;
 	peer = socket_peer(socket);
 	for (;;) {
 		spin_lock_irqsave(&socket->pair->lock, flags);
 		if (!ring_buffer_empty(&socket->receive)) {
+			read_size = stage;
 			if (receive_flags & MSG_PEEK) {
 				struct ring_buffer receive = socket->receive;
 
-				n = ring_buffer_read(&receive, buf, count, 1);
+				n = ring_buffer_read(&receive, staging, read_size, 0);
 				spin_unlock_irqrestore(&socket->pair->lock, flags);
+				if (n > 0)
+					memcpy_tofs(buf, staging, n);
+				kfree(staging);
 				return n;
 			}
 			start = socket->read_position;
@@ -249,8 +269,10 @@ static int socket_read_data(struct file *f, char *buf, int count,
 						 next->end < start + count)
 						count = next->end - start;
 				}
+				if ((unsigned int)count < read_size)
+					read_size = (unsigned int)count;
 			}
-			n = ring_buffer_read(&socket->receive, buf, count, 1);
+			n = ring_buffer_read(&socket->receive, staging, read_size, 0);
 			socket->read_position += n;
 			if (right)
 				*right = socket_take_right(socket, start,
@@ -259,18 +281,25 @@ static int socket_read_data(struct file *f, char *buf, int count,
 				socket_discard_rights(socket, socket->read_position);
 			wake_up_interruptible(&socket->wait_write);
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
+			/* User memory is touched only after the pair lock is released. */
+			if (n > 0)
+				memcpy_tofs(buf, staging, n);
+			kfree(staging);
 			return n;
 		}
 		if (socket->read_shutdown || !peer->opens || peer->write_shutdown) {
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
+			kfree(staging);
 			return 0;
 		}
 		if ((f->f_flags & O_NONBLOCK) || (receive_flags & MSG_DONTWAIT)) {
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
+			kfree(staging);
 			return -EAGAIN;
 		}
 		if (current->signal & ~current->blocked) {
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
+			kfree(staging);
 			return -ERESTARTSYS;
 		}
 		socket_wait_locked(&socket->wait_read, &socket->pair->lock, flags);
@@ -286,32 +315,50 @@ static int socket_write(struct inode *i, struct file *f, char *buf, int count)
 {
 	struct unix_socket *socket = socket_endpoint(f);
 	struct unix_socket *peer;
+	char *staging;
+	size_t stage;
 	unsigned long flags;
 	int n;
 
 	if (!socket->pair)
 		return -ENOTCONN;
+	if (count <= 0)
+		return 0;
+	/*
+	 * Copy user bytes into kernel memory before taking pair->lock.
+	 * ring_buffer_write(u=1) can page-fault while the spinlock is held.
+	 */
+	stage = (unsigned int)count > UNIX_RING_MAX_BYTES ?
+		UNIX_RING_MAX_BYTES : (unsigned int)count;
+	staging = kmalloc(stage);
+	if (!staging)
+		return -ENOMEM;
+	memcpy_fromfs(staging, buf, stage);
 	peer = socket_peer(socket);
 	for (;;) {
 		spin_lock_irqsave(&socket->pair->lock, flags);
 		if (socket->write_shutdown || !peer->opens || peer->read_shutdown) {
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
 			send_sig(SIGPIPE, current, 0);
+			kfree(staging);
 			return -EPIPE;
 		}
-		n = ring_buffer_write(&peer->receive, buf, count, 1);
+		n = ring_buffer_write(&peer->receive, staging, stage, 0);
 		if (n) {
 			peer->write_position += n;
 			wake_up_interruptible(&peer->wait_read);
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
+			kfree(staging);
 			return n;
 		}
 		if (f->f_flags & O_NONBLOCK) {
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
+			kfree(staging);
 			return -EAGAIN;
 		}
 		if (current->signal & ~current->blocked) {
 			spin_unlock_irqrestore(&socket->pair->lock, flags);
+			kfree(staging);
 			return -ERESTARTSYS;
 		}
 		socket_wait_locked(&peer->wait_write, &socket->pair->lock, flags);
@@ -966,6 +1013,8 @@ int sys_sendmsg(int fd, struct socket_msghdr *user_msg, int flags)
 	struct file *file;
 	struct unix_socket *socket;
 	struct unix_socket *peer;
+	char *right_staging = NULL;
+	char *iov_staging;
 	unsigned long irq_flags;
 	unsigned int message_length = 0;
 	int total = 0;
@@ -996,41 +1045,58 @@ int sys_sendmsg(int fd, struct socket_msghdr *user_msg, int flags)
 		return -ENOTCONN;
 	peer = socket_peer(socket);
 	if (right) {
+		unsigned int offset = 0;
+
 		if (!message_length)
 			return 0;
 		if (message_length > peer->receive.size)
 			return -EMSGSIZE;
+		/*
+		 * Stage all iovec bytes before taking pair->lock. The previous
+		 * loop copied user memory inside the spinlock via u=1.
+		 */
+		right_staging = kmalloc(message_length);
+		if (!right_staging)
+			return -ENOMEM;
+		for (int index = 0; index < msg.iovlen; index++) {
+			memcpy_fromfs(&iov, &msg.iov[index], sizeof(iov));
+			if (iov.len) {
+				memcpy_fromfs(right_staging + offset, iov.base, iov.len);
+				offset += iov.len;
+			}
+		}
 		for (;;) {
 			spin_lock_irqsave(&socket->pair->lock, irq_flags);
 			if (socket->write_shutdown || !peer->opens ||
 			    peer->read_shutdown) {
 				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
 				send_sig(SIGPIPE, current, 0);
+				kfree(right_staging);
 				return -EPIPE;
 			}
 			if (peer->rights_count != UNIX_RIGHTS_MAX &&
 			    ring_buffer_space(&peer->receive) >= message_length) {
 				unsigned long position = peer->write_position;
 
-				for (int index = 0; index < msg.iovlen; index++) {
-					memcpy_fromfs(&iov, &msg.iov[index], sizeof(iov));
-					if (iov.len)
-						assert(ring_buffer_write(&peer->receive, iov.base,
-									 iov.len, 1) == iov.len);
-				}
+				assert(ring_buffer_write(&peer->receive, right_staging,
+							 message_length, 0) ==
+				       message_length);
 				socket_queue_right(peer, right, position,
 						   position + message_length);
 				peer->write_position += message_length;
 				wake_up_interruptible(&peer->wait_read);
 				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
+				kfree(right_staging);
 				return message_length;
 			}
 			if (file->f_flags & O_NONBLOCK) {
 				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
+				kfree(right_staging);
 				return -EAGAIN;
 			}
 			if (current->signal & ~current->blocked) {
 				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
+				kfree(right_staging);
 				return -ERESTARTSYS;
 			}
 			socket_wait_locked(&peer->wait_write, &socket->pair->lock,
@@ -1041,30 +1107,47 @@ int sys_sendmsg(int fd, struct socket_msghdr *user_msg, int flags)
 		memcpy_fromfs(&iov, &msg.iov[index], sizeof(iov));
 		if (!iov.len)
 			continue;
+		/*
+		 * Same rule as socket_write: touch user memory before
+		 * acquiring pair->lock.
+		 */
+		unsigned int stage = iov.len > UNIX_RING_MAX_BYTES ?
+			UNIX_RING_MAX_BYTES : iov.len;
+
+		iov_staging = kmalloc(stage);
+		if (!iov_staging)
+			return total ? total : -ENOMEM;
+		memcpy_fromfs(iov_staging, iov.base, stage);
 		for (;;) {
 			spin_lock_irqsave(&socket->pair->lock, irq_flags);
 			if (socket->write_shutdown || !peer->opens ||
 			    peer->read_shutdown) {
 				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
 				send_sig(SIGPIPE, current, 0);
+				kfree(iov_staging);
 				return total ? total : -EPIPE;
 			}
-			err = ring_buffer_write(&peer->receive, iov.base, iov.len, 1);
+			err = ring_buffer_write(&peer->receive, iov_staging, stage, 0);
 			if (err) {
 				peer->write_position += err;
 				wake_up_interruptible(&peer->wait_read);
 				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
 				total += err;
-				if ((unsigned int)err < iov.len)
+				if ((unsigned int)err < iov.len) {
+					kfree(iov_staging);
 					break;
+				}
+				kfree(iov_staging);
 				goto next_iov;
 			}
 			if (file->f_flags & O_NONBLOCK) {
 				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
+				kfree(iov_staging);
 				return total ? total : -EAGAIN;
 			}
 			if (current->signal & ~current->blocked) {
 				spin_unlock_irqrestore(&socket->pair->lock, irq_flags);
+				kfree(iov_staging);
 				return total ? total : -ERESTARTSYS;
 			}
 			socket_wait_locked(&peer->wait_write, &socket->pair->lock,

@@ -1,11 +1,8 @@
 IMAGEVIEWER_EXE := imageviewer/imageviewer.exe
 
-# imageviewer must stay unoptimized for now. With -O1 or higher its startup
-# sequence changes enough to expose a kernel bug: mario-wm's poll() spins on a
-# corrupted AF_UNIX socket pair (a dangling `pair` pointer) and the whole guest
-# stalls before imageviewer reaches "window ready". Keep this at -O0 until the
-# socket lifetime bug is fixed in the kernel.
-IMAGEVIEWER_OPTIMIZE := -O0
+# imageviewer follows the global OPTIMIZE level. Keep the variable overridable
+# so the optimized path can be exercised directly with IMAGEVIEWER_OPTIMIZE=-O3.
+IMAGEVIEWER_OPTIMIZE ?= $(OPTIMIZE)
 
 .PHONY build:: build-imageviewer
 build-imageviewer: $(IMAGEVIEWER_EXE)
