@@ -1,7 +1,6 @@
 #include "browser.h"
 #include "copy_worker.h"
 #include "icons.h"
-#include "preview.h"
 
 #include <FL/Fl.H>
 #include <FL/Fl_Box.H>
@@ -10,7 +9,6 @@
 #include <FL/Fl_Group.H>
 #include <FL/Fl_Input.H>
 #include <FL/Fl_Menu_Bar.H>
-#include <FL/Fl_Multiline_Output.H>
 #include <FL/Fl_Image.H>
 #include <FL/Fl_Table_Row.H>
 #include <FL/Fl_Tabs.H>
@@ -27,8 +25,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <deque>
 #include <memory>
 #include <set>
+#include <unordered_map>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -139,6 +139,21 @@ public:
 	}
 
 private:
+	int handle(int event) override
+	{
+		if (event == FL_PUSH && Fl::event_button() == FL_RIGHT_MOUSE) {
+			int row, column;
+			ResizeFlag resize;
+			const auto context = cursor2rowcol(row, column, resize);
+			if (context == CONTEXT_CELL || context == CONTEXT_TABLE) {
+				take_focus();
+				do_callback(context, row, column);
+				return 1;
+			}
+		}
+		return Fl_Table_Row::handle(event);
+	}
+
 	void draw_cell(TableContext context, int row, int col, int xpos, int ypos, int width, int height) override
 	{
 		if (context != CONTEXT_COL_HEADER && context != CONTEXT_CELL)
@@ -254,8 +269,7 @@ public:
 		menu_(0, 0, 924, 25), back_(8, 29, 60, 26, "Back"), forward_(71, 29, 82, 26, "Forward"),
 		up_(156, 29, 47, 26, "Up"), home_button_(206, 29, 64, 26, "Home"),
 		location_(274, 29, 529, 26), go_(807, 29, 43, 26, "Go"), split_(854, 29, 62, 26, "Split"),
-		sidebar_(8, 64, 144, 459), tabs_(160, 60, 578, 463),
-		preview_text_(746, 78, 170, 445, "Preview"), preview_image_(746, 86, 170, 136),
+		sidebar_(8, 64, 144, 459), tabs_(160, 60, 756, 463),
 		status_(8, 525, 908, 23), job_status_(8, 525, 656, 23),
 		skip_(670, 525, 66, 23, "Skip"), keep_(742, 525, 92, 23, "Keep Both"), cancel_(840, 525, 76, 23, "Cancel")
 	{
@@ -291,8 +305,6 @@ public:
 		skip_.callback(invoke<&Browser::skip_conflict>, this);
 		keep_.callback(invoke<&Browser::keep_conflict>, this);
 		cancel_.callback(invoke<&Browser::cancel_copy>, this);
-		preview_text_.align(FL_ALIGN_TOP_LEFT);
-		preview_text_.textsize(13);
 		add_menus();
 		if (!new_tab(initial ? absolute(initial) : home_))
 			new_tab("/");
@@ -305,10 +317,8 @@ public:
 	~Browser()
 	{
 		Fl::remove_timeout(tick, this);
-		Fl::remove_timeout(show_preview, this);
 		if (worker_.fd() >= 0)
 			Fl::remove_fd(worker_.fd());
-		preview_image_.image(nullptr);
 	}
 
 private:
@@ -459,7 +469,6 @@ private:
 		pane().position ? back_.activate() : back_.deactivate();
 		pane().position + 1 < pane().history.size() ? forward_.activate() : forward_.deactivate();
 		update_status();
-		schedule_preview();
 		tabs_.redraw();
 	}
 
@@ -543,7 +552,6 @@ private:
 			for (auto *target : static_cast<Tab *>(tabs_.child(index))->panes)
 				rebuild(*target);
 		update_status();
-		schedule_preview();
 		save_preferences();
 	}
 	void toggle_hidden()
@@ -553,7 +561,6 @@ private:
 	}
 	void refresh()
 	{
-		cache_.clear();
 		queue_scan(pane());
 		fill_sidebar();
 		update_active();
@@ -800,7 +807,6 @@ private:
 		keep_.hide();
 		cancel_.hide();
 		status_.show();
-		cache_.clear();
 		for (int index = 0; index < tabs_.children(); ++index)
 			for (auto *target : static_cast<Tab *>(tabs_.child(index))->panes)
 				if (copy_.action != files::CopyAction::copy || target->path == copy_.destination ||
@@ -808,7 +814,6 @@ private:
 				    target->path.compare(0, copy_.destination.size(), copy_.destination) == 0 &&
 				    (copy_.destination == "/" || target->path[copy_.destination.size()] == '/')))
 					queue_scan(*target);
-		schedule_preview();
 		message(summary);
 		showing_copy_summary_ = true;
 		if (close_after_copy_)
@@ -819,24 +824,68 @@ private:
 		fl_message("%s", last_copy_.empty() ? "No file job has finished yet." : last_copy_.c_str());
 	}
 
+	struct Place {
+		std::string path;
+		bool unloaded;
+	};
+
+	void add_place(Fl_Tree_Item *group, const char *label, const std::string &path, files::Icon icon, bool branch = false)
+	{
+		auto *item = sidebar_.add(group, label);
+		item->usericon(files::icon(icon));
+		places_.emplace(item, Place{path, branch});
+		if (branch) {
+			sidebar_.add(item, "Reading folder...")->deactivate();
+			sidebar_.close(item, 0);
+		}
+	}
+	void fill_bookmarks()
+	{
+		while (bookmarks_->children()) {
+			auto *item = bookmarks_->child(0);
+			places_.erase(item);
+			sidebar_.remove(item);
+		}
+		add_place(bookmarks_, "Home", home_, files::Icon::home);
+		for (const auto &bookmark : preferences_.bookmarks)
+			add_place(bookmarks_, files::display(bookmark).c_str(), bookmark, files::Icon::bookmark);
+		sidebar_.redraw();
+	}
 	void fill_sidebar()
 	{
+		branch_scan_.cancel();
+		pending_branches_.clear();
 		sidebar_.clear();
 		places_.clear();
-		const auto add_place = [&](Fl_Tree_Item *group, const char *label, const std::string &path, files::Icon id) {
-			if (auto *item = sidebar_.add(group, label)) {
-				item->usericon(files::icon(id));
-				places_.emplace_back(item, path);
-			}
-		};
-		auto *bookmarks = sidebar_.add("Bookmarks");
-		add_place(bookmarks, "Home", home_, files::Icon::home);
-		for (const auto &bookmark : preferences_.bookmarks)
-			add_place(bookmarks, files::display(bookmark).c_str(), bookmark, files::Icon::bookmark);
-		auto *volumes = sidebar_.add("Volumes");
-		for (const auto &mount : files::mounts())
-			add_place(volumes, files::display(mount).c_str(), mount, files::Icon::drive);
+		bookmarks_ = sidebar_.add("Bookmarks");
+		fill_bookmarks();
+		add_place(sidebar_.root(), "/", "/", files::Icon::folder, true);
 		sidebar_.redraw();
+	}
+	bool scan_sidebar()
+	{
+		if (pending_branches_.empty())
+			return false;
+		auto *branch = pending_branches_.front();
+		const auto &path = places_.at(branch).path;
+		if (!branch_scan_.pending())
+			branch_scan_.start(path, true);
+		branch_scan_.step();
+		if (branch_scan_.pending())
+			return true;
+		pending_branches_.pop_front();
+		sidebar_.remove(branch->child(0));
+		for (auto index : files::order(branch_scan_.entries, "", true, files::Column::name, false)) {
+			const auto &entry = branch_scan_.entries[index];
+			add_place(branch, entry.label.c_str(), files::join(path, entry.name), files::Icon::folder, true);
+		}
+		if (branch_scan_.error)
+			sidebar_.add(branch, "Cannot read folder")->deactivate();
+		else if (branch_scan_.limited)
+			sidebar_.add(branch, "4,096 folder limit")->deactivate();
+		branch_scan_.entries.clear();
+		sidebar_.redraw();
+		return !pending_branches_.empty();
 	}
 	void bookmark()
 	{
@@ -850,20 +899,23 @@ private:
 			message("At most 32 bookmarks can be saved");
 			return;
 		}
-		fill_sidebar();
+		fill_bookmarks();
 		save_preferences();
 	}
 	static void sidebar_clicked(Fl_Widget *, void *data)
 	{
 		auto &browser = *static_cast<Browser *>(data);
 		auto &tree = browser.sidebar_;
-		if (tree.callback_reason() != FL_TREE_REASON_SELECTED && tree.callback_reason() != FL_TREE_REASON_RESELECTED)
+		auto *item = tree.callback_item();
+		const auto place = browser.places_.find(item);
+		if (place == browser.places_.end())
 			return;
-		const auto item = std::find_if(browser.places_.begin(), browser.places_.end(), [&](const auto &place) {
-			return place.first == tree.callback_item();
-		});
-		if (item != browser.places_.end())
-			browser.navigate(item->second);
+		const auto reason = tree.callback_reason();
+		if (reason == FL_TREE_REASON_OPENED && place->second.unloaded) {
+			place->second.unloaded = false;
+			browser.pending_branches_.push_back(item);
+		} else if (reason == FL_TREE_REASON_SELECTED || reason == FL_TREE_REASON_RESELECTED)
+			browser.navigate(place->second.path);
 	}
 
 	static void filter_changed(Fl_Widget *widget, void *data)
@@ -896,6 +948,11 @@ private:
 		const auto context = listing.callback_context();
 		if (switched)
 			browser.update_active();
+		if (Fl::event_button() == FL_RIGHT_MOUSE) {
+			if (context == Fl_Table::CONTEXT_CELL || context == Fl_Table::CONTEXT_TABLE)
+				browser.context_menu(context == Fl_Table::CONTEXT_CELL ? listing.callback_row() : -1);
+			return;
+		}
 		if (context == Fl_Table::CONTEXT_COL_HEADER) {
 			const auto column = static_cast<files::Column>(listing.callback_col());
 			browser.preferences_.descending = column == browser.preferences_.column && !browser.preferences_.descending;
@@ -907,11 +964,55 @@ private:
 			if (item && Fl::event_clicks() && Fl::event_button() == FL_LEFT_MOUSE) {
 				Fl::event_clicks(0);
 				browser.open_selected();
-			} else {
+			} else
 				browser.update_status();
-				browser.schedule_preview();
-			}
 		}
+	}
+
+	bool in_trash()
+	{
+		const auto &path = pane().path;
+		return path.substr(path.rfind('/') + 1) == ".mario-trash";
+	}
+	void context_menu(int row)
+	{
+		auto &target = pane();
+		auto &listing = target.listing;
+		const auto *item = listing.entry(row);
+		if (!item || !listing.row_selected(row)) {
+			listing.select_all_rows(0);
+			if (item)
+				listing.select_row(row, 1);
+		}
+		target.current_name = item ? item->name : "";
+		update_status();
+
+		const int busy = worker_.active() ? FL_MENU_INACTIVE : 0;
+		const int single = listing.selection().size() == 1 ? 0 : FL_MENU_INACTIVE;
+		const int paste_flags = clipboard_.names.empty() ? FL_MENU_INACTIVE : busy;
+		const bool trash = in_trash();
+		const Fl_Menu_Item item_menu[] = {
+			{"&Open", 0, invoke<&Browser::open_selected>, this, single | FL_MENU_DIVIDER},
+			{"C&ut", 0, invoke<&Browser::cut_selection>, this, busy},
+			{"&Copy", 0, invoke<&Browser::copy_selection>, this, busy},
+			{"&Paste", 0, invoke<&Browser::paste>, this, paste_flags | FL_MENU_DIVIDER},
+			{"&Rename...", 0, invoke<&Browser::rename_selection>, this, single | busy},
+			{"Move to &Trash", 0, invoke<&Browser::trash_selection>, this, trash ? FL_MENU_INVISIBLE : busy},
+			{"Restore or Reco&ver...", 0, invoke<&Browser::restore_selection>, this,
+				trash ? single | busy : FL_MENU_INVISIBLE},
+			{"&Delete Permanently...", 0, invoke<&Browser::delete_selection>, this, busy | FL_MENU_DIVIDER},
+			{"Propert&ies...", 0, invoke<&Browser::properties>, this, single},
+			{},
+		};
+		const Fl_Menu_Item folder_menu[] = {
+			{"&New Folder...", 0, invoke<&Browser::new_folder>, this, busy},
+			{"&Paste", 0, invoke<&Browser::paste>, this, paste_flags | FL_MENU_DIVIDER},
+			{"&Refresh", 0, invoke<&Browser::refresh>, this, 0},
+			{},
+		};
+		const auto *items = item ? item_menu : folder_menu;
+		if (const auto *picked = items->popup(Fl::event_x(), Fl::event_y(), nullptr, nullptr, &menu_))
+			picked->do_callback(&listing);
 	}
 
 	std::string selected_path()
@@ -928,7 +1029,15 @@ private:
 		const auto path = selected_path();
 		if (path.empty())
 			return;
-		const auto item = files::inspect(files::parent(path), path.substr(path.rfind('/') + 1));
+		const auto name = path.substr(path.rfind('/') + 1);
+		if (files::TrashItem slot; in_trash() && !files::trash_item(pane().path, name, slot)) {
+			const char *state = slot.ready ? "Ready to restore" : slot.has_payload ?
+				"Incomplete: recover a copy" : "Incomplete: no saved item";
+			fl_message("%s\n%s\nOriginal path: %s", files::display(path).c_str(), state,
+				   slot.original.empty() ? "Unknown" : files::display(slot.original).c_str());
+			return;
+		}
+		const auto item = files::inspect(files::parent(path), name);
 		if (item.error)
 			fl_message("%s\n%s", files::display(path).c_str(), std::strerror(item.error));
 		else
@@ -971,42 +1080,6 @@ private:
 			viewers_.push_back({pid, program});
 	}
 
-	void schedule_preview()
-	{
-		Fl::remove_timeout(show_preview, this);
-		preview_image_.image(nullptr);
-		image_.reset();
-		preview_image_.hide();
-		preview_text_.value("Select a file");
-		if (!selected_path().empty())
-			Fl::add_timeout(0.08, show_preview, this);
-	}
-	static void show_preview(void *data)
-	{
-		auto &browser = *static_cast<Browser *>(data);
-		const auto selected = browser.selected_path();
-		const auto &directory = browser.pane().path;
-		if (directory.substr(directory.rfind('/') + 1) == ".mario-trash") {
-			files::TrashItem slot;
-			if (!files::trash_item(directory, selected.substr(selected.rfind('/') + 1), slot)) {
-				std::string text = slot.ready ? "Ready to restore" : slot.has_payload ?
-					"Incomplete: recover a copy" : "Incomplete: no saved item";
-				if (!slot.original.empty())
-					text += "\n\nOriginal path:\n" + files::display(slot.original);
-				browser.preview_text_.value(text.c_str());
-				return;
-			}
-		}
-		browser.preview_ = browser.cache_.read(selected);
-		browser.preview_text_.value(browser.preview_.text.c_str());
-		if (!browser.preview_.rgb.empty()) {
-			browser.image_ = std::make_unique<Fl_RGB_Image>(browser.preview_.rgb.data(),
-				browser.preview_.width, browser.preview_.height, 3);
-			browser.preview_image_.image(browser.image_.get());
-			browser.preview_image_.show();
-			browser.preview_image_.redraw();
-		}
-	}
 	static void tick(void *data)
 	{
 		auto &browser = *static_cast<Browser *>(data);
@@ -1033,7 +1106,7 @@ private:
 			} else
 				++child;
 		}
-		bool scanning = false;
+		bool scanning = browser.scan_sidebar();
 		for (auto *target : browser.tab().panes) {
 			if (!target->visible())
 				continue;
@@ -1081,15 +1154,14 @@ private:
 	Fl_Button go_, split_;
 	Fl_Tree sidebar_;
 	TabStrip tabs_;
-	Fl_Multiline_Output preview_text_;
-	Fl_Box preview_image_, status_, job_status_;
+	Fl_Box status_, job_status_;
 	Fl_Button skip_, keep_, cancel_;
 	std::string home_;
 	files::Preferences preferences_;
-	files::PreviewCache cache_;
-	files::Preview preview_;
-	std::unique_ptr<Fl_RGB_Image> image_;
-	std::vector<std::pair<Fl_Tree_Item *, std::string>> places_;
+	Fl_Tree_Item *bookmarks_ = nullptr;
+	std::unordered_map<Fl_Tree_Item *, Place> places_;
+	std::deque<Fl_Tree_Item *> pending_branches_;
+	files::Scan branch_scan_;
 	struct Viewer {
 		pid_t pid;
 		const char *program;

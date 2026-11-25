@@ -9,7 +9,7 @@ struct Entry;
 
 enum class Icon {
 	folder, file, text, image, archive, audio, video, code, executable, link,
-	broken_link, unavailable, special, home, bookmark, drive, back, forward, up, split, count
+	broken_link, unavailable, special, home, bookmark, back, forward, up, split, count
 };
 
 Fl_RGB_Image *icon(Icon id);

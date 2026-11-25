@@ -11,23 +11,28 @@ GUI-CHECK-RECT: 370 272 8 8 246 248 251
 GUI-MOUSE-POSITION: 944,122
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
-GUI-MOUSE-POSITION: 580,301
+GUI-MOUSE-POSITION: 650,301
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
 GUI-SEND-KEYS: ctrl,ret
-GUI-CHECK-RECT: 580 272 8 8 255 255 255
-# Drag across both source rows, copy, and paste into the right pane.
+GUI-CHECK-RECT: 650 272 8 8 255 255 255
+# Right-click one of two selected rows to copy both, then paste into empty space in the other pane.
 GUI-MOUSE-POSITION: 315,256
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-POSITION: 315,279
 GUI-MOUSE-BUTTON: left,up
 GUI-CHECK-RECT: 410 250 6 6 188 217 251
 GUI-CHECK-RECT: 410 272 6 6 188 217 251
-GUI-SEND-KEYS: ctrl,c
-GUI-MOUSE-POSITION: 580,340
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-SEND-KEYS: ctrl,v
+GUI-MOUSE-POSITION: 315,256
+GUI-MOUSE-BUTTON: right,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: right,up
+GUI-SEND-KEY: c
+GUI-MOUSE-POSITION: 650,340
+GUI-MOUSE-BUTTON: right,down
+GUI-WAIT-FRAME:
+GUI-MOUSE-BUTTON: right,up
+GUI-SEND-KEY: p
 SERIAL: for attempt in 1 2 3 4 5; do pgrep -x fm-copy-worker >/tmp/fm-worker.pid && break; sleep 1; done; test -s /tmp/fm-worker.pid && printf 'filemanager copy: %s\n' 'helper awaits conflict decision'
 SERIAL-CHECK: filemanager copy: helper awaits conflict decision
 GUI-MOUSE-POSITION: 838,616

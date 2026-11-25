@@ -26,7 +26,7 @@ releases.
 | F3 — Window lifecycle | F2 | Native windows, configure handling, and surface uploads |
 | F4 — Event loop and input | F3 | Interactive demo running through `Fl::run()` |
 | F5 — Upstream compatibility | F4 | Unmodified FLTK editor exercised end to end |
-| F6 — File Manager browsing | F5 | Tabs, split view, bookmarks, and previews |
+| F6 — File Manager browsing | F5 | Tabs, split view, bookmarks, and context menus |
 | F7 — Copy jobs | F6 | Cancellable, no-clobber copy with progress |
 | F8 — Move and recovery | F7 | Create, rename, move, trash, restore, and permanent delete |
 | F9 — Telemetry model | Existing Mario `/proc` and C++ toolchain | Tested CPU, memory, task, and mount snapshots |
@@ -156,7 +156,7 @@ an idle window blocks instead of spinning, and callbacks run during traffic.
 its path through the stock chooser, edits it, and saves through the stock
 menu. Check the visible edit and exact saved bytes, then close all windows.
 
-### F6 — File Manager: browsing and preview
+### F6 — File Manager: browsing and context menus
 
 1. Add `app/usr-cxx/filemanager/` and the `/usr/bin/filemanager [directory]`
    interface. Build a directory model around `opendir`/`readdir` without
@@ -165,36 +165,36 @@ menu. Check the visible edit and exact saved bytes, then close all windows.
    Read in bounded batches with a visible 4,096-entry limit per listing.
    Cancel obsolete scans and discard late results after navigation.
 2. Add back/forward/up/home, an editable location bar, independently
-   navigable tabs, optional dual panes, and a sidebar for bookmarks and
-   mounted volumes. Use `Fl_Tabs`, `Fl_Tree`, and `Fl_Table_Row` and draw only
-   visible rows. Add sortable name/type/size/modified columns, multiselect,
-   hidden-file toggle, filename filtering, shortcuts, and properties.
+   navigable tabs, optional dual panes, and a sidebar with bookmarks and a VFS
+   directory tree rooted at `/`. Load branches on expansion; mount points
+   appear in place, and directory symlinks are not expanded. Use `Fl_Tabs`,
+   `Fl_Tree`, and `Fl_Table_Row` and draw only visible rows. Add sortable
+   name/type/size/modified columns, multiselect, a hidden-file toggle, filename
+   filtering, shortcuts, and properties.
 3. Add explicit refresh and persist bookmarks and view preferences in
    `~/.config/mario/filemanager.conf`. A bad or unwritable config must not
    prevent browsing. Show broken links and require an explicit action to
    follow a directory symlink.
-4. Add size-limited text previews and a bounded PNG/BMP thumbnail cache.
-   Run scans and decoding outside painting, cap decoded dimensions and
-   cache bytes, and don't preview special files. Launch `/usr/bin/imageviewer`
-   with the absolute path as a separate argument, not a shell command. Close
-   GUI descriptors on exec, report exec failures, and reap viewer children
-   without blocking the UI.
+4. Add context menus for selected rows and empty directory space. Keep the
+   current multiselection when right-clicking a selected row. Open BMP and PNG
+   files in `/usr/bin/imageviewer` and MP4 files in `/usr/bin/mpv`. Pass the
+   absolute path as a separate argument. Close GUI descriptors on exec, report
+   exec failures, and reap viewer children without blocking the UI.
 
 **Exit gate:** `tests/shell/fltk-filemanager-model.test` covers ordering,
 filters, limits, names with spaces and invalid display bytes, and disappearing
 entries on MarioFS, ext2, and VFAT (including read-only mounts).
 `tests/gui/fltk-filemanager.test` verifies navigation, independent tabs and
-panes, bookmark persistence, preview, and visible image-viewer launch and
-teardown.
+panes, bookmark persistence, right-click actions, and visible image-viewer
+launch and teardown.
 
 The browser lists up to 4,096 entries per pane and sorts only the loaded
 entries. Double-click a row or use Ctrl+Enter to open it; Ctrl+L edits the
 location, Ctrl+R refreshes, Ctrl+T opens a tab, and Ctrl+D toggles a bookmark.
 Use the View menu to show hidden files or split the current view. Bookmarks
-encode raw path bytes in hex in the settings file. Previews read up to 4 KiB
-of text or 2 MiB of encoded image data, decode at most 1024 pixels per side,
-and cache at most 1 MiB of RGB thumbnails. The Image Viewer opens separately
-and can be closed independently.
+encode raw path bytes in hex in the settings file. Right-click a row for file
+actions or click empty space with the right button for directory actions.
+The Image Viewer opens separately and can be closed independently.
 
 ### F7 — File Manager: copy jobs
 
@@ -374,8 +374,8 @@ Monitor render their icon sets once at startup and reuse the images.
    or host build tools. Verify that image overlays do not hide required
    assets or install a second app at either binary path.
 3. Boot rebuilt images and invoke both binaries directly before changing
-   the launcher. Verify stock fonts, preview dependencies, and usable
-   defaults without a preexisting settings file.
+   the launcher. Verify stock fonts and usable defaults without a preexisting
+   settings file.
 
 **Exit gate:** both images contain the two production binaries and required
 assets; both apps open and close when invoked by their installed paths.

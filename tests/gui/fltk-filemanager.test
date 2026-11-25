@@ -1,6 +1,6 @@
 GUI-VISUAL-TEST:
 TIMEOUT: 10
-SERIAL: rm -f /tmp/mario-wm.* /tmp/filemanager.log; mkdir -p '/tmp/fm home' '/tmp/fm start/sub folder'; printf 'Preview text\n' >'/tmp/fm start/notes.txt'; cp /usr/share/mario-tests/gui/checker-64.bmp '/tmp/fm start/sub folder/image with spaces.bmp'; /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL: rm -f /tmp/mario-wm.* /tmp/filemanager.log; mkdir -p '/tmp/fm home' '/tmp/fm start/sub folder'; printf 'Notes\n' >'/tmp/fm start/notes.txt'; cp /usr/share/mario-tests/gui/checker-64.bmp '/tmp/fm start/sub folder/image with spaces.bmp'; /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: for attempt in 1 2 3 4 5; do grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log && break; sleep 1; done
 GUI-SEND-KEY: f8
@@ -31,7 +31,7 @@ GUI-CHECK-RECT: 370 272 8 8 246 248 251
 GUI-MOUSE-POSITION: 944,122
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
-GUI-MOUSE-POSITION: 580,279
+GUI-MOUSE-POSITION: 650,279
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
 GUI-SEND-KEYS: ctrl,ret
@@ -44,17 +44,21 @@ GUI-MOUSE-BUTTON: left,up
 GUI-MOUSE-POSITION: 990,135
 # Use the full screenshot for context, but compare only the relevant regions.
 GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,57,108,909,28
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,103,167,16,73
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,76,167,44,56
 GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,278,140,84,27
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,212,168,576,23
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,799,161,95,18
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,213,246,573,44
-# Preview and launch a BMP whose absolute path contains spaces.
-GUI-MOUSE-POSITION: 574,256
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,212,168,751,23
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,212,223,751,22
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,213,246,282,44
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,592,246,282,44
+# Right-click an unselected BMP in the other pane and open it through the menu.
+GUI-MOUSE-POSITION: 650,256
+GUI-MOUSE-BUTTON: right,down
+GUI-MOUSE-BUTTON: right,up
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-context.png,651,257,170,169
+GUI-CHECK-RECT: 615 264 22 4 188 217 251
+GUI-MOUSE-POSITION: 701,267
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 853 205 8 8 239 68 68
-GUI-SEND-KEYS: ctrl,ret
 SERIAL: for attempt in 1 2 3 4 5; do grep -q 'imageviewer: window ready' /tmp/filemanager.log && break; sleep 1; done; cat /tmp/filemanager.log
 SERIAL-CHECK: imageviewer: window ready
 GUI-CHECK-RECT: 200 120 8 8 239 68 68
@@ -73,11 +77,27 @@ GUI-CHECK-RECT: 374 272 8 8 255 255 255
 GUI-MOUSE-POSITION: 135,192
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-bookmark.png,213,247,121,20
-GUI-MOUSE-POSITION: 340,257
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-bookmark.png,213,247,188,20
+# Browse to a newly mounted filesystem and its child, without a Volumes list.
+SERIAL: mkdir /.fm-vfs && mount -t ext2 /dev/hdc3 /.fm-vfs && mkdir '/.fm-vfs/00 tree child' && cp /usr/share/mario-tests/gui/checker-64.bmp '/.fm-vfs/00 tree child/image with spaces.bmp' && printf 'filemanager: VFS fixture %s\n' ready
+SERIAL-CHECK: filemanager: VFS fixture ready
+GUI-MOUSE-POSITION: 286,123
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 853 205 8 8 239 68 68
+GUI-CHECK-RECT: 374 272 8 8 255 255 255
+GUI-MOUSE-POSITION: 82,213
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-tree.png,124,224,52,11
+GUI-MOUSE-POSITION: 94,232
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-POSITION: 990,135
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-tree.png,78,203,120,58
+GUI-MOUSE-POSITION: 167,250
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-bookmark.png,213,247,188,20
 GUI-MOUSE-POSITION: 966,68
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up

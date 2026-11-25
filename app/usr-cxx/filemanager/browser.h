@@ -25,6 +25,7 @@ std::string display(std::string_view raw);
 std::string join(const std::string &parent, std::string_view name);
 std::string parent(const std::string &path);
 const char *kind(const Entry &entry);
+bool image_name(std::string_view name);
 bool mp4_name(std::string_view name);
 Entry inspect(const std::string &directory, const std::string &name);
 std::vector<std::size_t> order(const std::vector<Entry> &entries, std::string_view filter,
@@ -38,7 +39,7 @@ public:
 	~Scan() { cancel(); }
 	Scan(const Scan &) = delete;
 	Scan &operator=(const Scan &) = delete;
-	void start(const std::string &path);
+	void start(const std::string &path, bool directories_only = false);
 	void cancel();
 	void step(std::size_t budget = 24);
 	bool pending() const { return directory_ != nullptr; }
@@ -50,6 +51,7 @@ public:
 private:
 	DIR *directory_ = nullptr;
 	std::string path_;
+	bool directories_only_ = false;
 };
 
 struct Preferences {
@@ -60,8 +62,6 @@ struct Preferences {
 	bool load(const std::string &home);
 	bool save(const std::string &home) const;
 };
-
-std::vector<std::string> mounts();
 
 }
 

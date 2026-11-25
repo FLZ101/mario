@@ -26,7 +26,7 @@ constexpr Glyph glyphs[] = {
 	{Icon::executable, 0xf120, teal}, {Icon::link, 0xf0c1, blue},
 	{Icon::broken_link, 0xf127, red}, {Icon::unavailable, 0xf071, red},
 	{Icon::special, 0xf013, ink}, {Icon::home, 0xf015, blue},
-	{Icon::bookmark, 0xf02e, gold}, {Icon::drive, 0xf0a0, teal},
+	{Icon::bookmark, 0xf02e, gold},
 	{Icon::back, 0xf060, ink}, {Icon::forward, 0xf061, ink},
 	{Icon::up, 0xf062, ink}, {Icon::split, 0xf0db, ink},
 };

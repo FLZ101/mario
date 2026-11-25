@@ -119,6 +119,14 @@ const char *kind(const Entry &entry)
 	return S_ISREG(entry.info.st_mode) ? "File" : "Special";
 }
 
+bool image_name(std::string_view name)
+{
+	if (name.size() < 4)
+		return false;
+	const auto suffix = fold(name.substr(name.size() - 4));
+	return suffix == ".png" || suffix == ".bmp";
+}
+
 bool mp4_name(std::string_view name)
 {
 	return name.size() >= 4 && fold(name.substr(name.size() - 4)) == ".mp4";
@@ -215,12 +223,13 @@ int directory_path(const std::string &input, bool follow, std::string &resolved)
 	return 0;
 }
 
-void Scan::start(const std::string &path)
+void Scan::start(const std::string &path, bool directories_only)
 {
 	cancel();
 	entries.clear();
 	limited = false;
 	path_ = path;
+	directories_only_ = directories_only;
 	const int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (fd < 0) {
 		error = errno;
@@ -252,12 +261,16 @@ void Scan::step(std::size_t budget)
 		const std::string name(record->d_name);
 		if (name == "." || name == "..")
 			continue;
+		struct stat info;
+		if (directories_only_ && (fstatat(dirfd(directory_), name.c_str(), &info, AT_SYMLINK_NOFOLLOW) < 0 ||
+					  !S_ISDIR(info.st_mode)))
+			continue;
 		if (entries.size() == listing_limit) {
 			limited = true;
 			cancel();
 			return;
 		}
-		entries.push_back(inspect(path_, name));
+		entries.push_back(directories_only_ ? Entry{name, display(name), info} : inspect(path_, name));
 	}
 }
 
@@ -321,31 +334,6 @@ bool Preferences::save(const std::string &home) const
 		return true;
 	unlink(temporary.c_str());
 	return false;
-}
-
-std::vector<std::string> mounts()
-{
-	const auto text = read_bounded("/proc/mounts", 32 * 1024);
-	std::string_view remaining(text);
-	std::vector<std::string> paths;
-	while (paths.size() < 64) {
-		const auto end = remaining.find('\n');
-		if (end == remaining.npos)
-			break;
-		auto line = remaining.substr(0, end);
-		remaining.remove_prefix(end + 1);
-		const auto source_end = line.find(' ');
-		if (source_end == line.npos)
-			continue;
-		line.remove_prefix(source_end + 1);
-		for (int field = 0; field < 4 && !line.empty(); ++field) {
-			const auto separator = line.rfind(' ');
-			line = separator == line.npos ? std::string_view{} : line.substr(0, separator);
-		}
-		if (!line.empty() && line.front() == '/')
-			paths.emplace_back(line);
-	}
-	return paths;
 }
 
 }

@@ -778,14 +778,14 @@ def send_mouse_position(qmp: Qmp, x: int, y: int) -> None:
 def send_mouse_button(qmp: Qmp, button: str, down: bool) -> None:
     masks = {"left": 1, "middle": 2, "right": 4}
 
+    qmp.command(
+        "input-send-event",
+        {"events": [{"type": "btn", "data": {"button": button, "down": down}}]},
+    )
     if down:
         qmp.mouse_buttons |= masks[button]
     else:
         qmp.mouse_buttons &= ~masks[button]
-    qmp.command(
-        "human-monitor-command",
-        {"command-line": f"mouse_button {qmp.mouse_buttons}"},
-    )
 
 
 def send_mouse_wheel(qmp: Qmp, direction: str) -> None:

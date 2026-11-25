@@ -1,5 +1,4 @@
 #include "browser.h"
-#include "preview.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -75,10 +74,10 @@ void verify(const std::string &directory, bool vfat)
 			"explicit link navigation");
 		check(files::inspect(directory, "broken").broken, "broken link visible");
 	}
-	files::PreviewCache preview;
-	check(preview.read(files::join(directory, "Alpha File.txt")).text == "abcdefgh\n", "spaced filename text preview");
-	if (!vfat)
-		check(preview.read(files::join(directory, "broken")).rgb.empty(), "links not decoded");
+	scan.start(directory, true);
+	finish(scan);
+	check(names(files::order(scan.entries, "", true, Column::name, false)) == std::vector<std::string>{"folder"},
+		"tree scan includes only real directories");
 	scan.start(directory);
 	scan.cancel();
 	scan.start(files::join(directory, "folder"));
@@ -125,13 +124,10 @@ int main(int argc, char **argv)
 		files::Preferences loaded;
 		check(loaded.load(directory) && loaded.hidden && loaded.split && loaded.column == preferences.column &&
 			loaded.bookmarks == preferences.bookmarks, "preferences round trip preserves raw bookmark bytes");
+		check(files::image_name("image with spaces.BMP") && files::image_name("image.Png") &&
+			!files::image_name("image.png.txt"), "Image Viewer file types");
 		check(files::mp4_name("video with spaces.MP4") && files::mp4_name("video.mp4") &&
 			!files::mp4_name("video.mp4.txt") && !files::mp4_name("audio.wav"), "mpv file types");
-		files::PreviewCache preview;
-		const auto bmp = preview.read("/usr/share/mario-tests/gui/checker-64.bmp");
-		check(bmp.width == 64 && bmp.height == 64 && bmp.rgb.size() == 64 * 64 * 3, "bounded BMP decode");
-		const auto png = preview.read("/usr/share/mario-tests/gui/alpha-128.png");
-		check(png.width > 0 && png.width <= 160 && png.height <= 120 && !png.rgb.empty(), "bounded PNG decode");
 		const auto large = files::join(directory, "large");
 		check(mkdir(large.c_str(), 0700) == 0, "create directory for listing limit");
 		for (std::size_t index = 0; index <= files::listing_limit; ++index)

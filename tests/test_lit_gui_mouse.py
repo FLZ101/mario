@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from PIL import Image
 
@@ -12,6 +12,7 @@ from lit_gui_test import (
     GuiTestError,
     _run_test_locked,
     qemu_command,
+    send_mouse_button,
     send_mouse_position,
     send_mouse_wheel,
 )
@@ -31,6 +32,28 @@ class AbsoluteMouseTests(unittest.TestCase):
         self.assertEqual(
             fixture.actions,
             [("mouse-position", (1023, 767)), ("mouse-button", ("left", True))],
+        )
+
+    def test_right_button_directive(self):
+        fixture = self.parse("GUI-MOUSE-BUTTON: right,down\nGUI-MOUSE-BUTTON: right,up")
+        self.assertEqual(
+            fixture.actions,
+            [("mouse-button", ("right", True)), ("mouse-button", ("right", False))],
+        )
+        qmp = MagicMock(mouse_buttons=1)
+        send_mouse_button(qmp, "right", True)
+        self.assertEqual(qmp.mouse_buttons, 5)
+        send_mouse_button(qmp, "right", False)
+        self.assertEqual(qmp.mouse_buttons, 1)
+        self.assertEqual(
+            qmp.command.call_args_list,
+            [
+                call(
+                    "input-send-event",
+                    {"events": [{"type": "btn", "data": {"button": "right", "down": down}}]},
+                )
+                for down in (True, False)
+            ],
         )
 
     def test_wheel_directive(self):
