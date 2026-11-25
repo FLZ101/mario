@@ -5,7 +5,7 @@ SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: for attempt in 1 2 3 4 5; do grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log && break; sleep 1; done
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-SERIAL: (HOME=/tmp/fm-trash-ui/home /usr/bin/test/filemanager.exe /tmp/fm-trash-ui/files; printf '%d\n' "$?" >/tmp/filemanager.exit) >/tmp/filemanager.log 2>&1 &
+SERIAL: (HOME=/tmp/fm-trash-ui/home /usr/bin/filemanager /tmp/fm-trash-ui/files; printf '%d\n' "$?" >/tmp/filemanager.exit) >/tmp/filemanager.log 2>&1 &
 GUI-CHECK-RECT: 410 272 6 6 246 248 251
 GUI-MOUSE-POSITION: 315,256
 GUI-MOUSE-BUTTON: left,down

@@ -5,7 +5,7 @@ SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: for attempt in 1 2 3 4 5; do grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log && break; sleep 1; done
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-SERIAL: (HOME='/tmp/fm home' /usr/bin/test/filemanager.exe '/tmp/fm start'; printf '%d\n' "$?" >/tmp/filemanager.exit) >/tmp/filemanager.log 2>&1 &
+SERIAL: (HOME='/tmp/fm home' /usr/bin/filemanager '/tmp/fm start'; printf '%d\n' "$?" >/tmp/filemanager.exit) >/tmp/filemanager.log 2>&1 &
 GUI-CHECK-RECT: 370 272 8 8 246 248 251
 # Navigate a spaced directory name, back up, and give a second tab its own location.
 GUI-MOUSE-POSITION: 315,279
@@ -64,7 +64,7 @@ GUI-MOUSE-BUTTON: left,up
 SERIAL-WAIT-FILE: /tmp/filemanager.exit
 SERIAL: printf 'filemanager: browser exit %s\n' "$(cat /tmp/filemanager.exit)"; cat /tmp/filemanager.log
 SERIAL-CHECK: filemanager: browser exit 0
-SERIAL: (HOME='/tmp/fm home' /usr/bin/test/filemanager.exe; printf '%d\n' "$?" >/tmp/filemanager-restart.exit) >/tmp/filemanager-restart.log 2>&1 &
+SERIAL: (HOME='/tmp/fm home' /usr/bin/filemanager; printf '%d\n' "$?" >/tmp/filemanager-restart.exit) >/tmp/filemanager-restart.log 2>&1 &
 GUI-CHECK-RECT: 374 272 8 8 255 255 255
 GUI-MOUSE-POSITION: 135,192
 GUI-MOUSE-BUTTON: left,down

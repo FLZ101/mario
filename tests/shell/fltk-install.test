@@ -1,0 +1,20 @@
+TIMEOUT: 10
+RUN: for app in filemanager system-monitor imageviewer; do path=/usr/bin/$app; if test -f "$path" && test -x "$path"; then printf 'fltk-install: executable %s\n' "$path"; else printf 'fltk-install: missing executable %s\n' "$path"; fi; done
+CHECK: fltk-install: executable /usr/bin/filemanager
+CHECK: fltk-install: executable /usr/bin/system-monitor
+CHECK: fltk-install: executable /usr/bin/imageviewer
+RUN: for font in DejaVuSans.ttf DejaVuSans-Bold.ttf DejaVuSansMono.ttf DejaVuSansMono-Bold.ttf DejaVuSansMNerdFontMono-Regular.ttf; do path=/usr/share/fonts/$font; if test -s "$path" && test -r "$path"; then printf 'fltk-install: font %s\n' "$font"; else printf 'fltk-install: missing font %s\n' "$font"; fi; done
+CHECK: fltk-install: font DejaVuSans.ttf
+CHECK: fltk-install: font DejaVuSans-Bold.ttf
+CHECK: fltk-install: font DejaVuSansMono.ttf
+CHECK: fltk-install: font DejaVuSansMono-Bold.ttf
+CHECK: fltk-install: font DejaVuSansMNerdFontMono-Regular.ttf
+RUN: for path in /usr/share/doc/fltk/COPYING /usr/share/fonts/LICENSE-DejaVu.txt /usr/share/fonts/LICENSE-DejaVuNerdFont.txt /usr/share/fonts/README-DejaVuNerdFont.md; do if test -s "$path" && test -r "$path"; then printf 'fltk-install: notice %s\n' "$path"; else printf 'fltk-install: missing notice %s\n' "$path"; fi; done
+CHECK: fltk-install: notice /usr/share/doc/fltk/COPYING
+CHECK: fltk-install: notice /usr/share/fonts/LICENSE-DejaVu.txt
+CHECK: fltk-install: notice /usr/share/fonts/LICENSE-DejaVuNerdFont.txt
+CHECK: fltk-install: notice /usr/share/fonts/README-DejaVuNerdFont.md
+RUN: (for app in filemanager system-monitor; do for path in "/usr/bin/$app.exe" "/usr/bin/test/$app" "/usr/bin/test/$app.exe"; do if test -e "$path" || test -L "$path"; then printf 'fltk-install: unexpected %s\n' "$path"; exit 1; fi; done; done; printf 'fltk-install: no duplicate %s\n' apps)
+CHECK: fltk-install: no duplicate apps
+RUN: (for path in /usr/include/FL /usr/lib/libfltk* /usr/lib/cmake/fltk* /usr/lib/pkgconfig/fltk* /usr/bin/fluid /usr/bin/fltk-config /usr/bin/fltk-options; do if test -e "$path" || test -L "$path"; then printf 'fltk-install: unexpected %s\n' "$path"; exit 1; fi; done; printf 'fltk-install: runtime %s\n' only)
+CHECK: fltk-install: runtime only

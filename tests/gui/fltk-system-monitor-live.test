@@ -54,7 +54,7 @@ SERIAL-WAIT-FILE: /tmp/monitor-exit
 SERIAL: test "$(cat /tmp/monitor-exit)" = 0 && test ! -e /proc/$helper && ! pgrep -x monitor-sampler && printf 'monitor live: %s\n' 'closed and reaped worker'; umount /mnt/monitor
 SERIAL-CHECK: monitor live: closed and reaped worker
 # Open the uninstrumented executable as well.
-SERIAL: (/usr/bin/test/system-monitor.exe; echo $? >/tmp/monitor-default-exit) >/tmp/monitor-default.log 2>&1 &
+SERIAL: (/usr/bin/system-monitor; echo $? >/tmp/monitor-default-exit) >/tmp/monitor-default.log 2>&1 &
 GUI-CHECK-RECT: 320 206 8 8 232 237 244
 GUI-SEND-KEYS: meta_l,w
 SERIAL-WAIT-FILE: /tmp/monitor-default-exit

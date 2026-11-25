@@ -5,7 +5,7 @@ SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: for attempt in 1 2 3 4 5; do grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log && break; sleep 1; done
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-SERIAL: (HOME=/tmp/fm-copy/home /usr/bin/test/filemanager.exe /tmp/fm-copy/src; printf '%d\n' "$?" >/tmp/filemanager.exit) >/tmp/filemanager.log 2>&1 &
+SERIAL: (HOME=/tmp/fm-copy/home /usr/bin/filemanager /tmp/fm-copy/src; printf '%d\n' "$?" >/tmp/filemanager.exit) >/tmp/filemanager.log 2>&1 &
 GUI-CHECK-RECT: 370 272 8 8 246 248 251
 # Split the view, then navigate only the right pane to the destination.
 GUI-MOUSE-POSITION: 944,122
