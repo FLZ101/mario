@@ -261,8 +261,6 @@ typedef struct __attribute__((packed)) {
 	uint32_t opacity_le;
 } gui_protocol_wire_window_opacity;
 
-_Static_assert(sizeof(gui_protocol_wire_window_opacity) == 8, "window opacity wire size");
-
 typedef struct __attribute__((packed)) {
 	uint32_t window_id_le;
 	int32_t status_le;
@@ -294,24 +292,33 @@ typedef enum {
 	GUI_PROTOCOL_OUTPUT_BLOCKED,
 } gui_protocol_output_result;
 
-_Static_assert(sizeof(gui_protocol_wire_header) == GUI_PROTOCOL_HEADER_SIZE,
+#ifdef __cplusplus
+#define GUI_PROTOCOL_ASSERT static_assert
+#else
+#define GUI_PROTOCOL_ASSERT _Static_assert
+#endif
+
+GUI_PROTOCOL_ASSERT(sizeof(gui_protocol_wire_window_opacity) == 8, "window opacity wire size");
+GUI_PROTOCOL_ASSERT(sizeof(gui_protocol_wire_header) == GUI_PROTOCOL_HEADER_SIZE,
 	       "GUI protocol header size");
-_Static_assert(sizeof(gui_protocol_wire_hello) == 4,
+GUI_PROTOCOL_ASSERT(sizeof(gui_protocol_wire_hello) == 4,
 	       "GUI protocol hello size");
-_Static_assert(sizeof(gui_protocol_wire_surface_begin) == 36,
+GUI_PROTOCOL_ASSERT(sizeof(gui_protocol_wire_surface_begin) == 36,
 	       "GUI protocol surface begin size");
-_Static_assert(sizeof(gui_protocol_wire_surface_data) == 28,
+GUI_PROTOCOL_ASSERT(sizeof(gui_protocol_wire_surface_data) == 28,
 	       "GUI protocol surface data size");
-_Static_assert(sizeof(gui_protocol_wire_surface_commit) == 20,
+GUI_PROTOCOL_ASSERT(sizeof(gui_protocol_wire_surface_commit) == 20,
 	       "GUI protocol surface commit size");
-_Static_assert(sizeof(gui_protocol_wire_shell_surface_commit) == 36,
+GUI_PROTOCOL_ASSERT(sizeof(gui_protocol_wire_shell_surface_commit) == 36,
 	       "GUI protocol shell surface commit size");
-_Static_assert(sizeof(gui_protocol_wire_window_state) == 16,
+GUI_PROTOCOL_ASSERT(sizeof(gui_protocol_wire_window_state) == 16,
 	       "GUI protocol window state size");
-_Static_assert(sizeof(gui_protocol_wire_shell_work_area) == 16,
+GUI_PROTOCOL_ASSERT(sizeof(gui_protocol_wire_shell_work_area) == 16,
 	       "GUI protocol shell work area size");
-_Static_assert(sizeof(gui_protocol_wire_window_state_request) == 12,
+GUI_PROTOCOL_ASSERT(sizeof(gui_protocol_wire_window_state_request) == 12,
 	       "GUI protocol window state request size");
+
+#undef GUI_PROTOCOL_ASSERT
 
 int gui_protocol_message_length(size_t payload_bytes, uint32_t *length);
 int gui_protocol_encode_header(void *buffer, size_t buffer_bytes,

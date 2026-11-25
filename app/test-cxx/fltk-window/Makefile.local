@@ -1,0 +1,2 @@
+include $(ROOT)/usr-cxx/fltk-app.mk
+CXXFLAGS += -I$(ROOT)/gui/libmario-ui/include

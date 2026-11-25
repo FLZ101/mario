@@ -35,7 +35,7 @@ diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
 @@ -215 +215 @@ else()
 -endif(FLTK_USE_X11 AND NOT FLTK_OPTION_PRINT_SUPPORT)
 +endif()
-@@ -219 +219,20 @@ set(DRIVER_FILES)
+@@ -219 +219,21 @@ set(DRIVER_FILES)
 -if(FLTK_USE_X11 AND NOT FLTK_BACKEND_WAYLAND)
 +if(FLTK_BACKEND_MARIO)
 +  list(APPEND DRIVER_FILES
@@ -45,7 +45,8 @@ diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
 +    Fl_Native_File_Chooser_FLTK.cxx
 +  )
 +  add_library(fltk-mario-driver OBJECT
-+    "${FLTK_MARIO_DRIVER_DIR}/platform.cxx" "${FLTK_MARIO_DRIVER_DIR}/graphics.cxx")
++    "${FLTK_MARIO_DRIVER_DIR}/platform.cxx" "${FLTK_MARIO_DRIVER_DIR}/graphics.cxx"
++    "${FLTK_MARIO_DRIVER_DIR}/window.cxx")
 +  target_compile_definitions(fltk-mario-driver PRIVATE FL_LIBRARY)
 +  target_include_directories(fltk-mario-driver PRIVATE
 +    "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -57,7 +58,7 @@ diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
 +  endif()
 +  list(APPEND DRIVER_FILES $<TARGET_OBJECTS:fltk-mario-driver>)
 +elseif(FLTK_USE_X11 AND NOT FLTK_BACKEND_WAYLAND)
-@@ -411 +430 @@ else()
+@@ -411 +431 @@ else()
 -endif(FLTK_USE_X11 AND NOT FLTK_BACKEND_WAYLAND)
 +endif()
 diff --git a/src/Fl_Image_Surface.cxx b/src/Fl_Image_Surface.cxx

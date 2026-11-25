@@ -1,0 +1,20 @@
+GUI-VISUAL-TEST:
+TIMEOUT: 10
+SERIAL: rm -f /tmp/fltk-window.*; /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: for attempt in 1 2 3 4 5; do grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log && break; sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/fltk-window.exe >/tmp/fltk-window.log 2>&1 & echo $! >/tmp/fltk-window.pid
+GUI-CHECK-RECT: 84 100 8 8 255 0 0
+GUI-CHECK-RECT: 130 120 8 8 32 64 96
+SERIAL: touch /tmp/fltk-window.resize
+GUI-CHECK-RECT: 300 245 8 8 32 64 96
+SERIAL: touch /tmp/fltk-window.patch
+GUI-CHECK-RECT: 84 100 8 8 0 255 0
+GUI-CHECK-RECT: 130 120 8 8 32 64 96
+SERIAL: touch /tmp/fltk-window.close; wait $(cat /tmp/fltk-window.pid); cat /tmp/fltk-window.log
+SERIAL-CHECK: fltk-window: configured and closed
+GUI-CHECK-RECT: 84 100 8 8 31 41 51
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid)
+EXIT:

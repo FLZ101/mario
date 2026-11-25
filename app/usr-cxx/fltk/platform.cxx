@@ -3,10 +3,12 @@
 #include <FL/Fl_Image_Surface.H>
 #include <FL/Fl_Native_File_Chooser.H>
 #include <FL/platform.H>
+#include "Fl_Timeout.h"
 #include "Fl_Window_Driver.H"
 #include "drivers/Unix/Fl_Unix_Screen_Driver.H"
 #include "drivers/Unix/Fl_Unix_System_Driver.H"
 #include "graphics.h"
+#include "window.h"
 
 namespace {
 
@@ -15,11 +17,24 @@ using mario_fltk::Pixels;
 
 class Mario_Screen_Driver final : public Fl_Unix_Screen_Driver {};
 
-class Mario_System_Driver final : public Fl_Unix_System_Driver {};
-
-class Mario_Window_Driver final : public Fl_Window_Driver {
+class Mario_System_Driver final : public Fl_Unix_System_Driver {
 public:
-	explicit Mario_Window_Driver(Fl_Window *window) : Fl_Window_Driver(window) {}
+	double wait(double seconds) override
+	{
+		const bool had_window = Fl::first_window() != nullptr;
+		seconds = Fl_System_Driver::wait(seconds);
+		if (had_window && !Fl::first_window())
+			return 0;
+		auto &screen = static_cast<Mario_Screen_Driver &>(*Fl::screen_driver());
+		if (seconds <= 0) {
+			const int result = screen.poll_or_select_with_delay(0);
+			Fl::flush();
+			return result;
+		}
+		Fl::flush();
+		Fl_Timeout::elapse_timeouts();
+		return screen.poll_or_select_with_delay(Fl::idle ? 0 : Fl_Timeout::time_to_wait(seconds));
+	}
 };
 
 class Mario_Image_Surface_Driver final : public Fl_Image_Surface_Driver {
@@ -85,7 +100,7 @@ Fl_System_Driver *Fl_System_Driver::newSystemDriver()
 
 Fl_Window_Driver *Fl_Window_Driver::newWindowDriver(Fl_Window *window)
 {
-	return new Mario_Window_Driver(window);
+	return new mario_fltk::Window_Driver(window);
 }
 
 Fl_Image_Surface_Driver *Fl_Image_Surface_Driver::newImageSurfaceDriver(

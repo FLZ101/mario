@@ -1,0 +1,4 @@
+TIMEOUT: 12
+RUN: /usr/bin/test/fltk-window.exe --fake; printf 'fltk-upload exit: %s\n' "$?"
+CHECK: fltk-upload: interrupted upload, fragmented replies and stale patch recovered
+CHECK: fltk-upload exit: 0
