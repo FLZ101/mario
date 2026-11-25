@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+
+import os
+import subprocess
+import sys
+
+from pathlib import Path
+
+from compile_commands import record_compile_commands
+
+
+class Unreachable(Exception):
+    pass
+
+
+def add_musl_includes(flags, include_dir, builtin_headers):
+    flags.extend(["-isystem", str(include_dir), "-isystem", builtin_headers])
+
+
+def get_args():
+    cwd = Path(__file__).resolve().parent
+    root = cwd.parent
+    musl_install = (root / "musl" / "musl-1.2.5-install").resolve()
+    musl_include = musl_install / "include"
+    musl_lib = musl_install / "lib"
+    linker_script = root / "musl" / "musl.ld"
+    runtime = root / "app" / "usr" / "cxx" / "install"
+
+    prog_name = os.path.basename(sys.argv[0])
+    args = sys.argv[1:]
+    compiler_rt = (root / "compiler-rt" / "libcompiler_rt.a").resolve()
+
+    for x in args:
+        if x in ["-v", "--version", "-h", "--help"]:
+            return ["g++"] + args
+
+        if x == "--mario-verify":
+            sys.exit(0)
+
+        if x in ["-print-multiarch", "--print-multiarch", "-dumpmachine"]:
+            if prog_name == "mario-musl-c++":
+                sys.stdout.write("i386-linux-musl\n")
+                sys.exit(0)
+
+    source_suffixes = (
+        ".C",
+        ".cc",
+        ".cp",
+        ".cpp",
+        ".CPP",
+        ".cxx",
+        ".c++",
+        ".ii",
+        ".c",
+        ".S",
+    )
+    flags_before = ["-m32", "-march=i686"]
+    flags = []
+    if prog_name in {"mario-c++", "mario-musl-c++"}:
+        builtin_headers = subprocess.check_output(
+            ["g++"] + flags_before + ["-print-file-name=include"], text=True
+        ).strip()
+
+    match prog_name:
+        case "cxx":
+            flags_before = []
+
+        case "mario-c++":
+            flags_before.extend(["-nostdinc", "-fno-stack-protector"])
+            add_musl_includes(flags_before, musl_include, builtin_headers)
+
+        case "mario-musl-c++":
+            use_runtime = "--mario-no-cxx-runtime" not in args
+            args = [arg for arg in args if arg != "--mario-no-cxx-runtime"]
+            for variable in ("CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH"):
+                os.environ.pop(variable, None)
+
+            flags_before.extend(
+                [
+                    "-nostdinc",
+                    "-fno-pic",
+                    "-fno-pie",
+                    "-fno-stack-protector",
+                    "-funwind-tables",
+                ]
+            )
+            if use_runtime:
+                headers = runtime / "include" / "c++" / "v1"
+                if not (headers / "__config_site").is_file():
+                    sys.exit(
+                        "Mario C++ runtime is missing; build it with make app first"
+                    )
+                flags_before.extend(["-isystem", str(headers)])
+            add_musl_includes(flags_before, musl_include, builtin_headers)
+
+            link = not {"-c", "-E", "-S", "-M", "-MM", "-fsyntax-only"}.intersection(
+                args
+            )
+            if link:
+                flags_before.extend(
+                    [
+                        "-static",
+                        "-nostdlib",
+                        "-fuse-ld=bfd",
+                        str(musl_lib / "crt1.o"),
+                        str(musl_lib / "crti.o"),
+                    ]
+                )
+                flags.extend(["-x", "none", "-Wl,--start-group"])
+                if use_runtime:
+                    flags.extend(
+                        str(runtime / "lib" / name)
+                        for name in ("libc++.a", "libc++abi.a", "libunwind.a")
+                    )
+                flags.extend(
+                    [
+                        str(musl_lib / "libc.a"),
+                        str(compiler_rt),
+                        "-Wl,--end-group",
+                        str(musl_lib / "crtn.o"),
+                        "-Wl,--orphan-handling=warn,--gc-sections,--eh-frame-hdr,-T,"
+                        + str(linker_script),
+                    ]
+                )
+
+        case _:
+            raise Unreachable()
+
+    args = ["g++"] + flags_before + args + flags
+    record_compile_commands(args, source_suffixes)
+    return args
+
+
+def main():
+    args = get_args()
+    subprocess.run(args, capture_output=False, check=True)
+
+
+if __name__ == "__main__":
+    main()

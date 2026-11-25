@@ -2,13 +2,18 @@
 
 set -euo pipefail
 
+if [[ -z ${CC:-} || -z ${CXX:-} ]] ; then
+    echo "CC and CXX are not set" >&2
+    exit 1
+fi
+
 ninja="$(dirname "$PYTHON")/ninja"
 if [[ ! -x $PYTHON || ! -x $ninja ]] ; then
     echo "The build venv must contain Python and Ninja; run make venv first" >&2
     exit 1
 fi
 
-gcc_version=$(g++ -dumpversion)
+gcc_version=$($CXX -dumpversion)
 if (( ${gcc_version%%.*} < 13 )); then
     echo "Mario's C++ runtime requires GCC 13 or later" >&2
     exit 1
@@ -51,18 +56,14 @@ patch -d "$sources/libcxxabi" -p1 < "$CXX_DIR/libcxxabi-gcc.patch"
 
 cd "$CXX_BUILD_DIR"
 unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
-export CC_FOR_BUILD=gcc
-target_flags='-m32 -march=i686'
-headers="-nostdinc -isystem \"$MUSL_DIR/include\" -isystem \"$(gcc -print-file-name=include)\""
-compile_flags="$target_flags $headers -fno-stack-protector"
+c_flags='-fno-stack-protector'
 
 cmake -S "$sources/runtimes" -B "$build" -G Ninja \
     -DCMAKE_MAKE_PROGRAM="$ninja" -DPython3_EXECUTABLE="$PYTHON" \
     -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=i386 \
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-    -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_ASM_COMPILER=gcc \
-    -DCMAKE_C_FLAGS="$compile_flags" -DCMAKE_CXX_FLAGS="$compile_flags" \
-    -DCMAKE_ASM_FLAGS="$target_flags" -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" -DCMAKE_ASM_COMPILER="$CC" \
+    -DCMAKE_C_FLAGS="$c_flags" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_DISABLE_FIND_PACKAGE_LLVM=ON -DCMAKE_DISABLE_FIND_PACKAGE_Clang=ON \
     -DCMAKE_INSTALL_PREFIX="$CXX_INSTALL_DIR" -DCMAKE_INSTALL_LIBDIR=lib \
     -DLLVM_DEFAULT_TARGET_TRIPLE=i386-unknown-linux-musl \

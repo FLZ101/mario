@@ -1,5 +1,6 @@
 CXX_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 MARIO_CXX := $(abspath $(CXX_DIR)/../../../util/mario-musl-c++)
+RUNTIME_CXX := $(abspath $(CXX_DIR)/../../../util/mario-c++)
 ifneq ($(filter default undefined,$(origin CXX)),)
 CXX := $(MARIO_CXX)
 endif
@@ -23,7 +24,7 @@ $(CXX_PROBES): export PATH := $(dir $(CXX_PYTHON)):$(PATH)
 
 $(CXX_RUNTIME_STAMP): $(CXX_DIR)/build-runtime.sh $(CXX_DIR)/llvm-sources.sha256 \
 		$(CXX_DIR)/libcxx-gcc.patch $(CXX_DIR)/libcxx-mario.patch $(CXX_DIR)/libcxxabi-gcc.patch $(CXX_LIBC)
-	PYTHON="$(CXX_PYTHON)" CXX_DIR="$(CXX_DIR)" CXX_BUILD_DIR="$(CXX_BUILD_DIR)" \
+	CXX="$(RUNTIME_CXX)" PYTHON="$(CXX_PYTHON)" CXX_DIR="$(CXX_DIR)" CXX_BUILD_DIR="$(CXX_BUILD_DIR)" \
 		CXX_INSTALL_DIR="$(CXX_INSTALL_DIR)" MUSL_DIR="$(abspath $(dir $(CXX_LIBC))/..)" \
 		bash "$(CXX_DIR)/build-runtime.sh"
 	touch "$@"

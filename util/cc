@@ -46,7 +46,7 @@ def get_args():
         if x.endswith(".c"):
             link_only = False
 
-    flags_before = ["-m32"]
+    flags_before = ["-m32", "-march=i686"]
     flags = [
         "-nostdinc",
         "-ffreestanding",
