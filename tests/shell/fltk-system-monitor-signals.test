@@ -1,0 +1,4 @@
+TIMEOUT: 10
+RUN: /usr/bin/test/fltk-system-monitor.exe signal-checks; printf 'monitor signals exit: %s\n' "$?"
+CHECK: monitor signals: process identity, protection and thread-group exit verified
+CHECK: monitor signals exit: 0

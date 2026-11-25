@@ -406,10 +406,18 @@ int do_signal(struct trap_frame *tr, unsigned long old_mask)
 			case SIGQUIT: case SIGILL: case SIGTRAP:
 			case SIGABRT: case SIGFPE: case SIGSEGV:
 				/* no break */
-			default:
+			default: {
+				int code = signr;
+
 				current->signal |= _S(signr & 0x7f);
+				if (signr == SIGKILL && current->group_exit_requested)
+					code = current->group_exit_status;
 				spin_unlock_irqrestore(&current->lock, flags);
-				do_exit(signr);
+				if (current->pid == current->tgid && (signr == SIGTERM || signr == SIGKILL))
+					do_group_exit(code);
+				else
+					do_exit(code);
+			}
 			}
 		}
 		/*

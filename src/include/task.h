@@ -47,6 +47,7 @@ struct task_struct {
 	unsigned long blocked;
 	long need_resched;
 	int exit_code, exit_signal;
+	int group_exit_status, group_exit_requested;
 	pid_t pid, pgrp, session;
 	/* Process id visible to getpid().  Threads share this with their group
 	 * leader while each task keeps a unique pid/TID. */

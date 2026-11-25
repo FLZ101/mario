@@ -270,6 +270,13 @@ Snapshot sample(Source &source)
 			if (comm.bytes != task->name)
 				result.task_status = Status::partial;
 		}
+		const auto status = source.read(path + "/status", 256);
+		if (status.status == Status::complete)
+			lines(status, [&](std::string_view row) {
+				if (word(row) == "Tgid:")
+					return integer(word(row), task->tgid);
+				return true;
+			});
 		result.tasks.push_back(std::move(*task));
 	}
 	std::sort(result.tasks.begin(), result.tasks.end(), [](const Task &left, const Task &right) {

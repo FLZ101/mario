@@ -1,0 +1,59 @@
+GUI-VISUAL-TEST:
+TIMEOUT: 12
+SERIAL: /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: for attempt in 1 2 3 4 5; do grep -q 'private connection ready' /tmp/mario-wm.log && break; sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: /usr/bin/test/fltk-system-monitor.exe end-target & end_pid=$!; /usr/bin/test/fltk-system-monitor.exe force-target & force_pid=$!
+SERIAL: for attempt in 1 2 3 4 5; do if grep -qx monitor-end /proc/$end_pid/comm && grep -qx monitor-force /proc/$force_pid/comm; then printf 'monitor signals: targets %s\n' ready; break; fi; sleep 1; done
+SERIAL-CHECK: monitor signals: targets ready
+SERIAL: (/usr/bin/system-monitor; echo $? >/tmp/monitor-exit) >/tmp/monitor.log 2>&1 &
+GUI-CHECK-RECT: 320 206 8 8 232 237 244
+GUI-MOUSE-POSITION: 229,137
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-POSITION: 205,171
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-TYPE: monitor
+GUI-MOUSE-POSITION: 280,230
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 365 225 8 8 188 217 251
+GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-signals.png,614,574,296,26
+# Return defaults to Cancel and leaves the process alive.
+GUI-MOUSE-POSITION: 686,587
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-WAIT-FRAME:
+GUI-SEND-KEY: ret
+SERIAL: grep -qx monitor-end /proc/$end_pid/comm && printf 'monitor signals: %s\n' 'cancel kept target alive'
+SERIAL-CHECK: monitor signals: cancel kept target alive
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: alt,e
+SERIAL: wait "$end_pid"; status=$?; test "$status" -eq 143 && printf 'monitor signals: %s\n' 'ended selected process'
+SERIAL-CHECK: monitor signals: ended selected process
+GUI-MOUSE-POSITION: 205,171
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-SEND-KEYS: ctrl,a
+GUI-TYPE: force
+GUI-MOUSE-POSITION: 280,230
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 365 225 8 8 188 217 251
+GUI-MOUSE-POSITION: 838,587
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-WAIT-FRAME:
+GUI-SEND-KEYS: alt,k
+SERIAL: wait "$force_pid"; status=$?; test "$status" -eq 137 && printf 'monitor signals: %s\n' 'force-killed selected process'
+SERIAL-CHECK: monitor signals: force-killed selected process
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/monitor-exit
+SERIAL: printf 'monitor signals exit: %s\n' "$(cat /tmp/monitor-exit)"; kill -TERM $(cat /tmp/mario-wm.pid)
+SERIAL-CHECK: monitor signals exit: 0
+EXIT:

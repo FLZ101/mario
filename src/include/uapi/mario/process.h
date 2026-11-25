@@ -1,0 +1,6 @@
+#ifndef _UAPI_MARIO_PROCESS_H
+#define _UAPI_MARIO_PROCESS_H
+
+#define MARIO_PR_SIGNAL_PROCESS 0x4d415201
+
+#endif

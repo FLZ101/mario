@@ -326,21 +326,43 @@ failing mount. Live guest snapshots show the expected per-core rows at
    uptime, a sortable and filterable task table with details, and mount
    capacity bars. Keep task selection by identity as the table reorders;
    don't move it to a new process that reuses the selected PID.
+   The Processes tab's Tree toggle groups children under their parents.
+   Click a branch arrow to fold it; sorting reorders siblings, and filtering
+   shows matching tasks with their ancestors without changing folded state.
 2. Schedule one sample per second with FLTK timers and a 120-sample ring.
    Collect outside painting and keep I/O off the UI path; allow one refresh
    in flight and skip ticks while it runs. Add pause and manual refresh,
    mark unavailable or stale data, and redraw only changed regions. On
    close, unregister timers and fd callbacks and stop and reap the worker.
-3. Keep the app read-only. Process signaling is follow-up work: rechecking
-   the PID before `kill()` still races with PID reuse. Require safe task
-   identity, confirmation, and protection for essential tasks and the
-   monitor itself before adding a signal action.
+   Pause/Resume, Refresh, and Tree use glyphs from the bundled Nerd Font
+   alongside their text labels.
+3. Select a process and choose **End Process…** (`SIGTERM`) or **Force
+   Kill…** (`SIGKILL`). Both show an icon and confirm the name and PID, with
+   Cancel as the default. Init, the monitor and its sampler, individual
+   thread rows, and exited processes cannot be targeted from the UI.
+   Mario's `prctl(MARIO_PR_SIGNAL_PROCESS, pid, start_ticks, signal, 0)`
+   checks the PID, start time, and process leadership under the task-list
+   lock before delivering either signal to the leader. A default fatal
+   disposition stops the thread group, not child processes in the tree.
 
 **Exit gate:** `tests/gui/fltk-system-monitor.test` uses a test-only snapshot
 source to verify graph pixels, sorting, and selection across refreshes.
+`tests/gui/fltk-system-monitor-tree.test` covers hierarchy, branch folding,
+filtering, parent PID reuse, and control icon rendering with a deterministic
+snapshot.
 `tests/gui/fltk-system-monitor-live.test` checks a guest workload appearing,
 accumulating CPU time, and exiting, plus refresh after a mount change. Check
 per-core rows at both SMP settings and verify pause and close stop sampling.
+The `fltk-system-monitor-signals.test` shell and GUI fixtures verify checked
+identity, thread-group teardown, both buttons, and cancel-by-default.
+
+**Shared font icons:** FLTK apps can include `app/usr-cxx/font-icons.mk`
+instead of `fltk-app.mk`. `mario::IconFont` loads the bundled Nerd Font by
+default or accepts another font path, pixel height, and icon cell size.
+Call `render(codepoint, rgb)` to create an owned image; keep that image alive
+while widgets use it with `mario::set_label_icon`. A missing font or glyph
+leaves the label text visible without an icon. File Manager and System
+Monitor render their icon sets once at startup and reuse the images.
 
 ### F11 — Production packaging
 

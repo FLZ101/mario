@@ -35,7 +35,7 @@ template <class Archive> bool record(Archive &io, Memory &memory)
 template <class Archive> bool record(Archive &io, Task &task)
 {
 	return field(io, task.identity.pid, task.identity.start_ticks, task.parent, task.name,
-		task.state, task.user, task.system);
+		task.state, task.user, task.system, task.tgid);
 }
 
 template <class Archive> bool record(Archive &io, Mount &mount)

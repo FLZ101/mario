@@ -20,7 +20,7 @@ static int get_pid(void)
 {
 	int res;
 	ACQUIRE_LOCK(&last_pid_lock);
-	res = ++last_pid;
+	res = last_pid == __INT_MAX__ ? -EAGAIN : ++last_pid;
 	RELEASE_LOCK(&last_pid_lock);
 	return res;
 }
@@ -78,9 +78,15 @@ extern void copy_fs(struct task_struct *p);
 int do_fork(struct trap_frame *tr, int vfork)
 {
 	struct task_struct *p;
+	int pid;
 	if (!(p = alloc_task_struct())) {
 		pr_task_err("fork failed: no memory\n");
 		return -ENOMEM;
+	}
+	pid = get_pid();
+	if (pid < 0) {
+		free_task_struct(p);
+		return pid;
 	}
 	*p = *current;
 	/* The child must not inherit a transient scheduler-lock state. */
@@ -102,8 +108,9 @@ int do_fork(struct trap_frame *tr, int vfork)
 
 	init_wait_queue(&p->wait_chldexit);
 	p->state = TASK_UNINTERRUPTIBLE;
-	p->pid = get_pid();
+	p->pid = pid;
 	p->tgid = p->pid;
+	p->group_exit_requested = 0;
 	p->clone_flags = 0;
 	p->clear_child_tid = NULL;
 	p->parked = 0;
@@ -199,10 +206,16 @@ int do_clone(struct trap_frame *tr, unsigned long flags,
 	int shared_fs = flags & CLONE_FS;
 	int shared_files = flags & CLONE_FILES;
 	int error = -ENOMEM;
+	int pid;
 
 	if (!(p = alloc_task_struct())) {
 		pr_task_err("clone failed: no task memory\n");
 		return -ENOMEM;
+	}
+	pid = get_pid();
+	if (pid < 0) {
+		free_task_struct(p);
+		return pid;
 	}
 	*p = *current;
 	/* The child must not inherit a transient scheduler-lock state. */
@@ -238,9 +251,10 @@ int do_clone(struct trap_frame *tr, unsigned long flags,
 
 	init_wait_queue(&p->wait_chldexit);
 	p->state = TASK_UNINTERRUPTIBLE;
-	p->pid = get_pid();
+	p->pid = pid;
 	/* CLONE_THREAD children share the group leader's process id. */
 	p->tgid = (flags & CLONE_THREAD) ? current->tgid : p->pid;
+	p->group_exit_requested = 0;
 	p->clone_flags = flags;
 	p->clear_child_tid =
 		(flags & CLONE_CHILD_CLEARTID) ? child_tidptr : NULL;

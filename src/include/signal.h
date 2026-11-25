@@ -80,6 +80,8 @@ int send_sig(unsigned long sig, struct task_struct *p, int priv);
 int kill_pg(int pgrp, int sig, int priv);
 int kill_sl(int session, int sig, int priv);
 int kill_proc(int pid, int sig, int priv);
+int signal_process(int pid, unsigned long start_ticks, int sig);
+void do_group_exit(long code);
 
 struct sigcontext_struct {
 	unsigned short gs, __gsh;

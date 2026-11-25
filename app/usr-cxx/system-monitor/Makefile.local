@@ -1,1 +1,1 @@
-include $(ROOT)/usr-cxx/fltk-app.mk
+include $(ROOT)/usr-cxx/font-icons.mk

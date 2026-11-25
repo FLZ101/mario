@@ -121,7 +121,7 @@ static int enqueue_on_allowed_cpu(struct task_struct *p)
 	return p->cpu;
 }
 
-void wake_up_process(struct task_struct *p)
+static void wake_task(struct task_struct *p, int for_signal)
 {
 	unsigned long flags;
 	int target = -1;
@@ -133,6 +133,12 @@ void wake_up_process(struct task_struct *p)
 	self = current->cpu;
 
 	spin_lock_irqsave(&scheduler_lock, flags);
+	if (for_signal) {
+		spin_lock(&p->lock);
+		if (p->state != TASK_RUNNING &&
+		    (p->state != TASK_INTERRUPTIBLE || !signal_pending(p)))
+			goto unlock;
+	}
 	if (p->state != TASK_RUNNING) {
 		/* Mark it runnable first.  If it is already linked on a runqueue
 		 * (for example a task that set TASK_INTERRUPTIBLE but has not yet
@@ -158,6 +164,9 @@ void wake_up_process(struct task_struct *p)
 		 * ever leaves it unlinked. */
 		target = enqueue_on_allowed_cpu(p);
 	}
+unlock:
+	if (for_signal)
+		spin_unlock(&p->lock);
 	spin_unlock_irqrestore(&scheduler_lock, flags);
 
 	/*
@@ -168,6 +177,16 @@ void wake_up_process(struct task_struct *p)
 		smp_send_reschedule(target);
 	else if (target == self)
 		current->need_resched = 1;
+}
+
+void wake_up_process(struct task_struct *p)
+{
+	wake_task(p, 0);
+}
+
+void wake_up_signalled_process(struct task_struct *p)
+{
+	wake_task(p, 1);
 }
 
 void FASTCALL _switch_to(struct task_struct *p, struct task_struct *n)

@@ -9,14 +9,25 @@
 #include <FL/Fl_Scroll.H>
 #include <FL/Fl_Table.H>
 #include <FL/Fl_Tabs.H>
+#include <FL/Fl_Toggle_Button.H>
+#include <FL/fl_ask.H>
 #include <FL/fl_draw.H>
+#include <font-icons.h>
+#include <mario/process.h>
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
+#include <climits>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <deque>
+#include <signal.h>
+#include <sys/prctl.h>
 #include <tuple>
+#include <unordered_map>
+#include <unistd.h>
 #include <utility>
 
 namespace monitor {
@@ -30,6 +41,23 @@ const auto chart_bg = fl_rgb_color(232, 237, 244);
 const auto cpu_color = fl_rgb_color(50, 109, 181);
 const auto memory_color = fl_rgb_color(29, 128, 113);
 const auto cache_color = fl_rgb_color(135, 79, 160);
+
+struct ControlIcons {
+	std::unique_ptr<Fl_RGB_Image> pause, resume, refresh, tree;
+	std::unique_ptr<Fl_RGB_Image> end_process, force_kill;
+};
+
+const ControlIcons &control_icons()
+{
+	static const auto icons = [] {
+		constexpr std::uint32_t ink = 0x35465b;
+		mario::IconFont font;
+		return ControlIcons{font.render(0xf04c, ink), font.render(0xf04b, ink),
+			font.render(0xf021, ink), font.render(0xf0e8, ink),
+			font.render(0xf28d, ink), font.render(0xf057, 0xa43639)};
+	}();
+	return icons;
+}
 
 void set_label(Fl_Widget &widget, const std::string &text)
 {
@@ -343,19 +371,19 @@ public:
 		resize(xpos, ypos, width, height);
 	}
 
-	void update(const Snapshot &snapshot, const std::string &filter)
+	void update(const Snapshot &snapshot, const std::string &filter, bool tree)
 	{
 		const auto needle = fold(filter);
-		std::vector<const Task *> visible;
+		filtering_ = !needle.empty();
+		std::vector<const Task *> ordered;
 		if (selected_ && std::none_of(snapshot.tasks.begin(), snapshot.tasks.end(), [&](const Task &task) {
 			return task.identity == *selected_;
 		}))
 			selected_.reset();
 		for (const auto &task : snapshot.tasks)
-			if (needle.empty() || fold(printable(task.name)).find(needle) != std::string::npos ||
-			    std::to_string(task.identity.pid).find(needle) != std::string::npos)
-				visible.push_back(&task);
-		std::sort(visible.begin(), visible.end(), [&](const Task *left, const Task *right) {
+			if (tree || matches(task, needle))
+				ordered.push_back(&task);
+		std::sort(ordered.begin(), ordered.end(), [&](const Task *left, const Task *right) {
 			if (column_ == 3 && bool(left->machine_percent) != bool(right->machine_percent))
 				return bool(left->machine_percent);
 			if (descending_)
@@ -369,9 +397,12 @@ public:
 			return left->identity.pid < right->identity.pid;
 		});
 		std::vector<Row> display;
-		for (const auto *task : visible)
-			display.push_back({task->identity, {std::to_string(task->identity.pid), printable(task->name),
-				printable(std::string(1, task->state)), percent(task->machine_percent), std::to_string(ticks(*task))}});
+		display.reserve(ordered.size());
+		if (tree)
+			append_tree(display, ordered, needle);
+		else
+			for (const auto *task : ordered)
+				display.push_back(row(*task));
 		if (display == display_)
 			return;
 		display_ = std::move(display);
@@ -391,9 +422,18 @@ public:
 			column_ = col;
 			redraw();
 		} else if ((click || Fl::event() == FL_KEYBOARD) && callback_context() == CONTEXT_CELL) {
-			const int row = callback_row();
-			if (row >= 0 && row < rows()) {
-				selected_ = display_[row].id;
+			const int index = callback_row();
+			if (index >= 0 && index < rows()) {
+				const auto &item = display_[index];
+				selected_ = item.id;
+				if (click && callback_col() == 1 && item.branch && !filtering_) {
+					int xpos, ypos, width, height;
+					if (find_cell(CONTEXT_CELL, index, 1, xpos, ypos, width, height) == 0) {
+						const int offset = Fl::event_x() - branch_x(item, xpos, width);
+						if (offset >= 0 && offset < indent)
+							toggle_branch(item);
+					}
+				}
 				redraw();
 			}
 		}
@@ -408,6 +448,13 @@ public:
 		return nullptr;
 	}
 
+	bool selection_is_displayed() const
+	{
+		return selected_ && std::any_of(display_.begin(), display_.end(), [&](const auto &row) {
+			return row.id == *selected_;
+		});
+	}
+
 	void resize(int xpos, int ypos, int width, int height) override
 	{
 		Fl_Table::resize(xpos, ypos, width, height);
@@ -419,11 +466,107 @@ public:
 	}
 
 private:
+	static constexpr int indent = 14;
+
 	struct Row {
 		Identity id;
 		std::array<std::string, 5> cells;
-		bool operator==(const Row &other) const { return id == other.id && cells == other.cells; }
+		int depth = -1;
+		bool branch = false, expanded = false;
+		bool operator==(const Row &other) const
+		{
+			return id == other.id && cells == other.cells && depth == other.depth &&
+				branch == other.branch && expanded == other.expanded;
+		}
 	};
+
+	static bool matches(const Task &task, const std::string &needle)
+	{
+		return needle.empty() || fold(printable(task.name)).find(needle) != std::string::npos ||
+			std::to_string(task.identity.pid).find(needle) != std::string::npos;
+	}
+
+	static Row row(const Task &task)
+	{
+		return {task.identity, {std::to_string(task.identity.pid), printable(task.name),
+			printable(std::string(1, task.state)), percent(task.machine_percent), std::to_string(ticks(task))}};
+	}
+
+	void append_tree(std::vector<Row> &display, const std::vector<const Task *> &ordered, const std::string &needle)
+	{
+		const auto root = ordered.size();
+		std::unordered_map<int, std::size_t> by_pid;
+		by_pid.reserve(root);
+		for (std::size_t index = 0; index < root; ++index)
+			by_pid.emplace(ordered[index]->identity.pid, index);
+		for (auto entry = collapsed_.begin(); entry != collapsed_.end();) {
+			const auto task = by_pid.find(entry->first);
+			if (task == by_pid.end() || ordered[task->second]->identity.start_ticks != entry->second)
+				entry = collapsed_.erase(entry);
+			else
+				++entry;
+		}
+
+		std::vector<std::size_t> parents(root, root), visited(root);
+		for (std::size_t index = 0; index < root; ++index) {
+			const auto &task = *ordered[index];
+			const auto parent = by_pid.find(task.parent);
+			if (parent != by_pid.end() && parent->second != index &&
+			    ordered[parent->second]->identity.start_ticks <= task.identity.start_ticks)
+				parents[index] = parent->second;
+		}
+		for (std::size_t index = 0; index < root; ++index) {
+			auto current = index;
+			while (current != root && !visited[current]) {
+				visited[current] = index + 1;
+				current = parents[current];
+			}
+			if (current != root && visited[current] == index + 1)
+				parents[current] = root;
+		}
+
+		std::vector<bool> included(root, needle.empty());
+		if (!needle.empty())
+			for (std::size_t index = 0; index < root; ++index)
+				if (matches(*ordered[index], needle))
+					for (auto current = index; current != root && !included[current]; current = parents[current])
+						included[current] = true;
+		std::vector<std::vector<std::size_t>> children(root + 1);
+		for (std::size_t index = 0; index < root; ++index)
+			if (included[index])
+				children[parents[index]].push_back(index);
+
+		std::vector<std::pair<std::size_t, int>> pending;
+		const auto push_children = [&](std::size_t parent, int depth) {
+			for (auto child = children[parent].rbegin(); child != children[parent].rend(); ++child)
+				pending.emplace_back(*child, depth);
+		};
+		push_children(root, 0);
+		while (!pending.empty()) {
+			const auto [index, depth] = pending.back();
+			pending.pop_back();
+			auto item = row(*ordered[index]);
+			item.depth = depth;
+			item.branch = !children[index].empty();
+			item.expanded = item.branch && (filtering_ || !collapsed_.count(item.id.pid));
+			if (item.expanded)
+				push_children(index, depth + 1);
+			display.push_back(std::move(item));
+		}
+	}
+
+	void toggle_branch(const Row &item)
+	{
+		if (item.expanded)
+			collapsed_[item.id.pid] = item.id.start_ticks;
+		else
+			collapsed_.erase(item.id.pid);
+	}
+
+	static int branch_x(const Row &item, int xpos, int width)
+	{
+		return xpos + 6 + std::min(item.depth, std::max(0, (width - 100) / indent)) * indent;
+	}
 
 	static uint64_t ticks(const Task &task)
 	{
@@ -444,25 +587,42 @@ private:
 			const auto &item = display_[row];
 			fl_color(selected_ && item.id == *selected_ ? highlight : row % 2 ? stripe : FL_WHITE);
 			fl_rectf(xpos, ypos, width, height);
-			text(item.cells[col], xpos + 6, ypos, width - 12, height);
+			int label_x = xpos + 6;
+			if (col == 1 && item.depth >= 0) {
+				const int branch = branch_x(item, xpos, width);
+				if (item.branch) {
+					const int center = ypos + height / 2;
+					fl_color(FL_DARK3);
+					if (item.expanded)
+						fl_polygon(branch + 2, center - 2, branch + 10, center - 2, branch + 6, center + 3);
+					else
+						fl_polygon(branch + 3, center - 4, branch + 3, center + 4, branch + 8, center);
+				}
+				label_x = branch + indent;
+			}
+			text(item.cells[col], label_x, ypos, xpos + width - label_x - 6, height);
 		}
 		fl_pop_clip();
 	}
 
 	std::vector<Row> display_;
+	std::unordered_map<int, uint64_t> collapsed_;
 	std::optional<Identity> selected_;
 	int column_ = 0;
-	bool descending_ = false;
+	bool descending_ = false, filtering_ = false;
 };
 
 class Processes final : public Fl_Group {
 public:
-	Processes(int xpos, int ypos, int width, int height)
+	Processes(int xpos, int ypos, int width, int height, std::function<void()> on_signal)
 		: Fl_Group(xpos, ypos, width, height, "Processes"), filter_(xpos + 60, ypos + 8, 260, 28, "Filter:"),
-		task_count_(xpos + 338, ypos + 8, width - 356, 28),
+		tree_(xpos + 330, ypos + 8, 64, 28, "Tree"), task_count_(xpos + 406, ypos + 8, width - 424, 28),
 		tasks_(xpos + 10, ypos + 44, width - 20, height - 120),
-		detail_name_(xpos + 10, ypos + height - 71, width - 20, 24),
-		details_(xpos + 10, ypos + height - 47, width - 20, 34)
+		detail_name_(xpos + 10, ypos + height - 71, width - 324, 24),
+		details_(xpos + 10, ypos + height - 47, width - 20, 34),
+		end_(xpos + width - 306, ypos + height - 72, 144, 26, "End Process…"),
+		force_(xpos + width - 154, ypos + height - 72, 144, 26, "Force Kill…"),
+		on_signal_(std::move(on_signal))
 	{
 		end();
 		resizable(tasks_);
@@ -473,6 +633,15 @@ public:
 		filter_.tooltip("Filter by task name or PID");
 		filter_.when(FL_WHEN_CHANGED);
 		filter_.callback([](Fl_Widget *, void *data) { static_cast<Processes *>(data)->refresh(); }, this);
+		mario::set_label_icon(tree_, control_icons().tree.get());
+		tree_.tooltip("Group tasks by parent process");
+		tree_.callback([](Fl_Widget *, void *data) { static_cast<Processes *>(data)->refresh(); }, this);
+		mario::set_label_icon(end_, control_icons().end_process.get());
+		mario::set_label_icon(force_, control_icons().force_kill.get());
+		end_.tooltip("Ask the selected process to exit (SIGTERM)");
+		force_.tooltip("Force the selected process to exit (SIGKILL)");
+		end_.callback([](Fl_Widget *, void *data) { static_cast<Processes *>(data)->signal_selected(SIGTERM); }, this);
+		force_.callback([](Fl_Widget *, void *data) { static_cast<Processes *>(data)->signal_selected(SIGKILL); }, this);
 		tasks_.callback([](Fl_Widget *, void *data) {
 			auto &self = *static_cast<Processes *>(data);
 			self.tasks_.input();
@@ -487,12 +656,49 @@ public:
 	}
 
 private:
+	bool can_signal(const Task *task) const
+	{
+		return task && task->identity.pid > 1 && task->identity.pid == task->tgid &&
+			task->identity.pid != self_pid_ && task->parent != self_pid_ &&
+			task->state != 'Z' && task->identity.start_ticks <= ULONG_MAX && tasks_.selection_is_displayed();
+	}
+
+	void signal_selected(int signal)
+	{
+		const auto *task = tasks_.selected(*snapshot_);
+		if (!can_signal(task))
+			return;
+		const auto identity = task->identity;
+		const auto name = printable(task->name);
+		const bool force = signal == SIGKILL;
+		if (fl_choice("%s %s (PID %d)?\n%s", nullptr, "&Cancel", force ? "&Kill" : "&End Process",
+			      force ? "Force kill" : "End", name.c_str(), identity.pid,
+			      force ? "Unsaved work may be lost." : "The process can handle or ignore this request.") != 2 ||
+		    !window()->shown())
+			return;
+		if (prctl(MARIO_PR_SIGNAL_PROCESS, static_cast<unsigned long>(identity.pid),
+			  static_cast<unsigned long>(identity.start_ticks), static_cast<unsigned long>(signal), 0UL) < 0) {
+			const auto error = errno;
+			fl_alert("Could not signal %s (PID %d).\n%s", name.c_str(), identity.pid,
+				 error == ESRCH ? "The selected process is no longer available." : std::strerror(error));
+		}
+		on_signal_();
+	}
+
 	void refresh()
 	{
-		tasks_.update(*snapshot_, filter_.value());
+		tasks_.update(*snapshot_, filter_.value(), tree_.value());
 		set_label(task_count_, std::to_string(tasks_.rows()) + " of " + std::to_string(snapshot_->tasks.size()) +
 			" tasks" + status(snapshot_->task_status));
-		if (const auto *task = tasks_.selected(*snapshot_)) {
+		const auto *task = tasks_.selected(*snapshot_);
+		if (can_signal(task)) {
+			end_.activate();
+			force_.activate();
+		} else {
+			end_.deactivate();
+			force_.deactivate();
+		}
+		if (task) {
 			set_label(detail_name_, "PID " + std::to_string(task->identity.pid) + "   " + printable(task->name));
 			set_label(details_, "Parent: " + std::to_string(task->parent) + "   Start: " +
 				std::to_string(task->identity.start_ticks) + "   User ticks: " + std::to_string(task->user) +
@@ -504,9 +710,13 @@ private:
 	}
 
 	Fl_Input filter_;
+	Fl_Toggle_Button tree_;
 	Fl_Box task_count_;
 	TaskTable tasks_;
 	Fl_Box detail_name_, details_;
+	Fl_Button end_, force_;
+	std::function<void()> on_signal_;
+	const pid_t self_pid_ = getpid();
 	const Snapshot *snapshot_ = nullptr;
 };
 
@@ -517,7 +727,8 @@ public:
 		window_(92, 78, 840, 580, "System Monitor"), health_(12, 8, 590, 28),
 		pause_(618, 8, 100, 28, "Pause"), refresh_(728, 8, 100, 28, "Refresh"),
 		tabs_(12, 46, 816, 522), overview_(12, 72, 816, 496, "Overview"),
-		processes_(12, 72, 816, 496), mounts_(12, 72, 816, 496, "Filesystems")
+		processes_(12, 72, 816, 496, [this] { if (window_.shown()) start(); }),
+		mounts_(12, 72, 816, 496, "Filesystems")
 	{
 		tabs_.end();
 		tabs_.value(&overview_);
@@ -525,6 +736,8 @@ public:
 		window_.resizable(tabs_);
 		window_.size_range(660, 380);
 		health_.align(left_label);
+		mario::set_label_icon(pause_, control_icons().pause.get());
+		mario::set_label_icon(refresh_, control_icons().refresh.get());
 		pause_.callback([](Fl_Widget *, void *data) { static_cast<Monitor *>(data)->toggle_pause(); }, this);
 		refresh_.callback([](Fl_Widget *, void *data) { static_cast<Monitor *>(data)->start(); }, this);
 		window_.callback([](Fl_Widget *, void *data) { static_cast<Monitor *>(data)->close(); }, this);
@@ -610,6 +823,8 @@ private:
 	{
 		paused_ = !paused_;
 		set_label(pause_, paused_ ? "Resume" : "Pause");
+		const auto &icons = control_icons();
+		mario::set_label_icon(pause_, paused_ ? icons.resume.get() : icons.pause.get());
 		if (paused_)
 			stop();
 		else

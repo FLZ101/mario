@@ -9,6 +9,7 @@
 #include <mm/uaccess.h>
 #include <mm/page_alloc.h>
 #include <syscall.h>
+#include <uapi/mario/process.h>
 
 #define PR_SET_NAME 15
 #define PR_GET_NAME 16
@@ -23,10 +24,6 @@ int sys_prctl(int option, unsigned long arg2, unsigned long arg3,
 {
 	char name[sizeof(current->comm)];
 
-	(void)arg3;
-	(void)arg4;
-	(void)arg5;
-
 	switch (option) {
 	case PR_SET_NAME:
 		if (verify_area(VERIFY_READ, (void *)arg2, sizeof(name)))
@@ -40,6 +37,10 @@ int sys_prctl(int option, unsigned long arg2, unsigned long arg3,
 			return -EFAULT;
 		memcpy_tofs((void *)arg2, current->comm, sizeof(name));
 		return 0;
+	case MARIO_PR_SIGNAL_PROCESS:
+		if (arg5 || (arg4 != SIGTERM && arg4 != SIGKILL))
+			return -EINVAL;
+		return signal_process((int)arg2, arg3, (int)arg4);
 	default:
 		return -EINVAL;
 	}

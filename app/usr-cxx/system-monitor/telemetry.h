@@ -75,6 +75,7 @@ struct Task {
 	char state;
 	uint64_t user, system;
 	std::optional<double> machine_percent;
+	int tgid = 0;
 };
 
 struct Mount {

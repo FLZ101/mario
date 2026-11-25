@@ -175,6 +175,31 @@ int sys_kill(int pid, int sig)
 	return kill_proc(pid, sig, 0);
 }
 
+int signal_process(int pid, unsigned long start_ticks, int sig)
+{
+	struct task_struct *task;
+	unsigned long flags;
+	int ret = -ESRCH;
+
+	if (pid <= 0)
+		return -EINVAL;
+	if (pid == 1 || pid == current->tgid)
+		return -EPERM;
+
+	spin_lock_irqsave(&tasklist_lock, flags);
+	for_each_task(task) {
+		if (task->pid != pid)
+			continue;
+		if (task->tgid == pid && task->start_ticks == start_ticks && task->state != TASK_ZOMBIE) {
+			ret = send_sig(sig, task, 0);
+			wake_up_signalled_process(task);
+		}
+		break;
+	}
+	spin_unlock_irqrestore(&tasklist_lock, flags);
+	return ret;
+}
+
 /*
  * Orphaned process groups are not to be affected by terminal-generated stop signals.
  * Newly orphaned process groups are to receive a SIGHUP and a SIGCONT.
@@ -344,8 +369,10 @@ void do_exit(long code)
 	spin_unlock_irqrestore(&tasklist_lock, flags);
 	/* Preserve trace CPU counters before the task can be reaped/freed. */
 	syscall_trace_task_exit(current);
-	current->state = TASK_ZOMBIE;
+	spin_lock_irqsave(&current->lock, flags);
 	current->exit_code = code;
+	current->state = TASK_ZOMBIE;
+	spin_unlock_irqrestore(&current->lock, flags);
 	schedule();
 }
 
@@ -363,24 +390,13 @@ int sys_exit(int error_code)
  * reparent-to-init logic so they are reaped only after their final context
  * switch has safely parked them.
  */
-int sys_exit_group(int error_code)
+void do_group_exit(long code)
 {
-	long code = (error_code & 0xff) << 8;
-	struct task_struct *p, *next;
 	unsigned long flags;
 
-	spin_lock_irqsave(&tasklist_lock, flags);
-	for (p = init_task.next_task; p != &init_task; p = next) {
-		next = p->next_task;
-		if (p == current || p->tgid != current->tgid)
-			continue;
-		if (p->state != TASK_ZOMBIE) {
-			send_sig(SIGKILL, p, 1);
-			if (p->state != TASK_RUNNING)
-				wake_up_process(p);
-		}
-	}
-	spin_unlock_irqrestore(&tasklist_lock, flags);
+	spin_lock_irqsave(&current->lock, flags);
+	current->blocked = ~0UL;
+	spin_unlock_irqrestore(&current->lock, flags);
 
 	/*
 	 * Threads that have published their userspace death (pthread_join
@@ -393,16 +409,19 @@ int sys_exit_group(int error_code)
 	 * those zombies to init, which can then safely reap the parked tasks.
 	 */
 	for (;;) {
-		struct task_struct *t;
+		struct task_struct *task;
 		int done = 1;
 
 		spin_lock_irqsave(&tasklist_lock, flags);
-		for_each_task(t) {
-			if (t == current || t->tgid != current->tgid)
+		for_each_task(task) {
+			if (task == current || task->tgid != current->tgid)
 				continue;
-			if (t->state != TASK_ZOMBIE || !t->parked) {
+			if (task->state != TASK_ZOMBIE) {
+				send_sig(SIGKILL, task, 1);
+				wake_up_signalled_process(task);
 				done = 0;
-				break;
+			} else if (!task->parked) {
+				done = 0;
 			}
 		}
 		spin_unlock_irqrestore(&tasklist_lock, flags);
@@ -411,6 +430,35 @@ int sys_exit_group(int error_code)
 		schedule_timeout(1);
 	}
 
+	do_exit(code);
+}
+
+int sys_exit_group(int error_code)
+{
+	long code = (error_code & 0xff) << 8;
+	struct task_struct *leader;
+	unsigned long flags;
+
+	if (current->pid == current->tgid) {
+		do_group_exit(code);
+		return 0;
+	}
+
+	spin_lock_irqsave(&tasklist_lock, flags);
+	for_each_task(leader) {
+		if (leader->pid != current->tgid)
+			continue;
+		spin_lock(&leader->lock);
+		if (!leader->group_exit_requested) {
+			leader->group_exit_status = code;
+			leader->group_exit_requested = 1;
+		}
+		spin_unlock(&leader->lock);
+		send_sig(SIGKILL, leader, 1);
+		wake_up_signalled_process(leader);
+		break;
+	}
+	spin_unlock_irqrestore(&tasklist_lock, flags);
 	do_exit(code);
 	return 0;
 }

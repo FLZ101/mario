@@ -17,6 +17,7 @@
 #include <FL/Fl_Tree.H>
 #include <FL/fl_ask.H>
 #include <FL/fl_draw.H>
+#include <font-icons.h>
 
 #include <algorithm>
 #include <array>
@@ -34,18 +35,6 @@
 namespace {
 
 constexpr const char *columns[] = {"Name", "Type", "Size", "Modified"};
-
-void button_icon(Fl_Button &button, files::Icon id)
-{
-	if (auto *image = files::icon(id)) {
-		button.image(image);
-		auto *disabled = image->copy();
-		disabled->inactive();
-		button.bind_deimage(disabled);
-		button.align(FL_ALIGN_INSIDE | FL_ALIGN_IMAGE_NEXT_TO_TEXT);
-		button.label_image_spacing(4);
-	}
-}
 
 const char *action_label(files::CopyAction action)
 {
@@ -275,11 +264,11 @@ public:
 		window_.size_range(780, 360);
 		from_home();
 		preferences_.load(home_);
-		button_icon(back_, files::Icon::back);
-		button_icon(forward_, files::Icon::forward);
-		button_icon(up_, files::Icon::up);
-		button_icon(home_button_, files::Icon::home);
-		button_icon(split_, files::Icon::split);
+		mario::set_label_icon(back_, files::icon(files::Icon::back));
+		mario::set_label_icon(forward_, files::icon(files::Icon::forward));
+		mario::set_label_icon(up_, files::icon(files::Icon::up));
+		mario::set_label_icon(home_button_, files::icon(files::Icon::home));
+		mario::set_label_icon(split_, files::icon(files::Icon::split));
 		sidebar_.showroot(0);
 		sidebar_.item_labelsize(13);
 		sidebar_.selection_color(fl_rgb_color(188, 217, 251));

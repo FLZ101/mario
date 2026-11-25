@@ -9,5 +9,5 @@ $(MONITOR_OBJECTS): $(BUILD_DIR)/%.o: $(MODEL)/%.cpp $(RULES) $(TOOLCHAIN_STAMP)
 	mkdir -p "$(@D)"
 	cd "$(BUILD_DIR)" && $(CXX) $(CXXFLAGS) -o "$@" "$<"
 
-include $(ROOT)/usr-cxx/fltk-app.mk
+include $(ROOT)/usr-cxx/font-icons.mk
 -include $(MONITOR_OBJECTS:.o=.d)

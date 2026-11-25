@@ -1,11 +1,7 @@
 #include "icons.h"
 #include "browser.h"
 
-#include <FL/Fl_RGB_Image.H>
-
-extern "C" {
-#include <gui/font.h>
-}
+#include <font-icons.h>
 
 #include <array>
 #include <initializer_list>
@@ -14,7 +10,6 @@ extern "C" {
 namespace files {
 namespace {
 
-constexpr int cell = 14;
 constexpr uint32_t ink = 0x35465b, blue = 0x24588e, violet = 0x654294;
 constexpr uint32_t gold = 0x936014, teal = 0x22664f, red = 0xa43639;
 
@@ -36,37 +31,12 @@ constexpr Glyph glyphs[] = {
 	{Icon::up, 0xf062, ink}, {Icon::split, 0xf0db, ink},
 };
 
-std::unique_ptr<Fl_RGB_Image> rasterize(gui_font *font, const Glyph &spec)
-{
-	gui_font_glyph glyph{};
-	if (!gui_font_get_glyph(font, spec.codepoint, &glyph) || !glyph.width || !glyph.height ||
-	    glyph.width > cell || glyph.height > cell)
-		return {};
-	auto rgba = std::make_unique<uchar[]>(cell * cell * 4);
-	const int left = (cell - glyph.width) / 2;
-	const int top = (cell - glyph.height) / 2;
-	for (int row = 0; row < glyph.height; ++row)
-		for (int column = 0; column < glyph.width; ++column) {
-			auto *pixel = rgba.get() + ((top + row) * cell + left + column) * 4;
-			pixel[0] = spec.color >> 16;
-			pixel[1] = spec.color >> 8;
-			pixel[2] = spec.color;
-			pixel[3] = glyph.alpha[row * glyph.stride + column];
-		}
-	auto image = std::make_unique<Fl_RGB_Image>(rgba.get(), cell, cell, 4);
-	image->alloc_array = 1;
-	rgba.release();
-	return image;
-}
-
 auto load_icons()
 {
 	std::array<std::unique_ptr<Fl_RGB_Image>, static_cast<std::size_t>(Icon::count)> images;
-	std::unique_ptr<gui_font, decltype(&gui_font_destroy)> font(
-		gui_font_load("/usr/share/fonts/DejaVuSansMNerdFontMono-Regular.ttf", 17), gui_font_destroy);
-	if (font)
-		for (const auto &spec : glyphs)
-			images[static_cast<std::size_t>(spec.id)] = rasterize(font.get(), spec);
+	mario::IconFont font;
+	for (const auto &spec : glyphs)
+		images[static_cast<std::size_t>(spec.id)] = font.render(spec.codepoint, spec.color);
 	return images;
 }
 

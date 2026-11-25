@@ -490,9 +490,16 @@ static int proc_file_content(unsigned long ino, char *buf, size_t size)
 	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_CMDLINE)
 		return proc_pid_cmdline_content(proc_ino_pid(ino), buf, size);
 	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_STATUS) {
-		if (!proc_find_task(proc_ino_pid(ino)))
-			return -ENOENT;
-		return sprintkn(buf, size, "Uid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n");
+		struct task_struct *task;
+		unsigned long flags;
+		int length = -ENOENT;
+
+		spin_lock_irqsave(&tasklist_lock, flags);
+		task = proc_find_task_locked(proc_ino_pid(ino));
+		if (task)
+			length = sprintkn(buf, size, "Tgid:\t%d\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n", task->tgid);
+		spin_unlock_irqrestore(&tasklist_lock, flags);
+		return length;
 	}
 	if ((ino & PROC_INO_TYPE_MASK) == PROC_INO_PID_COMM) {
 		struct task_struct *task;

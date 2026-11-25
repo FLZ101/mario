@@ -1,0 +1,83 @@
+GUI-VISUAL-TEST:
+TIMEOUT: 12
+SERIAL: /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: for attempt in 1 2 3 4 5; do grep -q 'private connection ready' /tmp/mario-wm.log && break; sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: (/usr/bin/test/fltk-system-monitor.exe tree; echo $? >/tmp/monitor-exit) >/tmp/monitor.log 2>&1 &
+SERIAL: for attempt in 1 2 3 4 5; do grep -q 'phase=0$' /tmp/monitor.log && { printf 'monitor tree phase=%s ready\n' 0; break; }; sleep 1; done
+SERIAL-CHECK: monitor tree phase=0 ready
+GUI-MOUSE-POSITION: 755,98
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-POSITION: 229,137
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-POSITION: 465,171
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-POSITION: 990,150
+# Resume, Refresh, and Tree keep both their glyphs and text labels.
+GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-tree.png,710,86,210,28
+GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-tree.png,434,158,64,28
+GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-tree.png,114,194,777,187
+# Collapse the session, then filter for its grandchild. Both ancestors remain visible.
+GUI-MOUSE-POSITION: 202,229
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 365 225 8 8 188 217 251
+GUI-CHECK-RECT: 365 319 8 8 192 192 192
+GUI-MOUSE-POSITION: 205,171
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-SEND-KEY: w
+GUI-MOUSE-POSITION: 280,275
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 365 273 8 8 188 217 251
+GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-tree.png,115,220,250,46
+GUI-CHECK-RECT: 365 296 8 8 192 192 192
+# Clear the filter, reopen the session, and select its grandchild.
+GUI-MOUSE-POSITION: 205,171
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-SEND-KEY: backspace
+GUI-CHECK-RECT: 365 273 8 8 255 255 255
+GUI-CHECK-RECT: 365 319 8 8 192 192 192
+GUI-MOUSE-POSITION: 202,229
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-POSITION: 280,275
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 365 273 8 8 188 217 251
+# Sorting by name moves the whole session branch, not its individual children.
+GUI-MOUSE-POSITION: 278,205
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 365 345 8 8 188 217 251
+# A reused parent PID must not keep its older children or its selection.
+GUI-MOUSE-POSITION: 202,298
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 365 296 8 8 188 217 251
+SERIAL: echo 1 >/tmp/monitor-phase
+GUI-MOUSE-POSITION: 870,98
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+SERIAL: for attempt in 1 2 3 4 5; do grep -q 'phase=1$' /tmp/monitor.log && { printf 'monitor tree phase=%s ready\n' 1; break; }; sleep 1; done
+SERIAL-CHECK: monitor tree phase=1 ready
+GUI-CHECK-RECT: 365 296 8 8 246 248 251
+GUI-CHECK-RECT: 365 345 8 8 246 248 251
+# The editor is now a root. Folding it hides only its own child.
+GUI-MOUSE-POSITION: 202,298
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 365 345 8 8 246 248 251
+GUI-CHECK-RECT: 365 366 8 8 192 192 192
+GUI-SEND-KEYS: meta_l,w
+SERIAL-WAIT-FILE: /tmp/monitor-exit
+SERIAL: printf 'monitor tree exit=%s\n' "$(cat /tmp/monitor-exit)"; kill -TERM $(cat /tmp/mario-wm.pid)
+SERIAL-CHECK: monitor tree exit=0
+EXIT:

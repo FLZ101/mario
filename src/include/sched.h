@@ -78,6 +78,7 @@ void sched_init_smp(void);
 void ap_cpu_idle(void);
 int sched_set_cpus_allowed(struct task_struct *p, unsigned long mask);
 void wake_up_process(struct task_struct *p);
+void wake_up_signalled_process(struct task_struct *p);
 int kernel_thread(void (*fun)(void *), void *arg);
 
 void schedule(void);
