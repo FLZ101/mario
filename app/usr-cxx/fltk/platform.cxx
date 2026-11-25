@@ -6,10 +6,12 @@
 #include "Fl_Window_Driver.H"
 #include "drivers/Unix/Fl_Unix_Screen_Driver.H"
 #include "drivers/Unix/Fl_Unix_System_Driver.H"
+#include "graphics.h"
 
 namespace {
 
-class Mario_Graphics_Driver final : public Fl_Graphics_Driver {};
+using mario_fltk::Graphics_Driver;
+using mario_fltk::Pixels;
 
 class Mario_Screen_Driver final : public Fl_Unix_Screen_Driver {};
 
@@ -21,29 +23,45 @@ public:
 };
 
 class Mario_Image_Surface_Driver final : public Fl_Image_Surface_Driver {
+	Graphics_Driver graphics_;
+	Pixels pixels_;
+
 public:
-	Mario_Image_Surface_Driver(int width, int height, int high_res, Fl_Offscreen offscreen)
-		: Fl_Image_Surface_Driver(width, height, high_res, offscreen)
+	Mario_Image_Surface_Driver(int width, int height, int high_res, Fl_Offscreen external)
+		: Fl_Image_Surface_Driver(width, height, high_res, external),
+		  pixels_(external ? Pixels{} : mario_fltk::make_pixels(width, height))
 	{
-		driver(new Mario_Graphics_Driver);
+		auto *surface = external ? reinterpret_cast<gui_surface *>(external) : pixels_.get();
+		offscreen = reinterpret_cast<Fl_Offscreen>(surface);
+		graphics_.target(surface);
+		driver(&graphics_);
 	}
-	~Mario_Image_Surface_Driver() override { delete driver(); }
 	void set_current() override { Fl_Surface_Device::set_current(); }
-	void translate(int, int) override {}
-	void untranslate() override {}
-	Fl_RGB_Image *image() override { return nullptr; }
+	using Fl_Widget_Surface::origin;
+	void origin(int x, int y) override
+	{
+		Fl_Widget_Surface::origin(x, y);
+		graphics_.set_origin(x, y);
+	}
+	void translate(int x, int y) override { graphics_.push_origin(x, y); }
+	void untranslate() override { graphics_.pop_origin(); }
+	Fl_RGB_Image *image() override { return graphics_.snapshot(); }
 };
 
 class Mario_Copy_Surface_Driver final : public Fl_Copy_Surface_Driver {
+	Graphics_Driver graphics_;
+	Pixels pixels_;
+
 public:
-	Mario_Copy_Surface_Driver(int width, int height) : Fl_Copy_Surface_Driver(width, height)
+	Mario_Copy_Surface_Driver(int width, int height) : Fl_Copy_Surface_Driver(width, height),
+		pixels_(mario_fltk::make_pixels(width, height))
 	{
-		driver(new Mario_Graphics_Driver);
+		graphics_.target(pixels_.get());
+		driver(&graphics_);
 	}
-	~Mario_Copy_Surface_Driver() override { delete driver(); }
 	void set_current() override { Fl_Surface_Device::set_current(); }
-	void translate(int, int) override {}
-	void untranslate() override {}
+	void translate(int x, int y) override { graphics_.push_origin(x, y); }
+	void untranslate() override { graphics_.pop_origin(); }
 };
 
 }
@@ -52,7 +70,7 @@ Window fl_window = 0;
 
 Fl_Graphics_Driver *Fl_Graphics_Driver::newMainGraphicsDriver()
 {
-	return new Mario_Graphics_Driver;
+	return new Graphics_Driver;
 }
 
 Fl_Screen_Driver *Fl_Screen_Driver::newScreenDriver()

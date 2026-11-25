@@ -206,7 +206,7 @@ static int gui_font_rasterize(gui_font *font, uint32_t codepoint,
 	bitmap = &slot->bitmap;
 	if (bitmap->pixel_mode != FT_PIXEL_MODE_GRAY || bitmap->width > UINT16_MAX ||
 	    bitmap->rows > UINT16_MAX || bitmap->pitch < 0 ||
-	    (size_t)bitmap->width > SIZE_MAX / bitmap->rows)
+	    (bitmap->rows != 0 && (size_t)bitmap->width > SIZE_MAX / bitmap->rows))
 		return 0;
 	bytes = (size_t)bitmap->width * bitmap->rows;
 	if (bytes) {

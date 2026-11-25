@@ -30,7 +30,8 @@ $(FLTK_SRC_FILE):
 	printf '%s  %s\n' '$(FLTK_SHA256)' "$@.tmp" | sha256sum -c -
 	mv "$@.tmp" "$@"
 
-$(FLTK_OUTPUTS) &: $(FLTK_SRC_DIR)/.prepared $(FLTK_TOOLCHAIN) $(CC) $(CXX) fltk/platform.cxx
+$(FLTK_OUTPUTS) &: $(FLTK_SRC_DIR)/.prepared $(FLTK_TOOLCHAIN) $(CC) $(CXX) \
+		$(wildcard fltk/*.cxx fltk/*.h ../gui/libmario-ui/include/gui/*.h)
 	CC="$(CC)" CXX="$(CXX)" PYTHON="$(CXX_PYTHON)" \
 		FLTK_SRC_DIR="$(FLTK_SRC_DIR)" FLTK_BUILD_DIR="$(FLTK_BUILD_DIR)" \
 		FLTK_COMPILE_COMMANDS_JSON="$(FLTK_COMPILE_COMMANDS_JSON)" \

@@ -1,0 +1,4 @@
+TIMEOUT: 10
+RUN: /usr/bin/test/fltk-render.exe; printf 'fltk-render exit: %s\n' "$?"
+CHECK: fltk-render: clipping, ARGB, paths and font advances ok
+CHECK: fltk-render exit: 0

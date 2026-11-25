@@ -35,7 +35,7 @@ diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
 @@ -215 +215 @@ else()
 -endif(FLTK_USE_X11 AND NOT FLTK_OPTION_PRINT_SUPPORT)
 +endif()
-@@ -219 +219,18 @@ set(DRIVER_FILES)
+@@ -219 +219,20 @@ set(DRIVER_FILES)
 -if(FLTK_USE_X11 AND NOT FLTK_BACKEND_WAYLAND)
 +if(FLTK_BACKEND_MARIO)
 +  list(APPEND DRIVER_FILES
@@ -44,17 +44,25 @@ diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
 +    drivers/Unix/Fl_Unix_Screen_Driver.cxx
 +    Fl_Native_File_Chooser_FLTK.cxx
 +  )
-+  add_library(fltk-mario-driver OBJECT "${FLTK_MARIO_DRIVER_DIR}/platform.cxx")
++  add_library(fltk-mario-driver OBJECT
++    "${FLTK_MARIO_DRIVER_DIR}/platform.cxx" "${FLTK_MARIO_DRIVER_DIR}/graphics.cxx")
 +  target_compile_definitions(fltk-mario-driver PRIVATE FL_LIBRARY)
 +  target_include_directories(fltk-mario-driver PRIVATE
 +    "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
-+    "${CMAKE_CURRENT_BINARY_DIR}/..")
++    "${CMAKE_CURRENT_BINARY_DIR}/.."
++    "${FLTK_MARIO_DRIVER_DIR}/../../gui/libmario-ui/include")
 +  if(FLTK_MARIO_COMPILE_COMMANDS_JSON)
 +    set_property(TARGET fltk-mario-driver PROPERTY CXX_COMPILER_LAUNCHER
 +      "${CMAKE_COMMAND};-E;env;COMPILE_COMMANDS_JSON=${FLTK_MARIO_COMPILE_COMMANDS_JSON}")
 +  endif()
 +  list(APPEND DRIVER_FILES $<TARGET_OBJECTS:fltk-mario-driver>)
 +elseif(FLTK_USE_X11 AND NOT FLTK_BACKEND_WAYLAND)
-@@ -411 +428 @@ else()
+@@ -411 +430 @@ else()
 -endif(FLTK_USE_X11 AND NOT FLTK_BACKEND_WAYLAND)
 +endif()
+diff --git a/src/Fl_Image_Surface.cxx b/src/Fl_Image_Surface.cxx
+--- a/src/Fl_Image_Surface.cxx
++++ b/src/Fl_Image_Surface.cxx
+@@ -156 +156 @@ Fl_RGB_Image *Fl_Image_Surface::image() {
+-  img->scale(platform_surface->width, platform_surface->height, 1, 1);
++  if (img) img->scale(platform_surface->width, platform_surface->height, 1, 1);
