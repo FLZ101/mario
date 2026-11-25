@@ -35,3 +35,13 @@ build-filemanager: build-fltk
 clean:: clean-filemanager
 clean-filemanager:
 	$(MAKE) -C filemanager -f ../../Makefile.cxx.in clean
+
+.PHONY:: build-system-monitor clean-system-monitor
+build:: build-system-monitor
+build-system-monitor: build-fltk
+	$(MAKE) -C system-monitor -f ../../Makefile.cxx.in CC="$(CC)" CXX="$(CXX)" \
+		COMPILE_COMMANDS_JSON="$(FLTK_COMPILE_COMMANDS_JSON)"
+
+clean:: clean-system-monitor
+clean-system-monitor:
+	$(MAKE) -C system-monitor -f ../../Makefile.cxx.in clean

@@ -205,6 +205,7 @@ def copy_rootfs_files(
         "app/usr/cxx/build/tests/*.exe": "usr/bin/test",
         "app/usr/cxx/build/apps/test-cxx/*/*.exe": "usr/bin/test",
         "app/usr/cxx/build/apps/usr-cxx/filemanager/filemanager.exe": "usr/bin/test/filemanager.exe",
+        "app/usr/cxx/build/apps/usr-cxx/system-monitor/system-monitor.exe": "usr/bin/test/system-monitor.exe",
         "app/test/gui-wm-client/gui-wm-client.exe": "usr/bin/gui-wm-client",
         "app/gui/desktop/mario-desktop/mario-desktop.exe": "usr/bin/mario-desktop",
         "app/gui/desktop/mario-wm/mario-wm.exe": "usr/bin/mario-wm",

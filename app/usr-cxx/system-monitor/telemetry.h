@@ -9,6 +9,8 @@
 
 namespace monitor {
 
+constexpr uint64_t stale_ns = 5 * 1000000000ULL;
+
 enum class Status { unavailable, complete, partial, invalid };
 
 struct Text {

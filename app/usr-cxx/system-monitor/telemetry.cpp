@@ -16,7 +16,6 @@ namespace {
 
 constexpr std::size_t proc_limit = 64 * 1024;
 constexpr std::size_t task_limit = 4096;
-constexpr uint64_t stale_ns = 5 * 1000000000ULL;
 
 template <typename Number>
 bool integer(std::string_view text, Number &value)
