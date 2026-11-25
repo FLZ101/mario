@@ -1,5 +1,6 @@
 #include "browser.h"
 #include "copy_worker.h"
+#include "icons.h"
 #include "preview.h"
 
 #include <FL/Fl.H>
@@ -33,6 +34,18 @@
 namespace {
 
 constexpr const char *columns[] = {"Name", "Type", "Size", "Modified"};
+
+void button_icon(Fl_Button &button, files::Icon id)
+{
+	if (auto *image = files::icon(id)) {
+		button.image(image);
+		auto *disabled = image->copy();
+		disabled->inactive();
+		button.bind_deimage(disabled);
+		button.align(FL_ALIGN_INSIDE | FL_ALIGN_IMAGE_NEXT_TO_TEXT);
+		button.label_image_spacing(4);
+	}
+}
 
 const char *action_label(files::CopyAction action)
 {
@@ -143,6 +156,7 @@ private:
 			return;
 		fl_push_clip(xpos, ypos, width, height);
 		std::string text;
+		int text_x = xpos + 5;
 		if (context == CONTEXT_COL_HEADER) {
 			fl_draw_box(FL_THIN_UP_BOX, xpos, ypos, width, height, col_header_color());
 			text = columns[col];
@@ -152,7 +166,13 @@ private:
 			fl_color(row_selected(row) ? selection_color() : row % 2 ? fl_rgb_color(246, 248, 251) : FL_WHITE);
 			fl_rectf(xpos, ypos, width, height);
 			switch (static_cast<files::Column>(col)) {
-			case files::Column::name: text = item->label; break;
+			case files::Column::name:
+				text = item->label;
+				if (auto *image = files::icon(files::entry_icon(*item))) {
+					image->draw(text_x, ypos + (height - image->h()) / 2);
+					text_x += image->w() + 4;
+				}
+				break;
 			case files::Column::type: text = files::kind(*item); break;
 			case files::Column::size:
 				text = !item->error && S_ISREG(item->info.st_mode) ? std::to_string(item->info.st_size) : "--";
@@ -162,7 +182,7 @@ private:
 		}
 		fl_font(FL_HELVETICA, 13);
 		fl_color(FL_BLACK);
-		fl_draw(text.c_str(), xpos + 5, ypos + (height + fl_height()) / 2 - fl_descent());
+		fl_draw(text.c_str(), text_x, ypos + (height + fl_height()) / 2 - fl_descent());
 		fl_pop_clip();
 	}
 
@@ -242,9 +262,9 @@ public:
 class Browser {
 public:
 	Browser(const char *initial) : window_(50, 80, 924, 550, "File Manager"),
-		menu_(0, 0, 924, 25), back_(8, 29, 43, 26, "Back"), forward_(54, 29, 64, 26, "Forward"),
-		up_(121, 29, 38, 26, "Up"), home_button_(162, 29, 51, 26, "Home"),
-		location_(217, 29, 602, 26), go_(823, 29, 43, 26, "Go"), split_(870, 29, 46, 26, "Split"),
+		menu_(0, 0, 924, 25), back_(8, 29, 60, 26, "Back"), forward_(71, 29, 82, 26, "Forward"),
+		up_(156, 29, 47, 26, "Up"), home_button_(206, 29, 64, 26, "Home"),
+		location_(274, 29, 529, 26), go_(807, 29, 43, 26, "Go"), split_(854, 29, 62, 26, "Split"),
 		sidebar_(8, 64, 144, 459), tabs_(160, 60, 578, 463),
 		preview_text_(746, 78, 170, 445, "Preview"), preview_image_(746, 86, 170, 136),
 		status_(8, 525, 908, 23), job_status_(8, 525, 656, 23),
@@ -255,8 +275,14 @@ public:
 		window_.size_range(780, 360);
 		from_home();
 		preferences_.load(home_);
+		button_icon(back_, files::Icon::back);
+		button_icon(forward_, files::Icon::forward);
+		button_icon(up_, files::Icon::up);
+		button_icon(home_button_, files::Icon::home);
+		button_icon(split_, files::Icon::split);
 		sidebar_.showroot(0);
 		sidebar_.item_labelsize(13);
+		sidebar_.selection_color(fl_rgb_color(188, 217, 251));
 		sidebar_.callback(sidebar_clicked, this);
 		tabs_.callback(invoke<&Browser::changed_tab>, this);
 		back_.callback(invoke<&Browser::back>, this);
@@ -808,13 +834,19 @@ private:
 	{
 		sidebar_.clear();
 		places_.clear();
+		const auto add_place = [&](Fl_Tree_Item *group, const char *label, const std::string &path, files::Icon id) {
+			if (auto *item = sidebar_.add(group, label)) {
+				item->usericon(files::icon(id));
+				places_.emplace_back(item, path);
+			}
+		};
 		auto *bookmarks = sidebar_.add("Bookmarks");
-		places_.emplace_back(sidebar_.add(bookmarks, "Home"), home_);
+		add_place(bookmarks, "Home", home_, files::Icon::home);
 		for (const auto &bookmark : preferences_.bookmarks)
-			places_.emplace_back(sidebar_.add(bookmarks, files::display(bookmark).c_str()), bookmark);
+			add_place(bookmarks, files::display(bookmark).c_str(), bookmark, files::Icon::bookmark);
 		auto *volumes = sidebar_.add("Volumes");
 		for (const auto &mount : files::mounts())
-			places_.emplace_back(sidebar_.add(volumes, files::display(mount).c_str()), mount);
+			add_place(volumes, files::display(mount).c_str(), mount, files::Icon::drive);
 		sidebar_.redraw();
 	}
 	void bookmark()

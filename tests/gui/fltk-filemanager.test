@@ -19,7 +19,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
 GUI-CHECK-RECT: 370 272 8 8 246 248 251
 GUI-SEND-KEYS: ctrl,t
-GUI-MOUSE-POSITION: 239,123
+GUI-MOUSE-POSITION: 286,123
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
 GUI-CHECK-RECT: 370 272 8 8 255 255 255
@@ -42,9 +42,13 @@ GUI-MOUSE-POSITION: 341,256
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
 GUI-MOUSE-POSITION: 990,135
+# Use the full screenshot for context, but compare only the relevant regions.
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,57,108,909,28
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,103,167,16,73
 GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,278,140,84,27
 GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,212,168,576,23
 GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,799,161,95,18
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,213,246,573,44
 # Preview and launch a BMP whose absolute path contains spaces.
 GUI-MOUSE-POSITION: 574,256
 GUI-MOUSE-BUTTON: left,down
@@ -69,7 +73,7 @@ GUI-CHECK-RECT: 374 272 8 8 255 255 255
 GUI-MOUSE-POSITION: 135,192
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,213,247,121,20
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-bookmark.png,213,247,121,20
 GUI-MOUSE-POSITION: 340,257
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
