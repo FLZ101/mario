@@ -198,6 +198,7 @@ def copy_rootfs_files(
         "app/usr-cxx/btop-1.4.7-install/bin/btop": "usr/bin/btop",
         "app/usr-cxx/btop-1.4.7-install/share/btop/themes": "usr/share/btop/themes",
         "app/usr-cxx/btop-1.4.7-install/share/doc/btop/LICENSE": "usr/share/doc/btop/LICENSE",
+        "app/usr-cxx/fltk-1.4.5-install/share/doc/fltk/COPYING": "usr/share/doc/fltk/COPYING",
         "app/example/*/*.exe": "usr/bin/example",
         "app/test/*/*.exe": "usr/bin/test",
         "app/test/musl/*/*.exe": "usr/bin/test",

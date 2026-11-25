@@ -1,0 +1,40 @@
+#!/bin/bash
+
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")" && pwd)
+ninja=$(dirname "$PYTHON")/ninja
+if [[ ! -x $PYTHON || ! -x $ninja ]] ; then
+    echo "The build venv must contain Python and Ninja; run make venv first" >&2
+    exit 1
+fi
+export PATH="$(dirname "$PYTHON"):$PATH"
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+
+cmake -S "$FLTK_SRC_DIR" -B "$FLTK_BUILD_DIR" -G Ninja \
+    -DCMAKE_MAKE_PROGRAM="$ninja" \
+    -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=i386 \
+    -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
+    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+    -DCMAKE_FIND_ROOT_PATH="$root/../../musl/musl-1.2.5-install" \
+    -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+    -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+    -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+    -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+    -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=ON \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DFLTK_BACKEND_MARIO=ON -DFLTK_BACKEND_X11=OFF -DFLTK_BACKEND_WAYLAND=OFF \
+    -DFLTK_MARIO_DRIVER_DIR="$root/fltk" \
+    -DFLTK_MARIO_COMPILE_COMMANDS_JSON="$FLTK_COMPILE_COMMANDS_JSON" \
+    -DFLTK_BUILD_SHARED_LIBS=OFF -DFLTK_BUILD_GL=OFF -DFLTK_BUILD_FORMS=OFF \
+    -DFLTK_BUILD_FLUID=OFF -DFLTK_BUILD_FLTK_OPTIONS=OFF \
+    -DFLTK_BUILD_TEST=OFF -DFLTK_BUILD_EXAMPLES=OFF \
+    -DFLTK_OPTION_PRINT_SUPPORT=OFF -DFLTK_USE_POLL=ON \
+    -DFLTK_USE_SYSTEM_LIBJPEG=OFF -DFLTK_USE_SYSTEM_LIBPNG=OFF \
+    -DFLTK_USE_SYSTEM_ZLIB=OFF
+cmake --build "$FLTK_BUILD_DIR" --parallel "${JOBS:-1}" --target fltk
+
+install -Dm644 "$FLTK_BUILD_DIR/lib/libfltk.a" "$FLTK_INSTALL_DIR/lib/libfltk.a"
+install -Dm644 "$FLTK_SRC_DIR/COPYING" "$FLTK_INSTALL_DIR/share/doc/fltk/COPYING"
+install -Dm644 -t "$FLTK_INSTALL_DIR/include/FL" "$FLTK_SRC_DIR"/FL/*.{H,h}
+install -Dm644 "$FLTK_BUILD_DIR/FL/fl_config.h" "$FLTK_INSTALL_DIR/include/FL/fl_config.h"

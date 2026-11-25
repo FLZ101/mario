@@ -1,0 +1,60 @@
+diff --git a/CMake/options.cmake b/CMake/options.cmake
+index ee08a58..b5557ab 100644
+--- a/CMake/options.cmake
++++ b/CMake/options.cmake
+@@ -50,0 +51,4 @@ set(DEBUG_OPTIONS_CMAKE 0)
++option(FLTK_BACKEND_MARIO "use the Mario backend" OFF)
++if(FLTK_BACKEND_MARIO)
++  set(FLTK_USE_MARIO 1)
++endif()
+@@ -400 +404 @@ set(PATH_TO_XLIBS)
+-if((NOT APPLE OR FLTK_BACKEND_X11) AND NOT WIN32 AND NOT FLTK_BACKEND_WAYLAND)
++if((NOT APPLE OR FLTK_BACKEND_X11) AND NOT WIN32 AND NOT FLTK_BACKEND_WAYLAND AND NOT FLTK_BACKEND_MARIO)
+@@ -1017 +1021 @@ set(FL_NO_PRINT_SUPPORT FALSE)
+-if(X11_FOUND AND NOT FLTK_OPTION_PRINT_SUPPORT)
++if((X11_FOUND OR FLTK_BACKEND_MARIO) AND NOT FLTK_OPTION_PRINT_SUPPORT)
+diff --git a/FL/platform.H b/FL/platform.H
+index 715a10c..2661c5e 100644
+--- a/FL/platform.H
++++ b/FL/platform.H
+@@ -43,0 +44,2 @@ class Fl_Window;
++#  elif defined(FLTK_USE_MARIO)
++typedef fl_uintptr_t Window;
+diff --git a/fl_config.cmake.in b/fl_config.cmake.in
+index f5eea67..cab8e8d 100644
+--- a/fl_config.cmake.in
++++ b/fl_config.cmake.in
+@@ -65,0 +66 @@
++#cmakedefine FLTK_USE_MARIO 1
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -208 +208 @@ set(GL_HEADER_FILES)  # FIXME: not (yet?) defined
+-if(FLTK_USE_X11 AND NOT FLTK_OPTION_PRINT_SUPPORT)
++if((FLTK_USE_X11 OR FLTK_BACKEND_MARIO) AND NOT FLTK_OPTION_PRINT_SUPPORT)
+@@ -215 +215 @@ else()
+-endif(FLTK_USE_X11 AND NOT FLTK_OPTION_PRINT_SUPPORT)
++endif()
+@@ -219 +219,18 @@ set(DRIVER_FILES)
+-if(FLTK_USE_X11 AND NOT FLTK_BACKEND_WAYLAND)
++if(FLTK_BACKEND_MARIO)
++  list(APPEND DRIVER_FILES
++    drivers/Posix/Fl_Posix_System_Driver.cxx
++    drivers/Unix/Fl_Unix_System_Driver.cxx
++    drivers/Unix/Fl_Unix_Screen_Driver.cxx
++    Fl_Native_File_Chooser_FLTK.cxx
++  )
++  add_library(fltk-mario-driver OBJECT "${FLTK_MARIO_DRIVER_DIR}/platform.cxx")
++  target_compile_definitions(fltk-mario-driver PRIVATE FL_LIBRARY)
++  target_include_directories(fltk-mario-driver PRIVATE
++    "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
++    "${CMAKE_CURRENT_BINARY_DIR}/..")
++  if(FLTK_MARIO_COMPILE_COMMANDS_JSON)
++    set_property(TARGET fltk-mario-driver PROPERTY CXX_COMPILER_LAUNCHER
++      "${CMAKE_COMMAND};-E;env;COMPILE_COMMANDS_JSON=${FLTK_MARIO_COMPILE_COMMANDS_JSON}")
++  endif()
++  list(APPEND DRIVER_FILES $<TARGET_OBJECTS:fltk-mario-driver>)
++elseif(FLTK_USE_X11 AND NOT FLTK_BACKEND_WAYLAND)
+@@ -411 +428 @@ else()
+-endif(FLTK_USE_X11 AND NOT FLTK_BACKEND_WAYLAND)
++endif()

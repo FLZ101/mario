@@ -1,0 +1,4 @@
+FLTK_DIR := $(ROOT)/usr-cxx/fltk-1.4.5-install
+CXXFLAGS += -I$(FLTK_DIR)/include
+LDFLAGS += $(FLTK_DIR)/lib/libfltk.a
+$(EXE): $(FLTK_DIR)/lib/libfltk.a

@@ -11,6 +11,8 @@ documents that can be implemented and reviewed independently:
   file manager, launcher, and proposed source layout.
 - [Implementation roadmap](roadmap.md): ordered checkpoints, validation, risks,
   and rollback guidance.
+- [FLTK port plan](../FLTK_PORT_PLAN.md): a native C++ backend, a full File
+  Manager and System Monitor, and an optional local-file Dillo port.
 
 ## Document Authority and Reading Order
 
