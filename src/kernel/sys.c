@@ -305,6 +305,11 @@ int sys_sched_setaffinity(pid_t pid, size_t len, unsigned long *user_mask)
 	if (!pid)
 		pid = current->pid;
 
+	/* Touch user memory before taking tasklist_lock. */
+	if (verify_area(VERIFY_READ, user_mask, sizeof(mask)))
+		return -EFAULT;
+	mask = get_fs_long(user_mask);
+
 	spin_lock_irqsave(&tasklist_lock, flags);
 	for_each_task(p) {
 		if (p->pid == pid) {
@@ -314,11 +319,6 @@ int sys_sched_setaffinity(pid_t pid, size_t len, unsigned long *user_mask)
 	}
 	if (!found)
 		goto esrch;
-
-	error = verify_area(VERIFY_READ, user_mask, sizeof(mask));
-	if (error)
-		goto out;
-	mask = get_fs_long(user_mask);
 
 	/* Reject offline CPUs and completely empty masks. */
 	if (!mask || (mask & ~online_cpu_mask())) {

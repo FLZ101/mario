@@ -6,6 +6,7 @@
 
 #include <misc.h>
 #include <mm/kmalloc.h>
+#include <mm/uaccess.h>
 
 #define FMODE_PTY_MASTER 0x100
 
@@ -167,27 +168,51 @@ static int pty_open(struct inode *i, struct file *f)
 static int pty_master_read(struct inode *i, struct file *f, char *buf, int count)
 {
 	struct pty_pair *pty = f->private_data;
+	char *staging;
+	size_t stage;
 	unsigned long flags;
 	int n;
 	int slave_open;
 
+	if (count <= 0)
+		return 0;
+	/*
+	 * Stage the PTY output in kernel memory so the user copy can happen
+	 * after pty->lock is released.
+	 */
+	stage = (unsigned int)count > PAGE_SIZE ? PAGE_SIZE :
+		(unsigned int)count;
+	staging = kmalloc(stage);
+	if (!staging)
+		return -ENOMEM;
+
 	for (;;) {
 		spin_lock_irqsave(&pty->lock, flags);
 		if (!ring_buffer_empty(&pty->output)) {
-			n = ring_buffer_read(&pty->output, buf, count, 1);
+			n = ring_buffer_read(&pty->output, staging, stage, 0);
 			wake_up_interruptible(&pty->tty.wait_write);
 			wake_up_interruptible(&pty->master_read_wait);
 			spin_unlock_irqrestore(&pty->lock, flags);
+			/* No spinlock is held here; a page fault can safely sleep. */
+			if (n > 0)
+				memcpy_tofs(buf, staging, n);
+			kfree(staging);
 			return n;
 		}
 		slave_open = pty->slave_open;
 		spin_unlock_irqrestore(&pty->lock, flags);
-		if (!slave_open)
+		if (!slave_open) {
+			kfree(staging);
 			return -EIO;
-		if (f->f_flags & O_NONBLOCK)
+		}
+		if (f->f_flags & O_NONBLOCK) {
+			kfree(staging);
 			return -EAGAIN;
-		if (current->signal & ~current->blocked)
+		}
+		if (current->signal & ~current->blocked) {
+			kfree(staging);
 			return -ERESTARTSYS;
+		}
 		sleep_on(&pty->master_read_wait, TASK_INTERRUPTIBLE, NULL);
 	}
 }

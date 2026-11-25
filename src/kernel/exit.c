@@ -466,6 +466,9 @@ int sys_exit_group(int error_code)
 int sys_waitpid(int pid, int *stat_addr, int option)
 {
 	int res, flag;
+	/* Defer user writes until tasklist_lock is released. */
+	int status = 0;
+	int write_status = 0;
 	struct task_struct *p;
 	struct task_struct *reaped = NULL;
 	unsigned long flags;
@@ -497,8 +500,10 @@ repeat:
  		if (p->state == TASK_STOPPED) {
  			if (!p->exit_code)
  				continue;
- 			if (stat_addr)
- 				put_fs_long(p->exit_code, stat_addr);
+			if (stat_addr) {
+				status = p->exit_code;
+				write_status = 1;
+			}
  			p->exit_code = 0;
  			res = p->pid;
 			goto unlock;
@@ -506,8 +511,10 @@ repeat:
 			current->stime_children += p->stime + p->stime_children;
 			current->utime_children += p->utime + p->utime_children;
 
- 			if (stat_addr)
- 				put_fs_long(p->exit_code, stat_addr);
+			if (stat_addr) {
+				status = p->exit_code;
+				write_status = 1;
+			}
  			res = p->pid;
 			remove_task_links_locked(p);
 			reaped = p;
@@ -530,6 +537,9 @@ repeat:
 	res = -ECHILD;
 unlock:
 	spin_unlock_irqrestore(&tasklist_lock, flags);
+	/* Write the child status after dropping the IRQ-disabled tasklist lock. */
+	if (write_status)
+		put_fs_long(status, stat_addr);
 	if (reaped != NULL)
 		free_task_struct(reaped);
 tail:

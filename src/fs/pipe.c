@@ -1,6 +1,10 @@
 #include <fs/pipe.h>
 #include <fs/fs.h>
 
+#include <misc.h>
+#include <mm/kmalloc.h>
+#include <mm/uaccess.h>
+
 int init_pipe_inode_info(struct pipe_inode_info *info)
 {
 	int error;
@@ -52,10 +56,27 @@ int pipe_write(struct inode *i, struct file *f, char *buf, int count)
 {
 	int error;
 	struct pipe_inode_info *info = &i->u.pipe_i;
+	char *staging;
+	size_t stage;
+
+	if (count <= 0)
+		return 0;
+	/*
+	 * Copy user data into a kernel staging buffer before taking info->lock.
+	 * ring_buffer_write(u=1) would page-fault under the spinlock.
+	 */
+	stage = (unsigned int)count > PAGE_SIZE ? PAGE_SIZE :
+		(unsigned int)count;
+	staging = kmalloc(stage);
+	if (!staging)
+		return -ENOMEM;
+	memcpy_fromfs(staging, buf, stage);
 
 try:
-	if (current->signal & ~current->blocked)
+	if (current->signal & ~current->blocked) {
+		kfree(staging);
 		return -ERESTARTSYS;
+	}
 
 	ACQUIRE_LOCK(&info->lock);
 	if (!info->n_reader) {
@@ -72,11 +93,12 @@ try:
 		sleep_on(&info->wait_write, TASK_INTERRUPTIBLE, &info->lock);
 		goto try;
 	} else {
-		error = ring_buffer_write(&info->rb, buf, count, 1);
+		error = ring_buffer_write(&info->rb, staging, stage, 0);
 		wake_up_interruptible(&info->wait_read);
 	}
 tail:
 	RELEASE_LOCK(&info->lock);
+	kfree(staging);
 	return error;
 }
 
@@ -84,10 +106,26 @@ int pipe_read(struct inode *i, struct file *f, char *buf, int count)
 {
 	int error;
 	struct pipe_inode_info *info = &i->u.pipe_i;
+	char *staging;
+	size_t stage;
+
+	if (count <= 0)
+		return 0;
+	/*
+	 * Read into a kernel staging buffer under info->lock, then copy the
+	 * result to user memory after releasing it.
+	 */
+	stage = (unsigned int)count > PAGE_SIZE ? PAGE_SIZE :
+		(unsigned int)count;
+	staging = kmalloc(stage);
+	if (!staging)
+		return -ENOMEM;
 
 try:
-	if (current->signal & ~current->blocked)
+	if (current->signal & ~current->blocked) {
+		kfree(staging);
 		return -ERESTARTSYS;
+	}
 
 	ACQUIRE_LOCK(&info->lock);
 	if (ring_buffer_empty(&info->rb)) {
@@ -104,11 +142,15 @@ try:
 		sleep_on(&info->wait_read, TASK_INTERRUPTIBLE, &info->lock);
 		goto try;
 	} else {
-		error = ring_buffer_read(&info->rb, buf, count, 1);
+		error = ring_buffer_read(&info->rb, staging, stage, 0);
 		wake_up_interruptible(&info->wait_write);
 	}
 tail:
 	RELEASE_LOCK(&info->lock);
+	/* The pipe lock is released before this user-memory copy can fault. */
+	if (error > 0)
+		memcpy_tofs(buf, staging, error);
+	kfree(staging);
 	return error;
 }
 

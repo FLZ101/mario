@@ -8,6 +8,7 @@
 
 #include <lib/spinlock.h>
 #include <lib/list.h>
+#include <semaphore.h>
 
 /*
  * Futexes are hashed by user address.  Collisions are permitted: waiters are
@@ -31,11 +32,13 @@ struct futex_waiter {
 };
 
 static struct futex_queue futex_queues[FUTEX_HASH_SIZE];
-static spinlock_t futex_lock = SPINLOCK_UNLOCKED;
+/* Sleepable so futex_wait can read uaddr while preserving check+enqueue order. */
+static struct semaphore futex_lock;
 static LIST_HEAD(futex_timeouts);
 
 void futex_init(void)
 {
+	sema_init(&futex_lock, 1);
 	for (int i = 0; i < FUTEX_HASH_SIZE; i++)
 		init_wait_queue(&futex_queues[i].wait);
 }
@@ -110,9 +113,9 @@ int futex_wake(int *uaddr, int nr_wake)
 	 * sequence.  The bucket is static, so the lock can be dropped before
 	 * waking tasks and taking the scheduler lock.
 	 */
-	spin_lock(&futex_lock);
+	down(&futex_lock);
 	q = futex_queue((unsigned long)uaddr);
-	spin_unlock(&futex_lock);
+	up(&futex_lock);
 
 	woke = wake_matching(q, uaddr, nr_wake);
 	return woke;
@@ -150,14 +153,14 @@ static int futex_wait(int *uaddr, int op, int val,
 	if (verify_area(VERIFY_READ, uaddr, sizeof(int)))
 		return -EFAULT;
 
-	spin_lock(&futex_lock);
+	down(&futex_lock);
 	current_val = get_fs_long(uaddr);
 	if (current_val != val) {
-		spin_unlock(&futex_lock);
+		up(&futex_lock);
 		return -EAGAIN;
 	}
 	if (timeout && !ticks) {
-		spin_unlock(&futex_lock);
+		up(&futex_lock);
 		return -ETIMEDOUT;
 	}
 
@@ -181,7 +184,7 @@ static int futex_wait(int *uaddr, int op, int val,
 		list_add_tail(&waiter.timeout_list, &futex_timeouts);
 		spin_unlock_irqrestore(&wait_queue_lock, flags);
 	}
-	spin_unlock(&futex_lock);
+	up(&futex_lock);
 	irq_restore();
 	schedule();
 	out_wait_queue(&q->wait, &waiter.node);

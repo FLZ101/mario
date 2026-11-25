@@ -1,0 +1,3 @@
+interface:
+  display_name: "Kernel Code Check"
+  short_description: "Review kernel code for sleep-under-spinlock and user-copy hazards"
