@@ -5,7 +5,7 @@ SERIAL: while ! grep -q 'private connection ready' /tmp/mario-wm.log; do sleep 1
 SERIAL-CHECK: default-appearance: bundled configs available
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-GUI-MOUSE-POSITION: 16,752
+GUI-MOUSE-POSITION: 0,752
 GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-default.png
 SERIAL: <<DEFAULTTERMINAL

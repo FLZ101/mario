@@ -37,17 +37,20 @@
 #define DESKTOP_TASKBAR_CONTROL_WIDTH 20U
 #define DESKTOP_TASKBAR_CONTROL_STRIDE 24U
 #define DESKTOP_MENU_X 8U
-#define DESKTOP_MENU_WIDTH 120U
+#define DESKTOP_MENU_WIDTH 128U
 #define DESKTOP_MENU_ITEM_HEIGHT 20U
-#define DESKTOP_MENU_ITEM_COUNT 3U
 #define DIAGNOSTIC_WELCOME 0U
 #define DIAGNOSTIC_DISPLAY 1U
 #define DIAGNOSTIC_COUNT 2U
 
 typedef enum {
+	DESKTOP_MENU_NONE = -1,
 	DESKTOP_MENU_TERMINAL,
+	DESKTOP_MENU_FILE_MANAGER,
+	DESKTOP_MENU_SYSTEM_MONITOR,
 	DESKTOP_MENU_REBOOT,
 	DESKTOP_MENU_SHUTDOWN,
+	DESKTOP_MENU_ITEM_COUNT,
 } desktop_menu_entry;
 
 enum {
@@ -123,7 +126,9 @@ typedef struct {
 	uint32_t capabilities;
 	uint8_t mouse_buttons;
 	uint8_t menu_open;
+	uint8_t menu_button_hover;
 	uint8_t launch_failed;
+	int menu_hover;
 	uint32_t last_focused_window_id;
 	uint32_t menu_restore_window_id;
 	uint32_t next_request_id;
@@ -424,12 +429,22 @@ static uint32_t desktop_text_width(desktop_state *state, const char *text, uint3
 	return (uint32_t)layout.width + 16;
 }
 
+static const char *desktop_menu_label(desktop_menu_entry entry)
+{
+	switch (entry) {
+	case DESKTOP_MENU_TERMINAL: return "Terminal";
+	case DESKTOP_MENU_FILE_MANAGER: return "File Manager";
+	case DESKTOP_MENU_SYSTEM_MONITOR: return "System Monitor";
+	case DESKTOP_MENU_REBOOT: return "Reboot";
+	case DESKTOP_MENU_SHUTDOWN: return "Shutdown";
+	default: return "";
+	}
+}
+
 static void desktop_setup_font(desktop_state *state)
 {
 	gui_font_metrics *metrics = &state->font_metrics;
 	uint32_t height;
-	uint32_t terminal_width;
-	uint32_t shutdown_width;
 
 	if (state->appearance.font_path[0] == '\0')
 		return;
@@ -449,9 +464,10 @@ static void desktop_setup_font(desktop_state *state)
 	state->panel_height = state->button_height + 8;
 	state->launcher_width = desktop_text_width(state, "MENU", 48);
 	state->clock_width = desktop_text_width(state, "--:--", 40);
-	terminal_width = desktop_text_width(state, "Terminal", DESKTOP_MENU_WIDTH);
-	shutdown_width = desktop_text_width(state, "Shutdown", DESKTOP_MENU_WIDTH);
-	state->menu_width = terminal_width > shutdown_width ? terminal_width : shutdown_width;
+	state->menu_width = DESKTOP_MENU_WIDTH;
+	for (int entry = 0; entry < DESKTOP_MENU_ITEM_COUNT; entry++)
+		state->menu_width = desktop_text_width(state,
+			desktop_menu_label((desktop_menu_entry)entry), state->menu_width);
 	state->taskbar_width = desktop_text_width(state, "4294967295", DESKTOP_TASKBAR_BUTTON_WIDTH);
 }
 
@@ -734,16 +750,6 @@ static gui_rect desktop_menu_bounds(const desktop_state *state)
 	return (gui_rect) { DESKTOP_MENU_X, top, width, bottom - top };
 }
 
-static const char *desktop_menu_label(desktop_menu_entry entry)
-{
-	switch (entry) {
-	case DESKTOP_MENU_TERMINAL: return "Terminal";
-	case DESKTOP_MENU_REBOOT: return "Reboot";
-	case DESKTOP_MENU_SHUTDOWN: return "Shutdown";
-	default: return "";
-	}
-}
-
 static int desktop_menu_entry_at(const desktop_state *state, uint32_t x,
 				 uint32_t y)
 {
@@ -751,11 +757,35 @@ static int desktop_menu_entry_at(const desktop_state *state, uint32_t x,
 
 	if (!state->menu_open || x < DESKTOP_MENU_X ||
 	    x >= DESKTOP_MENU_X + desktop_menu_width(state))
-		return -1;
+		return DESKTOP_MENU_NONE;
 	menu_top = desktop_menu_top(state);
 	if (y < menu_top || y >= desktop_panel_y(state))
-		return -1;
+		return DESKTOP_MENU_NONE;
 	return (int)((y - menu_top) / desktop_button_height(state));
+}
+
+static int desktop_menu_button_at(const desktop_state *state, uint32_t x, uint32_t y)
+{
+	uint32_t top = desktop_panel_y(state) + 4;
+
+	return x >= DESKTOP_MENU_X && x < DESKTOP_MENU_X + desktop_launcher_width(state) &&
+		y >= top && y < top + desktop_button_height(state);
+}
+
+static void desktop_update_menu_hover(desktop_state *state, int entry)
+{
+	if (state->menu_open && state->menu_hover != entry) {
+		state->menu_hover = entry;
+		state->redraw |= DESKTOP_REDRAW_MENU;
+	}
+}
+
+static void desktop_update_menu_button_hover(desktop_state *state, int hovered)
+{
+	if (state->menu_button_hover != hovered) {
+		state->menu_button_hover = hovered;
+		state->redraw |= DESKTOP_REDRAW_PANEL;
+	}
 }
 
 static uint32_t desktop_focused_window_id(const desktop_state *state)
@@ -844,7 +874,8 @@ static uint32_t desktop_background_pixel(const desktop_state *state, uint32_t of
 			if (desktop_bitmap_text(state, desktop_menu_label((desktop_menu_entry)entry), x, y,
 				DESKTOP_MENU_X + 12, row_y + 5))
 				return gui_appearance_color(&state->appearance, GUI_APPEARANCE_FOREGROUND);
-			return gui_appearance_color(&state->appearance, GUI_APPEARANCE_ACTIVE);
+			return gui_appearance_color(&state->appearance,
+				entry == state->menu_hover ? GUI_APPEARANCE_INACTIVE : GUI_APPEARANCE_ACTIVE);
 		}
 		return gui_appearance_color(&state->appearance, GUI_APPEARANCE_PANEL);
 	}
@@ -855,11 +886,11 @@ static uint32_t desktop_background_pixel(const desktop_state *state, uint32_t of
 				state->wallpaper_map[x]];
 		return gui_appearance_color(&state->appearance, GUI_APPEARANCE_BACKGROUND);
 	}
-	if (x >= 8 && x < 8 + desktop_launcher_width(state) &&
-	    y >= panel_y + 4 && y < panel_y + 4 + desktop_button_height(state)) {
+	if (desktop_menu_button_at(state, x, y)) {
 		if (desktop_bitmap_text(state, "MENU", x, y, 12, panel_y + 9))
 			return gui_appearance_color(&state->appearance, GUI_APPEARANCE_FOREGROUND);
-		return gui_appearance_color(&state->appearance, GUI_APPEARANCE_ACTIVE);
+		return gui_appearance_color(&state->appearance,
+			state->menu_button_hover ? GUI_APPEARANCE_INACTIVE : GUI_APPEARANCE_ACTIVE);
 	}
 	control = desktop_taskbar_control(state, &state->painted_taskbar, x, y);
 	if (control != 0) {
@@ -1001,6 +1032,7 @@ static int desktop_open_menu(desktop_state *state)
 	if (state->menu_restore_window_id == 0)
 		state->menu_restore_window_id = state->last_focused_window_id;
 	state->menu_open = 1;
+	state->menu_hover = DESKTOP_MENU_NONE;
 	state->redraw |= DESKTOP_REDRAW_MENU;
 	return 0;
 }
@@ -1173,13 +1205,14 @@ static int desktop_handle_message(desktop_state *state,
 		if (payload_bytes != 0)
 			return -1;
 		state->mouse_buttons = 0;
+		desktop_update_menu_hover(state, DESKTOP_MENU_NONE);
+		desktop_update_menu_button_hover(state, 0);
 		return 0;
 	}
 	if (header->type == GUI_PROTOCOL_INPUT_EVENT) {
 		uint8_t buttons;
 		uint32_t x;
 		uint32_t y;
-		uint32_t panel_y = desktop_panel_y(state);
 		const desktop_window *window;
 		int control;
 		int menu_entry;
@@ -1200,18 +1233,25 @@ static int desktop_handle_message(desktop_state *state,
 		y = get32(payload + 20);
 		buttons = payload[24];
 		menu_entry = desktop_menu_entry_at(state, x, y);
-		menu_button = x >= 8 && x < 8 + desktop_launcher_width(state) &&
-			y >= panel_y + 4 && y < panel_y + 4 + desktop_button_height(state);
+		desktop_update_menu_hover(state, menu_entry);
+		menu_button = desktop_menu_button_at(state, x, y);
+		desktop_update_menu_button_hover(state, menu_button);
 		if (!(state->mouse_buttons & 1) && (buttons & 1)) {
 			if (menu_entry >= 0) {
 				int result;
 
 				switch ((desktop_menu_entry)menu_entry) {
 				case DESKTOP_MENU_TERMINAL:
-					if (state->pending_request_id != 0)
-						return -1;
 					result = desktop_send_launch(state,
 						GUI_PROTOCOL_LAUNCH_TERMINAL, NULL);
+					break;
+				case DESKTOP_MENU_FILE_MANAGER:
+					result = desktop_send_launch(state,
+						GUI_PROTOCOL_LAUNCH_FILE_MANAGER, NULL);
+					break;
+				case DESKTOP_MENU_SYSTEM_MONITOR:
+					result = desktop_send_launch(state,
+						GUI_PROTOCOL_LAUNCH_SYSTEM_MONITOR, NULL);
 					break;
 				case DESKTOP_MENU_REBOOT:
 					result = kill(1, SIGTERM);

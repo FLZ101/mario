@@ -294,7 +294,11 @@ static void test_desktop_appearance(void)
 			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X,
 				desktop_menu_top(&state)) == DESKTOP_MENU_TERMINAL);
 			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X,
-				desktop_menu_top(&state) + desktop_button_height(&state)) == DESKTOP_MENU_REBOOT);
+				desktop_menu_top(&state) + desktop_button_height(&state)) == DESKTOP_MENU_FILE_MANAGER);
+			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X,
+				desktop_menu_top(&state) + 2 * desktop_button_height(&state)) == DESKTOP_MENU_SYSTEM_MONITOR);
+			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X,
+				desktop_menu_top(&state) + 3 * desktop_button_height(&state)) == DESKTOP_MENU_REBOOT);
 			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X,
 				desktop_panel_y(&state) - 1) == DESKTOP_MENU_SHUTDOWN);
 			assert(desktop_menu_entry_at(&state, DESKTOP_MENU_X + desktop_menu_width(&state),

@@ -76,6 +76,7 @@ typedef enum {
 	GUI_PROTOCOL_LAUNCH_IMAGE_VIEWER,
 	GUI_PROTOCOL_LAUNCH_OPEN_TEXT,
 	GUI_PROTOCOL_LAUNCH_EXECUTABLE,
+	GUI_PROTOCOL_LAUNCH_SYSTEM_MONITOR,
 } gui_protocol_launch_type;
 
 typedef struct __attribute__((packed)) {

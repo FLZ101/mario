@@ -1720,6 +1720,11 @@ static void test_launch(void)
 	static const char marker[] = "/tmp/mario-wm-launch-marker";
 	static const char image[] = "/tmp/mario-wm-launch-marker.bmp";
 	static const char directory[] = "/";
+	static const gui_protocol_launch_type shell_apps[] = {
+		GUI_PROTOCOL_LAUNCH_TERMINAL,
+		GUI_PROTOCOL_LAUNCH_FILE_MANAGER,
+		GUI_PROTOCOL_LAUNCH_SYSTEM_MONITOR,
+	};
 	uint8_t frame[64] = { 0 };
 	int fd = connect_client();
 	size_t path_bytes = sizeof(marker) - 1;
@@ -1766,6 +1771,19 @@ static void test_launch(void)
 	frame[16] = '/';
 	write_full(fd, frame, 17);
 	read_error(fd, -EPERM, GUI_PROTOCOL_LAUNCH_REQUEST);
+	close(fd);
+
+	fd = connect_client();
+	(void)create_window(fd, 1, 64, 48);
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
+		       sizeof(gui_protocol_wire_launch_request)) == 0);
+	put16(frame + 14, 0);
+	for (size_t index = 0; index < sizeof(shell_apps) / sizeof(shell_apps[0]); index++) {
+		put32(frame + 8, index + 1);
+		put16(frame + 12, shell_apps[index]);
+		write_full(fd, frame, 16);
+		read_error(fd, -EPERM, GUI_PROTOCOL_LAUNCH_REQUEST);
+	}
 	close(fd);
 }
 

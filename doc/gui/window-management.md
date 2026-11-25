@@ -135,9 +135,15 @@ Shell behavior:
   its launcher popup rectangle (zero size when closed). The WM draws that
   rectangle above application windows and routes pointer hits inside it to
   the shell. The cursor remains the topmost layer.
-- After the initial desktop upload, menu toggles patch only the popup's
-  rectangle and take priority over pending taskbar redraws. Closing the menu
-  restores that rectangle's background without uploading the rest of the wallpaper.
+- After the initial desktop upload, opening or closing the popup and hovering
+  over its rows patch only the popup rectangle and take priority over pending
+  taskbar redraws. The row under the pointer stays highlighted even when an
+  application owns focus. Closing the menu restores the popup's background
+  without uploading the rest of the wallpaper.
+- Hovering over the panel's MENU button highlights it without changing focus.
+  Entering or leaving the button patches only the panel.
+- The menu launches Terminal, File Manager, and System Monitor directly, with
+  Reboot and Shutdown below them.
 
 Success: minimize/restore preserves exact pixels and client state; maximize
 reaches exact work-area geometry and restore reaches exact prior geometry.

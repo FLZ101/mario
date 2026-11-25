@@ -5,14 +5,15 @@ SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.
 SERIAL-CHECK: wallpaper loaded: /tmp/wallpaper-real.png (1920x1200)
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-GUI-MOUSE-POSITION: 16,752
+GUI-MOUSE-POSITION: 0,752
 GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-wallpaper-blue-marble.png
 SERIAL: rm /tmp/wallpaper-real.png
+GUI-MOUSE-POSITION: 16,752
 GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-DIFFERENT: assets/desktop-wallpaper-blue-marble.png
 GUI-CHECK-RECT: 100 722 1 1 37 99 235
+GUI-MOUSE-POSITION: 0,752
 GUI-SEND-KEY: esc
 GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-wallpaper-blue-marble.png

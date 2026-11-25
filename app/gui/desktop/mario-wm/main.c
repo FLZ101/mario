@@ -32,6 +32,8 @@
 #define WM_SHELL_PATH "/usr/bin/mario-desktop"
 #define WM_SHELL_FD 3
 #define WM_TERMINAL_PATH "/usr/bin/terminal"
+#define WM_FILE_MANAGER_PATH "/usr/bin/filemanager"
+#define WM_SYSTEM_MONITOR_PATH "/usr/bin/system-monitor"
 #define WM_CURSOR_PATH "/usr/share/mario/cursor-arrow-16.rgba"
 #define WM_CURSOR_WIDTH 16U
 #define WM_CURSOR_HEIGHT 16U
@@ -270,7 +272,7 @@ struct wm_server {
 };
 
 static int wm_start_shell(wm_server *server);
-static int wm_start_terminal(void);
+static int wm_start_application(const char *path);
 static int wm_start_terminal_command(const uint8_t *path, size_t path_bytes);
 static int wm_start_terminal_executable(wm_server *server, const uint8_t *path,
 					size_t path_bytes, uint32_t origin_window_id);
@@ -1529,11 +1531,17 @@ static void window_reject(wm_window *window, gui_protocol_type type, int status)
 static void client_handle_launch_request(wm_client *client, const uint8_t *bytes,
 					 size_t payload_bytes)
 {
+	static const char *const applications[] = {
+		[GUI_PROTOCOL_LAUNCH_TERMINAL] = WM_TERMINAL_PATH,
+		[GUI_PROTOCOL_LAUNCH_FILE_MANAGER] = WM_FILE_MANAGER_PATH,
+		[GUI_PROTOCOL_LAUNCH_SYSTEM_MONITOR] = WM_SYSTEM_MONITOR_PATH,
+	};
 	uint32_t origin_window_id = client->windows == NULL ? 0 : client->windows->window_id;
 	uint8_t result[sizeof(gui_protocol_wire_launch_result)];
 	uint32_t request_id;
 	uint16_t launch_type;
 	uint16_t path_bytes;
+	int status;
 
 	if (payload_bytes < sizeof(gui_protocol_wire_launch_request)) {
 		client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
@@ -1547,82 +1555,49 @@ static void client_handle_launch_request(wm_client *client, const uint8_t *bytes
 		client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
 		return;
 	}
-	if (client->role != GUI_PROTOCOL_ENDPOINT_SHELL &&
-	    (launch_type == GUI_PROTOCOL_LAUNCH_TERMINAL ||
-	     client->windows == NULL)) {
+	if (client->role != GUI_PROTOCOL_ENDPOINT_SHELL && client->windows == NULL) {
 		client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EPERM);
 		return;
 	}
 	switch (launch_type) {
 	case GUI_PROTOCOL_LAUNCH_TERMINAL:
+	case GUI_PROTOCOL_LAUNCH_FILE_MANAGER:
+	case GUI_PROTOCOL_LAUNCH_SYSTEM_MONITOR:
+		if (client->role != GUI_PROTOCOL_ENDPOINT_SHELL) {
+			client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EPERM);
+			return;
+		}
 		if (path_bytes != 0) {
 			client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
 			return;
 		}
-		if (wm_start_terminal() < 0) {
-			put_u32(result, request_id);
-			put_u32(result + 4, (uint32_t)-errno);
-			if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
-				   sizeof(result)) < 0)
-				client->hello = -1;
-			return;
-		}
-		put_u32(result, request_id);
-		put_u32(result + 4, 0);
-		if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
-			   sizeof(result)) < 0)
-			client->hello = -1;
-		return;
+		status = wm_start_application(applications[launch_type]);
+		break;
 	case GUI_PROTOCOL_LAUNCH_OPEN_TEXT:
 		if (path_bytes == 0 || bytes[sizeof(gui_protocol_wire_launch_request)] != '/' ||
 		    memchr(bytes + sizeof(gui_protocol_wire_launch_request), '\0', path_bytes) != NULL) {
 			client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
 			return;
 		}
-		if (wm_start_terminal_command(bytes + sizeof(gui_protocol_wire_launch_request),
-			path_bytes) < 0) {
-			put_u32(result, request_id);
-			put_u32(result + 4, (uint32_t)-errno);
-			if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
-				   sizeof(result)) < 0)
-				client->hello = -1;
-			return;
-		}
-		put_u32(result, request_id);
-		put_u32(result + 4, 0);
-		if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
-		   sizeof(result)) < 0)
-			client->hello = -1;
-		return;
+		status = wm_start_terminal_command(bytes + sizeof(gui_protocol_wire_launch_request),
+			path_bytes);
+		break;
 	case GUI_PROTOCOL_LAUNCH_EXECUTABLE:
 		if (path_bytes == 0 || bytes[sizeof(gui_protocol_wire_launch_request)] != '/' ||
 		    memchr(bytes + sizeof(gui_protocol_wire_launch_request), '\0', path_bytes) != NULL) {
 			client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
 			return;
 		}
-		if (wm_start_terminal_executable(client->server,
+		status = wm_start_terminal_executable(client->server,
 			bytes + sizeof(gui_protocol_wire_launch_request), path_bytes,
-			origin_window_id) < 0) {
-			put_u32(result, request_id);
-			put_u32(result + 4, (uint32_t)-errno);
-			if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
-				   sizeof(result)) < 0)
-				client->hello = -1;
-			return;
-		}
-		put_u32(result, request_id);
-		put_u32(result + 4, 0);
-		if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result,
-		   sizeof(result)) < 0)
-			client->hello = -1;
-		return;
+			origin_window_id);
+		break;
 	default:
 		client_reject(client, GUI_PROTOCOL_LAUNCH_REQUEST, -EINVAL);
 		return;
 	}
-	/* Only later milestones map these approved requests to server-owned children. */
 	put_u32(result, request_id);
-	put_u32(result + 4, (uint32_t)-ENOSYS);
+	put_u32(result + 4, status < 0 ? (uint32_t)-errno : 0);
 	if (client_enqueue(client, GUI_PROTOCOL_LAUNCH_RESULT, result, sizeof(result)) < 0)
 		client->hello = -1;
 }
@@ -2969,6 +2944,37 @@ static int wm_update_capture(wm_server *server)
 	return 0;
 }
 
+static void wm_deliver_input(const wm_state *state, wm_window *client,
+			     const gui_input_event *event, uint32_t keysym, uint8_t button_changes)
+{
+	uint8_t message[sizeof(gui_protocol_wire_input_event)] = { 0 };
+	int32_t x = state->cursor_x;
+	int32_t y = state->cursor_y;
+
+	if (client == NULL || client->mode_pending)
+		return;
+	put_u32(message, client->window_id);
+	put_u32(message + 4, event->type);
+	if (event->type == GUI_INPUT_EVENT_KEY)
+		put_u32(message + 8, keysym);
+	put_u32(message + 12, state->modifiers);
+	if (client->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY) {
+		x -= client->x;
+		y -= client->y;
+	}
+	put_u32(message + 16, (uint32_t)x);
+	put_u32(message + 20, (uint32_t)y);
+	if (event->type == GUI_INPUT_EVENT_MOUSE) {
+		message[24] = event->mouse.buttons;
+		message[offsetof(gui_protocol_wire_input_event, wheel)] = (uint8_t)event->mouse.dz;
+		if (client->client->capabilities & GUI_PROTOCOL_CAP_BUTTON_CHANGES)
+			message[offsetof(gui_protocol_wire_input_event, button_changes)] = button_changes;
+	}
+	put_u32(message + 28, event->ticks);
+	if (window_enqueue(client, GUI_PROTOCOL_INPUT_EVENT, message, sizeof(message)) < 0)
+		client->client->hello = -1;
+}
+
 static void wm_emit_input(void *context, const gui_input_event *event)
 {
 	wm_server *server = context;
@@ -2976,11 +2982,9 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	wm_window *client;
 	wm_window *popup_target = NULL;
 	wm_window *wheel_target = NULL;
-	uint8_t message[sizeof(gui_protocol_wire_input_event)] = { 0 };
 	uint32_t keysym = 0;
+	uint32_t previous_y = state->cursor_y;
 	uint8_t button_changes = 0;
-	int32_t x;
-	int32_t y;
 	int compose = 0;
 
 	if (event->type == GUI_INPUT_EVENT_KEY_RESET) {
@@ -3157,31 +3161,18 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	if (event->type == GUI_INPUT_EVENT_KEY && keysym == GUI_KEYSYM_ESCAPE &&
 	    wm_popup_bounds(server).w != 0)
 		client = wm_shell_client(server);
-	if (client == NULL || client->mode_pending)
-		return;
-	put_u32(message, client->window_id);
-	put_u32(message + 4, event->type);
-	if (event->type == GUI_INPUT_EVENT_KEY)
-		put_u32(message + 8, keysym);
-	put_u32(message + 12, state->modifiers);
-	x = state->cursor_x;
-	y = state->cursor_y;
-	if (client->client->role == GUI_PROTOCOL_ENDPOINT_ORDINARY) {
-		x -= client->x;
-		y -= client->y;
+	if (event->type == GUI_INPUT_EVENT_MOUSE && !event->mouse.buttons &&
+	    !event->mouse.dz && !button_changes &&
+	    (client == NULL || client->client->role != GUI_PROTOCOL_ENDPOINT_SHELL)) {
+		wm_window *shell = wm_shell_client(server);
+		int64_t panel_y = (int64_t)server->work_y + server->work_height;
+
+		if (shell != NULL && (shell->popup.w != 0 ||
+		    (server->work_area_valid && wm_presented_fullscreen(server) == NULL &&
+		     (state->cursor_y >= panel_y || previous_y >= panel_y))))
+			wm_deliver_input(state, shell, event, 0, 0);
 	}
-	put_u32(message + 16, (uint32_t)x);
-	put_u32(message + 20, (uint32_t)y);
-	if (event->type == GUI_INPUT_EVENT_MOUSE) {
-		message[24] = event->mouse.buttons;
-		message[offsetof(gui_protocol_wire_input_event, wheel)] = (uint8_t)event->mouse.dz;
-		if (client->client->capabilities & GUI_PROTOCOL_CAP_BUTTON_CHANGES)
-			message[offsetof(gui_protocol_wire_input_event, button_changes)] = button_changes;
-	}
-	put_u32(message + 28, event->ticks);
-	if (window_enqueue(client, GUI_PROTOCOL_INPUT_EVENT, message,
-			   sizeof(message)) < 0)
-		client->client->hello = -1;
+	wm_deliver_input(state, client, event, keysym, button_changes);
 }
 
 static int wm_read_input(wm_server *server, int descriptor, int mouse)
@@ -3725,7 +3716,7 @@ static void wm_stop_shell(wm_server *server)
 	server->shell_pid = 0;
 }
 
-static int wm_start_terminal(void)
+static int wm_start_application(const char *path)
 {
 	pid_t pid = fork();
 
@@ -3733,7 +3724,7 @@ static int wm_start_terminal(void)
 		return -1;
 	if (pid == 0) {
 		/* Server-owned descriptors are close-on-exec, so clients get no seat access. */
-		execl(WM_TERMINAL_PATH, WM_TERMINAL_PATH, NULL);
+		execl(path, path, NULL);
 		_exit(127);
 	}
 	return 0;

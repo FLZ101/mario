@@ -789,20 +789,19 @@ Socket and message details:
   stable ordering needed for taskbar buttons; it never includes client fds or
   surface pixels. The shell asks the server to activate/raise a taskbar target
   with `SHELL_ACTIVATE_WINDOW`; the server validates that the target still
-  exists. Any accepted same-UID client may issue a typed `LAUNCH_REQUEST`; it
-  is not a shell capability. The request identifies one approved initial
-  application and its bounded argument form; the server, not a client,
-  forks/execs and reaps it. It replies with `LAUNCH_RESULT { request_id,
-  status }`: `status` is zero only after a child is started, otherwise the
-  negative launch error. A later child exec or connection failure is reported
-  with the existing `APP_EXIT` status notification.
+  exists. The shell and same-UID clients that own a window may issue a typed
+  `LAUNCH_REQUEST`, but desktop application launches are shell-only. The
+  request identifies an approved application and its bounded arguments. The
+  server starts and reaps the child. It replies with `LAUNCH_RESULT { request_id,
+  status }`: `status` is zero once the child has been forked, otherwise it is
+  the negative launch error. `LAUNCH_EXECUTABLE` also reports the child status
+  to the originating window through `APP_EXIT`.
 - `LAUNCH_REQUEST` has a fixed enum rather than a command string:
-  `LAUNCH_TERMINAL` carries no argument; `LAUNCH_FILE_MANAGER` and
-  `LAUNCH_IMAGE_VIEWER` carry one absolute UTF-8 path of at most 1024 bytes;
-  `LAUNCH_OPEN_TEXT` and `LAUNCH_EXECUTABLE` carry one absolute UTF-8 path of
-  at most 1024 bytes for a terminal client to handle. Embedded NUL, relative,
-  or overlong paths are rejected. The server returns `ENOSYS` until the
-  corresponding M5, M6, or M7 client binary is installed. It passes no
+  `LAUNCH_TERMINAL`, `LAUNCH_FILE_MANAGER`, and `LAUNCH_SYSTEM_MONITOR` carry
+  no arguments and launch fixed binaries. `LAUNCH_OPEN_TEXT` and
+  `LAUNCH_EXECUTABLE` carry one absolute path of at most 1024 bytes for a
+  terminal client to handle. Embedded NUL, relative, or overlong paths are
+  rejected. `LAUNCH_IMAGE_VIEWER` is reserved. The WM passes no
   framebuffer, input, listener, or client socket fd to the child; the child
   connects normally through the public pathname listener.
 - A title-bar close hit or Super-W makes the server send one ordered

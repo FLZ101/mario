@@ -39,6 +39,6 @@ To generate the host-only reference `desktop-wallpaper-blue-marble.png`, crop
 160 pixels from each side of the source, then sample
 `(floor(x * 25 / 16), floor(y * 25 / 16))` from that 1600 × 1200 crop to
 cover 1024 × 768. Copy the bottom 28 rows from `desktop-default.png`, which
-includes the panel and the pointer at `(16, 752)`.
+includes the panel and the pointer at `(0, 752)`, outside the launcher button.
 Reference SHA-256:
-`dfe5912c72f4190fb565d8566858e3c16886a80d22e37f915e6f99b96e2a39ca`.
+`318280881c40a9077c2508dec08d9689c9d446584d70626cc42f41c0990e16d9`.
