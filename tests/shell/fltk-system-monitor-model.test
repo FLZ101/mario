@@ -1,0 +1,4 @@
+RUN: /usr/bin/test/fltk-system-monitor-model.exe "$(grep -c '^processor' /proc/cpuinfo)"; printf 'system-monitor exit: %s\n' "$?"
+CHECK: system-monitor: deterministic counters, races and invalid data verified
+CHECK: online core rows and live guest telemetry verified
+CHECK: system-monitor exit: 0

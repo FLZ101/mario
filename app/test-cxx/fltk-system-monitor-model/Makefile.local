@@ -1,0 +1,12 @@
+MODEL := $(ROOT)/usr-cxx/system-monitor
+MODEL_OBJECT := $(BUILD_DIR)/telemetry.o
+CXXFLAGS += -I$(MODEL)
+LDFLAGS += $(MODEL_OBJECT)
+
+$(EXE): $(MODEL_OBJECT)
+
+$(MODEL_OBJECT): $(MODEL)/telemetry.cpp $(RULES) $(TOOLCHAIN_STAMP)
+	mkdir -p "$(@D)"
+	cd "$(BUILD_DIR)" && $(CXX) $(CXXFLAGS) -o "$@" "$<"
+
+-include $(MODEL_OBJECT:.o=.d)
