@@ -23,6 +23,7 @@ python3-pip
 # Archive and configure tools used by app builds.
 ca-certificates
 wget
+curl
 patch
 tar
 gzip
