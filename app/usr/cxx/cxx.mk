@@ -1,4 +1,7 @@
 CXX_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+# The C runtime is configured with the musl C wrapper rather than host cc so
+# CMake's C compiler checks use Mario's compiler-rt and musl toolchain paths.
+MARIO_CC := $(abspath $(CXX_DIR)/../../../util/mario-musl-cc)
 MARIO_CXX := $(abspath $(CXX_DIR)/../../../util/mario-musl-c++)
 RUNTIME_CXX := $(abspath $(CXX_DIR)/../../../util/mario-c++)
 ifneq ($(filter default undefined,$(origin CXX)),)
@@ -20,8 +23,9 @@ build:: build-cxx-runtime
 build-cxx-runtime: $(CXX_TOOLCHAIN_STAMP)
 
 $(CXX_RUNTIME_STAMP): $(CXX_DIR)/build-runtime.sh $(CXX_DIR)/llvm-sources.sha256 \
+		$(MARIO_CC) $(RUNTIME_CXX) \
 		$(CXX_DIR)/libcxx-gcc.patch $(CXX_DIR)/libcxx-mario.patch $(CXX_DIR)/libcxxabi-gcc.patch $(CXX_LIBC)
-	CXX="$(RUNTIME_CXX)" PYTHON="$(CXX_PYTHON)" CXX_DIR="$(CXX_DIR)" CXX_BUILD_DIR="$(CXX_BUILD_DIR)" \
+	CC="$(MARIO_CC)" CXX="$(RUNTIME_CXX)" PYTHON="$(CXX_PYTHON)" CXX_DIR="$(CXX_DIR)" CXX_BUILD_DIR="$(CXX_BUILD_DIR)" \
 		CXX_INSTALL_DIR="$(CXX_INSTALL_DIR)" MUSL_DIR="$(abspath $(dir $(CXX_LIBC))/..)" \
 		bash "$(CXX_DIR)/build-runtime.sh"
 	touch "$@"

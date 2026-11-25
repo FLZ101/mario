@@ -1,0 +1,6 @@
+# Regression test for same-TU and cross-TU C++ exception handling.
+TIMEOUT: 10
+RUN: /usr/bin/test/cxx-exceptions.exe; printf 'cxx-exceptions exit: %s\n' "$?"
+CHECK: cxx-exceptions: cross-tu throw caught
+CHECK: cxx-exceptions: exception handling ok
+CHECK: cxx-exceptions exit: 0

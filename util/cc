@@ -46,14 +46,21 @@ def get_args():
         if x.endswith(".c"):
             link_only = False
 
-    flags_before = ["-m32", "-march=i686"]
+    # Put unwind-disabling flags before user arguments so later explicit
+    # -funwind-tables options from C++ runtime builds can override them.
+    # Placing them in flags (after user arguments) would unconditionally
+    # re-disable unwind tables and break exception handling.
+    flags_before = [
+        "-m32",
+        "-march=i686",
+        "-fno-unwind-tables",
+        "-fno-asynchronous-unwind-tables",
+    ]
     flags = [
         "-nostdinc",
         "-ffreestanding",
         "-fno-pic",
         "-static",
-        "-fno-unwind-tables",
-        "-fno-asynchronous-unwind-tables",
     ]
     stack_protector = os.environ.get("STACK_PROTECTOR") == "1"
     match prog_name:

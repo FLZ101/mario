@@ -48,7 +48,11 @@ SECTIONS
 	} :rodata
 
 	.gcc_except_table : { *(.gcc_except_table .gcc_except_table.*) } :rodata
-	.eh_frame : { KEEP (*(.eh_frame .eh_frame.*)) } :rodata
+	.eh_frame : {
+		KEEP (*(.eh_frame .eh_frame.*))
+		. = ALIGN(4);
+		LONG(0) /* NULL terminator lets libunwind stop at the end of the table */
+	} :rodata
 	.eh_frame_hdr : { *(.eh_frame_hdr) } :rodata :eh_frame
 
 	. = ALIGN(0x1000);
