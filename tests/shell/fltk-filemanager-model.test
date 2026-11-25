@@ -1,0 +1,19 @@
+TIMEOUT: 90
+
+RUN: export PATH=/bin/toybox:/bin
+RUN: /usr/bin/test/fltk-filemanager-model.exe /tmp/fm-model mariofs
+CHECK: filemanager model: mariofs passed
+
+RUN: mount -t ext2 /dev/hdc3 /mnt && /usr/bin/test/fltk-filemanager-model.exe /mnt/fm-model ext2
+CHECK: filemanager model: ext2 passed
+RUN: umount /mnt && mount -t ext2 -o ro /dev/hdc3 /mnt && /usr/bin/test/fltk-filemanager-model.exe /mnt/fm-model ext2-ro
+CHECK: filemanager model: ext2-ro passed
+RUN: umount /mnt; echo unmount:$?
+CHECK: unmount:0
+
+RUN: mount -t vfat /dev/hdc2 /mnt && /usr/bin/test/fltk-filemanager-model.exe /mnt/fm-model vfat
+CHECK: filemanager model: vfat passed
+RUN: umount /mnt && mount -t vfat -o ro /dev/hdc2 /mnt && /usr/bin/test/fltk-filemanager-model.exe /mnt/fm-model vfat-ro
+CHECK: filemanager model: vfat-ro passed
+RUN: umount /mnt; echo unmount:$?
+CHECK: unmount:0

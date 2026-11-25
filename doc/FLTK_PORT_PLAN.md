@@ -187,6 +187,15 @@ entries on MarioFS, ext2, and VFAT (including read-only mounts).
 panes, bookmark persistence, preview, and visible image-viewer launch and
 teardown.
 
+The browser lists up to 4,096 entries per pane and sorts only the loaded
+entries. Double-click a row or use Ctrl+Enter to open it; Ctrl+L edits the
+location, Ctrl+R refreshes, Ctrl+T opens a tab, and Ctrl+D toggles a bookmark.
+Use the View menu to show hidden files or split the current view. Bookmarks
+encode raw path bytes in hex in the settings file. Previews read up to 4 KiB
+of text or 2 MiB of encoded image data, decode at most 1024 pixels per side,
+and cache at most 1 MiB of RGB thumbnails. The Image Viewer opens separately
+and can be closed independently.
+
 ### F7 — File Manager: copy jobs
 
 1. Probe existing filesystem primitives on each guest filesystem. Mario has

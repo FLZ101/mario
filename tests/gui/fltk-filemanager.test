@@ -1,0 +1,84 @@
+GUI-VISUAL-TEST:
+TIMEOUT: 10
+SERIAL: rm -f /tmp/mario-wm.* /tmp/filemanager.log; mkdir -p '/tmp/fm home' '/tmp/fm start/sub folder'; printf 'Preview text\n' >'/tmp/fm start/notes.txt'; cp /usr/share/mario-tests/gui/checker-64.bmp '/tmp/fm start/sub folder/image with spaces.bmp'; /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: for attempt in 1 2 3 4 5; do grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log && break; sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: (HOME='/tmp/fm home' /usr/bin/test/filemanager.exe '/tmp/fm start'; printf '%d\n' "$?" >/tmp/filemanager.exit) >/tmp/filemanager.log 2>&1 &
+GUI-CHECK-RECT: 370 272 8 8 246 248 251
+# Navigate a spaced directory name, back up, and give a second tab its own location.
+GUI-MOUSE-POSITION: 315,279
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 370 272 8 8 188 217 251
+GUI-SEND-KEYS: ctrl,ret
+GUI-CHECK-RECT: 370 272 8 8 255 255 255
+GUI-MOUSE-POSITION: 78,123
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 370 272 8 8 246 248 251
+GUI-SEND-KEYS: ctrl,t
+GUI-MOUSE-POSITION: 239,123
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 370 272 8 8 255 255 255
+GUI-MOUSE-POSITION: 247,155
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 370 272 8 8 246 248 251
+# Turn on dual panes and navigate only the right pane.
+GUI-MOUSE-POSITION: 944,122
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-POSITION: 580,279
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-SEND-KEYS: ctrl,ret
+GUI-SEND-KEYS: ctrl,d
+SERIAL: grep -Fx 'bookmark=2f746d702f666d2073746172742f73756220666f6c646572' '/tmp/fm home/.config/mario/filemanager.conf' && printf 'filemanager: bookmark %s\n' saved; cat /tmp/filemanager.log
+SERIAL-CHECK: filemanager: bookmark saved
+GUI-MOUSE-POSITION: 341,256
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-MOUSE-POSITION: 990,135
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,278,140,84,27
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,212,168,576,23
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,799,161,95,18
+# Preview and launch a BMP whose absolute path contains spaces.
+GUI-MOUSE-POSITION: 574,256
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 853 205 8 8 239 68 68
+GUI-SEND-KEYS: ctrl,ret
+SERIAL: for attempt in 1 2 3 4 5; do grep -q 'imageviewer: window ready' /tmp/filemanager.log && break; sleep 1; done; cat /tmp/filemanager.log
+SERIAL-CHECK: imageviewer: window ready
+GUI-CHECK-RECT: 200 120 8 8 239 68 68
+GUI-SEND-KEYS: meta_l,w
+SERIAL: for attempt in 1 2 3 4 5; do pgrep -x imageviewer >/dev/null || break; sleep 1; done; if ! pgrep -x imageviewer >/dev/null; then printf 'filemanager: viewer %s\n' reaped; fi
+SERIAL-CHECK: filemanager: viewer reaped
+# Restart from Home, then navigate to the persisted bookmark through the tree.
+GUI-MOUSE-POSITION: 966,68
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/filemanager.exit
+SERIAL: printf 'filemanager: browser exit %s\n' "$(cat /tmp/filemanager.exit)"; cat /tmp/filemanager.log
+SERIAL-CHECK: filemanager: browser exit 0
+SERIAL: (HOME='/tmp/fm home' /usr/bin/test/filemanager.exe; printf '%d\n' "$?" >/tmp/filemanager-restart.exit) >/tmp/filemanager-restart.log 2>&1 &
+GUI-CHECK-RECT: 374 272 8 8 255 255 255
+GUI-MOUSE-POSITION: 135,192
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,213,247,121,20
+GUI-MOUSE-POSITION: 340,257
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 853 205 8 8 239 68 68
+GUI-MOUSE-POSITION: 966,68
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+SERIAL-WAIT-FILE: /tmp/filemanager-restart.exit
+SERIAL: code=$(cat /tmp/filemanager-restart.exit); printf 'filemanager: restarted browser exit %s\n' "$code"; cat /tmp/filemanager-restart.log; if test "$code" != 0; then dmesg | tail -30; fi
+SERIAL-CHECK: filemanager: restarted browser exit 0
+SERIAL: kill -TERM $(cat /tmp/mario-wm.pid)
+EXIT:

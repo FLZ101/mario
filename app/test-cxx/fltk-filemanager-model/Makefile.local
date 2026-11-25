@@ -1,0 +1,15 @@
+MODEL := $(ROOT)/usr-cxx/filemanager
+MODEL_OBJECTS := $(addprefix $(BUILD_DIR)/,browser.o preview.o)
+IMAGE_LIBS := $(ROOT)/gui/libmario-ui/libmario-ui.a \
+	$(ROOT)/usr/libpng-1.6.59-install/lib/libpng16.a \
+	$(ROOT)/usr/zlib-1.3.2-install/lib/libz.a
+CXXFLAGS += -I$(MODEL) -I$(ROOT)/gui/libmario-ui/include
+LDFLAGS += $(MODEL_OBJECTS) $(IMAGE_LIBS)
+
+$(EXE): $(MODEL_OBJECTS) $(IMAGE_LIBS)
+
+$(MODEL_OBJECTS): $(BUILD_DIR)/%.o: $(MODEL)/%.cpp $(RULES) $(TOOLCHAIN_STAMP)
+	mkdir -p "$(@D)"
+	cd "$(BUILD_DIR)" && $(CXX) $(CXXFLAGS) -o "$@" "$<"
+
+-include $(MODEL_OBJECTS:.o=.d)

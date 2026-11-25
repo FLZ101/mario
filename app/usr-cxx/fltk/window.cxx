@@ -692,6 +692,8 @@ void Window_Driver::show()
 		if (force_position())
 			peer_->move(x(), y());
 	}
+	if (!fl_graphics_driver)
+		Fl_Display_Device::display_device()->set_current();
 	auto *record = new Fl_X{0, pWindow, nullptr, Fl_X::first};
 	Fl_X::first = record;
 	flx(record);

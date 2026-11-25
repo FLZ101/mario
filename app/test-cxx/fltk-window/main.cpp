@@ -61,6 +61,9 @@ int main(int argc, char **argv)
 	fixture.window.show();
 	if (!fixture.window.shown())
 		return 1;
+	fixture.window.clear_damage();
+	fixture.patch.redraw();
+	fixture.window.redraw();
 	Fl::add_timeout(.03, fixture_commands, &fixture);
 	Fl::run();
 	Fl::remove_timeout(fixture_commands, &fixture);

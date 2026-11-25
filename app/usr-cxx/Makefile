@@ -25,3 +25,13 @@ all:: build
 
 include btop.mk
 include fltk.mk
+
+.PHONY:: build-filemanager clean-filemanager
+build:: build-filemanager
+build-filemanager: build-fltk
+	$(MAKE) -C filemanager -f ../../Makefile.cxx.in CC="$(CC)" CXX="$(CXX)" \
+		COMPILE_COMMANDS_JSON="$(FLTK_COMPILE_COMMANDS_JSON)"
+
+clean:: clean-filemanager
+clean-filemanager:
+	$(MAKE) -C filemanager -f ../../Makefile.cxx.in clean

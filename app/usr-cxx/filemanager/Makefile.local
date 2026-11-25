@@ -1,0 +1,7 @@
+include $(ROOT)/usr-cxx/fltk-app.mk
+
+IMAGE_LIBS := $(ROOT)/usr/libpng-1.6.59-install/lib/libpng16.a \
+	$(ROOT)/usr/zlib-1.3.2-install/lib/libz.a
+CXXFLAGS += -I$(ROOT)/gui/libmario-ui/include
+LDFLAGS += $(IMAGE_LIBS)
+$(EXE): $(IMAGE_LIBS)
