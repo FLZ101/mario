@@ -68,7 +68,7 @@ include cxx/cxx.mk
 include terminal.mk
 include imageviewer.mk
 
-$(TERMINAL_EXE) $(IMAGEVIEWER_EXE) $(NCURSES_EXES) $(CXX_PROBES) $(MARIO_UI_LIB): \
+$(TERMINAL_EXE) $(IMAGEVIEWER_EXE) $(NCURSES_EXES) $(MARIO_UI_LIB): \
 	private override export COMPILE_COMMANDS_JSON := $(COMPILE_COMMANDS_JSON)
 
 # Rebuild the archive before linking apps whenever any UI implementation changes.
