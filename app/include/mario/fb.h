@@ -77,10 +77,16 @@ struct fb_fix_screeninfo {
 #define FBIOGET_CONSOLE_STATE 0x4d01
 
 /* Catch ABI drift in both kernel and userspace builds. */
+#ifdef __cplusplus
+static_assert(sizeof(struct fb_bitfield) == 8, "fb_bitfield ABI size");
+static_assert(sizeof(struct fb_var_screeninfo) == 144, "fb_var_screeninfo ABI size");
+static_assert(sizeof(struct fb_fix_screeninfo) == 72, "fb_fix_screeninfo ABI size");
+#else
 _Static_assert(sizeof(struct fb_bitfield) == 8, "fb_bitfield ABI size");
 _Static_assert(sizeof(struct fb_var_screeninfo) == 144,
 	       "fb_var_screeninfo ABI size");
 _Static_assert(sizeof(struct fb_fix_screeninfo) == 72,
 	       "fb_fix_screeninfo ABI size");
+#endif
 
 #endif /* _UAPI_MARIO_FB_H */

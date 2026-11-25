@@ -458,7 +458,7 @@ gui_font *Graphics_Driver::font_for_size()
 
 gui_font_metrics Graphics_Driver::metrics()
 {
-	gui_font_metrics result{11, 3, 0, 0, 0};
+	gui_font_metrics result{11, -3, 0, 0, 0};
 	gui_font_get_metrics(font_for_size(), &result);
 	return result;
 }
@@ -466,10 +466,10 @@ gui_font_metrics Graphics_Driver::metrics()
 int Graphics_Driver::height()
 {
 	auto font_metrics = metrics();
-	return font_metrics.ascent + font_metrics.descent + font_metrics.line_gap;
+	return font_metrics.ascent - font_metrics.descent + font_metrics.line_gap;
 }
 
-int Graphics_Driver::descent() { return metrics().descent; }
+int Graphics_Driver::descent() { return -metrics().descent; }
 
 double Graphics_Driver::width(unsigned int codepoint)
 {

@@ -362,6 +362,7 @@ private:
 		if (!snapshot_)
 			return false;
 		gui_blit(snapshot_.get(), area.x, area.y, pixels_.get(), &area);
+		driver_->composite_popups(snapshot_.get(), area);
 		dirty_ = {};
 		return gui_surface_upload_start(&upload_, id_, configure_, base_, ++serial_,
 						snapshot_.get(), area, use_patch) == 0;
@@ -634,6 +635,9 @@ private:
 			if (!entry.payload(event) || !id_ || id_ != event.window_id_le)
 				return false;
 			if (!event.focused_le) {
+				driver_->cancel_menu();
+				if (!driver_)
+					return true;
 				reset_pointer();
 				if (!driver_)
 					return true;
@@ -669,25 +673,52 @@ void Window_Driver::show()
 {
 	if (shown())
 		return;
-	auto peer = std::make_shared<Window_Peer>(*this);
-	if (!peer->start(w(), h(), pWindow->label())) {
-		Fl::error("FLTK: could not connect a window to mario-wm");
-		return;
+	if (pWindow->menu_window()) {
+		auto *owner = menu_parent();
+		if (!owner || !owner->shown())
+			return;
+		popup_pixels_ = make_pixels(w(), h());
+		if (!popup_pixels_)
+			return;
+		popup_owner_ = static_cast<Window_Driver *>(driver(owner));
+		popup_owner_->popups_.push_back(this);
+	} else {
+		auto peer = std::make_shared<Window_Peer>(*this);
+		if (!peer->start(w(), h(), pWindow->label())) {
+			Fl::error("FLTK: could not connect a window to mario-wm");
+			return;
+		}
+		peer_ = std::move(peer);
+		if (force_position())
+			peer_->move(x(), y());
 	}
-	peer_ = std::move(peer);
-	if (force_position())
-		peer_->move(x(), y());
 	auto *record = new Fl_X{0, pWindow, nullptr, Fl_X::first};
 	Fl_X::first = record;
 	flx(record);
-	wait_for_expose_value = 1;
+	wait_for_expose_value = !popup_owner_;
+	if (pWindow->modal() && !popup_owner_)
+		Fl::modal_ = pWindow;
 	pWindow->set_visible();
 	Fl::handle(FL_SHOW, pWindow);
+	if (popup_owner_)
+		pWindow->redraw();
 }
 
 void Window_Driver::hide()
 {
 	auto *record = Fl_X::flx(pWindow);
+	if (!popups_.empty()) {
+		cancel_menu();
+		while (!popups_.empty())
+			popups_.back()->hide();
+	}
+	if (popup_owner_) {
+		auto &popups = popup_owner_->popups_;
+		popups.erase(std::remove(popups.begin(), popups.end(), this), popups.end());
+		popup_owner_->damage_popups();
+		popup_owner_ = nullptr;
+		popup_pixels_.reset();
+	}
 	if (peer_)
 		peer_->disconnect();
 	peer_.reset();
@@ -712,7 +743,7 @@ void Window_Driver::make_current()
 {
 	Fl_Display_Device::display_device()->set_current();
 	auto &graphics = static_cast<Graphics_Driver &>(Fl_Graphics_Driver::default_driver());
-	graphics.target(peer_ ? peer_->pixels() : nullptr);
+	graphics.target(peer_ ? peer_->pixels() : popup_pixels_.get());
 	graphics.set_origin(0, 0);
 	fl_clip_region(nullptr);
 	fl_window = os_id();
@@ -720,6 +751,11 @@ void Window_Driver::make_current()
 
 void Window_Driver::flush()
 {
+	if (popup_owner_) {
+		pWindow->Fl_Window::flush();
+		popup_owner_->damage_popups();
+		return;
+	}
 	if (!peer_ || !peer_->pixels())
 		return;
 	const auto *region = static_cast<const gui_rect *>(Fl_X::flx(pWindow)->region);
@@ -737,6 +773,18 @@ void Window_Driver::flush()
 
 void Window_Driver::resize(int position_x, int position_y, int width, int height)
 {
+	if (popup_owner_) {
+		if (w() != width || h() != height) {
+			auto pixels = make_pixels(width, height);
+			if (!pixels)
+				return;
+			popup_pixels_ = std::move(pixels);
+		}
+		pWindow->Fl_Group::resize(position_x, position_y, width, height);
+		pWindow->redraw();
+		popup_owner_->damage_popups();
+		return;
+	}
 	if (!peer_) {
 		pWindow->Fl_Group::resize(position_x, position_y, width, height);
 		return;
@@ -751,6 +799,51 @@ void Window_Driver::resize(int position_x, int position_y, int width, int height
 }
 
 fl_uintptr_t Window_Driver::os_id() { return peer_ ? peer_->id() : 0; }
+
+void Window_Driver::menu_window_area(int &left, int &top, int &width, int &height, int screen)
+{
+	if (auto *owner = menu_parent()) {
+		left = owner->x();
+		top = owner->y();
+		width = owner->w();
+		height = owner->h();
+	} else {
+		Fl_Window_Driver::menu_window_area(left, top, width, height, screen);
+	}
+}
+
+void Window_Driver::composite_popups(gui_surface *surface, const gui_rect &damage)
+{
+	for (auto *popup : popups_) {
+		const int left = popup->x() - x(), top = popup->y() - y();
+		const int overlap_left = std::max(left, damage.x);
+		const int overlap_top = std::max(top, damage.y);
+		const int right = std::min(left + popup->w(), damage.x + damage.w);
+		const int bottom = std::min(top + popup->h(), damage.y + damage.h);
+		if (right <= overlap_left || bottom <= overlap_top)
+			continue;
+		const gui_rect source = {overlap_left - left, overlap_top - top,
+			right - overlap_left, bottom - overlap_top};
+		gui_blit(surface, overlap_left, overlap_top, popup->popup_pixels_.get(), &source);
+	}
+}
+
+void Window_Driver::damage_popups()
+{
+	if (peer_ && peer_->pixels())
+		peer_->changed(peer_->entire_surface());
+}
+
+void Window_Driver::cancel_menu()
+{
+	if (!Fl::grab() || !Fl::grab()->menu_window() || menu_parent() != pWindow)
+		return;
+	const int old_key = Fl::e_keysym;
+	Event_Text text(0);
+	Fl::e_keysym = FL_Escape;
+	Fl::handle(FL_KEYBOARD, pWindow);
+	Fl::e_keysym = old_key;
+}
 
 void Window_Driver::configured(uint32_t window_id, int width, int height)
 {

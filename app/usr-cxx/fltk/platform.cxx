@@ -11,9 +11,16 @@
 #include "window.h"
 
 #include <algorithm>
+#include <array>
 #include <climits>
+#include <cstring>
 #include <ctime>
+#include <fcntl.h>
+#include <mario/fb.h>
 #include <poll.h>
+#include <string>
+#include <sys/ioctl.h>
+#include <unistd.h>
 #include <vector>
 
 extern void fl_fix_focus();
@@ -26,7 +33,48 @@ using mario_fltk::Graphics_Driver;
 using mario_fltk::Pixels;
 
 class Mario_Screen_Driver final : public Fl_Unix_Screen_Driver {
+	std::array<std::string, 2> clipboard_;
+	int width_ = 800, height_ = 600;
+
 public:
+	void init() override
+	{
+		const int descriptor = open("/dev/fb0", O_RDONLY | O_CLOEXEC);
+		if (descriptor >= 0) {
+			fb_var_screeninfo info{};
+			if (ioctl(descriptor, FBIOGET_VSCREENINFO, &info) == 0 &&
+			    info.xres && info.yres && info.xres <= INT_MAX && info.yres <= INT_MAX) {
+				width_ = info.xres;
+				height_ = info.yres;
+			}
+			close(descriptor);
+		}
+		num_screens = 1;
+	}
+	int w() override
+	{
+		if (num_screens < 0)
+			init();
+		return width_;
+	}
+	int h() override
+	{
+		if (num_screens < 0)
+			init();
+		return height_;
+	}
+	void screen_xywh(int &left, int &top, int &width, int &height, int) override
+	{
+		left = top = 0;
+		width = w();
+		height = h();
+	}
+	int get_mouse(int &x, int &y) override
+	{
+		x = Fl::e_x_root;
+		y = Fl::e_y_root;
+		return 0;
+	}
 	int compose(int &removed) override
 	{
 		removed = 0;
@@ -37,6 +85,35 @@ public:
 		Fl::grab_ = window;
 		if (!window)
 			fl_fix_focus();
+	}
+	void copy(const char *text, int length, int clipboard, const char *type) override
+	{
+		if (text && length >= 0 && std::strcmp(type, Fl::clipboard_plain_text) == 0)
+			clipboard_[clipboard != 0].assign(text, length);
+	}
+	void paste(Fl_Widget &receiver, int clipboard, const char *type) override
+	{
+		if (std::strcmp(type, Fl::clipboard_plain_text) != 0)
+			return;
+		auto text = clipboard_[clipboard != 0];
+		if (text.empty())
+			return;
+		const auto old_type = Fl::e_clipboard_type;
+		const auto old_length = Fl::e_length;
+		const auto old_text = Fl::e_text;
+		const auto old_event = Fl::e_number;
+		Fl::e_clipboard_type = Fl::clipboard_plain_text;
+		Fl::e_length = text.size();
+		Fl::e_text = &text[0];
+		receiver.handle(Fl::e_number = FL_PASTE);
+		Fl::e_number = old_event;
+		Fl::e_text = old_text;
+		Fl::e_length = old_length;
+		Fl::e_clipboard_type = old_type;
+	}
+	int clipboard_contains(const char *type) override
+	{
+		return !clipboard_[1].empty() && std::strcmp(type, Fl::clipboard_plain_text) == 0;
 	}
 };
 
