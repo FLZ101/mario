@@ -2978,6 +2978,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	wm_window *wheel_target = NULL;
 	uint8_t message[sizeof(gui_protocol_wire_input_event)] = { 0 };
 	uint32_t keysym = 0;
+	uint8_t button_changes = 0;
 	int32_t x;
 	int32_t y;
 	int compose = 0;
@@ -3045,6 +3046,7 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 			compose = 1;
 		}
 		state->mouse_buttons = event->mouse.buttons;
+		button_changes = previous_buttons ^ state->mouse_buttons;
 		if (server->title_click_window_id != 0) {
 			int64_t dx = (int64_t)state->cursor_x - server->title_click_x;
 			int64_t dy = (int64_t)state->cursor_y - server->title_click_y;
@@ -3173,6 +3175,8 @@ static void wm_emit_input(void *context, const gui_input_event *event)
 	if (event->type == GUI_INPUT_EVENT_MOUSE) {
 		message[24] = event->mouse.buttons;
 		message[offsetof(gui_protocol_wire_input_event, wheel)] = (uint8_t)event->mouse.dz;
+		if (client->client->capabilities & GUI_PROTOCOL_CAP_BUTTON_CHANGES)
+			message[offsetof(gui_protocol_wire_input_event, button_changes)] = button_changes;
 	}
 	put_u32(message + 28, event->ticks);
 	if (window_enqueue(client, GUI_PROTOCOL_INPUT_EVENT, message,
@@ -3423,7 +3427,8 @@ static void client_message(void *context, const gui_protocol_header *header,
 			client_reject(client, header->type, -EBUSY);
 		} else {
 			client->capabilities = get_u32(bytes) &
-				(GUI_PROTOCOL_CAP_SURFACE_PATCH | GUI_PROTOCOL_CAP_WINDOW_OPACITY);
+				(GUI_PROTOCOL_CAP_SURFACE_PATCH | GUI_PROTOCOL_CAP_WINDOW_OPACITY |
+				 GUI_PROTOCOL_CAP_BUTTON_CHANGES);
 			put_u32(capabilities, client->capabilities);
 			if (client_enqueue(client, GUI_PROTOCOL_CAPABILITIES_REPLY, capabilities, sizeof(capabilities)) < 0)
 				client->hello = -1;

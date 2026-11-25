@@ -43,9 +43,14 @@ struct mario_psaux_event {
 };
 
 /* Catch accidental ABI changes in both kernel and userspace builds. */
+#ifdef __cplusplus
+static_assert(sizeof(struct mario_gui_key_event) == 8, "mario_gui_key_event ABI size");
+static_assert(sizeof(struct mario_psaux_event) == 12, "mario_psaux_event ABI size");
+#else
 _Static_assert(sizeof(struct mario_gui_key_event) == 8,
 	       "mario_gui_key_event ABI size");
 _Static_assert(sizeof(struct mario_psaux_event) == 12,
 	       "mario_psaux_event ABI size");
+#endif
 
 #endif /* _UAPI_MARIO_INPUT_H */

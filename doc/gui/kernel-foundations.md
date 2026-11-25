@@ -878,6 +878,10 @@ Socket and message details:
   windows per connection in M9, the existing connection-scoped reset applies
   to every window on that endpoint; `INPUT_EVENT` and focus notifications
   continue to identify their individual target window.
+  Clients that negotiate `GUI_PROTOCOL_CAP_BUTTON_CHANGES` also receive a
+  bit mask of physical button transitions in the pointer event's first
+  reserved byte. This distinguishes a new press from a button that was
+  already held when focus transferred. Without negotiation, the byte is zero.
 - Bound untrusted client state before the first client is accepted. The initial
   M3-M9.1 implementation admits eight connections and one window per ordinary
   connection. M9.2 dynamically allocates connection/window records

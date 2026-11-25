@@ -3,6 +3,7 @@
 #include <FL/Fl.H>
 #include <FL/platform.H>
 #include <FL/fl_draw.H>
+#include <FL/fl_utf8.h>
 
 #include <algorithm>
 #include <array>
@@ -17,9 +18,12 @@
 #include <unistd.h>
 
 extern "C" {
+#include <gui/input.h>
 #include <gui/protocol.h>
 #include <gui/surface_upload.h>
 }
+
+extern Fl_Window *fl_xfocus;
 
 namespace mario_fltk {
 namespace {
@@ -81,6 +85,72 @@ struct Message {
 			return false;
 		std::memcpy(&result, bytes.data(), size);
 		return true;
+	}
+};
+
+int event_state(uint32_t modifiers, uint8_t buttons)
+{
+	return ((modifiers & GUI_MOD_SHIFT) ? FL_SHIFT : 0) |
+	       ((modifiers & GUI_MOD_CTRL) ? FL_CTRL : 0) |
+	       ((modifiers & GUI_MOD_ALT) ? FL_ALT : 0) |
+	       ((modifiers & GUI_MOD_SUPER) ? FL_META : 0) |
+	       ((modifiers & GUI_MOD_CAPS_LOCK) ? FL_CAPS_LOCK : 0) |
+	       ((buttons & 1) ? FL_BUTTON1 : 0) |
+	       ((buttons & 2) ? FL_BUTTON3 : 0) |
+	       ((buttons & 4) ? FL_BUTTON2 : 0);
+}
+
+int event_key(uint32_t keysym)
+{
+	switch (keysym) {
+	case GUI_KEYSYM_ESCAPE: return FL_Escape;
+	case GUI_KEYSYM_BACKSPACE: return FL_BackSpace;
+	case GUI_KEYSYM_LEFT: return FL_Left;
+	case GUI_KEYSYM_RIGHT: return FL_Right;
+	case GUI_KEYSYM_UP: return FL_Up;
+	case GUI_KEYSYM_DOWN: return FL_Down;
+	case GUI_KEYSYM_HOME: return FL_Home;
+	case GUI_KEYSYM_END: return FL_End;
+	case GUI_KEYSYM_PAGE_UP: return FL_Page_Up;
+	case GUI_KEYSYM_PAGE_DOWN: return FL_Page_Down;
+	case GUI_KEYSYM_INSERT: return FL_Insert;
+	case GUI_KEYSYM_DELETE: return FL_Delete;
+	case GUI_KEYSYM_SHIFT: return FL_Shift_L;
+	case GUI_KEYSYM_CTRL: return FL_Control_L;
+	case GUI_KEYSYM_ALT: return FL_Alt_L;
+	case GUI_KEYSYM_SUPER: return FL_Meta_L;
+	case '\t': return FL_Tab;
+	case '\n': return FL_Enter;
+	default: break;
+	}
+	if (keysym >= 'A' && keysym <= 'Z')
+		return keysym - 'A' + 'a';
+	constexpr char shifted[] = "!@#$%^&*()_+{}:\"~|<>?";
+	constexpr char plain[] = "1234567890-=[];'`\\,./";
+	if (keysym >= ' ' && keysym <= '~') {
+		const char *match = std::strchr(shifted, keysym);
+		if (match)
+			return plain[match - shifted];
+	}
+	return keysym < GUI_KEYSYM_SPECIAL_BASE ? keysym : 0;
+}
+
+class Event_Text {
+	char text_[5]{};
+	char *previous_ = Fl::e_text;
+	int length_ = Fl::e_length;
+
+public:
+	explicit Event_Text(uint32_t keysym)
+	{
+		Fl::e_length = keysym >= ' ' && keysym != 127 && keysym < GUI_KEYSYM_SPECIAL_BASE &&
+			       (keysym < 0xd800 || keysym > 0xdfff) ? fl_utf8encode(keysym, text_) : 0;
+		Fl::e_text = text_;
+	}
+	~Event_Text()
+	{
+		Fl::e_text = previous_;
+		Fl::e_length = length_;
 	}
 };
 
@@ -158,15 +228,19 @@ private:
 	std::unique_ptr<gui_protocol_input, decltype(&gui_protocol_input_destroy)>
 		input_{gui_protocol_input_create(), gui_protocol_input_destroy};
 	std::array<Message, 8> incoming_{};
-	size_t incoming_count_ = 0;
+	size_t incoming_next_ = 0, incoming_count_ = 0;
 	bool bad_input_ = false;
+	uint8_t buttons_ = 0, suppressed_buttons_ = 0;
+	int click_x_ = 0, click_y_ = 0, click_button_ = 0, clicks_ = 0;
+	timespec click_time_{};
+	bool click_valid_ = false;
 	uint32_t id_ = 0;
 	uint64_t configure_ = 0, serial_ = 0, base_ = 0;
 	int width_ = 0, height_ = 0;
 	std::string title_;
 	gui_protocol_wire_window_move move_{};
 	bool title_pending_ = false, move_pending_ = false, resize_pending_ = false;
-	bool patch_ = false, retry_ = false;
+	bool patch_ = false, retry_ = false, button_changes_ = false;
 	unsigned failures_ = 0;
 	gui_rect dirty_{};
 	Pixels pixels_, snapshot_;
@@ -251,7 +325,8 @@ private:
 		case Startup::capabilities:
 			startup_ = Startup::create;
 			return queue(GUI_PROTOCOL_CAPABILITIES,
-				     gui_protocol_wire_capabilities{GUI_PROTOCOL_CAP_SURFACE_PATCH});
+				     gui_protocol_wire_capabilities{GUI_PROTOCOL_CAP_SURFACE_PATCH |
+								    GUI_PROTOCOL_CAP_BUTTON_CHANGES});
 		case Startup::create:
 			startup_ = Startup::wait;
 			resize_pending_ = title_pending_ = false;
@@ -315,16 +390,24 @@ private:
 	{
 		Fl::remove_timeout(continue_input, this);
 		for (int batch = 0; batch < 4 && fd_ >= 0; ++batch) {
-			incoming_count_ = 0;
+			for (size_t budget = 0; budget < incoming_.size() &&
+			     incoming_next_ < incoming_count_ && fd_ >= 0; ++budget) {
+				const Message entry = incoming_[incoming_next_++];
+				if (incoming_next_ < incoming_count_ || gui_protocol_input_pending(input_.get()))
+					Fl::add_timeout(.001, continue_input, this);
+				if (!message(entry))
+					return false;
+				Fl::remove_timeout(continue_input, this);
+			}
+			if (fd_ < 0)
+				return true;
+			if (incoming_next_ < incoming_count_)
+				continue;
+			incoming_count_ = incoming_next_ = 0;
 			const int drained = gui_protocol_input_drain(input_.get(), collect_message, this);
 			if (drained < 0 || bad_input_)
 				return false;
-			for (size_t index = 0; index < incoming_count_ && fd_ >= 0; ++index)
-				if (!message(incoming_[index]))
-					return false;
-			if (fd_ < 0)
-				return true;
-			if (drained == static_cast<int>(incoming_.size()))
+			if (drained)
 				continue;
 			uint8_t bytes[512];
 			const auto count = read(fd_, bytes, sizeof(bytes));
@@ -336,7 +419,7 @@ private:
 				return false;
 		}
 		if (fd_ >= 0)
-			Fl::add_timeout(0, continue_input, this);
+			Fl::add_timeout(.001, continue_input, this);
 		return true;
 	}
 
@@ -405,6 +488,100 @@ private:
 		}
 	}
 
+	void reset_pointer()
+	{
+		auto *window = driver_->pWindow;
+		suppressed_buttons_ |= buttons_;
+		buttons_ = 0;
+		click_button_ = clicks_ = 0;
+		click_valid_ = false;
+		Fl::e_state &= ~(FL_BUTTONS | FL_SHIFT | FL_CTRL | FL_ALT | FL_META);
+		Fl::e_is_click = Fl::e_clicks = 0;
+		if (window->contains(Fl::pushed())) {
+			const int old_x = Fl::e_x, old_y = Fl::e_y;
+			Fl::e_x = Fl::e_y = -32768;
+			Fl::handle(FL_DRAG, window);
+			Fl::e_x = old_x;
+			Fl::e_y = old_y;
+			if (driver_ && window->contains(Fl::pushed()))
+				Fl::pushed(nullptr);
+		}
+	}
+
+	void click_position(int button)
+	{
+		const bool near = std::abs(int64_t(Fl::e_x) - click_x_) <= 4 &&
+				  std::abs(int64_t(Fl::e_y) - click_y_) <= 4;
+		if (!button) {
+			click_valid_ &= near;
+			return;
+		}
+		timespec now{};
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		const auto elapsed = int64_t(now.tv_sec - click_time_.tv_sec) * 1000000000 +
+				     now.tv_nsec - click_time_.tv_nsec;
+		clicks_ = click_valid_ && near && button == click_button_ && elapsed <= 400000000 ?
+			  clicks_ + 1 : 0;
+		click_x_ = Fl::e_x;
+		click_y_ = Fl::e_y;
+		click_button_ = button;
+		click_time_ = now;
+		click_valid_ = true;
+	}
+
+	void input_event(const gui_protocol_wire_input_event &event)
+	{
+		auto *window = driver_->pWindow;
+		Fl::e_x = event.x_le;
+		Fl::e_y = event.y_le;
+		Fl::e_x_root = window->x() + Fl::e_x;
+		Fl::e_y_root = window->y() + Fl::e_y;
+		Fl::e_dx = Fl::e_dy = 0;
+		Event_Text text(event.event_type_le == GUI_INPUT_EVENT_KEY ? event.keysym_le : 0);
+		if (event.event_type_le == GUI_INPUT_EVENT_KEY) {
+			Fl::e_keysym = Fl::e_original_keysym = event_key(event.keysym_le);
+			Fl::e_state = event_state(event.modifiers_le, buttons_);
+			if (Fl::e_keysym)
+				Fl::handle(FL_KEYBOARD, window);
+			return;
+		}
+		if (event.event_type_le != GUI_INPUT_EVENT_MOUSE)
+			return;
+		if (event.wheel) {
+			Fl::e_keysym = Fl::e_original_keysym = 0;
+			Fl::e_state = event_state(event.modifiers_le, buttons_);
+			Fl::e_dy = event.wheel;
+			Fl::handle(FL_MOUSEWHEEL, window);
+			return;
+		}
+		suppressed_buttons_ &= event.buttons;
+		const uint8_t buttons = event.buttons & 7 & (button_changes_ ?
+			(buttons_ | event.button_changes) : ~suppressed_buttons_);
+		const unsigned changes = buttons_ ^ buttons;
+		Fl::e_state = event_state(event.modifiers_le, buttons);
+		click_position(0);
+		if (!changes) {
+			Fl::e_keysym = Fl::e_original_keysym = buttons ? FL_Button + click_button_ : 0;
+			Fl::e_is_click = click_valid_;
+			Fl::e_clicks = clicks_;
+			Fl::handle(FL_MOVE, window);
+			return;
+		}
+		buttons_ = buttons;
+		constexpr int mapping[] = {FL_LEFT_MOUSE, FL_RIGHT_MOUSE, FL_MIDDLE_MOUSE};
+		for (unsigned bit = 0; bit < 3 && driver_; ++bit) {
+			if (!(changes & (1U << bit)))
+				continue;
+			const bool pressed = buttons & (1U << bit);
+			if (pressed)
+				click_position(mapping[bit]);
+			Fl::e_keysym = Fl::e_original_keysym = FL_Button + mapping[bit];
+			Fl::e_is_click = click_valid_;
+			Fl::e_clicks = clicks_;
+			Fl::handle(pressed ? FL_PUSH : FL_RELEASE, window);
+		}
+	}
+
 	bool message(const Message &entry)
 	{
 		switch (entry.type) {
@@ -417,6 +594,7 @@ private:
 			if (!entry.payload(reply))
 				return false;
 			patch_ = (reply.capabilities_le & GUI_PROTOCOL_CAP_SURFACE_PATCH) != 0;
+			button_changes_ = (reply.capabilities_le & GUI_PROTOCOL_CAP_BUTTON_CHANGES) != 0;
 			upload_.batch = patch_;
 			return true;
 		}
@@ -439,6 +617,33 @@ private:
 			return gui_surface_upload_reply(&upload_, entry.bytes.data(), entry.size) == 0;
 		case GUI_PROTOCOL_ERROR:
 			return recover(entry);
+		case GUI_PROTOCOL_INPUT_EVENT: {
+			gui_protocol_wire_input_event event{};
+			if (!entry.payload(event) || !id_ || id_ != event.window_id_le)
+				return false;
+			input_event(event);
+			return true;
+		}
+		case GUI_PROTOCOL_INPUT_RESET:
+			if (entry.size)
+				return false;
+			reset_pointer();
+			return true;
+		case GUI_PROTOCOL_WINDOW_FOCUS: {
+			gui_protocol_wire_window_focus event{};
+			if (!entry.payload(event) || !id_ || id_ != event.window_id_le)
+				return false;
+			if (!event.focused_le) {
+				reset_pointer();
+				if (!driver_)
+					return true;
+				if (Fl::grab() == driver_->pWindow)
+					Fl::grab(nullptr);
+			}
+			if (driver_ && (event.focused_le || fl_xfocus == driver_->pWindow))
+				Fl::handle(event.focused_le ? FL_FOCUS : FL_UNFOCUS, driver_->pWindow);
+			return true;
+		}
 		case GUI_PROTOCOL_WINDOW_CLOSE_REQUEST: {
 			gui_protocol_wire_window_id reply{};
 			if (!entry.payload(reply) || !id_ || id_ != reply.window_id_le)

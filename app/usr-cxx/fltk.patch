@@ -35,7 +35,7 @@ diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
 @@ -215 +215 @@ else()
 -endif(FLTK_USE_X11 AND NOT FLTK_OPTION_PRINT_SUPPORT)
 +endif()
-@@ -219 +219,21 @@ set(DRIVER_FILES)
+@@ -219 +219,22 @@ set(DRIVER_FILES)
 -if(FLTK_USE_X11 AND NOT FLTK_BACKEND_WAYLAND)
 +if(FLTK_BACKEND_MARIO)
 +  list(APPEND DRIVER_FILES
@@ -51,6 +51,7 @@ diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
 +  target_include_directories(fltk-mario-driver PRIVATE
 +    "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
 +    "${CMAKE_CURRENT_BINARY_DIR}/.."
++    "${FLTK_MARIO_DRIVER_DIR}/../../include"
 +    "${FLTK_MARIO_DRIVER_DIR}/../../gui/libmario-ui/include")
 +  if(FLTK_MARIO_COMPILE_COMMANDS_JSON)
 +    set_property(TARGET fltk-mario-driver PROPERTY CXX_COMPILER_LAUNCHER
@@ -67,3 +68,11 @@ diff --git a/src/Fl_Image_Surface.cxx b/src/Fl_Image_Surface.cxx
 @@ -156 +156 @@ Fl_RGB_Image *Fl_Image_Surface::image() {
 -  img->scale(platform_surface->width, platform_surface->height, 1, 1);
 +  if (img) img->scale(platform_surface->width, platform_surface->height, 1, 1);
+diff --git a/src/Fl.cxx b/src/Fl.cxx
+--- a/src/Fl.cxx
++++ b/src/Fl.cxx
+@@ -1600,2 +1600,4 @@ int Fl::handle_(int e, Fl_Window* window)
+   case FL_MOUSEWHEEL:
++#ifndef FLTK_USE_MARIO
+     fl_xfocus = window; // this should not happen!  But maybe it does:
++#endif

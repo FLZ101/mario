@@ -1,0 +1,42 @@
+GUI-VISUAL-TEST:
+TIMEOUT: 10
+SERIAL: rm -f /tmp/mario-wm.* /tmp/fltk-demo.*; /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: for attempt in 1 2 3 4 5; do grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log && break; sleep 1; done
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+SERIAL: terminal --command 'touch /tmp/fltk-demo.terminal-ready; exec /bin/oksh' >/tmp/fltk-demo.terminal-log 2>&1 & echo $! >/tmp/fltk-demo.terminal-pid
+SERIAL-WAIT-FILE: /tmp/fltk-demo.terminal-ready
+SERIAL: /usr/bin/test/fltk-demo.exe >/tmp/fltk-demo.log 2>&1 & echo $! >/tmp/fltk-demo.pid
+GUI-CHECK-RECT: 744 100 8 8 0 0 255
+GUI-MOUSE-POSITION: 516,109
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 744 100 8 8 0 255 0
+GUI-MOUSE-POSITION: 516,150
+GUI-MOUSE-BUTTON: left,down
+GUI-MOUSE-BUTTON: left,up
+GUI-SEND-KEY: a
+GUI-SEND-KEY: x
+GUI-SEND-KEY: left
+GUI-SEND-KEY: delete
+GUI-SEND-KEY: b
+GUI-SEND-KEYS: shift,c
+GUI-CHECK-RECT: 744 100 8 8 255 255 0
+GUI-MOUSE-POSITION: 516,109
+GUI-MOUSE-BUTTON: left,down
+GUI-CHECK-RECT: 744 100 8 8 255 0 0
+GUI-SEND-KEYS: alt,tab
+GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-RECT: 744 100 8 8 0 255 255
+GUI-MOUSE-POSITION: 516,210
+GUI-MOUSE-WHEEL: down
+GUI-CHECK-RECT: 744 100 8 8 255 0 255
+GUI-SEND-KEYS: alt,tab
+GUI-SEND-KEYS: meta_l,w
+GUI-CHECK-RECT: 744 100 8 8 255 255 255
+GUI-SEND-KEYS: meta_l,w
+SERIAL: wait $(cat /tmp/fltk-demo.pid); cat /tmp/fltk-demo.log
+SERIAL-CHECK: fltk-demo: input, reset, timers, fd callbacks and close verified
+SERIAL: kill $(cat /tmp/fltk-demo.terminal-pid); kill -TERM $(cat /tmp/mario-wm.pid)
+EXIT:

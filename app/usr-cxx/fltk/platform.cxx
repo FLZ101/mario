@@ -10,30 +10,122 @@
 #include "graphics.h"
 #include "window.h"
 
+#include <algorithm>
+#include <climits>
+#include <ctime>
+#include <poll.h>
+#include <vector>
+
+extern void fl_fix_focus();
+extern void (*fl_lock_function)();
+extern void (*fl_unlock_function)();
+
 namespace {
 
 using mario_fltk::Graphics_Driver;
 using mario_fltk::Pixels;
 
-class Mario_Screen_Driver final : public Fl_Unix_Screen_Driver {};
+class Mario_Screen_Driver final : public Fl_Unix_Screen_Driver {
+public:
+	int compose(int &removed) override
+	{
+		removed = 0;
+		return !(Fl::event_state() & (FL_CTRL | FL_ALT | FL_META)) && Fl::event_length();
+	}
+	void grab(Fl_Window *window) override
+	{
+		Fl::grab_ = window;
+		if (!window)
+			fl_fix_focus();
+	}
+};
 
 class Mario_System_Driver final : public Fl_Unix_System_Driver {
+	struct Watch {
+		pollfd descriptor;
+		Fl_FD_Handler callback;
+		void *argument;
+		uint64_t serial;
+	};
+	std::vector<Watch> watches_;
+	uint64_t serial_ = 0;
+
+	int poll_watches(double seconds, bool dispatch)
+	{
+		const auto snapshot = watches_;
+		std::vector<pollfd> descriptors;
+		descriptors.reserve(snapshot.size());
+		for (const auto &watch : snapshot)
+			descriptors.push_back(watch.descriptor);
+		const int timeout = seconds >= INT_MAX / 1000.0 ? -1 :
+			static_cast<int>(std::max(0.0, seconds) * 1000 + .5);
+		if (dispatch)
+			fl_unlock_function();
+		const int result = poll(descriptors.data(), descriptors.size(), timeout);
+		if (dispatch)
+			fl_lock_function();
+		if (result > 0 && dispatch) {
+			for (size_t index = 0; index < snapshot.size(); ++index) {
+				const auto &watch = snapshot[index];
+				if (descriptors[index].revents &&
+				    std::any_of(watches_.begin(), watches_.end(), [&](const Watch &current) {
+					    return current.serial == watch.serial;
+				    }))
+					watch.callback(watch.descriptor.fd, watch.argument);
+			}
+		}
+		return result;
+	}
+
 public:
+	void add_fd(int descriptor, int events, Fl_FD_Handler callback, void *argument) override
+	{
+		remove_fd(descriptor, events);
+		watches_.push_back({{descriptor, static_cast<short>(events), 0}, callback, argument, ++serial_});
+	}
+	void add_fd(int descriptor, Fl_FD_Handler callback, void *argument) override
+	{
+		add_fd(descriptor, FL_READ, callback, argument);
+	}
+	void remove_fd(int descriptor, int events) override
+	{
+		for (auto &watch : watches_) {
+			if (watch.descriptor.fd == descriptor && (watch.descriptor.events & events)) {
+				watch.descriptor.events &= ~events;
+				watch.serial = ++serial_;
+			}
+		}
+		watches_.erase(std::remove_if(watches_.begin(), watches_.end(), [](const Watch &watch) {
+			return !watch.descriptor.events;
+		}), watches_.end());
+	}
+	void remove_fd(int descriptor) override { remove_fd(descriptor, -1); }
+	void gettime(time_t *seconds, int *microseconds) override
+	{
+		timespec now{};
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		*seconds = now.tv_sec;
+		*microseconds = now.tv_nsec / 1000;
+	}
+	int ready() override
+	{
+		Fl_Timeout::elapse_timeouts();
+		return Fl_Timeout::time_to_wait(1) <= 0 ? 1 : poll_watches(0, false);
+	}
 	double wait(double seconds) override
 	{
 		const bool had_window = Fl::first_window() != nullptr;
 		seconds = Fl_System_Driver::wait(seconds);
 		if (had_window && !Fl::first_window())
 			return 0;
-		auto &screen = static_cast<Mario_Screen_Driver &>(*Fl::screen_driver());
 		if (seconds <= 0) {
-			const int result = screen.poll_or_select_with_delay(0);
+			const int result = poll_watches(0, true);
 			Fl::flush();
 			return result;
 		}
 		Fl::flush();
 		Fl_Timeout::elapse_timeouts();
-		return screen.poll_or_select_with_delay(Fl::idle ? 0 : Fl_Timeout::time_to_wait(seconds));
+		return poll_watches(Fl::idle ? 0 : Fl_Timeout::time_to_wait(seconds), true);
 	}
 };
 
