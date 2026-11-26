@@ -66,6 +66,7 @@ test: image-builder-test net-test shell-test tty-test gui-test
 
 net-test:
 	PYTHONPATH=$(ROOT)/tests $(PYTHON) $(ROOT)/tests/net/boot.py --smp $(SMP)
+	PYTHONPATH=$(ROOT)/tests $(PYTHON) $(ROOT)/tests/net/ethernet.py --smp $(SMP)
 
 image-builder-test:
 	$(PYTHON) $(ROOT)/tests/test_mkdisk.py

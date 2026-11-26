@@ -1,4 +1,5 @@
 #include <misc.h>
+#include <net/ethernet.h>
 #include <net/worker.h>
 #include <sched.h>
 #include <signal.h>
@@ -33,6 +34,7 @@ static int net_started;
 static struct net_work *net_head;
 static struct net_work **net_tail = &net_head;
 static unsigned int net_calls_queued;
+static unsigned int net_io_pending;
 
 void mario_lwip_assert(const char *expr, const char *file, int line)
 {
@@ -66,12 +68,11 @@ static void net_wait_for_timer(void)
 {
 	unsigned long start = jiffies;
 	u32_t delay = sys_timeouts_sleeptime();
-
 	if (!delay || (unsigned long)jiffies != start)
 		return;
 	irq_save();
 	ACQUIRE_LOCK(&net_wait_lock);
-	if (net_head) {
+	if (net_head || __atomic_load_n(&net_io_pending, __ATOMIC_RELAXED)) {
 		RELEASE_LOCK(&net_wait_lock);
 		irq_restore();
 		return;
@@ -87,6 +88,16 @@ static void net_wait_for_timer(void)
 	}
 	sleep_on(&net_wait, TASK_UNINTERRUPTIBLE, &net_wait_lock);
 	irq_restore();
+}
+
+void net_kick(void)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&net_wait_lock, flags);
+	__atomic_store_n(&net_io_pending, 1, __ATOMIC_RELAXED);
+	wake_up_uninterruptible(&net_wait);
+	spin_unlock_irqrestore(&net_wait_lock, flags);
 }
 
 static void net_enqueue(struct net_work *work)
@@ -206,12 +217,17 @@ static void net_worker(void *arg)
 	(void)arg;
 	memcpy(current->comm, "[net]", sizeof("[net]"));
 	lwip_init();
+	ethernet_start();
 	pr_info("net: lwIP worker ready\n");
 	for (;;) {
+		__atomic_store_n(&net_io_pending, 0, __ATOMIC_RELAXED);
 		net_run_work();
+		int more = ethernet_poll();
 		netif_poll_all();
 		sys_check_timeouts();
-		net_wait_for_timer();
+		ethernet_flush();
+		if (!more)
+			net_wait_for_timer();
 	}
 }
 

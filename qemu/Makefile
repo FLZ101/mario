@@ -102,6 +102,7 @@ QEMU_FLAGS := \
 	-cpu max \
 	-display $(QEMU_DISPLAY) \
 	-machine vmport=$(QEMU_VMPORT) \
+	-nic none \
 	$(AUDIO_FLAGS) \
 	$(HD_FLAGS)
 
@@ -124,6 +125,7 @@ QUICK_QEMU_FLAGS := \
 	-initrd $(RDX) \
 	-display $(QEMU_DISPLAY) \
 	-machine vmport=$(QEMU_VMPORT) \
+	-nic none \
 	$(AUDIO_FLAGS) \
 	$(HD_FLAGS)
 

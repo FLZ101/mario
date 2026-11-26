@@ -315,6 +315,8 @@ def qemu_command(qemu, smp):
         "stdio",
         "-no-reboot",
         "-no-shutdown",
+        "-nic",
+        "none",
     ]
     cmd += [
         "-snapshot",

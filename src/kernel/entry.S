@@ -420,15 +420,20 @@ irqc:
 	EOI_SLAVE
 	jmp ret_from_intr
 
-irqa:
-irqb:
-	/* AHCI/SATA: IRQ10 and IRQ11 are the two lines used by QEMU's AHCI. */
-	pushl $-1
-	SAVE_ALL
-	call irq_ahci
-	EOI_MASTER
-	EOI_SLAVE
+#define PCI_IRQ_ENTRY(line, vector) \
+vector:; \
+	pushl $-1; \
+	SAVE_ALL; \
+	call irq_ahci; \
+	pushl $line; \
+	call irq_e1000; \
+	addl $4, %esp; \
+	EOI_SLAVE; \
+	EOI_MASTER; \
 	jmp ret_from_intr
+
+PCI_IRQ_ENTRY(10, irqa)
+PCI_IRQ_ENTRY(11, irqb)
 
 irqf:
 	pushl %eax

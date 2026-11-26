@@ -1,6 +1,9 @@
 #include <errno.h>
 #include <io.h>
+#include <lib/stddef.h>
 #include <misc.h>
+#include <net/ethernet.h>
+#include <net/worker.h>
 
 /*
  * Linux reboot(2) command values.  musl's reboot() wrapper passes these
@@ -57,6 +60,8 @@ static void machine_power_off(void)
 
 int sys_reboot(int magic1, int magic2, unsigned int cmd, void *arg)
 {
+	int error;
+
 	(void)arg;
 
 	if (magic1 != LINUX_REBOOT_MAGIC1)
@@ -66,6 +71,12 @@ int sys_reboot(int magic1, int magic2, unsigned int cmd, void *arg)
 	    magic2 != LINUX_REBOOT_MAGIC2B &&
 	    magic2 != LINUX_REBOOT_MAGIC2C)
 		return -EINVAL;
+	if (cmd != LINUX_REBOOT_CMD_RESTART && cmd != LINUX_REBOOT_CMD_HALT &&
+	    cmd != LINUX_REBOOT_CMD_POWER_OFF)
+		return -EINVAL;
+	error = net_call(ethernet_stop, NULL);
+	if (error && error != -ENETDOWN)
+		return error;
 
 	switch (cmd) {
 	case LINUX_REBOOT_CMD_RESTART:

@@ -1,6 +1,7 @@
 #include <fs/socket.h>
 #include <fs/uio.h>
 #include <mm/kmalloc.h>
+#include <net/ethernet.h>
 #include <net/inet.h>
 #include <net/worker.h>
 #include <signal.h>
@@ -984,6 +985,11 @@ static int inet_poll(struct file *file, struct poll_context *context)
 	return __atomic_load_n(&socket->poll_mask, __ATOMIC_ACQUIRE);
 }
 
+static int inet_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg)
+{
+	return ethernet_ioctl(cmd, arg);
+}
+
 static int inet_readv(struct file *file, const struct iovec *vector, unsigned int count);
 static int inet_writev(struct file *file, const struct iovec *vector, unsigned int count);
 
@@ -992,6 +998,7 @@ struct file_operations inet_fops = {
 	.read = inet_read,
 	.write = inet_write,
 	.lseek = inet_lseek,
+	.ioctl = inet_ioctl,
 	.poll = inet_poll,
 	.readv = inet_readv,
 	.writev = inet_writev,

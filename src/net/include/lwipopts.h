@@ -7,8 +7,8 @@
 #define LWIP_SOCKET 0
 #define LWIP_IPV4 1
 #define LWIP_IPV6 0
-#define LWIP_ARP 0
-#define LWIP_ETHERNET 0
+#define LWIP_ARP 1
+#define LWIP_ETHERNET 1
 #define LWIP_RAW 0
 #define LWIP_IGMP 0
 #define LWIP_DHCP 0

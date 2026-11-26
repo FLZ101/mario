@@ -20,10 +20,12 @@ FIXTURES = {
 }
 
 
-def stage_fixture(directory):
+def stage_fixture(directory, sources=None):
+    if sources is None:
+        sources = {name: Path(__file__).with_name(f"{name}.c") for name in FIXTURES}
     contents = directory / "contents"
     contents.mkdir()
-    for fixture in FIXTURES:
+    for fixture, source in sources.items():
         subprocess.run(
             [
                 ROOT / "util/mario-musl-cc",
@@ -31,9 +33,11 @@ def stage_fixture(directory):
                 "-Werror",
                 "-Os",
                 "-s",
+                "-I",
+                ROOT / "app/include",
                 "-o",
                 contents / fixture,
-                Path(__file__).with_name(f"{fixture}.c"),
+                source,
             ],
             cwd=ROOT,
             check=True,
@@ -54,7 +58,6 @@ def stage_fixture(directory):
 
 def check_boot(smp, time_wait):
     command = qemu_command(QEMU, smp)
-    command += ["-nic", "none"]
     marker = "net: lwIP worker ready"
     with kernel_artifacts(None), TemporaryDirectory() as directory:
         command[command.index("-initrd") + 1] = str(stage_fixture(Path(directory)))
@@ -67,6 +70,8 @@ def check_boot(smp, time_wait):
             output = re.sub(r"\x1b\[[0-9;]*m", "", child.before)
             if marker not in output:
                 raise RuntimeError(f"missing boot marker {marker!r}\n{output[-3000:]}")
+            if "e1000:" in output:
+                raise RuntimeError("e1000 detected in the NIC-less QEMU fixture")
             send_line(
                 child, "mknod /root/net-rd b 1 3 && mount -t mariofs /root/net-rd /mnt"
             )

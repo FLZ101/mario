@@ -8,6 +8,7 @@
 #include <futex.h>
 #include <hda.h>
 #include <x87.h>
+#include <net/ethernet.h>
 #include <net/worker.h>
 
 #define __KERNEL_SYSCALLS__
@@ -117,6 +118,7 @@ void mario(struct multiboot_info *m)
 
 	sti();
 	hda_init();
+	ethernet_probe();
 	ioremap_seal();
 	/* The PIT is already running, which lets the AP start-up path wait on
 	 * jiffies for INIT/SIPI pacing. */

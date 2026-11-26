@@ -504,6 +504,8 @@ def qemu_command(
         f"unix:{qmp_path},server=on,wait=off",
         "-no-reboot",
         "-no-shutdown",
+        "-nic",
+        "none",
         "-snapshot",
     ]
     for index, image in enumerate(HD_IMAGES, 1):
