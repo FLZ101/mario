@@ -75,10 +75,11 @@ static void serve(int udp, int tcp)
 	_exit(0);
 }
 
-static void check_name(const char *name)
+static void check_name(const char *name, const char *expected)
 {
 	struct addrinfo hint = { .ai_family = AF_INET, .ai_socktype = SOCK_STREAM };
 	struct addrinfo *result;
+	struct in_addr target;
 	int status = getaddrinfo(name, "80", &hint, &result);
 
 	if (status)
@@ -86,23 +87,30 @@ static void check_name(const char *name)
 	CHECK(status == 0);
 	CHECK(result->ai_family == AF_INET && result->ai_addrlen == sizeof(struct sockaddr_in));
 	struct sockaddr_in *address = (struct sockaddr_in *)result->ai_addr;
-	CHECK(address->sin_addr.s_addr == htonl(0xc000022a));
+	CHECK(inet_pton(AF_INET, expected, &target) == 1);
+	CHECK(address->sin_addr.s_addr == target.s_addr);
 	CHECK(address->sin_port == htons(80));
 	freeaddrinfo(result);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
 	static char config[] = "nameserver 127.0.0.1\noptions timeout:3 attempts:1\n";
 	struct sockaddr_in address = {
 		.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK), .sin_port = htons(53),
 	};
-	int fd = open("/etc/resolv.conf", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-	int udp = socket(AF_INET, SOCK_DGRAM, 0);
-	int tcp = socket(AF_INET, SOCK_STREAM, 0);
+	int fd, udp, tcp;
 	pid_t child;
 	int status;
 
+	if (argc == 3) {
+		check_name(argv[1], argv[2]);
+		return 0;
+	}
+	CHECK(argc == 1);
+	fd = open("/etc/resolv.conf", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	udp = socket(AF_INET, SOCK_DGRAM, 0);
+	tcp = socket(AF_INET, SOCK_STREAM, 0);
 	CHECK(fd >= 0 && udp >= 0 && tcp >= 0);
 	transfer(fd, config, sizeof(config) - 1, 1);
 	CHECK(close(fd) == 0);
@@ -114,8 +122,8 @@ int main(void)
 	if (!child)
 		serve(udp, tcp);
 	CHECK(close(udp) == 0 && close(tcp) == 0);
-	check_name("udp.mario.test.");
-	check_name("tcp.mario.test.");
+	check_name("udp.mario.test.", "192.0.2.42");
+	check_name("tcp.mario.test.", "192.0.2.42");
 	CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
 	puts("NET_RESOLVER_OK");
 	return 0;

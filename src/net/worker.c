@@ -225,6 +225,7 @@ static void net_worker(void *arg)
 		int more = ethernet_poll();
 		netif_poll_all();
 		sys_check_timeouts();
+		ethernet_update_lease();
 		ethernet_flush();
 		if (!more)
 			net_wait_for_timer();

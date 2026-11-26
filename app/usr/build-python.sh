@@ -27,6 +27,10 @@ if [[ -z $ZLIB_INSTALL_DIR ]] ; then
     exit 1
 fi
 
+mario_build_stamp="$PYTHON_INSTALL_DIR/.mario-build"
+mario_build_recipe="$PWD/build-python.sh"
+mario_module_setup="$PWD/python.Setup.local"
+
 pushd $PYTHON_SRC_DIR
 
 build_for_linux()
@@ -68,12 +72,14 @@ build_for_linux
 
 build_for_mario()
 {
-    if [[ -e $PYTHON_INSTALL_DIR ]] ; then
+    if [[ $mario_build_stamp -nt $mario_build_recipe &&
+          $mario_build_stamp -nt $mario_module_setup &&
+          -x $PYTHON_INSTALL_DIR-mario/bin/python3 ]] ; then
         return 0
     fi
 
     # Same as linux above: avoid reusing a stale cross-build directory.
-    rm -rf mario
+    rm -rf mario "$PYTHON_INSTALL_DIR"
     mkdir -p mario
     pushd mario
 
@@ -117,7 +123,10 @@ build_for_mario()
         ac_cv_file__dev_ptc=no \
         ac_cv_func_dlopen=no \
         ac_cv_lib_dl_dlopen=no \
-        py_cv_module__socket=no
+        ac_cv_func_epoll_create=no \
+        ac_cv_func_epoll_create1=no \
+        ac_cv_func_eventfd=no \
+        ac_cv_func_timerfd_create=no
 
     # config.log
 
@@ -139,9 +148,7 @@ build_for_mario()
     done
 
     rm -r config-3.13-i386-linux-musl/ \
-        email/ \
         ensurepip/ \
-        http/ \
         idlelib/ \
         tkinter/ \
         turtledemo/ \
@@ -164,6 +171,7 @@ def _get_sysconfigdata_name():
 EOF
 
     popd
+    touch "$mario_build_stamp"
 }
 
 build_for_mario

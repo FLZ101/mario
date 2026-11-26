@@ -716,7 +716,7 @@ ENTRY(sys_call_table)
 	.long sys_not_exist /* SYS_timer_delete */
 	.long sys_not_exist /* SYS_clock_settime32 */
 	.long sys_clock_gettime32
-	.long sys_not_exist /* SYS_clock_getres_time32 */
+	.long sys_clock_getres_time32
 	.long sys_clock_nanosleep_time32
 	.long sys_statfs64
 	.long sys_fstatfs64
@@ -856,7 +856,7 @@ ENTRY(sys_call_table)
 	.long sys_clock_gettime64
 	.long sys_not_exist /* SYS_clock_settime64 */
 	.long sys_not_exist /* SYS_clock_adjtime64 */
-	.long sys_not_exist /* SYS_clock_getres_time64 */
+	.long sys_clock_getres_time64
 	.long sys_not_exist /* SYS_clock_nanosleep_time64 */
 	.long sys_not_exist /* SYS_timer_gettime64 */
 	.long sys_not_exist /* SYS_timer_settime64 */

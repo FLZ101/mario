@@ -190,6 +190,16 @@ out:
 	return result;
 }
 
+void file_set_nonblock(struct file *file, int enabled)
+{
+	unsigned short flags;
+
+	ACQUIRE_LOCK(&file_lock);
+	flags = (file->f_flags & ~O_NONBLOCK) | (enabled ? O_NONBLOCK : 0);
+	__atomic_store_n(&file->f_flags, flags, __ATOMIC_RELAXED);
+	RELEASE_LOCK(&file_lock);
+}
+
 int sys_fcntl(unsigned int fd, unsigned int cmd, unsigned long arg)
 {
 	struct files_struct *files = current->files;

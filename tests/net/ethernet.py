@@ -43,22 +43,32 @@ def checksum(data):
     return total ^ 0xFFFF
 
 
-def ip_frame(protocol, payload):
+def ip_frame(protocol, payload, source=PEER, target=GUEST, destination=GUEST_MAC):
     header = struct.pack(
-        "!BBHHHBBH4s4s", 0x45, 0, len(payload) + 20, 0, 0, 64, protocol, 0, PEER, GUEST
+        "!BBHHHBBH4s4s",
+        0x45,
+        0,
+        len(payload) + 20,
+        0,
+        0,
+        64,
+        protocol,
+        0,
+        source,
+        target,
     )
     header = header[:10] + struct.pack("!H", checksum(header)) + header[12:]
-    return GUEST_MAC + PEER_MAC + b"\x08\x00" + header + payload
+    return destination + PEER_MAC + b"\x08\x00" + header + payload
 
 
-def arp_frame(operation, destination, destination_ip):
+def arp_frame(operation, destination, destination_ip, source=PEER):
     return (
         destination
         + PEER_MAC
         + b"\x08\x06"
         + struct.pack("!HHBBH", 1, 0x0800, 6, 4, operation)
         + PEER_MAC
-        + PEER
+        + source
         + (destination if operation == 2 else b"\0" * 6)
         + destination_ip
     )
@@ -176,12 +186,15 @@ def status(child):
     return run(child, "/mnt/netctl status")
 
 
-def wait_status(child, pattern):
-    for _attempt in range(20):
+def wait_status(child, pattern, timeout=5):
+    deadline = time.monotonic() + timeout
+    while True:
         output = status(child)
         if re.search(pattern, output):
             return output
-    raise AssertionError(output)
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"expected {pattern!r} in status:\n{output}")
+        time.sleep(0.05)
 
 
 def ping(connection, sequence):

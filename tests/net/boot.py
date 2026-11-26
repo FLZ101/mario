@@ -20,11 +20,13 @@ FIXTURES = {
 }
 
 
-def stage_fixture(directory, sources=None):
+def stage_fixture(directory, sources=None, files=()):
     if sources is None:
         sources = {name: Path(__file__).with_name(f"{name}.c") for name in FIXTURES}
     contents = directory / "contents"
     contents.mkdir()
+    for source in files:
+        shutil.copyfile(source, contents / source.name)
     for fixture, source in sources.items():
         subprocess.run(
             [

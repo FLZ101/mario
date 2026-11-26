@@ -10,6 +10,7 @@
 #define TCSETAW		0x5407
 #define TCSETAF		0x5408
 #define TCFLSH		0x540B
+#define FIONBIO		0x5421
 #define FIONCLEX	0x5450
 #define FIOCLEX		0x5451
 #define TIOCSCTTY	0x540E    // Make the given terminal the controlling terminal of the calling process

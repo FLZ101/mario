@@ -5,14 +5,17 @@
 #include <stdint.h>
 #endif
 
-#define MARIO_NET_VERSION 1U
-#define MARIO_NET_GET 0xc04c4e01U
+#define MARIO_NET_VERSION 2U
+#define MARIO_NET_GET 0xc0644e01U
 #define MARIO_NET_SET 0x40144e02U
 
 #define MARIO_NET_PRESENT 1U
 #define MARIO_NET_UP 2U
 #define MARIO_NET_CARRIER 4U
 #define MARIO_NET_PROBE_FAILED 8U
+#define MARIO_NET_DHCP 16U
+#define MARIO_NET_LEASED 32U
+#define MARIO_NET_DNS_MAX 3U
 
 struct mario_net_config {
 	uint32_t version;
@@ -39,6 +42,10 @@ struct mario_net_status {
 	uint32_t tx_ring_size;
 	uint32_t probe_error;
 	uint32_t tx_errors;
+	uint32_t lease_generation;
+	uint32_t lease_seconds_left;
+	uint32_t dns_generation;
+	uint32_t dns[MARIO_NET_DNS_MAX];
 };
 
 #endif

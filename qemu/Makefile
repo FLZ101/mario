@@ -79,6 +79,15 @@ endif
 BOOT_DISK ?= hd1.img
 USR_DISK ?= hd3.img
 QEMU_AUDIO ?= $(if $(PULSE_SERVER),pa)
+QEMU_NET ?= off
+
+ifeq ($(QEMU_NET),off)
+NETWORK_FLAGS := -nic none
+else ifeq ($(QEMU_NET),isolated)
+NETWORK_FLAGS := -nic user,model=e1000,restrict=on
+else
+$(error Unsupported QEMU_NET '$(QEMU_NET)'; use off or isolated)
+endif
 
 HD_FLAGS := \
 	-snapshot \
@@ -102,7 +111,7 @@ QEMU_FLAGS := \
 	-cpu max \
 	-display $(QEMU_DISPLAY) \
 	-machine vmport=$(QEMU_VMPORT) \
-	-nic none \
+	$(NETWORK_FLAGS) \
 	$(AUDIO_FLAGS) \
 	$(HD_FLAGS)
 
@@ -125,7 +134,7 @@ QUICK_QEMU_FLAGS := \
 	-initrd $(RDX) \
 	-display $(QEMU_DISPLAY) \
 	-machine vmport=$(QEMU_VMPORT) \
-	-nic none \
+	$(NETWORK_FLAGS) \
 	$(AUDIO_FLAGS) \
 	$(HD_FLAGS)
 

@@ -19,7 +19,7 @@ _opcode _opcode.c
 _pickle _pickle.c
 _queue _queuemodule.c
 _random _randommodule.c
-#_socket socketmodule.c
+_socket socketmodule.c
 _statistics _statisticsmodule.c
 _struct _struct.c
 _typing _typingmodule.c
@@ -168,7 +168,6 @@ _curses_panel _curses_panel.c $(CURSES_CFLAGS) $(CURSES_LIBS)
 
 *disabled*
 
-_socket
 
 _codecs_cn cjkcodecs/_codecs_cn.c
 _codecs_hk cjkcodecs/_codecs_hk.c

@@ -16,6 +16,7 @@
 volatile time_t boot_time_sec = 0;
 
 #define LATCH (1193180/HZ)
+#define NSEC_PER_TICK (1000000000L / HZ)
 
 volatile long jiffies = 0;
 static uint64_t cpu_ticks[NR_CPUS][CPU_TICK_COUNT];
@@ -141,26 +142,35 @@ int sys_gettimeofday_time32(struct timeval *tv)
 	return 0;
 }
 
-static int do_clock_gettime64(clockid_t clockid, struct timespec64 *tp)
+static int clock_epoch(clockid_t clockid, time_t *epoch)
 {
-	tp->tv_sec = jiffies / HZ;
-	tp->tv_nsec = jiffies % HZ * 1000000000 / HZ;
-
 	switch (clockid) {
 	case CLOCK_REALTIME:
 	case CLOCK_REALTIME_COARSE:
 	case CLOCK_REALTIME_ALARM:
-		tp->tv_sec += boot_time_sec;
-		break;
+		*epoch = boot_time_sec;
+		return 0;
 	case CLOCK_MONOTONIC:
 	case CLOCK_MONOTONIC_RAW:
 	case CLOCK_MONOTONIC_COARSE:
 	case CLOCK_BOOTTIME:
 	case CLOCK_BOOTTIME_ALARM:
-		break;
+		*epoch = 0;
+		return 0;
 	default:
 		return -EINVAL;
 	}
+}
+
+static int do_clock_gettime64(clockid_t clockid, struct timespec64 *tp)
+{
+	unsigned long ticks = jiffies;
+	int error = clock_epoch(clockid, &tp->tv_sec);
+
+	if (error)
+		return error;
+	tp->tv_sec += ticks / HZ;
+	tp->tv_nsec = ticks % HZ * NSEC_PER_TICK;
 	return 0;
 }
 
@@ -201,6 +211,33 @@ int sys_clock_gettime32(clockid_t clockid, struct timespec *tp)
 	put_fs_long(ts.tv_sec, &tp->tv_sec);
 	put_fs_long(ts.tv_nsec, &tp->tv_nsec);
 	return 0;
+}
+
+static int clock_getres(clockid_t clockid, void *user, const void *resolution, size_t size)
+{
+	time_t epoch;
+	int error = clock_epoch(clockid, &epoch);
+
+	if (error || !user)
+		return error;
+	error = verify_area(VERIFY_WRITE, user, size);
+	if (!error)
+		memcpy_tofs(user, resolution, size);
+	return error;
+}
+
+int sys_clock_getres_time32(clockid_t clockid, struct timespec *tp)
+{
+	const struct timespec resolution = { .tv_nsec = NSEC_PER_TICK };
+
+	return clock_getres(clockid, tp, &resolution, sizeof(resolution));
+}
+
+int sys_clock_getres_time64(clockid_t clockid, void *tp)
+{
+	const int64_t resolution[2] = { 0, NSEC_PER_TICK };
+
+	return clock_getres(clockid, tp, resolution, sizeof(resolution));
 }
 
 static void PIT_bh(void *unused)

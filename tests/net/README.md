@@ -46,3 +46,33 @@ that configuration. The versioned `MARIO_NET_GET` and `MARIO_NET_SET` ioctls
 run on an IPv4 socket; addresses are in network byte order, all other fields
 are in host byte order, and the probe error is a positive errno. Changes use
 Mario's effective-UID check; the current system reports UID 0 for all tasks.
+
+## Isolated networking and DHCP
+
+Build the kernel and apps (`make kernel app`), then run
+`make run-gtk QEMU_NET=isolated` (also works with `run`, `debug`, and the
+quick variants). The default is `QEMU_NET=off`, which attaches no NIC.
+Isolated mode uses restricted QEMU user networking with no port forwards;
+it is not a way to connect Mario to the public Internet.
+
+In the guest, run `/sbin/netctl.exe dhcp start`, then check
+`/sbin/netctl.exe dhcp status` for carrier, the leased address, gateway,
+remaining lease time and nameservers. Acquisition retries in the background
+and never delays boot. `dhcp stop`, `down`, or a static `up` cancels DHCP;
+carrier loss drops the lease and carrier recovery starts a fresh discovery.
+An infinite lease reports `lease_seconds_left=4294967295`.
+
+DNS is manual by default: enabling DHCP alone never writes `/etc/resolv.conf`.
+Run one `/sbin/netctl.exe dns auto` process to opt in to replacing that file.
+It polls once per second, publishes changed nameservers by renaming a
+completed file, and removes DHCP entries when the lease is lost. If a reader
+holds the file open on MarioFS, the helper retries on the next poll. Identical
+DNS renewals do not rewrite the file. Stop the process before editing it
+manually again.
+
+The DHCP test uses a scripted Ethernet peer to exercise silence, NAK,
+renewal, route/DNS changes, expiry, link recovery and static override. The
+Python test runs the installed guest interpreter with its native socket and
+poll support. It checks TCP, UDP, musl DNS, HTTP in both directions and
+`asyncio`, with test-only loopback forwards and no public servers. HTTPS is
+not enabled yet.

@@ -229,6 +229,7 @@ extern struct file_operations fifo_fops;
 void file_init(void);
 struct file *get_empty_file(void);
 struct file *get_fd_file(unsigned int fd, const struct file_operations *ops);
+void file_set_nonblock(struct file *file, int enabled);
 int install_fd_file(struct file *file, int close_on_exec);
 int dup_fd_file(unsigned int old_fd, unsigned int target, int exact, int close_on_exec);
 int get_two_empty_files(struct file *res[2]);

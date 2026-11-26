@@ -11,7 +11,11 @@
 #include <time.h>
 #include <uapi/mario/netctl.h>
 
+#include <lwip/dhcp.h>
 #include <lwip/etharp.h>
+#include <lwip/prot/dhcp.h>
+#include <lwip/sys.h>
+#include <mario_lwip_hooks.h>
 #include <netif/ethernet.h>
 
 #define E1000_CTRL 0x0000
@@ -83,12 +87,16 @@ struct tx_descriptor {
 
 _Static_assert(sizeof(struct rx_descriptor) == 16, "82540 RX descriptor size");
 _Static_assert(sizeof(struct tx_descriptor) == 16, "82540 TX descriptor size");
-_Static_assert(sizeof(struct mario_net_status) == 76, "netctl status ABI size");
+_Static_assert(sizeof(struct mario_net_status) == 100, "netctl status ABI size");
 _Static_assert(sizeof(struct mario_net_config) == 20, "netctl config ABI size");
 
 static volatile uint8_t *registers;
 static struct netif eth0;
 static struct mario_net_status status;
+static struct dhcp dhcp_client;
+static uint32_t dhcp_retry_at;
+static uint32_t packet_dns[MARIO_NET_DNS_MAX];
+static uint32_t pending_dns[MARIO_NET_DNS_MAX];
 static struct rx_descriptor *rx_ring;
 static struct tx_descriptor *tx_ring;
 static unsigned long rx_pages[RX_RING_SIZE / PAGE_SLOTS];
@@ -314,6 +322,7 @@ void ethernet_start(void)
 	if (!registers)
 		return;
 	netif_add_noaddr(&eth0, NULL, ethernet_init, ethernet_input);
+	dhcp_set_struct(&eth0, &dhcp_client);
 	netif_set_default(&eth0);
 	reg_write(E1000_RDBAL, __phy(rx_ring));
 	reg_write(E1000_RDBAH, 0);
@@ -343,6 +352,126 @@ static int ethernet_present(void)
 	return !!(status.config.flags & MARIO_NET_PRESENT);
 }
 
+static int unicast(uint32_t address)
+{
+	return (address >> 24) > 0 && (address >> 24) != 127 && (address >> 24) < 224;
+}
+
+static int valid_ipv4(uint32_t host, uint32_t mask, uint32_t router)
+{
+	uint32_t host_mask = ~mask;
+
+	if (!unicast(host) || !mask || (host_mask & (host_mask + 1)) ||
+	    (host_mask > 1 && (!(host & host_mask) || (host & host_mask) == host_mask)))
+		return 0;
+	return !router || (unicast(router) && router != host && !((host ^ router) & mask) &&
+	       (host_mask <= 1 || ((router & host_mask) && (router & host_mask) != host_mask)));
+}
+
+void ethernet_dhcp_option(struct netif *iface, unsigned int option, unsigned int length,
+			  const struct pbuf *packet, unsigned int offset)
+{
+	uint32_t server;
+	unsigned int count = 0;
+
+	if (iface != &eth0 || option != DHCP_OPTION_DNS_SERVER || length % sizeof(server))
+		return;
+	memset(packet_dns, 0, sizeof(packet_dns));
+	for (unsigned int index = 0; index < length && count < MARIO_NET_DNS_MAX;
+	     index += sizeof(server)) {
+		if (pbuf_copy_partial(packet, &server, sizeof(server), offset + index) != sizeof(server))
+			break;
+		if (unicast(lwip_ntohl(server)))
+			packet_dns[count++] = server;
+	}
+}
+
+static void ethernet_set_dns(const uint32_t *dns)
+{
+	if (memcmp(status.dns, dns, sizeof(status.dns))) {
+		memcpy(status.dns, dns, sizeof(status.dns));
+		status.dns_generation++;
+	}
+}
+
+static void ethernet_clear_lease(void)
+{
+	const uint32_t no_dns[MARIO_NET_DNS_MAX] = {0};
+
+	if (status.config.flags & MARIO_NET_LEASED) {
+		status.config.flags &= ~MARIO_NET_LEASED;
+		status.lease_generation++;
+		etharp_cleanup_netif(&eth0);
+	}
+	status.config.address = 0;
+	status.config.prefix = 0;
+	status.config.gateway = 0;
+	status.lease_seconds_left = 0;
+	ethernet_set_dns(no_dns);
+}
+
+static void ethernet_end_dhcp(void)
+{
+	dhcp_release_and_stop(&eth0);
+	netif_set_addr(&eth0, IP4_ADDR_ANY4, IP4_ADDR_ANY4, IP4_ADDR_ANY4);
+	ethernet_clear_lease();
+	memset(pending_dns, 0, sizeof(pending_dns));
+}
+
+static void ethernet_publish_lease(int renewed)
+{
+	uint32_t address, mask, gateway;
+
+	if (!(status.config.flags & MARIO_NET_DHCP))
+		return;
+	if (!dhcp_supplied_address(&eth0)) {
+		ethernet_clear_lease();
+		return;
+	}
+	address = ip4_addr_get_u32(netif_ip4_addr(&eth0));
+	if (renewed || !(status.config.flags & MARIO_NET_LEASED)) {
+		mask = lwip_ntohl(ip4_addr_get_u32(netif_ip4_netmask(&eth0)));
+		gateway = ip4_addr_get_u32(netif_ip4_gw(&eth0));
+		if (!dhcp_client.offered_t0_lease || !valid_ipv4(lwip_ntohl(address), mask, lwip_ntohl(gateway))) {
+			ethernet_end_dhcp();
+			return;
+		}
+		if (dhcp_client.offered_t0_lease == ~0U) {
+			dhcp_client.t0_timeout = 0;
+			dhcp_client.t1_renew_time = 0;
+			dhcp_client.t2_rebind_time = 0;
+		}
+		if (status.config.address != address || status.config.gateway != gateway ||
+		    status.config.prefix != __builtin_popcount(mask))
+			etharp_cleanup_netif(&eth0);
+		status.config.flags |= MARIO_NET_LEASED;
+		status.config.address = address;
+		status.config.prefix = __builtin_popcount(mask);
+		status.config.gateway = gateway;
+		status.lease_generation++;
+		ethernet_set_dns(pending_dns);
+	}
+	status.lease_seconds_left = dhcp_client.t0_timeout ?
+		dhcp_client.t0_timeout - dhcp_client.lease_used : ~0U;
+}
+
+void ethernet_update_lease(void)
+{
+	uint32_t now;
+
+	if (!(status.config.flags & MARIO_NET_DHCP))
+		return;
+	ethernet_publish_lease(0);
+	if (!netif_is_link_up(&eth0) || dhcp_client.state != DHCP_STATE_OFF)
+		return;
+	now = sys_now();
+	if ((int32_t)(now - dhcp_retry_at) < 0)
+		return;
+	dhcp_retry_at = now + 1000;
+	if (dhcp_start(&eth0) != ERR_OK)
+		acd_remove(&eth0, &dhcp_client.acd);
+}
+
 void irq_e1000(unsigned int line)
 {
 	unsigned long flags;
@@ -368,6 +497,8 @@ int ethernet_stop(void *unused)
 
 	if (!ethernet_present())
 		return 0;
+	if (status.config.flags & MARIO_NET_DHCP)
+		ethernet_end_dhcp();
 	spin_lock_irqsave(&irq_lock, flags);
 	irq_enabled = 0;
 	reg_write(E1000_IMC, ~0U);
@@ -404,7 +535,16 @@ static void ethernet_receive(void)
 	reg_write(E1000_RDT, rx_next);
 	rx_next = (rx_next + 1) % RX_RING_SIZE;
 	if (packet) {
-		if (eth0.input(packet, &eth0) == ERR_OK) {
+		uint8_t state = dhcp_client.state;
+		err_t result;
+
+		memset(packet_dns, 0, sizeof(packet_dns));
+		result = eth0.input(packet, &eth0);
+		if (state != dhcp_client.state && (dhcp_client.state == DHCP_STATE_CHECKING ||
+		    dhcp_client.state == DHCP_STATE_BOUND))
+			memcpy(pending_dns, packet_dns, sizeof(pending_dns));
+		ethernet_publish_lease(state != dhcp_client.state && dhcp_client.state == DHCP_STATE_BOUND);
+		if (result == ERR_OK) {
 			status.rx_packets++;
 			return;
 		}
@@ -423,12 +563,17 @@ int ethernet_poll(void)
 	if (__atomic_exchange_n(&irq_events, 0, __ATOMIC_ACQUIRE) & ICR_RXO)
 		status.rx_overruns++;
 	if (reg_read(E1000_STATUS) & STATUS_LU) {
-		netif_set_link_up(&eth0);
-		status.config.flags |= MARIO_NET_CARRIER;
+		if (!netif_is_link_up(&eth0)) {
+			netif_set_link_up(&eth0);
+			status.config.flags |= MARIO_NET_CARRIER;
+			dhcp_retry_at = sys_now();
+		}
 	} else if (netif_is_link_up(&eth0)) {
 		netif_set_link_down(&eth0);
 		etharp_cleanup_netif(&eth0);
 		status.config.flags &= ~MARIO_NET_CARRIER;
+		if (status.config.flags & MARIO_NET_DHCP)
+			ethernet_end_dhcp();
 	}
 	tx_reclaim();
 	while (queued < RX_RING_SIZE &&
@@ -444,11 +589,6 @@ int ethernet_poll(void)
 	return __atomic_load_n(&rx_ring[rx_next].status, __ATOMIC_ACQUIRE) & RX_DD;
 }
 
-static int unicast(uint32_t address)
-{
-	return (address >> 24) > 0 && (address >> 24) != 127 && (address >> 24) < 224;
-}
-
 static int ethernet_configure(void *data)
 {
 	const struct mario_net_config *config = data;
@@ -461,20 +601,24 @@ static int ethernet_configure(void *data)
 
 	if (!ethernet_present())
 		return -ENODEV;
-	if (config->version != MARIO_NET_VERSION || config->flags & ~MARIO_NET_UP ||
+	if (config->version != MARIO_NET_VERSION || config->flags & ~(MARIO_NET_UP | MARIO_NET_DHCP) ||
 	    config->prefix > 32)
+		return -EINVAL;
+	if ((config->flags & MARIO_NET_DHCP) &&
+	    (!(config->flags & MARIO_NET_UP) || host || config->prefix || router))
 		return -EINVAL;
 	mask = config->prefix ? ~0U << (32 - config->prefix) : 0;
 	if (!host) {
 		if (config->prefix || router)
 			return -EINVAL;
-	} else if (!unicast(host) || !mask ||
-		   (config->prefix < 31 && (!(host & ~mask) || (host & ~mask) == ~mask))) {
+	} else if (!valid_ipv4(host, mask, router)) {
 		return -EINVAL;
 	}
-	if (router && (!unicast(router) || router == host || ((host ^ router) & mask) ||
-	    (config->prefix < 31 && (!(router & ~mask) || (router & ~mask) == ~mask))))
-		return -EINVAL;
+	if (status.config.flags & MARIO_NET_DHCP) {
+		if (config->flags & MARIO_NET_DHCP)
+			return 0;
+		ethernet_end_dhcp();
+	}
 	netmask.addr = lwip_htonl(mask);
 	ethernet_flush();
 	if (!(config->flags & MARIO_NET_UP))
@@ -485,10 +629,14 @@ static int ethernet_configure(void *data)
 	netif_set_addr(&eth0, &address, &netmask, &gateway);
 	if (config->flags & MARIO_NET_UP)
 		netif_set_up(&eth0);
-	status.config.flags = (status.config.flags & ~MARIO_NET_UP) | config->flags;
+	status.config.flags = (status.config.flags & ~(MARIO_NET_UP | MARIO_NET_DHCP)) | config->flags;
 	status.config.address = config->address;
 	status.config.prefix = config->prefix;
 	status.config.gateway = config->gateway;
+	if (config->flags & MARIO_NET_DHCP) {
+		dhcp_retry_at = sys_now();
+		ethernet_update_lease();
+	}
 	return 0;
 }
 

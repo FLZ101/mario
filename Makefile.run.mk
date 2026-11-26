@@ -14,6 +14,8 @@ GUI_TEST_CASES ?= $(ROOT)/tests/gui
 
 SMP ?= 1
 export SMP
+QEMU_NET ?= off
+export QEMU_NET
 
 LIT_JOBS ?= 4
 
@@ -67,6 +69,7 @@ test: image-builder-test net-test shell-test tty-test gui-test
 net-test:
 	PYTHONPATH=$(ROOT)/tests $(PYTHON) $(ROOT)/tests/net/boot.py --smp $(SMP)
 	PYTHONPATH=$(ROOT)/tests $(PYTHON) $(ROOT)/tests/net/ethernet.py --smp $(SMP)
+	PYTHONPATH=$(ROOT)/tests $(PYTHON) $(ROOT)/tests/net/python_net.py --smp $(SMP)
 
 image-builder-test:
 	$(PYTHON) $(ROOT)/tests/test_mkdisk.py

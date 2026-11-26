@@ -4,10 +4,12 @@
 
 Run ordinary i386 musl applications over TCP and UDP using Mario file
 descriptors. Start with `127.0.0.1`, then add one Ethernet interface in QEMU,
-static IPv4 configuration, DHCP, and DNS. Verify a stock HTTP client and
-guest Python over isolated networking, including certificate-verified HTTPS
-in userspace. Verify inbound connections from a host peer as well. None of
-these tests requires public Internet access.
+static IPv4 configuration, DHCP, and DNS. Verify guest Python sockets, HTTP,
+and `asyncio` over isolated networking, including connections from a host
+peer and certificate-verified HTTPS in userspace. Finish by enabling compatible
+network tools in the bundled utility suites and shipping GNU Wget, curl, and
+the supported net-tools utilities.
+None of these tests requires public Internet access.
 
 Keep the existing `AF_UNIX` behavior, including `SCM_RIGHTS` used by the GUI.
 QEMU's `e1000` model (Intel 82540EM, PCI ID `8086:100e`) is the only Ethernet
@@ -53,8 +55,9 @@ networks, not general Internet access.
 | N1 — Loopback sockets | Native IPv4 TCP and UDP file descriptors | Unmodified musl socket calls exchange exact bytes over loopback, without a NIC. |
 | N2 — Socket semantics | Polling, interruption, backpressure, teardown | The full i386 socket syscall matrix passes; the stock musl resolver works, including TCP fallback; AF_UNIX regressions pass. |
 | N3 — Ethernet | Intel 82540EM in QEMU (`e1000`) and static addressing | Isolated ARP, ICMP, and UDP fixtures pass; TCP works in both directions and the driver recovers from ring pressure and link changes. |
-| N4 — Configuration and apps | DHCP, DNS, stock HTTP client, guest Python networking, and run targets | Lease renewal, expiry, and static override work; both HTTP clients fetch the exact fixture by hostname, and a host client reaches Python's HTTP server. |
+| N4 — Configuration and Python networking | DHCP, DNS, run targets, and guest Python socket, HTTP, and `asyncio` support | Lease renewal, expiry, and static override work; guest Python passes sync and async socket tests and fetches the HTTP fixture by hostname; a host client reaches Python's HTTP server. |
 | N5 — Python HTTPS | Guest Python `ssl` and a userspace TLS library | Guest and host HTTPS clients verify certificates and fetch the exact payload; invalid trust and hostname checks fail. |
+| N6 — Network tools | Compatible Toybox, ubase, sbase, and net-tools utilities, standalone GNU Wget and curl | Installed network utilities pass their isolated smoke tests; both standalone clients fetch the exact HTTP and HTTPS fixtures and reject invalid certificates. |
 
 ### N0 — Build and worker
 
@@ -255,7 +258,7 @@ the same fixture where they affect socket behavior and descriptor lifetime.
    deterministic TCP loss/retransmission on the isolated link, for example
    by dropping a selected data frame in a relay between two test guests.
 
-### N4 — DHCP, DNS, and application packaging
+### N4 — DHCP, DNS, and Python networking
 
 1. Add asynchronous DHCP start/status/stop through the same control ABI.
    The worker owns a validated lease snapshot: apply the address and route
@@ -275,14 +278,11 @@ the same fixture where they affect socket behavior and descriptor lifetime.
    user's resolver file. Test these transitions and verify a DNS query
    actually reaches the new server after a lease change. The TCP fallback
    remains covered by N2.
-3. Build and package a stock HTTP client through the existing app rules;
-   try enabling the Toybox `wget` applet first. Download an exact payload by
-   numeric address and by a fixture hostname resolved through DNS (not
-   `/etc/hosts`). Use a restricted `guestfwd` with a per-connection host
-   HTTP fixture and a guest-local fixture DNS server for this check; test
-   DHCP-provided DNS separately on the scripted Ethernet link. Test failed
-   lookup and refused connection. Use a loopback-only `hostfwd` in the
-   inbound TCP test; do not enable a listener or port forwards in
+3. Provide a reusable host HTTP fixture via restricted `guestfwd` and a
+   guest-local fixture DNS server, so clients can test both numeric and
+   DNS-resolved addresses without `/etc/hosts`. Test DHCP-provided DNS
+   separately on the scripted Ethernet link. Use loopback-only `hostfwd`
+   for inbound tests; do not enable a listener or port forwards in
    distributed images.
 4. Wire explicit `QEMU_NET=isolated` into `run`, `run-gtk`, and debug/quick
    variants; default to `QEMU_NET=off` (`-nic none`). Use restricted QEMU user
@@ -294,18 +294,25 @@ the same fixture where they affect socket behavior and descriptor lifetime.
    numbers, and unpredictable ephemeral port selection.
 5. Enable guest Python's `_socket` in `app/usr/python.Setup.local` and
    remove the forced `py_cv_module__socket=no` in `app/usr/build-python.sh`.
-   Retain `http` and `email` in the packaged standard library alongside
-   `socket` and `urllib.request`. Do not advertise guest `epoll` while the
-   kernel lacks it; test `selectors.DefaultSelector` using a supported
-   backend. Verify all required imports in the installed Mario interpreter,
-   not the host build interpreter.
-6. Add guest Python cases under `tests/net/`: TCP echo with `sendall`,
-   timeouts, half-close and a nonblocking selector; UDP echo with source
-   address and datagram boundaries; and `getaddrinfo()` against the fixture
-   DNS server. Test `urllib.request` fetching the host HTTP fixture by IP
-   and hostname and a guest `http.server` reached by a host client. Check
-   status, headers, and exact binary bodies, plus a 404, a refused connection,
-   and a bounded read timeout. Disable proxy use in the fixture clients.
+   Retain `socket`, `http`, `email`, `urllib.request`, `selectors`, and
+   `asyncio` with their dependencies in the packaged standard library.
+   Verify required imports in the installed Mario interpreter. Use
+   `selectors.DefaultSelector` with a supported backend; do not advertise
+   guest `epoll` while the kernel lacks it.
+6. Add guest Python `socket` cases under `tests/net/`: TCP echo with
+   `sendall`, timeouts, half-close, and nonblocking readiness; UDP echo,
+   peer addresses, and datagram boundaries; and `getaddrinfo()` success
+   and failure against the fixture DNS server.
+7. Use `http.client` to test the host HTTP fixture by IP and `urllib.request`
+   to fetch it by hostname. Verify a guest `http.server` from a host client.
+   Check status, headers, and exact binary bodies, plus a 404, a refused
+   connection, and a bounded read timeout. Disable proxy use in the fixture
+   clients.
+8. Add `asyncio` TCP streams and UDP datagram endpoint tests for bidirectional
+   data transfer, readiness, and cleanup. Resolve the TCP peer with the
+   event loop's `getaddrinfo()`. Exercise a timed-out read and cancellation
+   of a pending read, then verify the loop can still serve another connection
+   and all test tasks and transports close before shutdown.
 
 ### N5 — Python HTTPS
 
@@ -324,9 +331,36 @@ the same fixture where they affect socket behavior and descriptor lifetime.
    CA explicitly to a verifying `ssl.SSLContext`; do not change system
    trust stores or disable hostname verification. Resolve the fixture name
    via isolated DNS and fetch the exact payload from guest Python using
-   `urllib.request`. Also wrap the guest HTTP server with a server-side TLS
-   context and have a host client verify it. Assert explicit verification
-   failures for a wrong hostname, an untrusted CA, and an expired leaf.
+   `http.client.HTTPSConnection`. Also wrap the guest HTTP server with a
+   server-side TLS context and have a host client verify it. Assert explicit
+   verification failures for a wrong hostname, an untrusted CA, and an
+   expired leaf.
+
+### N6 — Network tools
+
+1. Audit the pinned Toybox, ubase, and sbase sources and Mario build configs
+   for network applets and utilities. Enable and install the ones compatible
+   with the shipped IPv4 socket and interface-control APIs. Record the result
+   for each suite, including absent tools and blockers such as raw sockets,
+   IPv6, or Linux-specific control APIs. Do not widen kernel scope just to
+   enable an applet.
+2. Build pinned standalone GNU Wget and curl for i386 musl through the
+   existing `app/usr` build and image rules. Reuse the target OpenSSL from
+   N5, enable HTTP and HTTPS, and disable optional protocols and dependencies
+   that are outside this release. Install `wget` and `curl` in the normal
+   image. If Toybox also provides `wget`, retain it as `toybox wget` without
+   letting a multicall symlink overwrite the standalone binary.
+3. Add `tests/net/` smoke tests for each enabled utility using local peers.
+   Run the installed standalone clients against the shared HTTP and HTTPS
+   fixtures, checking exit statuses and exact downloaded bytes. Exercise
+   HTTP by numeric address and DNS hostname, and verify HTTPS by hostname
+   with the fixture CA supplied explicitly. Check nonzero exits for DNS
+   failure, connection refusal, an untrusted CA, and a wrong hostname.
+4. Build a pinned net-tools release through `app/usr`. Audit its ioctl and
+   `/proc/net` dependencies against Mario and port the useful IPv4 subset
+   (`ifconfig`, `route`, `netstat`, and `arp`) using supported interfaces.
+   Only install utilities and modes covered by isolated guest tests; report
+   unsupported operations rather than showing empty or misleading output.
 
 ## Test harness and signoff
 
@@ -336,8 +370,9 @@ the same fixture where they affect socket behavior and descriptor lifetime.
   image; do not install them in distributed images. Keep the pre-existing
   shell and GUI regression suites in place.
 - Include the `tests/net/` suite in `make test` and expose it separately as
-  `make net-test`. Python HTTP and HTTPS cases are required once
-  their milestones land; missing guest modules are failures, not skips.
+  `make net-test`. Require Python socket, HTTP, `asyncio`, and HTTPS tests and
+  utility smoke tests once their milestones land. Missing guest modules or
+  required binaries are failures, not skips.
   Run host fixtures with the repository venv. Keep existing shell, TTY, and
   GUI tests on `-nic none`; only Ethernet cases instantiate `e1000`. A
   missing required QEMU backend or model is a setup failure, not a skipped

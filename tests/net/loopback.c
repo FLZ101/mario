@@ -3,11 +3,14 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #define CHECK(condition) do { \
@@ -72,11 +75,17 @@ static void tcp_loopback(void)
 	int other;
 	int connection;
 	int status;
+	int enabled = 1;
 	pid_t child;
 
 	for (size_t index = 0; index < sizeof(payload); index++)
 		payload[index] = index % 251;
 	CHECK(listener >= 0);
+	CHECK(ioctl(listener, FIONBIO, &enabled) == 0);
+	CHECK(fcntl(listener, F_GETFL) & O_NONBLOCK);
+	enabled = 0;
+	CHECK(ioctl(listener, FIONBIO, &enabled) == 0);
+	CHECK(!(fcntl(listener, F_GETFL) & O_NONBLOCK));
 	CHECK(bind(listener, (struct sockaddr *)&address, sizeof(address)) == 0);
 	CHECK(getsockname(listener, (struct sockaddr *)&address, &length) == 0);
 	CHECK(length == sizeof(address) && address.sin_family == AF_INET);
@@ -272,8 +281,27 @@ static void discard_passed_socket(void)
 	CHECK(close(socket_fd) == 0 && close(pair[0]) == 0 && close(pair[1]) == 0);
 }
 
+static void check_clock(void)
+{
+	struct timespec resolution, before, after;
+	int64_t time64[2] = { -1, -1 };
+
+	CHECK(clock_getres(CLOCK_MONOTONIC, &resolution) == 0);
+	CHECK(resolution.tv_sec == 0 && resolution.tv_nsec > 0 && resolution.tv_nsec < 1000000000);
+	CHECK(syscall(SYS_clock_getres_time64, CLOCK_MONOTONIC, time64) == 0);
+	CHECK(time64[0] == resolution.tv_sec && time64[1] == resolution.tv_nsec);
+	CHECK(clock_gettime(CLOCK_MONOTONIC, &before) == 0);
+	usleep(30000);
+	CHECK(clock_gettime(CLOCK_MONOTONIC, &after) == 0);
+	CHECK(before.tv_nsec >= 0 && before.tv_nsec < 1000000000);
+	CHECK(after.tv_nsec >= 0 && after.tv_nsec < 1000000000);
+	CHECK(after.tv_sec > before.tv_sec ||
+	      (after.tv_sec == before.tv_sec && after.tv_nsec > before.tv_nsec));
+}
+
 int main(void)
 {
+	check_clock();
 	CHECK(socket(AF_INET, SOCK_RAW, 0) == -1 && errno == ESOCKTNOSUPPORT);
 	CHECK(socket(AF_INET, SOCK_STREAM, IPPROTO_UDP) == -1 && errno == EPROTONOSUPPORT);
 	CHECK(socket(AF_INET6, SOCK_STREAM, 0) == -1 && errno == EAFNOSUPPORT);

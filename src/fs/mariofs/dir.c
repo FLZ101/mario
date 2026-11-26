@@ -421,11 +421,10 @@ tail:
 	return ret;
 }
 
-static
-int do_mario_rename(struct inode *old_dir, char *old_name, int old_len,
+static int do_mario_rename(struct inode *old_dir, char *old_name, int old_len,
 	struct inode *new_dir, char *new_name, int new_len)
 {
-	int ino, error = 0;
+	int ino, error = 0, same_dir = old_dir == new_dir;
 	struct inode *old_inode, *new_inode;
 	struct mario_dir_entry entry = {0};
 
@@ -447,7 +446,9 @@ int do_mario_rename(struct inode *old_dir, char *old_name, int old_len,
 
 	/* do some checks */
 	error = 0;
-	if (S_ISDIR(new_inode->i_mode)) {
+	if (same_dir && old_inode->i_count > 1) {
+		error = -EBUSY;
+	} else if (S_ISDIR(new_inode->i_mode)) {
 		if (!S_ISDIR(old_inode->i_mode))
 			error = -EISDIR;
 		if (!empty_dir(new_inode))
@@ -463,13 +464,15 @@ int do_mario_rename(struct inode *old_dir, char *old_name, int old_len,
 	}
 
 	/* delete new_inode */
-	down(&new_dir->i_sem);
+	if (!same_dir)
+		down(&new_dir->i_sem);
 	if (new_inode->i_count > 1)
 		error = -EBUSY;
 	else
 		error = mario_del_entry(new_inode, 1);
 	iput(new_inode);
-	up(&new_dir->i_sem);
+	if (!same_dir)
+		up(&new_dir->i_sem);
 	if (error) {
 		iput(old_inode);
 		return error;
@@ -477,7 +480,8 @@ int do_mario_rename(struct inode *old_dir, char *old_name, int old_len,
 
 next_1:
 	/* delete old_inode but not free blocks occupied */
-	down(&old_dir->i_sem);
+	if (!same_dir)
+		down(&old_dir->i_sem);
 	if (old_inode->i_count > 1) {
 		error = -EBUSY;
 		goto tail_1;
@@ -513,7 +517,8 @@ next_1:
 	error = mario_add_entry(new_dir, &entry, NULL);
 tail_1:
 	iput(old_inode);
-	up(&old_dir->i_sem);
+	if (!same_dir)
+		up(&old_dir->i_sem);
 	return error;
 }
 
@@ -525,8 +530,12 @@ int mario_rename(struct inode *old_dir, char *old_name, int old_len,
 	int ret;
 
 	down(&sem);
+	if (old_dir == new_dir)
+		down(&old_dir->i_sem);
 	ret = do_mario_rename(old_dir, old_name, old_len,
 		new_dir, new_name, new_len);
+	if (old_dir == new_dir)
+		up(&old_dir->i_sem);
 	iput(old_dir);
 	iput(new_dir);
 	up(&sem);
