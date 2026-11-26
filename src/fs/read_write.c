@@ -1,5 +1,6 @@
 #include <fs/fs.h>
 #include <fs/uio.h>
+#include <net/inet.h>
 
 int sys_lseek(unsigned int fd, off_t offset, unsigned int origin)
 {
@@ -61,24 +62,20 @@ int sys__llseek(unsigned int fd, unsigned long offset_high,
 int sys_read(unsigned int fd, char *buf, unsigned int count)
 {
 	int error;
-	struct file *f;
-	struct inode *i;
+	struct file *file = get_fd_file(fd, NULL);
 
-	if (fd >= NR_OPEN || !(f = current->files->fd[fd]) || !(i = f->f_inode))
+	if (!file)
 		return -EBADF;
-	if (!(f->f_mode & 1))
-		return -EBADF;
-	if (!f->f_op || !f->f_op->read)
-		return -EINVAL;
-
-	if (!count)
-		return 0;
-	// only if count > 0 then return 0 means EOF
-
-	error = verify_area(VERIFY_WRITE, buf, count);
-	if (error)
-		return error;
-	return f->f_op->read(i, f, buf, count);
+	if (!file->f_inode || !(file->f_mode & 1))
+		error = -EBADF;
+	else if (!file->f_op || !file->f_op->read)
+		error = -EINVAL;
+	else if (!count)
+		error = 0;
+	else if (!(error = verify_area(VERIFY_WRITE, buf, count)))
+		error = file->f_op->read(file->f_inode, file, buf, count);
+	release_file(file, 1);
+	return error;
 }
 
 /* i386 passes the 64-bit pread/pwrite offset as low word, then high word. */
@@ -116,35 +113,34 @@ int sys_pread64(unsigned int fd, char *buf, unsigned int count,
 	return f->f_op->read_at(i, f, buf, count, &offset);
 }
 
-int sys_readv(unsigned int fd, struct iovec *vec, int vlen)
+static int file_iov(struct file *file, struct iovec *vec, unsigned int vlen,
+		    int writing)
 {
-	int error;
-	struct file *f;
-	struct inode *i;
-
-	if (fd >= NR_OPEN || !(f = current->files->fd[fd]) || !(i = f->f_inode))
-		return -EBADF;
-	if (!(f->f_mode & 1))
-		return -EBADF;
-	if (!f->f_op || !f->f_op->read)
-		return -EINVAL;
-
-	if (!vlen)
-		return 0;
-
+	int (*transfer)(struct inode *, struct file *, char *, int);
 	int total = 0;
-	for (unsigned int idx = 0; idx < vlen; ++idx) {
-		void *buf = vec[idx].iov_base;
-		size_t count = vec[idx].iov_len;
+
+	if (!file->f_inode || !(file->f_mode & (writing ? 2 : 1)))
+		return -EBADF;
+	if (!file->f_op)
+		return -EINVAL;
+	if (file->f_op == &inet_fops)
+		return -EOPNOTSUPP;
+	transfer = writing ? file->f_op->write : file->f_op->read;
+	if (!transfer)
+		return -EINVAL;
+	for (unsigned int index = 0; index < vlen; ++index) {
+		void *buf = vec[index].iov_base;
+		size_t count = vec[index].iov_len;
+		int error;
 
 		if (!buf || !count)
 			continue;
 
-		error = verify_area(VERIFY_WRITE, buf, count);
+		error = verify_area(writing ? VERIFY_READ : VERIFY_WRITE, buf, count);
 		if (error)
 			return error;
 
-		error = f->f_op->read(i, f, buf, count);
+		error = transfer(file->f_inode, file, buf, count);
 		if (error < 0)
 			return total ? total : error;
 
@@ -155,25 +151,40 @@ int sys_readv(unsigned int fd, struct iovec *vec, int vlen)
 	return total;
 }
 
+static int do_iov(unsigned int fd, struct iovec *vec, unsigned int vlen, int writing)
+{
+	struct file *file = get_fd_file(fd, NULL);
+	int result;
+
+	if (!file)
+		return -EBADF;
+	result = file_iov(file, vec, vlen, writing);
+	release_file(file, 1);
+	return result;
+}
+
+int sys_readv(unsigned int fd, struct iovec *vec, int vlen)
+{
+	return do_iov(fd, vec, vlen, 0);
+}
+
 int sys_write(unsigned int fd, char *buf, unsigned int count)
 {
 	int error;
-	struct file *f;
-	struct inode *i;
+	struct file *file = get_fd_file(fd, NULL);
 
-	if (fd >= NR_OPEN || !(f = current->files->fd[fd]) || !(i = f->f_inode))
+	if (!file)
 		return -EBADF;
-	if (!(f->f_mode & 2))
-		return -EBADF;
-	if (!f->f_op || !f->f_op->write)
-		return -EINVAL;
-
-	if (!count)
-		return 0;
-	error = verify_area(VERIFY_READ, buf, count);
-	if (error)
-		return error;
-	return f->f_op->write(i, f, buf, count);
+	if (!file->f_inode || !(file->f_mode & 2))
+		error = -EBADF;
+	else if (!file->f_op || !file->f_op->write)
+		error = -EINVAL;
+	else if (!count)
+		error = 0;
+	else if (!(error = verify_area(VERIFY_READ, buf, count)))
+		error = file->f_op->write(file->f_inode, file, buf, count);
+	release_file(file, 1);
+	return error;
 }
 
 int sys_pwrite64(unsigned int fd, char *buf, unsigned int count,
@@ -205,39 +216,5 @@ int sys_pwrite64(unsigned int fd, char *buf, unsigned int count,
 
 int sys_writev(unsigned int fd, struct iovec *vec, unsigned int vlen)
 {
-	int error;
-	struct file *f;
-	struct inode *i;
-
-	if (fd >= NR_OPEN || !(f = current->files->fd[fd]) || !(i = f->f_inode))
-		return -EBADF;
-	if (!(f->f_mode & 2))
-		return -EBADF;
-	if (!f->f_op || !f->f_op->write)
-		return -EINVAL;
-
-	if (!vlen)
-		return 0;
-
-	int total = 0;
-	for (unsigned int idx = 0; idx < vlen; ++idx) {
-		void *buf = vec[idx].iov_base;
-		size_t count = vec[idx].iov_len;
-
-		if (!buf || !count)
-			continue;
-
-		error = verify_area(VERIFY_READ, buf, count);
-		if (error)
-			return error;
-
-		error = f->f_op->write(i, f, buf, count);
-		if (error < 0)
-			return total ? total : error;
-
-		total += error;
-		if ((size_t)error < count)
-			break;
-	}
-	return total;
+	return do_iov(fd, vec, vlen, 1);
 }

@@ -1,12 +1,15 @@
 #include <fs/socket.h>
 #include <mm/kmalloc.h>
 #include <misc.h>
+#include <net/inet.h>
 
 #define SYS_SOCKET 1
 #define SYS_BIND 2
 #define SYS_CONNECT 3
 #define SYS_LISTEN 4
 #define SYS_ACCEPT 5
+#define SYS_GETSOCKNAME 6
+#define SYS_GETPEERNAME 7
 #define SYS_SOCKETPAIR 8
 #define SYS_SEND 9
 #define SYS_RECV 10
@@ -17,6 +20,7 @@
 #define SYS_GETSOCKOPT 15
 #define SYS_SENDMSG 16
 #define SYS_RECVMSG 17
+#define SYS_ACCEPT4 18
 
 #define UNIX_PATH_MAX 108
 #define UNIX_LISTENER_MAX 32
@@ -37,6 +41,15 @@
 #define UNIX_RING_MAX_BYTES (PAGE_SIZE << UNIX_SNDBUF_MAX_ORDER)
 
 extern int sys_write(unsigned int fd, char *buf, unsigned int count);
+
+#define inet_dispatch(fd, operation, ...) do { \
+	struct file *inet_file = get_fd_file(fd, &inet_fops); \
+	if (inet_file) { \
+		int inet_result = operation(inet_file, __VA_ARGS__); \
+		release_file(inet_file, 1); \
+		return inet_result; \
+	} \
+} while (0)
 
 struct unix_socket;
 
@@ -558,8 +571,10 @@ int sys_socket(int domain, int type, int protocol)
 	int err;
 
 	if (domain == AF_INET)
+		return inet_socket(type, protocol);
+	if (domain != AF_UNIX)
 		return -EAFNOSUPPORT;
-	if (domain != AF_UNIX || base_type != SOCK_STREAM || protocol)
+	if (base_type != SOCK_STREAM || protocol)
 		return -EOPNOTSUPP;
 	fd = next_fd(0);
 	if (fd < 0)
@@ -643,6 +658,7 @@ int sys_bind(int fd, const void *address, unsigned int length)
 	unsigned long flags;
 	int err;
 
+	inet_dispatch(fd, inet_bind, address, length);
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
 	if (file->f_op != &socket_fops)
@@ -676,6 +692,7 @@ int sys_listen(int fd, int backlog)
 	struct file *file;
 	struct unix_socket *socket;
 
+	inet_dispatch(fd, inet_listen, backlog);
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
 	if (file->f_op != &socket_fops)
@@ -698,6 +715,7 @@ int sys_connect(int fd, const void *address, unsigned int length)
 	unsigned long flags;
 	int err;
 
+	inet_dispatch(fd, inet_connect, address, length);
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
 	if (file->f_op != &socket_fops)
@@ -746,6 +764,7 @@ int sys_accept4(int fd, void *address, unsigned int *length, int flags)
 	int newfd;
 	int err;
 
+	inet_dispatch(fd, inet_accept, address, length, flags);
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
 	if (file->f_op != &socket_fops)
@@ -785,6 +804,26 @@ int sys_accept4(int fd, void *address, unsigned int *length, int flags)
 	return newfd;
 }
 
+static int socket_name(int fd, void *address, unsigned int *length, int peer)
+{
+	struct file *file;
+
+	inet_dispatch(fd, inet_name, address, length, peer);
+	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
+		return -EBADF;
+	return file->f_op == &socket_fops ? -EOPNOTSUPP : -ENOTSOCK;
+}
+
+int sys_getsockname(int fd, void *address, unsigned int *length)
+{
+	return socket_name(fd, address, length, 0);
+}
+
+int sys_getpeername(int fd, void *address, unsigned int *length)
+{
+	return socket_name(fd, address, length, 1);
+}
+
 int sys_shutdown(int fd, int how)
 {
 	struct file *file;
@@ -792,6 +831,7 @@ int sys_shutdown(int fd, int how)
 	struct unix_socket *peer;
 	unsigned long flags;
 
+	inet_dispatch(fd, inet_shutdown, how);
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
 	if (file->f_op != &socket_fops)
@@ -833,6 +873,8 @@ int sys_setsockopt(int fd, int level, int option, const void *value,
 
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
+	if (file->f_op == &inet_fops)
+		return -ENOPROTOOPT;
 	if (file->f_op != &socket_fops)
 		return -ENOTSOCK;
 	if (level != SOL_SOCKET || option != SO_SNDBUF)
@@ -890,6 +932,8 @@ int sys_getsockopt(int fd, int level, int option, void *value,
 
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
+	if (file->f_op == &inet_fops)
+		return -ENOPROTOOPT;
 	if (file->f_op != &socket_fops)
 		return -ENOTSOCK;
 	if (level != SOL_SOCKET || verify_area(VERIFY_READ, length, sizeof(*length)))
@@ -933,6 +977,19 @@ int sys_getsockopt(int fd, int level, int option, void *value,
 	return 0;
 }
 
+int sys_sendto(int fd, char *buffer, unsigned int length, int flags,
+	       const void *address, unsigned int address_length)
+{
+	struct file *file;
+
+	inet_dispatch(fd, inet_sendto, buffer, length, flags, address, address_length);
+	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
+		return -EBADF;
+	if (file->f_op != &socket_fops)
+		return -ENOTSOCK;
+	return sys_write(fd, buffer, length);
+}
+
 int sys_recvfrom(int fd, char *buffer, unsigned int length, int flags,
 		 void *address, unsigned int *address_length)
 {
@@ -944,6 +1001,7 @@ int sys_recvfrom(int fd, char *buffer, unsigned int length, int flags,
 	unsigned int capacity;
 	int result;
 
+	inet_dispatch(fd, inet_recvfrom, buffer, length, flags, address, address_length);
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
 	if (file->f_op != &socket_fops)
@@ -1024,6 +1082,8 @@ int sys_sendmsg(int fd, struct socket_msghdr *user_msg, int flags)
 
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
+	if (file->f_op == &inet_fops)
+		return -EOPNOTSUPP;
 	if (file->f_op != &socket_fops)
 		return -ENOTSOCK;
 	if (verify_area(VERIFY_READ, user_msg, sizeof(msg)))
@@ -1176,6 +1236,8 @@ int sys_recvmsg(int fd, struct socket_msghdr *user_msg, int flags)
 
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
+	if (file->f_op == &inet_fops)
+		return -EOPNOTSUPP;
 	if (file->f_op != &socket_fops)
 		return -ENOTSOCK;
 	if (verify_area(VERIFY_READ, user_msg, sizeof(msg)))
@@ -1231,12 +1293,14 @@ void socket_init(void)
 
 int sys_socketcall(int call, unsigned long *args)
 {
-	static const unsigned char argument_counts[SYS_RECVMSG + 1] = {
+	static const unsigned char argument_counts[SYS_ACCEPT4 + 1] = {
 		[SYS_SOCKET] = 3,
 		[SYS_BIND] = 3,
 		[SYS_CONNECT] = 3,
 		[SYS_LISTEN] = 2,
 		[SYS_ACCEPT] = 3,
+		[SYS_GETSOCKNAME] = 3,
+		[SYS_GETPEERNAME] = 3,
 		[SYS_SOCKETPAIR] = 4,
 		[SYS_SEND] = 4,
 		[SYS_RECV] = 4,
@@ -1247,9 +1311,10 @@ int sys_socketcall(int call, unsigned long *args)
 		[SYS_GETSOCKOPT] = 5,
 		[SYS_SENDMSG] = 3,
 		[SYS_RECVMSG] = 3,
+		[SYS_ACCEPT4] = 4,
 	};
 
-	if (call < SYS_SOCKET || call > SYS_RECVMSG || !argument_counts[call])
+	if (call < SYS_SOCKET || call > SYS_ACCEPT4 || !argument_counts[call])
 		return -ENOSYS;
 	if (verify_area(VERIFY_READ, args,
 			argument_counts[call] * sizeof(unsigned long)))
@@ -1274,16 +1339,36 @@ int sys_socketcall(int call, unsigned long *args)
 		return sys_accept4(get_fs_long((int *)&args[0]),
 				    (void *)get_fs_long((int *)&args[1]),
 				    (unsigned int *)get_fs_long((int *)&args[2]), 0);
+	case SYS_ACCEPT4:
+		return sys_accept4(get_fs_long((int *)&args[0]),
+				   (void *)get_fs_long((int *)&args[1]),
+				   (unsigned int *)get_fs_long((int *)&args[2]),
+				   get_fs_long((int *)&args[3]));
+	case SYS_GETSOCKNAME:
+		return sys_getsockname(get_fs_long((int *)&args[0]),
+				      (void *)get_fs_long((int *)&args[1]),
+				      (unsigned int *)get_fs_long((int *)&args[2]));
+	case SYS_GETPEERNAME:
+		return sys_getpeername(get_fs_long((int *)&args[0]),
+				      (void *)get_fs_long((int *)&args[1]),
+				      (unsigned int *)get_fs_long((int *)&args[2]));
 	case SYS_SOCKETPAIR:
 		return sys_socketpair(get_fs_long((int *)&args[0]),
 				      get_fs_long((int *)&args[1]),
 				      get_fs_long((int *)&args[2]),
 				      (int *)get_fs_long((int *)&args[3]));
 	case SYS_SEND:
+		return sys_sendto(get_fs_long((int *)&args[0]),
+				  (char *)get_fs_long((int *)&args[1]),
+				  get_fs_long((int *)&args[2]),
+				  get_fs_long((int *)&args[3]), NULL, 0);
 	case SYS_SENDTO:
-		return sys_write(get_fs_long((int *)&args[0]),
-				 (char *)get_fs_long((int *)&args[1]),
-				 get_fs_long((int *)&args[2]));
+		return sys_sendto(get_fs_long((int *)&args[0]),
+				  (char *)get_fs_long((int *)&args[1]),
+				  get_fs_long((int *)&args[2]),
+				  get_fs_long((int *)&args[3]),
+				  (void *)get_fs_long((int *)&args[4]),
+				  get_fs_long((int *)&args[5]));
 	case SYS_RECV:
 		return sys_recvfrom(get_fs_long((int *)&args[0]),
 				    (char *)get_fs_long((int *)&args[1]),

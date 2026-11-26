@@ -148,20 +148,6 @@ int sys_symlink(char *target, char *linkpath)
 	return sys_symlinkat(target, AT_FDCWD, linkpath);
 }
 
-int sys_close(unsigned int fd)
-{
-	struct file *f;
-
-	if (fd >= NR_OPEN)
-		return -EBADF;
-	FD_CLR(fd, &current->files->close_on_exec);
-	if (!(f = current->files->fd[fd]))
-		return -EBADF;
-	current->files->fd[fd] = NULL;
-	release_file(f, 1);
-	return 0;
-}
-
 int sys_truncate(const char *path, int length)
 {
 	struct inode *inode;

@@ -6,6 +6,7 @@
 #define AF_UNIX 1
 #define AF_INET 2
 #define SOCK_STREAM 1
+#define SOCK_DGRAM 2
 #define SOCK_NONBLOCK O_NONBLOCK
 #define SOCK_CLOEXEC O_CLOEXEC
 #define SHUT_RD 0
@@ -21,11 +22,15 @@ int sys_bind(int fd, const void *address, unsigned int length);
 int sys_connect(int fd, const void *address, unsigned int length);
 int sys_listen(int fd, int backlog);
 int sys_accept4(int fd, void *address, unsigned int *length, int flags);
+int sys_getsockname(int fd, void *address, unsigned int *length);
+int sys_getpeername(int fd, void *address, unsigned int *length);
 int sys_getsockopt(int fd, int level, int option, void *value,
 		   unsigned int *length);
 struct socket_msghdr;
 int sys_sendmsg(int fd, struct socket_msghdr *msg, int flags);
 int sys_recvmsg(int fd, struct socket_msghdr *msg, int flags);
+int sys_sendto(int fd, char *buffer, unsigned int length, int flags,
+	       const void *address, unsigned int address_length);
 int sys_recvfrom(int fd, char *buffer, unsigned int length, int flags,
 		 void *address, unsigned int *address_length);
 int sys_shutdown(int fd, int how);

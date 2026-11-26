@@ -224,6 +224,8 @@ extern struct file_operations fifo_fops;
 
 void file_init(void);
 struct file *get_empty_file(void);
+struct file *get_fd_file(unsigned int fd, const struct file_operations *ops);
+int install_fd_file(struct file *file, int close_on_exec);
 int get_two_empty_files(struct file *res[2]);
 void put_file(struct file *);
 void release_file(struct file *, int release);

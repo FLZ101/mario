@@ -7,15 +7,29 @@
 #include <lib/string.h>
 
 #include <lwip/init.h>
+#include <lwip/netif.h>
 #include <lwip/sys.h>
 #include <lwip/timeouts.h>
 
 #define NET_TICK_MS (1000U / HZ)
+#define NET_WORK_BATCH 32
+
+struct net_call_work {
+	struct net_work work;
+	int (*run)(void *);
+	void *data;
+	wait_queue_t wait;
+	int done;
+	int result;
+};
 
 static spinlock_t net_wait_lock = SPINLOCK_UNLOCKED;
 static wait_queue_t net_wait;
 static int net_armed;
 static unsigned long net_deadline;
+static int net_started;
+static struct net_work *net_head;
+static struct net_work **net_tail = &net_head;
 
 void mario_lwip_assert(const char *expr, const char *file, int line)
 {
@@ -54,6 +68,11 @@ static void net_wait_for_timer(void)
 		return;
 	irq_save();
 	ACQUIRE_LOCK(&net_wait_lock);
+	if (net_head) {
+		RELEASE_LOCK(&net_wait_lock);
+		irq_restore();
+		return;
+	}
 	if (delay != SYS_TIMEOUTS_SLEEPTIME_INFINITE) {
 		net_deadline = start + (delay + NET_TICK_MS - 1) / NET_TICK_MS;
 		if ((long)((unsigned long)jiffies - net_deadline) >= 0) {
@@ -67,6 +86,68 @@ static void net_wait_for_timer(void)
 	irq_restore();
 }
 
+void net_submit(struct net_work *work)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&net_wait_lock, flags);
+	work->next = NULL;
+	*net_tail = work;
+	net_tail = &work->next;
+	wake_up_uninterruptible(&net_wait);
+	spin_unlock_irqrestore(&net_wait_lock, flags);
+}
+
+static void net_run_call(struct net_work *work)
+{
+	struct net_call_work *call = list_entry(work, struct net_call_work, work);
+	unsigned long flags;
+
+	call->result = call->run(call->data);
+	spin_lock_irqsave(&net_wait_lock, flags);
+	call->done = 1;
+	wake_up_uninterruptible(&call->wait);
+	spin_unlock_irqrestore(&net_wait_lock, flags);
+}
+
+int net_call(int (*run)(void *), void *data)
+{
+	struct net_call_work call = {
+		.work.run = net_run_call, .run = run, .data = data,
+	};
+
+	if (!__atomic_load_n(&net_started, __ATOMIC_ACQUIRE))
+		return -ENETDOWN;
+	init_wait_queue(&call.wait);
+	net_submit(&call.work);
+	irq_save();
+	ACQUIRE_LOCK(&net_wait_lock);
+	while (!call.done) {
+		sleep_on(&call.wait, TASK_UNINTERRUPTIBLE, &net_wait_lock);
+		ACQUIRE_LOCK(&net_wait_lock);
+	}
+	RELEASE_LOCK(&net_wait_lock);
+	irq_restore();
+	return call.result;
+}
+
+static void net_run_work(void)
+{
+	for (int count = 0; count < NET_WORK_BATCH; count++) {
+		struct net_work *work;
+		unsigned long flags;
+
+		spin_lock_irqsave(&net_wait_lock, flags);
+		work = net_head;
+		if (work && !(net_head = work->next))
+			net_tail = &net_head;
+		spin_unlock_irqrestore(&net_wait_lock, flags);
+		if (!work)
+			return;
+		work->run(work);
+	}
+}
+
 static void net_worker(void *arg)
 {
 	(void)arg;
@@ -74,6 +155,8 @@ static void net_worker(void *arg)
 	lwip_init();
 	pr_info("net: lwIP worker ready\n");
 	for (;;) {
+		net_run_work();
+		netif_poll_all();
 		sys_check_timeouts();
 		net_wait_for_timer();
 	}
@@ -84,4 +167,6 @@ void net_start(void)
 	init_wait_queue(&net_wait);
 	if (kernel_thread(net_worker, NULL) < 0)
 		pr_err("net: cannot start lwIP worker\n");
+	else
+		__atomic_store_n(&net_started, 1, __ATOMIC_RELEASE);
 }

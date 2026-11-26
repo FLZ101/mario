@@ -109,6 +109,59 @@ void fref(struct file *f)
 	RELEASE_LOCK(&file_lock);
 }
 
+struct file *get_fd_file(unsigned int fd, const struct file_operations *ops)
+{
+	struct file *file;
+
+	if (fd >= NR_OPEN)
+		return NULL;
+	ACQUIRE_LOCK(&file_lock);
+	file = current->files->fd[fd];
+	if (file && (!ops || file->f_op == ops))
+		file->f_count++;
+	else
+		file = NULL;
+	RELEASE_LOCK(&file_lock);
+	return file;
+}
+
+int install_fd_file(struct file *file, int close_on_exec)
+{
+	struct files_struct *files = current->files;
+	int fd;
+
+	ACQUIRE_LOCK(&file_lock);
+	for (fd = 0; fd < NR_OPEN && files->fd[fd]; fd++)
+		;
+	if (fd < NR_OPEN) {
+		if (close_on_exec)
+			FD_SET(fd, &files->close_on_exec);
+		else
+			FD_CLR(fd, &files->close_on_exec);
+		files->fd[fd] = file;
+	}
+	RELEASE_LOCK(&file_lock);
+	return fd < NR_OPEN ? fd : -EMFILE;
+}
+
+int sys_close(unsigned int fd)
+{
+	struct files_struct *files = current->files;
+	struct file *file;
+
+	if (fd >= NR_OPEN)
+		return -EBADF;
+	ACQUIRE_LOCK(&file_lock);
+	file = files->fd[fd];
+	files->fd[fd] = NULL;
+	FD_CLR(fd, &files->close_on_exec);
+	RELEASE_LOCK(&file_lock);
+	if (!file)
+		return -EBADF;
+	release_file(file, 1);
+	return 0;
+}
+
 static struct file *copy_fd(struct file *old_file)
 {
 	int error;
@@ -179,7 +232,6 @@ void copy_fs(struct task_struct *p)
 		iref(p->fs->root);
 }
 
-extern int sys_close(unsigned int fd);
 void exit_files(void)
 {
 	int i;
