@@ -1,5 +1,7 @@
 #include <fs/fs.h>
 
+#define RANDOM_MAX_READ 0x7fffffffU
+
 extern struct file_operations kmsg_fops;
 
 /*
@@ -62,57 +64,52 @@ struct file_operations full_fops = {
 	.write = full_write,
 };
 
-/*
- * man 4 random
- *
- * When read, the /dev/urandom device returns random bytes using a pseudorandom number
- * generator seeded from the entropy pool.
- *
- * Writing to /dev/random or /dev/urandom will update the entropy pool with the data written.
- */
-
-extern volatile time_t boot_time_sec;
-
-static uint32_t rand_state;
+static int have_rdrand;
 
 static void rand_init(void)
 {
-    assert(boot_time_sec > 0);
-    rand_state = boot_time_sec;
+	unsigned int leaf, features;
+	asm volatile("cpuid" : "=a"(leaf) : "0"(0) : "ebx", "ecx", "edx");
+	if (leaf < 1)
+		return;
+	asm volatile("cpuid" : "=a"(leaf), "=c"(features) : "0"(1) : "ebx", "edx");
+	have_rdrand = (features & (1U << 30)) != 0;
 }
 
-static uint32_t rand() {
-    uint32_t x = rand_state;
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^= x << 5;
-    return rand_state = x;
-}
-
-static uint8_t rand_byte() {
-	static int i = 4;
-	static uint8_t x[4];
-
-	if (i == 4) {
-		*(uint32_t *)x = rand();
-		i = 0;
-	}
-	return x[i++];
-}
-
-static int __rand_read(char *buf, int count)
+static int rdrand_word(uint32_t *word)
 {
-	int left;
-	for (left = count; left > 0; left--) {
-		put_fs_byte(rand_byte(), buf);
-		buf++;
+	for (int attempt = 0; attempt < 10; ++attempt) {
+		unsigned char ready;
+		asm volatile("rdrand %0; setc %1" : "=r"(*word), "=qm"(ready) :: "cc");
+		if (ready)
+			return 0;
 	}
-	return count;
+	return -EAGAIN;
+}
+
+static int random_read(char *buf, size_t count)
+{
+	if (!count)
+		return 0;
+	if (!have_rdrand)
+		return -ENODEV;
+
+	size_t written = 0;
+	while (written < count) {
+		uint32_t word;
+		int error = rdrand_word(&word);
+		if (error)
+			return written ? (int)written : error;
+		size_t size = MIN(sizeof(word), count - written);
+		memcpy_tofs(buf + written, &word, size);
+		written += size;
+	}
+	return written;
 }
 
 static int rand_read(struct inode *i, struct file *f, char *buf, int count)
 {
-	return __rand_read(buf, count);
+	return random_read(buf, MIN((unsigned int)count, RANDOM_MAX_READ));
 }
 
 #define GRND_NONBLOCK	0x0001
@@ -121,11 +118,16 @@ static int rand_read(struct inode *i, struct file *f, char *buf, int count)
 
 ssize_t sys_getrandom(void *buf, size_t len, unsigned int flags)
 {
+	if ((flags & ~(GRND_NONBLOCK | GRND_RANDOM | GRND_INSECURE)) ||
+	    ((flags & GRND_RANDOM) && (flags & GRND_INSECURE)))
+		return -EINVAL;
+	if (!len)
+		return 0;
+	len = MIN(len, RANDOM_MAX_READ);
 	int err = verify_area(VERIFY_WRITE, buf, len);
 	if (err)
 		return err;
-	__rand_read(buf, len);
-    return len;
+	return random_read(buf, len);
 }
 
 struct file_operations rand_fops = {

@@ -27,6 +27,11 @@ if [[ -z $ZLIB_INSTALL_DIR ]] ; then
     exit 1
 fi
 
+if [[ -z $OPENSSL_INSTALL_DIR ]] ; then
+    echo "OPENSSL_INSTALL_DIR is not set"
+    exit 1
+fi
+
 mario_build_stamp="$PYTHON_INSTALL_DIR/.mario-build"
 mario_build_recipe="$PWD/build-python.sh"
 mario_module_setup="$PWD/python.Setup.local"
@@ -74,6 +79,7 @@ build_for_mario()
 {
     if [[ $mario_build_stamp -nt $mario_build_recipe &&
           $mario_build_stamp -nt $mario_module_setup &&
+          $mario_build_stamp -nt $OPENSSL_INSTALL_DIR/.mario-build &&
           -x $PYTHON_INSTALL_DIR-mario/bin/python3 ]] ; then
         return 0
     fi
@@ -116,6 +122,8 @@ build_for_mario()
         --enable-ipv6=no \
         --disable-shared \
         --disable-test-modules \
+        --with-openssl="$OPENSSL_INSTALL_DIR" \
+        --with-openssl-rpath=no \
         --with-pkg-config=no \
         --with-c-locale-coercion=no \
         --with-ensurepip=no \

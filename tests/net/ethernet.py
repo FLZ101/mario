@@ -140,8 +140,8 @@ def listener():
 
 
 @contextmanager
-def guest(smp, directory, initrd, backend, mac=GUEST_MAC):
-    command = qemu_command(QEMU, smp)
+def guest(smp, directory, initrd, backend, mac=GUEST_MAC, **qemu_options):
+    command = qemu_command(QEMU, smp, **qemu_options)
     monitor = directory / "qmp"
     command[command.index("-initrd") + 1] = str(initrd)
     command += [
@@ -169,8 +169,8 @@ def start(child, command):
     send_line(child, f"{command}; printf '\\nETH_STATUS=%s\\n' $?")
 
 
-def finish(child, expected=0):
-    child.expect(r"(?m)^ETH_STATUS=(\d+)\r*\n", timeout=20)
+def finish(child, expected=0, *, timeout=20):
+    child.expect(r"(?m)^ETH_STATUS=(\d+)\r*\n", timeout=timeout)
     output = child.before
     assert int(child.match.group(1)) == expected, output
     child.expect(BOOT_PROMPT)

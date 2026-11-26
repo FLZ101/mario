@@ -291,11 +291,10 @@ the same fixture where they affect socket behavior and descriptor lifetime.
    targets. In NAT mode, forward host loopback to guest TCP port 22. Prefer
    port 2222, fall back to an OS-assigned port, and report the bound port at
    launch. `QEMU_SSH_PORT` can fix the port or disable the forward. Document
-   how to build, enable, configure, and diagnose the NIC. Keep fixed seeds
-   in test fixtures only. Before treating external connectivity as production
-   ready, require a trusted entropy source, keyed TCP initial sequence numbers,
-   and unpredictable ephemeral port selection. Mario's current random device
-   uses a boot-time-seeded xorshift.
+   how to build, enable, configure, and diagnose the NIC. Keep fixed seeds in
+   test fixtures only. Before treating external connectivity as production
+   ready, require a trusted entropy source (N5), keyed TCP initial sequence
+   numbers, and unpredictable ephemeral port selection.
 5. Enable guest Python's `_socket` in `app/usr/python.Setup.local` and
    remove the forced `py_cv_module__socket=no` in `app/usr/build-python.sh`.
    Retain `socket`, `http`, `email`, `urllib.request`, `selectors`, and
@@ -325,11 +324,14 @@ the same fixture where they affect socket behavior and descriptor lifetime.
    currently disabled `_ssl` module and verify `import ssl` in the shipped
    guest interpreter. Keep TLS out of the kernel and lwIP; host SSL support
    does not count as a guest pass.
-2. Provide and test a trusted per-boot entropy source for guest TLS before
-   enabling HTTPS. Do not let a clock-seeded generator or fixed test seed
-   satisfy the TLS entropy check. Confirm the guest has a valid UTC clock
-   for certificate verification. Keep tests on the isolated link; TLS
-   support does not change the default QEMU network mode.
+2. Feed `getrandom()` and `/dev/urandom` from CPU `RDRAND`, which must be
+   advertised by CPUID. Use only values with the success flag set. Retry
+   transient failures a bounded number of times; fail closed if entropy is
+   unavailable, including on CPUs without `RDRAND`. Verify that OpenSSL
+   cannot seed when QEMU hides the CPU feature. Confirm the guest UTC clock
+   for certificate verification. Keep the tests on the isolated link; TLS
+   does not change the default QEMU network mode or harden lwIP's port and
+   TCP sequence number selection.
 3. Generate a test CA and server certificates with matching DNS SANs in
    the host fixture and keep keys in test-only temporary files. Pass the
    CA explicitly to a verifying `ssl.SSLContext`; do not change system

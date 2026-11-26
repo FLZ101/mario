@@ -59,9 +59,9 @@ Build the kernel and apps (`make kernel app`), then choose `QEMU_NET` for
 | `nat` | `e1000` with outbound IPv4 TCP/UDP to hosts reachable from QEMU. Default for `run-gtk` and `debug-gtk`; no TAP setup needed. |
 
 Use NAT for development testing on a trusted network. Mario does not yet
-have hardened TCP randomness or Python HTTPS support, so don't use this
-mode for sensitive traffic. Check with an HTTP request to a known endpoint
-rather than relying on Internet ping.
+have hardened TCP randomness, so don't use this mode for sensitive traffic.
+Check with an HTTP request to a known endpoint rather than relying on
+Internet ping.
 
 NAT forwards a host loopback port to port 22 at the guest's default DHCP
 address. `QEMU_SSH_PORT=auto` (the default) tries port 2222 and falls back to
@@ -89,5 +89,18 @@ The DHCP test uses a scripted Ethernet peer to exercise silence, NAK,
 renewal, route/DNS changes, expiry, link recovery and static override. The
 Python test runs the installed guest interpreter with its native socket and
 poll support. It checks TCP, UDP, musl DNS, HTTP in both directions and
-`asyncio`, with test-only loopback forwards and no public servers. HTTPS is
-not enabled yet.
+`asyncio`, with test-only loopback forwards and no public servers.
+
+## Python HTTPS
+
+The installed Python links OpenSSL statically. `getrandom()` and
+`/dev/urandom` require `RDRAND` from the CPU or a trusted hypervisor. They
+fail with `ENODEV` if the feature is unavailable; Python normally needs a
+working entropy source even at startup. Mario's QEMU launch targets use
+`-cpu max`; the shell and network runners explicitly enable `RDRAND`.
+
+The HTTPS test checks the guest UTC clock, generates a temporary test CA,
+and checks exact payloads in both directions. Python verifies the explicitly
+supplied CA and rejects a wrong hostname, an untrusted CA, and an expired
+leaf. No public CA bundle is installed. A separate boot with `RDRAND`
+disabled verifies that the random APIs and OpenSSL fail closed.

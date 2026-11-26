@@ -54,6 +54,7 @@ include readline.mk
 include zlib.mk
 include libpng.mk
 include sqlite.mk
+include openssl.mk
 
 include python.mk
 

@@ -298,9 +298,11 @@ def require_files(require_kernel):
         sys.exit(2)
 
 
-def qemu_command(qemu, smp):
+def qemu_command(qemu, smp, *, cpu="qemu32,+rdrand"):
     cmd = [
         qemu,
+        "-cpu",
+        cpu,
         "-smp",
         str(smp),
         "-m",

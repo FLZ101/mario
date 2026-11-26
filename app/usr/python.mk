@@ -5,7 +5,7 @@ PYTHON_SRC_URL	:=https://www.python.org/ftp/python/$(PYTHON_VER)/$(PYTHON_SRC_FI
 PYTHON_INSTALL_DIR	:=$(ROOT)/$(PYTHON_SRC_DIR)-install
 
 .PHONY build:: build-python
-build-python: src-python
+build-python: src-python build-openssl
 	CC=$(CC) PYTHON_SRC_DIR=$(PYTHON_SRC_DIR) PYTHON_INSTALL_DIR=$(PYTHON_INSTALL_DIR) ./build-python.sh
 
 src-python: $(PYTHON_SRC_DIR)/configure

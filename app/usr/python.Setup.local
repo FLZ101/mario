@@ -9,6 +9,7 @@ _csv _csv.c
 _datetime _datetimemodule.c
 _decimal _decimal/_decimal.c
 _heapq _heapqmodule.c
+_hashlib _hashopenssl.c
 _interpchannels _interpchannelsmodule.c
 _interpqueues _interpqueuesmodule.c
 _interpreters _interpretersmodule.c
@@ -20,6 +21,7 @@ _pickle _pickle.c
 _queue _queuemodule.c
 _random _randommodule.c
 _socket socketmodule.c
+_ssl _ssl.c
 _statistics _statisticsmodule.c
 _struct _struct.c
 _typing _typingmodule.c
@@ -179,6 +181,4 @@ _multibytecodec cjkcodecs/multibytecodec.c
 
 syslog
 
-_ssl
-_hashlib
 _tkinter

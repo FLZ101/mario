@@ -95,14 +95,17 @@ def check_udp():
 
 
 @contextmanager
-def local_dns():
+def local_dns(records=None):
+    if records is None:
+        records = {HTTP_NAME: HTTP_IP, ECHO_NAME: LOCAL}
+
     def serve():
         while not done.is_set():
             try:
                 query, peer = server.recvfrom(512)
             except TimeoutError:
                 continue
-            name, response = answer(query, {HTTP_NAME: HTTP_IP, ECHO_NAME: LOCAL})
+            name, response = answer(query, records)
             names.append(name)
             server.sendto(response, peer)
 
