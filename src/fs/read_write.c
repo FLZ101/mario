@@ -1,6 +1,5 @@
 #include <fs/fs.h>
 #include <fs/uio.h>
-#include <net/inet.h>
 
 int sys_lseek(unsigned int fd, off_t offset, unsigned int origin)
 {
@@ -123,8 +122,10 @@ static int file_iov(struct file *file, struct iovec *vec, unsigned int vlen,
 		return -EBADF;
 	if (!file->f_op)
 		return -EINVAL;
-	if (file->f_op == &inet_fops)
-		return -EOPNOTSUPP;
+	if (writing && file->f_op->writev)
+		return file->f_op->writev(file, vec, vlen);
+	if (!writing && file->f_op->readv)
+		return file->f_op->readv(file, vec, vlen);
 	transfer = writing ? file->f_op->write : file->f_op->read;
 	if (!transfer)
 		return -EINVAL;

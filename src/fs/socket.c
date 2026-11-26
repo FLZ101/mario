@@ -26,13 +26,9 @@
 #define UNIX_LISTENER_MAX 32
 #define UNIX_RIGHTS_MAX 16
 #define UNIX_IOV_MAX 1024
-#define SOL_SOCKET 1
 #define SCM_RIGHTS 1
-#define SO_TYPE 3
-#define SO_ERROR 4
 #define SO_SNDBUF 7
 #define UNIX_SNDBUF_MAX_ORDER 4
-#define SO_ACCEPTCONN 30
 #define SO_PEERCRED 17
 #define MSG_PEEK 0x02
 #define MSG_DONTWAIT 0x40
@@ -90,21 +86,6 @@ struct unix_socket {
 struct unix_sockaddr {
 	unsigned short family;
 	char path[UNIX_PATH_MAX];
-};
-
-struct socket_iovec {
-	void *base;
-	unsigned int len;
-};
-
-struct socket_msghdr {
-	void *name;
-	unsigned int namelen;
-	struct socket_iovec *iov;
-	int iovlen;
-	void *control;
-	unsigned int controllen;
-	int flags;
 };
 
 struct socket_cmsghdr {
@@ -871,10 +852,9 @@ int sys_setsockopt(int fd, int level, int option, const void *value,
 	int requested;
 	int result;
 
+	inet_dispatch(fd, inet_setsockopt, level, option, value, length);
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
-	if (file->f_op == &inet_fops)
-		return -ENOPROTOOPT;
 	if (file->f_op != &socket_fops)
 		return -ENOTSOCK;
 	if (level != SOL_SOCKET || option != SO_SNDBUF)
@@ -930,10 +910,9 @@ int sys_getsockopt(int fd, int level, int option, void *value,
 	int result;
 	unsigned int result_length;
 
+	inet_dispatch(fd, inet_getsockopt, level, option, value, length);
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
-	if (file->f_op == &inet_fops)
-		return -ENOPROTOOPT;
 	if (file->f_op != &socket_fops)
 		return -ENOTSOCK;
 	if (level != SOL_SOCKET || verify_area(VERIFY_READ, length, sizeof(*length)))
@@ -1080,10 +1059,9 @@ int sys_sendmsg(int fd, struct socket_msghdr *user_msg, int flags)
 	int total = 0;
 	int err;
 
+	inet_dispatch(fd, inet_sendmsg, user_msg, flags);
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
-	if (file->f_op == &inet_fops)
-		return -EOPNOTSUPP;
 	if (file->f_op != &socket_fops)
 		return -ENOTSOCK;
 	if (verify_area(VERIFY_READ, user_msg, sizeof(msg)))
@@ -1234,10 +1212,9 @@ int sys_recvmsg(int fd, struct socket_msghdr *user_msg, int flags)
 	int newfd;
 	unsigned int control_length;
 
+	inet_dispatch(fd, inet_recvmsg, user_msg, flags);
 	if (fd < 0 || fd >= NR_OPEN || !(file = current->files->fd[fd]))
 		return -EBADF;
-	if (file->f_op == &inet_fops)
-		return -EOPNOTSUPP;
 	if (file->f_op != &socket_fops)
 		return -ENOTSOCK;
 	if (verify_area(VERIFY_READ, user_msg, sizeof(msg)))

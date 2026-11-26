@@ -1,6 +1,7 @@
 #include <misc.h>
 #include <net/worker.h>
 #include <sched.h>
+#include <signal.h>
 #include <time.h>
 
 #include <lib/spinlock.h>
@@ -13,6 +14,7 @@
 
 #define NET_TICK_MS (1000U / HZ)
 #define NET_WORK_BATCH 32
+#define NET_CALL_QUEUE_LIMIT 64
 
 struct net_call_work {
 	struct net_work work;
@@ -30,6 +32,7 @@ static unsigned long net_deadline;
 static int net_started;
 static struct net_work *net_head;
 static struct net_work **net_tail = &net_head;
+static unsigned int net_calls_queued;
 
 void mario_lwip_assert(const char *expr, const char *file, int line)
 {
@@ -86,16 +89,36 @@ static void net_wait_for_timer(void)
 	irq_restore();
 }
 
+static void net_enqueue(struct net_work *work)
+{
+	work->next = NULL;
+	*net_tail = work;
+	net_tail = &work->next;
+	wake_up_uninterruptible(&net_wait);
+}
+
 void net_submit(struct net_work *work)
 {
 	unsigned long flags;
 
 	spin_lock_irqsave(&net_wait_lock, flags);
-	work->next = NULL;
-	*net_tail = work;
-	net_tail = &work->next;
-	wake_up_uninterruptible(&net_wait);
+	net_enqueue(work);
 	spin_unlock_irqrestore(&net_wait_lock, flags);
+}
+
+static int net_cancel(struct net_work *work)
+{
+	struct net_work **entry = &net_head;
+
+	while (*entry && *entry != work)
+		entry = &(*entry)->next;
+	if (!*entry)
+		return 0;
+	*entry = work->next;
+	if (!*entry)
+		net_tail = entry;
+	net_calls_queued--;
+	return 1;
 }
 
 static void net_run_call(struct net_work *work)
@@ -106,11 +129,11 @@ static void net_run_call(struct net_work *work)
 	call->result = call->run(call->data);
 	spin_lock_irqsave(&net_wait_lock, flags);
 	call->done = 1;
-	wake_up_uninterruptible(&call->wait);
+	wake_up_all(&call->wait);
 	spin_unlock_irqrestore(&net_wait_lock, flags);
 }
 
-int net_call(int (*run)(void *), void *data)
+static int net_do_call(int (*run)(void *), void *data, int interruptible)
 {
 	struct net_call_work call = {
 		.work.run = net_run_call, .run = run, .data = data,
@@ -119,16 +142,42 @@ int net_call(int (*run)(void *), void *data)
 	if (!__atomic_load_n(&net_started, __ATOMIC_ACQUIRE))
 		return -ENETDOWN;
 	init_wait_queue(&call.wait);
-	net_submit(&call.work);
 	irq_save();
 	ACQUIRE_LOCK(&net_wait_lock);
+	if ((interruptible && signal_pending(current)) || net_calls_queued == NET_CALL_QUEUE_LIMIT) {
+		int error = net_calls_queued == NET_CALL_QUEUE_LIMIT ? -ENOBUFS : -EINTR;
+
+		RELEASE_LOCK(&net_wait_lock);
+		irq_restore();
+		return error;
+	}
+	net_calls_queued++;
+	net_enqueue(&call.work);
 	while (!call.done) {
-		sleep_on(&call.wait, TASK_UNINTERRUPTIBLE, &net_wait_lock);
+		if (interruptible && signal_pending(current)) {
+			if (net_cancel(&call.work)) {
+				call.result = -EINTR;
+				break;
+			}
+			interruptible = 0;
+		}
+		sleep_on(&call.wait, interruptible ? TASK_INTERRUPTIBLE : TASK_UNINTERRUPTIBLE,
+			 &net_wait_lock);
 		ACQUIRE_LOCK(&net_wait_lock);
 	}
 	RELEASE_LOCK(&net_wait_lock);
 	irq_restore();
 	return call.result;
+}
+
+int net_call(int (*run)(void *), void *data)
+{
+	return net_do_call(run, data, 0);
+}
+
+int net_call_interruptible(int (*run)(void *), void *data)
+{
+	return net_do_call(run, data, 1);
 }
 
 static void net_run_work(void)
@@ -139,8 +188,12 @@ static void net_run_work(void)
 
 		spin_lock_irqsave(&net_wait_lock, flags);
 		work = net_head;
-		if (work && !(net_head = work->next))
-			net_tail = &net_head;
+		if (work) {
+			if (!(net_head = work->next))
+				net_tail = &net_head;
+			if (work->run == net_run_call)
+				net_calls_queued--;
+		}
 		spin_unlock_irqrestore(&net_wait_lock, flags);
 		if (!work)
 			return;

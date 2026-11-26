@@ -228,7 +228,11 @@ static void raw_tcp_loopback(int legacy)
 	CHECK(raw_socket(legacy, SYS_sendto, 9, sender, (unsigned long)"data", 4,
 			 0, 0, 0) == 4);
 	CHECK(raw_socket(legacy, SYS_shutdown, 13, sender, SHUT_WR, 0, 0, 0, 0) == 0);
-	read_exact(receiver, buffer, sizeof(buffer));
+	if (legacy)
+		CHECK(raw_socket(1, SYS_recvfrom, 10, receiver, (unsigned long)buffer,
+				 sizeof(buffer), 0, 0, 0) == sizeof(buffer));
+	else
+		read_exact(receiver, buffer, sizeof(buffer));
 	CHECK(!memcmp(buffer, "data", 4) && read(receiver, buffer, 1) == 0);
 	CHECK(close(sender) == 0 && close(receiver) == 0 && close(listener) == 0);
 }

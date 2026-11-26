@@ -144,6 +144,97 @@ int install_fd_file(struct file *file, int close_on_exec)
 	return fd < NR_OPEN ? fd : -EMFILE;
 }
 
+int dup_fd_file(unsigned int old_fd, unsigned int target, int exact, int close_on_exec)
+{
+	struct files_struct *files = current->files;
+	struct file *replaced = NULL;
+	struct file *file;
+	int result;
+
+	if (old_fd >= NR_OPEN)
+		return -EBADF;
+	ACQUIRE_LOCK(&file_lock);
+	file = files->fd[old_fd];
+	if (!file) {
+		result = -EBADF;
+		goto out;
+	}
+	if (target >= NR_OPEN) {
+		result = exact ? -EBADF : -EINVAL;
+		goto out;
+	}
+	if (exact && old_fd == target) {
+		result = target;
+		goto out;
+	}
+	if (!exact) {
+		while (target < NR_OPEN && files->fd[target])
+			target++;
+		if (target == NR_OPEN) {
+			result = -EMFILE;
+			goto out;
+		}
+	}
+	replaced = files->fd[target];
+	file->f_count++;
+	files->fd[target] = file;
+	if (close_on_exec)
+		FD_SET(target, &files->close_on_exec);
+	else
+		FD_CLR(target, &files->close_on_exec);
+	result = target;
+out:
+	RELEASE_LOCK(&file_lock);
+	if (replaced)
+		release_file(replaced, 1);
+	return result;
+}
+
+int sys_fcntl(unsigned int fd, unsigned int cmd, unsigned long arg)
+{
+	struct files_struct *files = current->files;
+	struct file *file;
+	int result = 0;
+
+	if (cmd == F_DUPFD || cmd == F_DUPFD_CLOEXEC)
+		return dup_fd_file(fd, arg, 0, cmd == F_DUPFD_CLOEXEC);
+	if (fd >= NR_OPEN)
+		return -EBADF;
+	ACQUIRE_LOCK(&file_lock);
+	file = files->fd[fd];
+	if (!file) {
+		result = -EBADF;
+		goto out;
+	}
+	switch (cmd) {
+	case F_GETFD:
+		result = FD_ISSET(fd, &files->close_on_exec);
+		break;
+	case F_SETFD:
+		if (arg & 1)
+			FD_SET(fd, &files->close_on_exec);
+		else
+			FD_CLR(fd, &files->close_on_exec);
+		break;
+	case F_GETFL:
+		result = file->f_flags;
+		break;
+	case F_SETFL: {
+		unsigned short flags = (file->f_flags & ~(O_APPEND | O_NONBLOCK)) |
+			(arg & (O_APPEND | O_NONBLOCK));
+
+		__atomic_store_n(&file->f_flags, flags, __ATOMIC_RELAXED);
+		break;
+	}
+	default:
+		result = -EINVAL;
+		break;
+	}
+out:
+	RELEASE_LOCK(&file_lock);
+	return result;
+}
+
 int sys_close(unsigned int fd)
 {
 	struct files_struct *files = current->files;
@@ -167,10 +258,6 @@ static struct file *copy_fd(struct file *old_file)
 	int error;
 	struct file *new_file;
 
-	if (old_file->f_op && old_file->f_op->share_on_fork) {
-		fref(old_file);
-		return old_file;
-	}
 	if (!(new_file = get_empty_file()))
 		return NULL;
 	*new_file = *old_file;
@@ -215,11 +302,20 @@ void copy_files(struct task_struct *p)
 	int i;
 	struct file *f;
 
+	ACQUIRE_LOCK(&file_lock);
 	*(p->files) = *(current->files);
-
 	for (i = 0; i < NR_OPEN; i++)
 		if ((f = p->files->fd[i]))
-			p->files->fd[i] = copy_fd(f);
+			f->f_count++;
+	RELEASE_LOCK(&file_lock);
+
+	for (i = 0; i < NR_OPEN; i++) {
+		f = p->files->fd[i];
+		if (!f || (f->f_op && f->f_op->share_on_fork))
+			continue;
+		p->files->fd[i] = copy_fd(f);
+		release_file(f, 1);
+	}
 }
 
 void copy_fs(struct task_struct *p)

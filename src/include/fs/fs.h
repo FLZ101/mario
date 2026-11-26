@@ -188,6 +188,8 @@ struct filemap_stats {
 	unsigned long cached_pages;
 };
 
+struct iovec;
+
 struct file_operations {
 	int (*open)(struct inode *, struct file *);
 	void (*release)(struct inode *, struct file *);
@@ -203,6 +205,8 @@ struct file_operations {
 	int (*mmap)(struct inode *, struct file *, struct vm_area_struct *);
 	int (*ioctl)(struct inode *, struct file *, unsigned int, unsigned long);
 	int (*poll)(struct file *, struct poll_context *);
+	int (*readv)(struct file *, const struct iovec *, unsigned int);
+	int (*writev)(struct file *, const struct iovec *, unsigned int);
 	int share_on_fork;
 };
 
@@ -226,6 +230,7 @@ void file_init(void);
 struct file *get_empty_file(void);
 struct file *get_fd_file(unsigned int fd, const struct file_operations *ops);
 int install_fd_file(struct file *file, int close_on_exec);
+int dup_fd_file(unsigned int old_fd, unsigned int target, int exact, int close_on_exec);
 int get_two_empty_files(struct file *res[2]);
 void put_file(struct file *);
 void release_file(struct file *, int release);

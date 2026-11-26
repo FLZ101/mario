@@ -2,6 +2,7 @@
 #include <fs/debugfs.h>
 #include <fs/dirent.h>
 #include <fs/ahci.h>
+#include <net/inet.h>
 
 #include <syscall_trace.h>
 
@@ -14,10 +15,12 @@
 #define DEBUGFS_INO_TRACE_PID	5UL
 #define DEBUGFS_INO_AHCI	6UL
 #define DEBUGFS_INO_FILEMAP	7UL
+#define DEBUGFS_INO_NET		8UL
 
 #define DEBUGFS_SYSCALLS_BUF	8192
 #define DEBUGFS_AHCI_BUF	1024
 #define DEBUGFS_FILEMAP_BUF	1024
+#define DEBUGFS_NET_BUF		64
 
 static struct file_operations debugfs_dir_fops;
 
@@ -32,6 +35,8 @@ static int debugfs_name_is(char *name, int len, char *want)
 
 static mode_t debugfs_inode_mode(unsigned long ino)
 {
+	if (ino == DEBUGFS_INO_NET)
+		return S_IFREG | 0444;
 	if (ino == DEBUGFS_INO_SYSCALLS || ino == DEBUGFS_INO_TRACE_PID ||
 	    ino == DEBUGFS_INO_AHCI || ino == DEBUGFS_INO_FILEMAP)
 		return S_IFREG | 0644;
@@ -358,6 +363,18 @@ static int debugfs_file_read(struct inode *inode, struct file *file,
 		return count;
 	}
 
+	if (inode->i_ino == DEBUGFS_INO_NET) {
+		char tmp[DEBUGFS_NET_BUF];
+
+		size = sprintkn(tmp, sizeof(tmp), "udp_rx_drops %u\n", inet_udp_drop_count());
+		if (file->f_pos >= size)
+			return 0;
+		if (count > size - file->f_pos)
+			count = size - file->f_pos;
+		memcpy_tofs(buf, tmp + file->f_pos, count);
+		file->f_pos += count;
+		return count;
+	}
 	if (inode->i_ino != DEBUGFS_INO_SYSCALLS)
 		return -EINVAL;
 
@@ -444,6 +461,8 @@ static struct inode *debugfs_make_file(unsigned long ino)
 		size = DEBUGFS_AHCI_BUF;
 	else if (ino == DEBUGFS_INO_FILEMAP)
 		size = DEBUGFS_FILEMAP_BUF;
+	else if (ino == DEBUGFS_INO_NET)
+		size = DEBUGFS_NET_BUF;
 	return debugfs_alloc_inode(ino, size, NULL, &debugfs_file_fops);
 }
 
@@ -461,6 +480,8 @@ static int debugfs_lookup_child(unsigned long dir_ino, char *name, int len,
 			*res = debugfs_make_file(DEBUGFS_INO_AHCI);
 		else if (debugfs_name_is(name, len, "filemap"))
 			*res = debugfs_make_file(DEBUGFS_INO_FILEMAP);
+		else if (debugfs_name_is(name, len, "net"))
+			*res = debugfs_make_file(DEBUGFS_INO_NET);
 		return *res ? 0 : -ENOENT;
 	}
 
@@ -480,7 +501,8 @@ static int debugfs_parent(unsigned long dir_ino, struct inode **res)
 	}
 
 	if (dir_ino == DEBUGFS_INO_SYSCALLS || dir_ino == DEBUGFS_INO_TRACE_PID ||
-	    dir_ino == DEBUGFS_INO_AHCI || dir_ino == DEBUGFS_INO_FILEMAP) {
+	    dir_ino == DEBUGFS_INO_AHCI || dir_ino == DEBUGFS_INO_FILEMAP ||
+	    dir_ino == DEBUGFS_INO_NET) {
 		*res = debugfs_make_dir(DEBUGFS_INO_ROOT);
 		return *res ? 0 : -ENOMEM;
 	}
@@ -543,6 +565,11 @@ static int debugfs_get_entry(unsigned long dir_ino, int index, char *name,
 		case 3:
 			sprintkn(name, size, "%s", "filemap");
 			*ino = DEBUGFS_INO_FILEMAP;
+			*type = DT_REG;
+			return 0;
+		case 4:
+			sprintkn(name, size, "%s", "net");
+			*ino = DEBUGFS_INO_NET;
 			*type = DT_REG;
 			return 0;
 		default:

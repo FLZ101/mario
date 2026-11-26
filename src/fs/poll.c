@@ -47,16 +47,10 @@ static void poll_get_files(struct file **files, struct pollfd *fds,
 
     for (i = 0; i < nfds; i++) {
         int fd = fds[i].fd;
-        struct file *f;
-
         files[i] = NULL;
         if (fd == FD_IGNORE || fd < 0 || fd >= NR_OPEN)
             continue;
-        f = current->files->fd[fd];
-        if (!f)
-            continue;
-        fref(f);
-        files[i] = f;
+        files[i] = get_fd_file(fd, NULL);
     }
 }
 
@@ -70,7 +64,7 @@ static void poll_put_files(struct file **files, unsigned int nfds)
 }
 
 static int poll_fds(struct poll_context *ctx, struct pollfd *fds,
-                    struct file **files, unsigned int nfds)
+                    struct file **files, unsigned int nfds, int select_mode)
 {
     int n_done = 0;
     for (unsigned int i = 0; i < nfds; ++i) {
@@ -90,24 +84,30 @@ static int poll_fds(struct poll_context *ctx, struct pollfd *fds,
 
         struct file *f = files[i];
         if (fd >= NR_OPEN || !f) {
+            if (select_mode)
+                return -EBADF;
             *revents = POLLNVAL;
             ++n_done;
             continue;
         }
-        if (!f->f_op->poll) {
-            *revents = events & (POLLIN | POLLOUT);
-            ++n_done;
-            continue;
+        short mask = f->f_op && f->f_op->poll ? f->f_op->poll(f, ctx) :
+            POLLIN | POLLOUT | POLLRDNORM | POLLWRNORM;
+        if (select_mode) {
+            if (mask & (POLLHUP | POLLERR))
+                mask |= POLLIN;
+            if (mask & POLLERR)
+                mask |= POLLOUT;
+            *revents = events & mask;
+        } else {
+            *revents = (events | POLLERR | POLLHUP) & mask;
         }
-        short mask = f->f_op->poll(f, ctx);
-        *revents = (events | POLLERR | POLLHUP) & mask;
         if (*revents)
             ++n_done;
     }
     return n_done;
 }
 
-int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
+static int do_poll(struct pollfd *fds, unsigned int nfds, long timeout, int select_mode)
 {
     struct poll_context ctx = { .qproc = count_qproc };
     struct file **files = NULL;
@@ -128,12 +128,12 @@ int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
         poll_get_files(files, fds, nfds);
     }
 
-    n_done = poll_fds(&ctx, fds, files, nfds);
+    n_done = poll_fds(&ctx, fds, files, nfds, select_mode);
     if (ctx.error) {
         n_done = ctx.error;
         goto out;
     }
-    if (n_done > 0 || !timeout)
+    if (n_done != 0 || !timeout)
         goto out;
 
     if (ctx.n) {
@@ -151,12 +151,12 @@ int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
         ctx.max = ctx.n;
         ctx.n = 0;
         ctx.qproc = collect_qproc;
-        n_done = poll_fds(&ctx, fds, files, nfds);
+        n_done = poll_fds(&ctx, fds, files, nfds, select_mode);
         if (ctx.error) {
             n_done = ctx.error;
             goto out;
         }
-        if (n_done > 0)
+        if (n_done != 0)
             goto out;
     }
 
@@ -177,8 +177,8 @@ int do_poll(struct pollfd *fds, unsigned int nfds, long timeout)
     }
     for (;;) {
         current->state = TASK_INTERRUPTIBLE;
-        n_done = poll_fds(&ctx, fds, files, nfds);
-        if (n_done > 0)
+        n_done = poll_fds(&ctx, fds, files, nfds, select_mode);
+        if (n_done != 0)
             break;
         if (current->signal & ~current->blocked) {
             n_done = -EINTR;
@@ -215,7 +215,7 @@ int sys_poll(struct pollfd *ufds, unsigned int nfds, long timeout)
     int error = 0;
 
     if (!nfds)
-        return do_poll(NULL, 0, timeout);
+        return do_poll(NULL, 0, timeout, 0);
 
     unsigned int sz = nfds * sizeof(struct pollfd);
 
@@ -231,7 +231,7 @@ int sys_poll(struct pollfd *ufds, unsigned int nfds, long timeout)
         return -ENOMEM;
     memcpy_fromfs(fds, ufds, sz);
 
-    error = do_poll(fds, nfds, timeout);
+    error = do_poll(fds, nfds, timeout, 0);
     memcpy_tofs(ufds, fds, sz);
 
     kfree(fds);
@@ -289,7 +289,7 @@ int sys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, s
 {
     int error = 0;
 
-    if (nfds < 0)
+    if (nfds < 0 || nfds > FD_SETSIZE)
         return -EINVAL;
     if (!nfds)
         return 0;
@@ -376,12 +376,12 @@ int sys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, s
         }
         if (efds && FD_ISSET(i, efds)) {
             poll_fds[i].fd = i;
-            poll_fds[i].events |= POLLERR;
+            poll_fds[i].events |= POLLPRI;
         }
     }
 
-    error = do_poll(poll_fds, nfds, timeout_ms);
-    if (error)
+    error = do_poll(poll_fds, nfds, timeout_ms, 1);
+    if (error < 0)
         goto tail_2;
 
     if (rfds)
@@ -415,7 +415,7 @@ int sys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, s
         }
 
         // Map Errors/Exceptions
-        if (poll_fds[i].revents & (POLLERR | POLLHUP | POLLPRI)) {
+        if (poll_fds[i].revents & POLLPRI) {
             if (efds) {
                 FD_SET(i, efds);
                 ++n_done;

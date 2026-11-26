@@ -32,10 +32,6 @@ int do_openat(unsigned int dirfd, char *filename, int flags)
 		if (!current->files->fd[fd])
 			break;
 	}
-	if (flags & O_CLOEXEC)
-		FD_SET(fd, &current->files->close_on_exec);
-	else
-		FD_CLR(fd, &current->files->close_on_exec);
 	if (!(f = get_empty_file()))
 		return -ENFILE;
 
@@ -68,9 +64,11 @@ int do_openat(unsigned int dirfd, char *filename, int flags)
 			return error;
 		}
 	}
-	current->files->fd[fd] = f;
 	f->f_flags &= ~(O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC);
 	i->i_atime = current_time();
+	fd = install_fd_file(f, flags & O_CLOEXEC);
+	if (fd < 0)
+		release_file(f, 1);
 	return fd;
 }
 

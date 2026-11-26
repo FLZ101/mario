@@ -145,6 +145,38 @@ networks, not general Internet access.
    tests and a desktop launch smoke test for descriptor passing. Run Mario's
    kernel lock checker and build at each kernel milestone.
 
+#### Initial socket and memory limits
+
+- At most 48 IPv4 endpoints, including descriptors with a failed connection,
+  queued accepts, and endpoints waiting to finish a close. lwIP has 24 TCP
+  connection PCBs (including `TIME_WAIT`), 8 listen PCBs, and 16 UDP PCBs.
+  A listener queues up to 8 accepts, subject to the PCB and endpoint limits.
+- TCP grants 2144 bytes of receive window and 1072 bytes of send buffer per
+  connection. The receive queue holds at most 8 pbuf chains; a full TCP
+  queue refuses the next pbuf until lwIP can retry. The UDP queue holds at
+  most 8 datagrams (up to 11,776 bytes of payload), further bounded by the
+  shared lwIP heap. Full UDP queues drop the entire next datagram and
+  increment `udp_rx_drops` in `/sys/kernel/debug/net`.
+- At most 16 staged reads and 16 staged writes, plus 4 nonblocking reserve
+  slots per direction. Staging holds at most 4096 bytes of stream data (1472
+  for UDP) and at most 1024 iovecs per call. With i386 allocator rounding,
+  all 40 slots together use at most 960 KiB of allocator pages. Each endpoint
+  fits in a 512-byte allocation. lwIP uses a 32 KiB heap, 64 TCP segments,
+  32 pool pbufs, 16 pbuf headers, and one timeout slot beyond its internal
+  timers; the i386 heap and pools occupy less than 58 KiB of static storage.
+- The worker accepts up to 64 queued synchronous requests. Close work uses an
+  embedded item per endpoint and does not consume a synchronous queue slot.
+  Last close schedules teardown without sleeping; if lwIP defers FIN for
+  lack of memory, the worker lets it retry and aborts after roughly 2 seconds
+  if FIN is still pending. A normal close uses lwIP's ordinary `TIME_WAIT`.
+
+A syscall holds a file reference for the full operation, including poll
+registration. The network worker sees only kernel-owned data. A signal can
+remove an unclaimed request from the worker queue; after the worker claims
+it, the caller waits for the result and returns any committed progress. An
+interrupted blocked connect leaves the TCP handshake in progress, but its
+PCB no longer depends on any caller-owned buffer or wait node.
+
 #### i386 socket syscall test matrix
 
 Drive the raw guest ABI from a C fixture so musl's fallback cannot hide an

@@ -17,6 +17,7 @@
 #define LWIP_LOOPBACK_MAX_PBUFS 16
 #define LWIP_TCP_PCB_NUM_EXT_ARGS 1
 #define TCP_LISTEN_BACKLOG 1
+#define SO_REUSE 1
 #define IP_FRAG 0
 #define IP_REASSEMBLY 0
 
@@ -27,6 +28,7 @@
 #define MEMP_NUM_TCP_SEG 64
 #define MEMP_NUM_UDP_PCB 16
 #define PBUF_POOL_SIZE 32
+#define MEMP_NUM_SYS_TIMEOUT (LWIP_NUM_SYS_TIMEOUT_INTERNAL + 1)
 
 #define mem_init lwip_mem_init
 
