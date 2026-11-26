@@ -15,8 +15,9 @@ Keep the existing `AF_UNIX` behavior, including `SCM_RIGHTS` used by the GUI.
 QEMU's `e1000` model (Intel 82540EM, PCI ID `8086:100e`) is the only Ethernet
 target. Physical NICs, `e1000e`, and other Ethernet drivers are out of scope,
 as are IPv6, raw sockets, multicast, VLANs, IP forwarding, firewalling, and
-Wi-Fi. TLS belongs entirely in userspace. The first release targets isolated
-networks, not general Internet access.
+Wi-Fi. TLS belongs entirely in userspace. Release validation targets isolated
+networks. QEMU outbound NAT is for development, not a production Internet
+configuration.
 
 ## Stack and architecture
 
@@ -284,14 +285,17 @@ the same fixture where they affect socket behavior and descriptor lifetime.
    separately on the scripted Ethernet link. Use loopback-only `hostfwd`
    for inbound tests; do not enable a listener or port forwards in
    distributed images.
-4. Wire explicit `QEMU_NET=isolated` into `run`, `run-gtk`, and debug/quick
-   variants; default to `QEMU_NET=off` (`-nic none`). Use restricted QEMU user
-   networking for isolated developer runs. Document how to build, enable,
-   configure, and diagnose the NIC. Do not add a public-network mode in this
-   release: Mario's current random device uses a boot-time-seeded xorshift.
-   Keep fixed seeds in test fixtures only. Before enabling general external
-   connectivity, require a trusted entropy source, keyed TCP initial sequence
-   numbers, and unpredictable ephemeral port selection.
+4. Offer `QEMU_NET=isolated` for restricted developer runs without port
+   forwards, `QEMU_NET=nat` for outbound IPv4, and `QEMU_NET=off` for no NIC.
+   Default to NAT for `run-gtk` and `debug-gtk` and no NIC for other launch
+   targets. In NAT mode, forward host loopback to guest TCP port 22. Prefer
+   port 2222, fall back to an OS-assigned port, and report the bound port at
+   launch. `QEMU_SSH_PORT` can fix the port or disable the forward. Document
+   how to build, enable, configure, and diagnose the NIC. Keep fixed seeds
+   in test fixtures only. Before treating external connectivity as production
+   ready, require a trusted entropy source, keyed TCP initial sequence numbers,
+   and unpredictable ephemeral port selection. Mario's current random device
+   uses a boot-time-seeded xorshift.
 5. Enable guest Python's `_socket` in `app/usr/python.Setup.local` and
    remove the forced `py_cv_module__socket=no` in `app/usr/build-python.sh`.
    Retain `socket`, `http`, `email`, `urllib.request`, `selectors`, and
@@ -325,7 +329,7 @@ the same fixture where they affect socket behavior and descriptor lifetime.
    enabling HTTPS. Do not let a clock-seeded generator or fixed test seed
    satisfy the TLS entropy check. Confirm the guest has a valid UTC clock
    for certificate verification. Keep tests on the isolated link; TLS
-   support does not enable public networking.
+   support does not change the default QEMU network mode.
 3. Generate a test CA and server certificates with matching DNS SANs in
    the host fixture and keep keys in test-only temporary files. Pass the
    CA explicitly to a verifying `ssl.SSLContext`; do not change system

@@ -80,13 +80,33 @@ BOOT_DISK ?= hd1.img
 USR_DISK ?= hd3.img
 QEMU_AUDIO ?= $(if $(PULSE_SERVER),pa)
 QEMU_NET ?= off
+QEMU_LAUNCH := qemu-system-i386
+
+ifeq ($(QEMU_NET),nat)
+QEMU_SSH_PORT ?= auto
+endif
+
+ifneq ($(QEMU_SSH_PORT),)
+ifneq ($(QEMU_NET),nat)
+$(error QEMU_SSH_PORT requires QEMU_NET=nat)
+endif
+ifneq ($(QEMU_SSH_PORT),auto)
+ifneq ($(shell port='$(subst ','"'"',$(QEMU_SSH_PORT))'; \
+	[[ $$port =~ ^[1-9][0-9]{0,4}$$ ]] && (( port <= 65535 )) && printf yes),yes)
+$(error QEMU_SSH_PORT must be auto or a TCP port from 1 to 65535)
+endif
+endif
+QEMU_LAUNCH := $(PYTHON) ./run-with-ssh.py $(QEMU_SSH_PORT) $(QEMU_LAUNCH)
+endif
 
 ifeq ($(QEMU_NET),off)
 NETWORK_FLAGS := -nic none
 else ifeq ($(QEMU_NET),isolated)
 NETWORK_FLAGS := -nic user,model=e1000,restrict=on
+else ifeq ($(QEMU_NET),nat)
+NETWORK_FLAGS := -nic user,model=e1000,ipv6=off,restrict=off
 else
-$(error Unsupported QEMU_NET '$(QEMU_NET)'; use off or isolated)
+$(error Unsupported QEMU_NET '$(QEMU_NET)'; use off, isolated, or nat)
 endif
 
 HD_FLAGS := \
@@ -118,10 +138,10 @@ QEMU_FLAGS := \
 QEMU_FLAGS_DEBUG := $(QEMU_FLAGS) -no-reboot -no-shutdown
 
 run:
-	qemu-system-i386 $(QEMU_FLAGS)
+	$(QEMU_LAUNCH) $(QEMU_FLAGS)
 
 debug:
-	qemu-system-i386 -s -S $(QEMU_FLAGS_DEBUG)
+	$(QEMU_LAUNCH) -s -S $(QEMU_FLAGS_DEBUG)
 
 #	-display gtk
 #	-display curses
@@ -141,16 +161,16 @@ QUICK_QEMU_FLAGS := \
 QUICK_QEMU_FLAGS_DEBUG := $(QUICK_QEMU_FLAGS) -no-reboot -no-shutdown
 
 quick-run:
-	qemu-system-i386 $(QUICK_QEMU_FLAGS)
+	$(QEMU_LAUNCH) $(QUICK_QEMU_FLAGS)
 
 quick-debug:
-	qemu-system-i386 -s -S $(QUICK_QEMU_FLAGS_DEBUG)
+	$(QEMU_LAUNCH) -s -S $(QUICK_QEMU_FLAGS_DEBUG)
 
 tmux-run:
-	./tmux.sh start $(QUICK_QEMU_FLAGS)
+	./tmux.sh start $(QEMU_LAUNCH) $(QUICK_QEMU_FLAGS)
 
 tmux-debug:
-	./tmux.sh start -s -S $(QUICK_QEMU_FLAGS_DEBUG)
+	./tmux.sh start $(QEMU_LAUNCH) -s -S $(QUICK_QEMU_FLAGS_DEBUG)
 
 tmux-attach:
 	./tmux.sh attach

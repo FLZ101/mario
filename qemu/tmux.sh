@@ -3,12 +3,11 @@
 set -e
 
 SESSION_NAME="mario"
-QEMU_BIN="qemu-system-i386"
 
 cwd=$(pwd)
 
 usage() {
-    echo "Usage: $0 start [qemu_args...]"
+    echo "Usage: $0 start command [args...]"
     echo "       $0 attach"
     echo "       $0 kill"
     echo ""
@@ -17,6 +16,7 @@ usage() {
 
 if [ "$1" == "start" ]; then
     shift 1
+    [ "$#" -gt 0 ] || usage
     if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
         echo "Error: Session '$SESSION_NAME' exists."
         exit 1
@@ -44,9 +44,9 @@ if [ "$1" == "start" ]; then
     tmux select-pane -t "$SESSION_NAME:$CON_WIN" -T "con"
     tmux send-keys -t "$SESSION_NAME:$CON_WIN" 'clear' Enter
 
-    FULL_QEMU_CMD=( "$QEMU_BIN" "${ARGS[@]}" "$@" )
-
-    tmux send-keys -t "$SESSION_NAME:$CON_WIN" "${FULL_QEMU_CMD[*]}" Enter
+    printf -v qemu_command '%q ' "$@" "${ARGS[@]}"
+    tmux send-keys -t "$SESSION_NAME:$CON_WIN" -l -- "$qemu_command"
+    tmux send-keys -t "$SESSION_NAME:$CON_WIN" Enter
 
     for ((i=0; i<NUM_SERIALS; i++)); do
         WIN=${SERIAL_WINS[$i]}

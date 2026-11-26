@@ -14,6 +14,9 @@ GUI_TEST_CASES ?= $(ROOT)/tests/gui
 
 SMP ?= 1
 export SMP
+ifeq ($(origin QEMU_NET),undefined)
+run-gtk debug-gtk: QEMU_NET := nat
+endif
 QEMU_NET ?= off
 export QEMU_NET
 

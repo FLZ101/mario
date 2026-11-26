@@ -47,13 +47,28 @@ run on an IPv4 socket; addresses are in network byte order, all other fields
 are in host byte order, and the probe error is a positive errno. Changes use
 Mario's effective-UID check; the current system reports UID 0 for all tasks.
 
-## Isolated networking and DHCP
+## QEMU network modes and DHCP
 
-Build the kernel and apps (`make kernel app`), then run
-`make run-gtk QEMU_NET=isolated` (also works with `run`, `debug`, and the
-quick variants). The default is `QEMU_NET=off`, which attaches no NIC.
-Isolated mode uses restricted QEMU user networking with no port forwards;
-it is not a way to connect Mario to the public Internet.
+Build the kernel and apps (`make kernel app`), then choose `QEMU_NET` for
+`make run-gtk` or any of the run/debug variants:
+
+| Mode | Behavior |
+| --- | --- |
+| `off` | No virtual NIC. Default except for `run-gtk` and `debug-gtk`. |
+| `isolated` | `e1000` with restricted QEMU user networking; no outside access or port forwards. |
+| `nat` | `e1000` with outbound IPv4 TCP/UDP to hosts reachable from QEMU. Default for `run-gtk` and `debug-gtk`; no TAP setup needed. |
+
+Use NAT for development testing on a trusted network. Mario does not yet
+have hardened TCP randomness or Python HTTPS support, so don't use this
+mode for sensitive traffic. Check with an HTTP request to a known endpoint
+rather than relying on Internet ping.
+
+NAT forwards a host loopback port to port 22 at the guest's default DHCP
+address. `QEMU_SSH_PORT=auto` (the default) tries port 2222 and falls back to
+an OS-assigned port if it is busy. The launcher prints the bound address and
+port at startup. Set `QEMU_SSH_PORT=2223` to require a particular port or
+`QEMU_SSH_PORT=` to disable the forward. SSH login requires a guest SSH
+server, which Mario does not yet ship.
 
 In the guest, run `/sbin/netctl.exe dhcp start`, then check
 `/sbin/netctl.exe dhcp status` for carrier, the leased address, gateway,
@@ -63,7 +78,7 @@ carrier loss drops the lease and carrier recovery starts a fresh discovery.
 An infinite lease reports `lease_seconds_left=4294967295`.
 
 DNS is manual by default: enabling DHCP alone never writes `/etc/resolv.conf`.
-Run one `/sbin/netctl.exe dns auto` process to opt in to replacing that file.
+Run `/sbin/netctl.exe dns auto &` once to opt in to replacing that file.
 It polls once per second, publishes changed nameservers by renaming a
 completed file, and removes DHCP entries when the lease is lost. If a reader
 holds the file open on MarioFS, the helper retries on the next poll. Identical
