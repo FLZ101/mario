@@ -8,7 +8,7 @@ LWIP_FLAGS := $(OPTIMIZE) -ggdb -fno-omit-frame-pointer -mgeneral-regs-only \
 	-std=gnu11 -Wall -Werror -D__KERNEL__ -Isrc/include -Isrc/net/include \
 	-I$(LWIP_SRC)/include
 
-CORE := def inet_chksum init ip mem memp netif pbuf stats sys tcp tcp_in tcp_out timeouts udp
+CORE := def inet_chksum init ip mem memp netif pbuf raw stats sys tcp tcp_in tcp_out timeouts udp
 IPV4 := acd dhcp etharp icmp ip4 ip4_addr
 OBJS := $(addprefix $(LWIP_OBJ)/core/,$(addsuffix .o,$(CORE))) \
 	$(addprefix $(LWIP_OBJ)/core/ipv4/,$(addsuffix .o,$(IPV4))) \

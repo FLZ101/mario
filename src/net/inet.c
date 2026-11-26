@@ -9,10 +9,12 @@
 #include <misc.h>
 
 #include <lwip/netif.h>
+#include <lwip/raw.h>
 #include <lwip/sys.h>
 #include <lwip/tcp.h>
 #include <lwip/timeouts.h>
 #include <lwip/udp.h>
+#include <lwip/prot/ip4.h>
 
 #define INET_RX_PACKETS 8
 #define INET_BACKLOG 8
@@ -53,6 +55,7 @@ struct inet_packet {
 
 struct inet_endpoint {
 	int type;
+	int protocol;
 	enum inet_state state;
 	int error;
 	int connect_error;
@@ -66,6 +69,7 @@ struct inet_endpoint {
 	union {
 		struct tcp_pcb *tcp;
 		struct udp_pcb *udp;
+		struct raw_pcb *raw;
 	};
 	struct inet_address local;
 	struct inet_address peer;
@@ -106,6 +110,7 @@ struct inet_request {
 	struct inet_endpoint *accepted;
 	struct inet_address address;
 	int option;
+	int protocol;
 	int has_address;
 	int started;
 	int nonblock;
@@ -121,6 +126,11 @@ static unsigned int inet_io_slots[2];
 static unsigned int inet_endpoints;
 static unsigned int inet_udp_drops;
 static struct inet_endpoint *inet_closing;
+
+static int inet_is_raw(const struct inet_endpoint *socket)
+{
+	return socket->protocol == IP_PROTO_ICMP;
+}
 
 static int inet_error(err_t error)
 {
@@ -162,7 +172,12 @@ static unsigned int inet_poll_mask(struct inet_endpoint *socket)
 {
 	unsigned int mask = socket->error ? POLLERR : 0;
 
-	if (socket->type == SOCK_DGRAM) {
+	if (inet_is_raw(socket)) {
+		if (socket->rx_count || socket->read_shutdown)
+			mask |= POLLIN;
+		if (!socket->write_shutdown)
+			mask |= POLLOUT;
+	} else if (socket->type == SOCK_DGRAM) {
 		if (socket->rx_count || socket->read_shutdown)
 			mask |= POLLIN;
 		if (!socket->write_shutdown)
@@ -211,7 +226,7 @@ static void inet_event(struct inet_endpoint *socket)
 	inet_publish(socket, 1);
 }
 
-static struct inet_endpoint *inet_alloc(int type)
+static struct inet_endpoint *inet_alloc(int type, int protocol)
 {
 	struct inet_endpoint *socket;
 
@@ -223,6 +238,7 @@ static struct inet_endpoint *inet_alloc(int type)
 	inet_endpoints++;
 	memset(socket, 0, sizeof(*socket));
 	socket->type = type;
+	socket->protocol = protocol;
 	socket->local.family = AF_INET;
 	INIT_LOCK(&socket->event_lock);
 	init_wait_queue(&socket->events);
@@ -283,6 +299,27 @@ static void inet_udp_receive(void *arg, struct udp_pcb *pcb, struct pbuf *packet
 	} else {
 		inet_queue_packet(socket, packet, inet_address(ip, port));
 	}
+}
+
+static u8_t inet_raw_receive(void *arg, struct raw_pcb *pcb, struct pbuf *packet,
+			     const ip_addr_t *ip)
+{
+	struct inet_endpoint *socket = arg;
+
+	if (socket->read_shutdown || socket->rx_count == INET_RX_PACKETS)
+		return 0;
+	/* Ping sockets are SOCK_DGRAM and expect the ICMP payload, not the IP
+	 * header. Raw sockets expect the complete packet, matching Linux. */
+	if (socket->type == SOCK_DGRAM) {
+		struct ip_hdr *header = (struct ip_hdr *)packet->payload;
+
+		if (pbuf_remove_header(packet, IPH_HL_BYTES(header))) {
+			pbuf_free(packet);
+			return 1;
+		}
+	}
+	inet_queue_packet(socket, packet, inet_address(ip, 0));
+	return 1;
 }
 
 unsigned int inet_udp_drop_count(void)
@@ -367,7 +404,7 @@ static err_t inet_tcp_accept(void *arg, struct tcp_pcb *pcb, err_t error)
 	if (!pcb)
 		return error;
 	if (listener->accept_count < listener->backlog)
-		socket = inet_alloc(SOCK_STREAM);
+		socket = inet_alloc(SOCK_STREAM, IP_PROTO_TCP);
 	if (!socket) {
 		tcp_abort(pcb);
 		return ERR_ABRT;
@@ -476,6 +513,8 @@ static void inet_destroy(struct inet_endpoint *socket)
 	if (socket->type == SOCK_STREAM) {
 		if (inet_close_tcp(socket))
 			return;
+	} else if (inet_is_raw(socket)) {
+		raw_remove(socket->raw);
 	} else if (socket->udp) {
 		udp_remove(socket->udp);
 	}
@@ -492,6 +531,11 @@ static int inet_open_pcb(struct inet_endpoint *socket)
 		if (inet_pcb_arg == LWIP_TCP_PCB_NUM_EXT_ARG_ID_INVALID)
 			inet_pcb_arg = tcp_ext_arg_alloc_id();
 		inet_tcp_attach(socket, pcb);
+	} else if (socket->protocol == IP_PROTO_ICMP) {
+		socket->raw = raw_new_ip_type(IPADDR_TYPE_V4, IP_PROTO_ICMP);
+		if (!socket->raw)
+			return -ENOBUFS;
+		raw_recv(socket->raw, inet_raw_receive, socket);
 	} else {
 		socket->udp = udp_new();
 		if (!socket->udp)
@@ -520,6 +564,10 @@ static int inet_bind_pcb(struct inet_endpoint *socket, struct inet_address *addr
 		if (!error)
 			socket->local = inet_address(&socket->tcp->local_ip,
 						     socket->tcp->local_port);
+	} else if (inet_is_raw(socket)) {
+		error = raw_bind(socket->raw, &ip);
+		if (!error)
+			socket->local = inet_address(&socket->raw->local_ip, 0);
 	} else {
 		error = udp_bind(socket->udp, &ip, lwip_ntohs(address->port));
 		if (!error)
@@ -574,6 +622,32 @@ static int inet_connect_pcb(struct inet_request *request)
 	u16_t port = lwip_ntohs(request->address.port);
 	err_t error;
 
+	if (inet_is_raw(socket)) {
+		ip_addr_t source;
+		struct netif *interface;
+
+		if (request->address.family == AF_UNSPEC) {
+			raw_disconnect(socket->raw);
+			socket->local = inet_address(&socket->raw->local_ip, 0);
+			socket->peer = (struct inet_address) { 0 };
+			socket->state = INET_IDLE;
+			return 0;
+		}
+		interface = ip4_route(ip_2_ip4(&ip));
+		if (!interface)
+			return -ENETUNREACH;
+		error = raw_connect(socket->raw, &ip);
+		if (!error) {
+			source = socket->raw->local_ip;
+			if (ip4_addr_isany_val(source))
+				source = *netif_ip_addr4(interface);
+			socket->local = inet_address(&source, 0);
+			socket->peer = request->address;
+			socket->state = INET_CONNECTED;
+			socket->bound = 1;
+		}
+		return inet_error(error);
+	}
 	if (socket->type == SOCK_DGRAM) {
 		ip_addr_t source;
 		struct netif *interface;
@@ -683,6 +757,26 @@ static int inet_send_pcb(struct inet_request *request)
 		tcp_output(socket->tcp);
 		return length;
 	}
+	if (inet_is_raw(socket)) {
+		struct pbuf *packet;
+
+		if (!request->has_address && socket->state != INET_CONNECTED)
+			return -EDESTADDRREQ;
+		packet = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
+		if (!packet)
+			return -ENOBUFS;
+		if (length)
+			pbuf_take(packet, request->buffer, length);
+		if (request->has_address) {
+			ip_addr_t ip = inet_ip(&request->address);
+
+			error = raw_sendto(socket->raw, packet, &ip);
+		} else {
+			error = raw_send(socket->raw, packet);
+		}
+		pbuf_free(packet);
+		return error ? inet_error(error) : (int)length;
+	}
 	if (!request->has_address && socket->state != INET_CONNECTED)
 		return -EDESTADDRREQ;
 	struct pbuf *packet = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
@@ -768,7 +862,12 @@ static int inet_option_pcb(struct inet_request *request)
 			if (!set)
 				return socket->reuseaddr;
 			socket->reuseaddr = value;
-			if (socket->type == SOCK_DGRAM) {
+			if (inet_is_raw(socket)) {
+				if (value)
+					ip_set_option(socket->raw, SOF_REUSEADDR);
+				else
+					ip_reset_option(socket->raw, SOF_REUSEADDR);
+			} else if (socket->type == SOCK_DGRAM) {
 				if (value)
 					ip_set_option(socket->udp, SOF_REUSEADDR);
 				else
@@ -779,6 +878,38 @@ static int inet_option_pcb(struct inet_request *request)
 				else
 					ip_reset_option(socket->tcp, SOF_REUSEADDR);
 			}
+			return 0;
+		case SO_DEBUG:
+		case SO_DONTROUTE:
+		case SO_SNDBUF:
+		case SO_RCVBUF:
+		case SO_MARK:
+			if (!set)
+				return 0;
+			return 0;
+		}
+	} else if (request->level == IPPROTO_IP) {
+		switch (request->option) {
+		case IP_TTL:
+			if (!set) {
+				if (inet_is_raw(socket))
+					return socket->raw->ttl;
+				if (socket->udp)
+					return socket->udp->ttl;
+				if (socket->tcp)
+					return socket->tcp->ttl;
+				return 0;
+			}
+			if (inet_is_raw(socket))
+				socket->raw->ttl = (u8_t)value;
+			else if (socket->udp)
+				socket->udp->ttl = (u8_t)value;
+			else if (socket->tcp)
+				socket->tcp->ttl = (u8_t)value;
+			return 0;
+		case IP_RECVTTL:
+			if (!set)
+				return 0;
 			return 0;
 		}
 	} else if (request->level == IP_PROTO_TCP && request->option == TCP_NODELAY &&
@@ -845,7 +976,8 @@ static int inet_run(void *data)
 	int result;
 
 	if (request->op == INET_OPEN) {
-		struct inet_endpoint *socket = inet_alloc(request->option);
+		struct inet_endpoint *socket = inet_alloc(request->option,
+							request->protocol);
 
 		if (!socket)
 			return -ENOBUFS;
@@ -1032,13 +1164,25 @@ static int inet_install(struct inet_endpoint *socket, int flags)
 int inet_socket(int type, int protocol)
 {
 	int base_type = type & ~(SOCK_CLOEXEC | SOCK_NONBLOCK);
-	struct inet_request request = { .op = INET_OPEN, .option = base_type };
+	struct inet_request request = {
+		.op = INET_OPEN, .option = base_type, .protocol = protocol,
+	};
 	int result;
 
-	if (base_type != SOCK_STREAM && base_type != SOCK_DGRAM)
+	/* Raw support is limited to ICMP for ping/traceroute. IPv4 raw sockets
+	 * for arbitrary protocols are intentionally not exposed yet. */
+	if (base_type == SOCK_STREAM) {
+		if (protocol && protocol != IP_PROTO_TCP)
+			return -EPROTONOSUPPORT;
+	} else if (base_type == SOCK_DGRAM) {
+		if (protocol && protocol != IP_PROTO_UDP && protocol != IP_PROTO_ICMP)
+			return -EPROTONOSUPPORT;
+	} else if (base_type == SOCK_RAW) {
+		if (protocol != IP_PROTO_ICMP)
+			return -EPROTONOSUPPORT;
+	} else {
 		return -ESOCKTNOSUPPORT;
-	if (protocol && protocol != (base_type == SOCK_STREAM ? IP_PROTO_TCP : IP_PROTO_UDP))
-		return -EPROTONOSUPPORT;
+	}
 	result = net_call(inet_run, &request);
 	if (result < 0)
 		return result;
@@ -1063,7 +1207,8 @@ int inet_connect(struct file *file, const void *address, unsigned int length)
 		.nonblock = __atomic_load_n(&file->f_flags, __ATOMIC_RELAXED) & O_NONBLOCK,
 	};
 	int result = inet_read_address(address, length, &request.address,
-				       request.socket->type == SOCK_DGRAM);
+				       request.socket->type == SOCK_DGRAM ||
+				       inet_is_raw(request.socket));
 
 	return result ? result : inet_exchange(&request);
 }
@@ -1288,7 +1433,8 @@ static int inet_prepare_io(struct file *file, struct inet_request *request,
 		.nonblock = (__atomic_load_n(&file->f_flags, __ATOMIC_RELAXED) & O_NONBLOCK) ||
 			(flags & MSG_DONTWAIT),
 	};
-	if (write && address && request->socket->type == SOCK_DGRAM) {
+	if (write && address &&
+	    (request->socket->type == SOCK_DGRAM || request->socket->type == SOCK_RAW)) {
 		request->has_address = 1;
 		return inet_read_address(address, length, &request->address, 0);
 	}

@@ -77,6 +77,19 @@ def check_toybox(http):
     assert headers.startswith(b"HTTP/1.1 200 ") and payload == BODY, response[:160]
 
 
+def check_icmp_tools():
+    ping = check([TOYBOX, "ping", "-c", "1", "-W", "2", "127.0.0.1"])
+    assert b"1 packets transmitted, 1 received, 0% packet loss" in ping, ping
+    trace = subprocess.run(
+        [TOYBOX, "traceroute", "-n", "-m", "2", "-w", "2", "127.0.0.1"],
+        capture_output=True,
+        timeout=30,
+    )
+    assert trace.returncode == 0, (trace.returncode, trace.stderr)
+    trace = trace.stdout
+    assert trace.startswith(b"traceroute to 127.0.0.1"), trace
+
+
 def check_tftp():
     def serve(peer):
         request, client = peer.recvfrom(1024)
@@ -194,6 +207,7 @@ def main(http, tls):
         with local_dns(records) as names:
             check_downloads(http, tls, refused.getsockname()[1])
             check_toybox(http)
+            check_icmp_tools()
             assert {*records, MISSING_NAME} <= set(names), names
     check_tftp()
     check_ssh_client()

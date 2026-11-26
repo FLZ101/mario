@@ -9,7 +9,7 @@
 #define LWIP_IPV6 0
 #define LWIP_ARP 1
 #define LWIP_ETHERNET 1
-#define LWIP_RAW 0
+#define LWIP_RAW 1
 #define LWIP_IGMP 0
 #define LWIP_DHCP 1
 #define LWIP_DNS 0
@@ -31,6 +31,7 @@
 #define MEMP_NUM_TCP_PCB_LISTEN 8
 #define MEMP_NUM_TCP_SEG 64
 #define MEMP_NUM_UDP_PCB 16
+#define MEMP_NUM_RAW_PCB 16
 #define PBUF_POOL_SIZE 32
 #define MEMP_NUM_SYS_TIMEOUT (LWIP_NUM_SYS_TIMEOUT_INTERNAL + 1)
 

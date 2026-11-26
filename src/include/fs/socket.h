@@ -8,6 +8,7 @@
 #define AF_INET 2
 #define SOCK_STREAM 1
 #define SOCK_DGRAM 2
+#define SOCK_RAW 3
 #define SOCK_NONBLOCK O_NONBLOCK
 #define SOCK_CLOEXEC O_CLOEXEC
 #define SHUT_RD 0
@@ -19,6 +20,15 @@
 #define SO_TYPE 3
 #define SO_ERROR 4
 #define SO_ACCEPTCONN 30
+#define SO_DEBUG 1
+#define SO_DONTROUTE 5
+#define SO_SNDBUF 7
+#define SO_RCVBUF 8
+#define SO_MARK 36
+
+#define IPPROTO_IP 0
+#define IP_TTL 2
+#define IP_RECVTTL 12
 
 struct socket_iovec {
 	void *base;
