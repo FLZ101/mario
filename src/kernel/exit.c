@@ -294,7 +294,19 @@ void do_exit(long code)
 	 * tearing down the shared mm.
 	 */
 	if (current->clear_child_tid) {
-		put_fs_long(0, current->clear_child_tid);
+		/*
+		 * clear_child_tid is a user pointer.  In a CLONE_VM process every
+		 * thread shares the same mm, so another thread can unmap the VMA
+		 * that contains it.  musl's detached-thread path can even unmap the
+		 * thread stack, plus any per-thread tid word placed on it, before
+		 * issuing the final exit syscall.  put_fs_long() is not fault-safe,
+		 * so verify_area() first to keep an unmapped pointer from faulting
+		 * here and recursively calling do_exit() from do_page_fault().
+		 */
+		if (!verify_area(VERIFY_WRITE, current->clear_child_tid,
+				 sizeof(unsigned long)))
+			put_fs_long(0, current->clear_child_tid);
+		/* Wake even if the store was skipped: waiters match by address. */
 		futex_wake(current->clear_child_tid, 1);
 		current->clear_child_tid = NULL;
 	}
