@@ -99,6 +99,7 @@ struct task_struct {
 	uint64_t syscall_trace_running;
 	uint64_t syscall_trace_last_tsc;
 	int syscall_trace_active;
+	uint64_t net_rx_bytes, net_tx_bytes;
 	char comm[16];
 };
 

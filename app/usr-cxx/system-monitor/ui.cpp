@@ -45,7 +45,7 @@ const auto memory_color = fl_rgb_color(29, 128, 113);
 const auto cache_color = fl_rgb_color(135, 79, 160);
 
 struct ControlIcons {
-	std::unique_ptr<Fl_RGB_Image> pause, resume, refresh, tree;
+	std::unique_ptr<Fl_RGB_Image> tree;
 	std::unique_ptr<Fl_RGB_Image> end_process, force_kill;
 };
 
@@ -54,8 +54,7 @@ const ControlIcons &control_icons()
 	static const auto icons = [] {
 		constexpr std::uint32_t ink = 0x35465b;
 		mario::IconFont font;
-		return ControlIcons{font.render(0xf04c, ink), font.render(0xf04b, ink),
-			font.render(0xf021, ink), font.render(0xf0e8, ink),
+		return ControlIcons{font.render(0xf0e8, ink),
 			font.render(0xf28d, ink), font.render(0xf057, 0xa43639)};
 	}();
 	return icons;
@@ -111,6 +110,19 @@ std::string mib(std::optional<uint64_t> kib)
 		return "--";
 	char buffer[48];
 	std::snprintf(buffer, sizeof(buffer), "%.1f MiB", double(*kib) / 1024);
+	return buffer;
+}
+
+std::string bytes(double amount)
+{
+	constexpr std::array units{"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"};
+	std::size_t unit = 0;
+	while (amount >= 1024 && unit + 1 < units.size()) {
+		amount /= 1024;
+		++unit;
+	}
+	char buffer[48];
+	std::snprintf(buffer, sizeof(buffer), "%.*f %s", unit ? 1 : 0, amount, units[unit]);
 	return buffer;
 }
 
@@ -252,19 +264,6 @@ public:
 	}
 
 private:
-	static std::string bytes(double amount)
-	{
-		constexpr std::array units{"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"};
-		std::size_t unit = 0;
-		while (amount >= 1024 && unit + 1 < units.size()) {
-			amount /= 1024;
-			++unit;
-		}
-		char buffer[48];
-		std::snprintf(buffer, sizeof(buffer), "%.*f %s", unit ? 1 : 0, amount, units[unit]);
-		return buffer;
-	}
-
 	void draw() override
 	{
 		fl_push_clip(x(), y(), w(), h());
@@ -422,7 +421,7 @@ class TaskTable final : public Fl_Table {
 public:
 	TaskTable(int xpos, int ypos, int width, int height) : Fl_Table(xpos, ypos, width, height)
 	{
-		cols(5);
+		cols(7);
 		col_header(1);
 		col_header_height(25);
 		col_header_color(fl_rgb_color(222, 224, 228));
@@ -453,6 +452,8 @@ public:
 			case 2: if (left->state != right->state) return left->state < right->state; break;
 			case 3: if (left->machine_percent != right->machine_percent) return left->machine_percent < right->machine_percent; break;
 			case 4: if (ticks(*left) != ticks(*right)) return ticks(*left) < ticks(*right); break;
+			case 5: if (left->resident_kib != right->resident_kib) return left->resident_kib < right->resident_kib; break;
+			case 6: if (net_total(*left) != net_total(*right)) return net_total(*left) < net_total(*right); break;
 			}
 			return left->identity.pid < right->identity.pid;
 		});
@@ -519,10 +520,12 @@ public:
 	{
 		Fl_Table::resize(xpos, ypos, width, height);
 		col_width(0, 74);
-		col_width(1, std::max(120, width - Fl::scrollbar_size() - 324));
-		col_width(2, 66);
-		col_width(3, 84);
-		col_width(4, 96);
+		col_width(1, std::max(120, width - Fl::scrollbar_size() - 484));
+		col_width(2, 56);
+		col_width(3, 74);
+		col_width(4, 86);
+		col_width(5, 86);
+		col_width(6, 104);
 	}
 
 private:
@@ -530,7 +533,7 @@ private:
 
 	struct Row {
 		Identity id;
-		std::array<std::string, 5> cells;
+		std::array<std::string, 7> cells;
 		int depth = -1;
 		bool branch = false, expanded = false;
 		bool operator==(const Row &other) const
@@ -549,7 +552,9 @@ private:
 	static Row row(const Task &task)
 	{
 		return {task.identity, {std::to_string(task.identity.pid), printable(task.name),
-			printable(std::string(1, task.state)), percent(task.machine_percent), std::to_string(ticks(task))}};
+			printable(std::string(1, task.state)), percent(task.machine_percent),
+			std::to_string(ticks(task)), mib(task.resident_kib),
+			bytes(task.rx_bytes) + " / " + bytes(task.tx_bytes)}};
 	}
 
 	void append_tree(std::vector<Row> &display, const std::vector<const Task *> &ordered, const std::string &needle)
@@ -633,11 +638,16 @@ private:
 		return task.user > UINT64_MAX - task.system ? UINT64_MAX : task.user + task.system;
 	}
 
+	static uint64_t net_total(const Task &task)
+	{
+		return task.rx_bytes > UINT64_MAX - task.tx_bytes ? UINT64_MAX : task.rx_bytes + task.tx_bytes;
+	}
+
 	void draw_cell(TableContext context, int row, int col, int xpos, int ypos, int width, int height) override
 	{
 		if (context != CONTEXT_COL_HEADER && context != CONTEXT_CELL)
 			return;
-		static const char *const columns[] = {"PID", "Name", "State", "CPU %", "CPU ticks"};
+		static const char *const columns[] = {"PID", "Name", "State", "CPU %", "CPU ticks", "Memory", "Network"};
 		fl_push_clip(xpos, ypos, width, height);
 		if (context == CONTEXT_COL_HEADER) {
 			fl_draw_box(FL_THIN_UP_BOX, xpos, ypos, width, height, col_header_color());
@@ -784,8 +794,7 @@ class Monitor {
 public:
 	Monitor(Sampler sampler, SampleObserver observer)
 		: sampler_(std::move(sampler)), observer_(std::move(observer)),
-		window_(92, 78, 840, 580, "System Monitor"), health_(12, 8, 590, 28),
-		pause_(618, 8, 100, 28, "Pause"), refresh_(728, 8, 100, 28, "Refresh"),
+		window_(92, 78, 840, 580, "System Monitor"), health_(12, 8, 816, 28),
 		tabs_(12, 46, 816, 522), overview_(12, 72, 816, 496, "Overview"),
 		processes_(12, 72, 816, 496, [this] { if (window_.shown()) start(); }),
 		mounts_(12, 72, 816, 496, "Filesystems"), network_(12, 72, 816, 496)
@@ -796,10 +805,6 @@ public:
 		window_.resizable(tabs_);
 		window_.size_range(660, 380);
 		health_.align(left_label);
-		mario::set_label_icon(pause_, control_icons().pause.get());
-		mario::set_label_icon(refresh_, control_icons().refresh.get());
-		pause_.callback([](Fl_Widget *, void *data) { static_cast<Monitor *>(data)->toggle_pause(); }, this);
-		refresh_.callback([](Fl_Widget *, void *data) { static_cast<Monitor *>(data)->start(); }, this);
 		window_.callback([](Fl_Widget *, void *data) { static_cast<Monitor *>(data)->close(); }, this);
 		processes_.update(snapshot_);
 		window_.show();
@@ -813,8 +818,7 @@ private:
 	static void tick(void *data)
 	{
 		auto &self = *static_cast<Monitor *>(data);
-		if (!self.paused_)
-			self.start();
+		self.start();
 		self.update_health();
 		Fl::repeat_timeout(1, tick, data);
 	}
@@ -847,7 +851,6 @@ private:
 				self.observer_(self.snapshot_);
 		}
 		self.failed_ = !result;
-		self.refresh_.activate();
 		self.update_health();
 	}
 
@@ -857,7 +860,6 @@ private:
 			return;
 		if (worker_.start(sampler_)) {
 			Fl::add_fd(worker_.fd(), FL_READ, pipe_ready, this);
-			refresh_.deactivate();
 		} else {
 			failed_ = true;
 		}
@@ -870,7 +872,6 @@ private:
 			Fl::remove_fd(worker_.fd());
 		Fl::remove_timeout(reap, this);
 		worker_.stop();
-		refresh_.activate();
 	}
 
 	void close()
@@ -880,26 +881,11 @@ private:
 		window_.hide();
 	}
 
-	void toggle_pause()
-	{
-		paused_ = !paused_;
-		set_label(pause_, paused_ ? "Resume" : "Pause");
-		const auto &icons = control_icons();
-		mario::set_label_icon(pause_, paused_ ? icons.resume.get() : icons.pause.get());
-		if (paused_)
-			stop();
-		else
-			start();
-		update_health();
-	}
-
 	void update_health()
 	{
 		const auto now = ProcSource{}.monotonic_ns();
 		const auto stamp = snapshot_.monotonic_ns;
-		std::string state = paused_ ? "Paused" : "Live";
-		if (worker_.active())
-			state += " | Sampling";
+		std::string state = "Live";
 		if (failed_)
 			state += " | Refresh failed";
 		if (!stamp || !now || *stamp > *now)
@@ -915,13 +901,12 @@ private:
 	SampleWorker worker_;
 	Fl_Double_Window window_;
 	Fl_Box health_;
-	Fl_Button pause_, refresh_;
 	Fl_Tabs tabs_;
 	ScrollPage<Overview> overview_;
 	Processes processes_;
 	ScrollPage<Mounts> mounts_;
 	NetworkPage network_;
-	bool paused_ = false, failed_ = false;
+	bool failed_ = false;
 };
 
 }

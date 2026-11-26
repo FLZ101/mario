@@ -74,7 +74,8 @@ port at startup. Set `QEMU_SSH_PORT=2223` to require a particular port or
 `QEMU_SSH_PORT=` to disable the forward. SSH login requires a guest SSH
 server, which Mario does not yet ship.
 
-In the guest, run `/sbin/netctl.exe dhcp start`, then check
+GTK boots start the commands below automatically from their rootfs overlay.
+On other images, run `/sbin/netctl.exe dhcp start`, then check
 `/sbin/netctl.exe dhcp status` for carrier, the leased address, gateway,
 remaining lease time and nameservers. Acquisition retries in the background
 and never delays boot. `dhcp stop`, `down`, or a static `up` cancels DHCP;

@@ -4,6 +4,7 @@
 #include <net/ethernet.h>
 #include <net/inet.h>
 #include <net/worker.h>
+#include <sched.h>
 #include <signal.h>
 #include <misc.h>
 
@@ -1259,6 +1260,12 @@ static int inet_io(struct inet_request *request, const void *vector,
 		vector = copy;
 	}
 	result = inet_stage(request, vector, count);
+	if (result > 0) {
+		if (request->op == INET_SEND)
+			current->net_tx_bytes += (uint64_t)result;
+		else
+			current->net_rx_bytes += (uint64_t)result;
+	}
 out:
 	if (copy)
 		kfree(copy);

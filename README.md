@@ -199,11 +199,13 @@ PulseAudio explicitly.
 `make run-gtk` and `make debug-gtk` default to `QEMU_NET=nat` for outbound
 IPv4 through the host. Other launch targets default to `QEMU_NET=off`.
 Use `QEMU_NET=isolated` for an `e1000` without outside access or port forwards.
-After boot, run `/sbin/netctl.exe dhcp start` and `/sbin/netctl.exe dns auto &`
-in Mario to configure the lease and DNS. NAT forwards a host loopback port to
-guest port 22. `QEMU_SSH_PORT=auto` (the default) uses port 2222 if available
-or another free port and prints the result at startup. Set `QEMU_SSH_PORT=2223`
-to require a particular port or `QEMU_SSH_PORT=` to disable the forward.
+The GTK login profile starts DHCP and automatic DNS for these two targets.
+For other network-enabled targets, after boot run `/sbin/netctl.exe dhcp start`
+and `/sbin/netctl.exe dns auto &` in Mario to configure the lease and DNS.
+NAT forwards a host loopback port to guest port 22. `QEMU_SSH_PORT=auto` (the
+default) uses port 2222 if available or another free port and prints the result
+at startup. Set `QEMU_SSH_PORT=2223` to require a particular port or
+`QEMU_SSH_PORT=` to disable the forward.
 Mario does not ship an SSH server yet.
 See [network setup and limitations](tests/net/README.md#qemu-network-modes-and-dhcp).
 

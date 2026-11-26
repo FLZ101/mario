@@ -83,6 +83,7 @@ struct Task {
 	char state;
 	uint64_t user, system;
 	std::optional<double> machine_percent;
+	uint64_t resident_kib = 0, rx_bytes = 0, tx_bytes = 0;
 	int tgid = 0;
 };
 

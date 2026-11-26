@@ -288,11 +288,18 @@ Snapshot sample(Source &source)
 			if (comm.bytes != task->name)
 				result.task_status = Status::partial;
 		}
-		const auto status = source.read(path + "/status", 256);
+		const auto status = source.read(path + "/status", 512);
 		if (status.status == Status::complete)
 			lines(status, [&](std::string_view row) {
-				if (word(row) == "Tgid:")
+				const auto label = word(row);
+				if (label == "Tgid:")
 					return integer(word(row), task->tgid);
+				if (label == "VmRSS:")
+					return integer(word(row), task->resident_kib);
+				if (label == "NetRxBytes:")
+					return integer(word(row), task->rx_bytes);
+				if (label == "NetTxBytes:")
+					return integer(word(row), task->tx_bytes);
 				return true;
 			});
 		result.tasks.push_back(std::move(*task));

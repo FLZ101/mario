@@ -138,6 +138,7 @@ int do_fork(struct trap_frame *tr, int vfork)
 
 	p->stime = p->utime = p->stime_children = p->utime_children = 0;
 	p->start_ticks = jiffies;
+	p->net_rx_bytes = p->net_tx_bytes = 0;
 
 	copy_thread(p, tr, 0);
 	if (copy_mm(p))
@@ -284,6 +285,7 @@ int do_clone(struct trap_frame *tr, unsigned long flags,
 
 	p->stime = p->utime = p->stime_children = p->utime_children = 0;
 	p->start_ticks = jiffies;
+	p->net_rx_bytes = p->net_tx_bytes = 0;
 
 	copy_thread(p, tr, child_stack);
 

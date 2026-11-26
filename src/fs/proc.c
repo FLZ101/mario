@@ -529,12 +529,15 @@ static int proc_file_content(unsigned long ino, char *buf, size_t size)
 			length = sprintkn(buf, size,
 					  "Name:\t%s\nState:\t%c\nTgid:\t%d\nPid:\t%d\nPPid:\t%d\n"
 					  "Uid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n"
-					  "VmSize:\t%u kB\nVmRSS:\t%u kB\nThreads:\t%u\n",
+					  "VmSize:\t%u kB\nVmRSS:\t%u kB\nThreads:\t%u\n"
+					  "NetRxBytes:\t%llu\nNetTxBytes:\t%llu\n",
 					  task->comm, proc_task_state(task), task->tgid, task->pid,
 					  task->p_pptr ? task->p_pptr->pid : 0,
 					  (unsigned int)(vm_pages * (PAGE_SIZE / 1024)),
 					  (unsigned int)(rss_pages * (PAGE_SIZE / 1024)),
-					  threads);
+					  threads,
+					  (unsigned long long)task->net_rx_bytes,
+					  (unsigned long long)task->net_tx_bytes);
 		}
 		spin_unlock_irqrestore(&tasklist_lock, flags);
 		return length;

@@ -60,6 +60,9 @@ public:
 		file(base + "/comm", name + "\n");
 		file(base + "/stat", std::to_string(pid) + " (" + name + ") R 1 0 0 0 0 0 0 0 0 0 " +
 		     std::to_string(user) + " " + std::to_string(system) + " 0 0 0 0 1 0 " + std::to_string(start));
+		file(base + "/status", "Name:\t" + name + "\nState:\tR\nTgid:\t" + std::to_string(pid) +
+		     "\nVmRSS:\t" + std::to_string(pid * 2) + " kB\nNetRxBytes:\t" + std::to_string(pid * 4) +
+		     "\nNetTxBytes:\t" + std::to_string(pid * 5) + "\n");
 	}
 };
 
@@ -85,6 +88,8 @@ void deterministic()
 	assert(base.tasks[0].name == "a (name) )" && base.tasks[0].state == 'R' && base.tasks[0].parent == 1);
 	assert(base.uptime_seconds == 42.125 && base.memory.total_kib == 256 &&
 	       base.memory.used_kib == 64 && !base.memory.cached_kib);
+	assert(base.tasks[0].resident_kib == 84 && base.tasks[0].rx_bytes == 168 &&
+	       base.tasks[0].tx_bytes == 210);
 	assert(base.mounts.size() == 3 && base.mounts[1].path == "/ram/a volume with spaces" &&
 	       base.mounts[1].options == "ro" && base.mounts[1].space.capacity->available_bytes == 300);
 	assert(base.mounts[2].space.error == ENOENT && !base.mounts[2].space.capacity);

@@ -40,7 +40,8 @@ template <class Archive> bool record(Archive &io, Network &network)
 template <class Archive> bool record(Archive &io, Task &task)
 {
 	return field(io, task.identity.pid, task.identity.start_ticks, task.parent, task.name,
-		task.state, task.user, task.system, task.tgid);
+		task.state, task.user, task.system, task.tgid, task.resident_kib,
+		task.rx_bytes, task.tx_bytes);
 }
 
 template <class Archive> bool record(Archive &io, Mount &mount)
