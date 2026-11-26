@@ -1,0 +1,13 @@
+TIMEOUT: 20
+TTY-SEND: /sbin/netctl.exe dhcp start; printf 'dhcp start: %s\n' "$?"
+TTY-CHECK-REGEX: (?m)^dhcp start: 0$
+TTY-SEND: for i in 1 2 3 4 5 6 7 8 9 10; do /sbin/netctl.exe dhcp status | grep -q '^dhcp=bound' && break; sleep 1; done; /sbin/netctl.exe dhcp status
+TTY-CHECK-REGEX: (?m)^dhcp=bound\b
+TTY-SEND: /usr/bin/test/fltk-system-monitor-model.exe "$(grep -c '^processor' /proc/cpuinfo)" 10.0.2.15; printf 'model exit: %s\n' "$?"
+TTY-CHECK-REGEX: (?m)^model exit: 0$
+TTY-SEND: printf 'shown_boxes = "net"\n' >/tmp/btop-network.conf && /usr/bin/btop --config /tmp/btop-network.conf; printf 'btop exit: %s\n' "$?"
+TTY-CHECK: eth0
+TTY-CHECK-REGEX: ▼\s+Total:\s+[1-9][\d.]*\s*(?:[KM]i)?B
+TTY-CHECK-REGEX: ▲\s+Total:\s+[1-9][\d.]*\s*(?:[KM]i)?B
+TTY-SEND-RAW: q
+TTY-CHECK-REGEX: (?m)^btop exit: 0$

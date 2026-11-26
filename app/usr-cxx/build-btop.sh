@@ -13,11 +13,12 @@ if [[ ! -x $PYTHON || ! -x $(dirname "$PYTHON")/python3 ]] ; then
 fi
 
 export PATH="$(dirname "$PYTHON"):$PATH"
+headers=$(cd "$(dirname "$0")/../include" && pwd)
 
 pushd "$BTOP_SRC_DIR"
 
 make PLATFORM=Linux ARCH=i686 GPU_SUPPORT=false STATIC=true GIT_COMMIT= \
-    CXX="$CXX" THREADS="${JOBS:-1}" OPTFLAGS="${OPTIMIZE}" btop
+    CXX="$CXX" CXXFLAGS="-I$headers" THREADS="${JOBS:-1}" OPTFLAGS="${OPTIMIZE}" btop
 
 install -Dm755 bin/btop "$BTOP_INSTALL_DIR/bin/btop"
 install -Dm644 LICENSE "$BTOP_INSTALL_DIR/share/doc/btop/LICENSE"

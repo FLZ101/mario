@@ -1,7 +1,13 @@
+/*
+ * boot.py runs this as /mnt/loopback to check IPv4 without a NIC. dhcp.py
+ * also runs it with a NIC attached, before obtaining a lease. Only the
+ * --no-nic run expects empty Ethernet statistics.
+ */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <mario/netctl.h>
 #include <netinet/in.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -90,6 +96,7 @@ static void tcp_loopback(void)
 	CHECK(getsockname(listener, (struct sockaddr *)&address, &length) == 0);
 	CHECK(length == sizeof(address) && address.sin_family == AF_INET);
 	CHECK(address.sin_port && address.sin_addr.s_addr == htonl(INADDR_ANY));
+	/* A wildcard bind reserves the loopback port but does not listen yet. */
 	address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	other = socket(AF_INET, SOCK_STREAM, 0);
 	CHECK(other >= 0);
@@ -149,6 +156,7 @@ static void udp_loopback(void)
 	CHECK(bind(receiver, (struct sockaddr *)&address, sizeof(address)) == 0);
 	CHECK(getsockname(receiver, (struct sockaddr *)&address, &length) == 0);
 	CHECK(length == sizeof(address) && address.sin_port);
+	/* With fragmentation disabled, the 1500-byte MTU leaves 1472 bytes for UDP. */
 	CHECK(sendto(sender, buffer, 1473, 0, (struct sockaddr *)&address, length) == -1);
 	CHECK(errno == EMSGSIZE);
 	CHECK(sendto(sender, "hello", 5, 0, (struct sockaddr *)&address, length) == 5);
@@ -174,6 +182,7 @@ static void udp_loopback(void)
 	CHECK(close(sender) == 0 && close(receiver) == 0);
 }
 
+/* Bypass musl to test both i386 syscall entry points. */
 static long raw_socket(int legacy, long direct, unsigned long call,
 		       unsigned long first, unsigned long second, unsigned long third,
 		       unsigned long fourth, unsigned long fifth, unsigned long sixth)
@@ -246,6 +255,7 @@ static void raw_tcp_loopback(int legacy)
 	CHECK(close(sender) == 0 && close(receiver) == 0 && close(listener) == 0);
 }
 
+/* SCM_RIGHTS keeps the port bound until plain read discards the queued fd. */
 static void discard_passed_socket(void)
 {
 	struct sockaddr_in address = loop_address();
@@ -299,8 +309,20 @@ static void check_clock(void)
 	      (after.tv_sec == before.tv_sec && after.tv_nsec > before.tv_nsec));
 }
 
-int main(void)
+static void check_no_nic(void)
 {
+	struct mario_net_stats stats = { .version = MARIO_NET_STATS_VERSION };
+	int fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+	CHECK(fd >= 0);
+	CHECK(ioctl(fd, MARIO_NET_GET_STATS, &stats) == 0);
+	CHECK(!stats.flags && !stats.address && !stats.prefix && !stats.rx_bytes && !stats.tx_bytes);
+	CHECK(close(fd) == 0);
+}
+
+int main(int argc, char **argv)
+{
+	CHECK(argc == 1 || (argc == 2 && strcmp(argv[1], "--no-nic") == 0));
 	check_clock();
 	CHECK(socket(AF_INET, SOCK_RAW, 0) == -1 && errno == ESOCKTNOSUPPORT);
 	CHECK(socket(AF_INET, SOCK_STREAM, IPPROTO_UDP) == -1 && errno == EPROTONOSUPPORT);
@@ -312,6 +334,8 @@ int main(void)
 	raw_udp_loopback(0);
 	raw_udp_loopback(1);
 	discard_passed_socket();
+	if (argc == 2)
+		check_no_nic();
 	puts("NET_LOOPBACK_OK");
 	return 0;
 }

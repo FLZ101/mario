@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mario/netctl.h>
 #include <mario/process.h>
 #include <pthread.h>
 #include <signal.h>
@@ -29,6 +30,8 @@ monitor::Snapshot fixture()
 		{0, 40 + steps * 25, 0, 60 + steps * 25, {}},
 		{1, 60 + steps * 50, 0, 40, {}}};
 	snapshot.memory = {102400, 51200, 25600};
+	snapshot.network = monitor::Network{MARIO_NET_PRESENT | MARIO_NET_UP | MARIO_NET_CARRIER,
+		0, 0, 1024 + steps * 2048, 1024 + steps * 4096, {}, {}};
 	snapshot.uptime_seconds = 3690;
 	snapshot.tasks = {{{11, phase < 3 ? 10ULL : 99ULL}, 1, phase < 3 ? "zulu" : "beta", 'R', steps, 0, {}},
 		{{22, 20}, 1, "alpha", 'S', 5, 0, {}}};
@@ -77,6 +80,9 @@ void observe(const monitor::Snapshot &snapshot)
 		task == snapshot.tasks.end() ? 0ULL : static_cast<unsigned long long>(task->user + task->system),
 		int(task != snapshot.tasks.end() && task->machine_percent && *task->machine_percent > 0.), int(mounted),
 		static_cast<unsigned long long>(snapshot.tasks.empty() ? 0 : snapshot.tasks.front().user));
+	if (snapshot.network && snapshot.network->rx_per_second && snapshot.network->tx_per_second)
+		std::printf("network rx=%.0f tx=%.0f\n", *snapshot.network->rx_per_second,
+			*snapshot.network->tx_per_second);
 	std::fflush(stdout);
 }
 

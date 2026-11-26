@@ -89,10 +89,12 @@ _Static_assert(sizeof(struct rx_descriptor) == 16, "82540 RX descriptor size");
 _Static_assert(sizeof(struct tx_descriptor) == 16, "82540 TX descriptor size");
 _Static_assert(sizeof(struct mario_net_status) == 100, "netctl status ABI size");
 _Static_assert(sizeof(struct mario_net_config) == 20, "netctl config ABI size");
+_Static_assert(sizeof(struct mario_net_stats) == 32, "netctl stats ABI size");
 
 static volatile uint8_t *registers;
 static struct netif eth0;
 static struct mario_net_status status;
+static uint64_t rx_bytes, tx_bytes;
 static struct dhcp dhcp_client;
 static uint32_t dhcp_retry_at;
 static uint32_t packet_dns[MARIO_NET_DNS_MAX];
@@ -261,8 +263,10 @@ static void tx_reclaim(void)
 			break;
 		if (completion & TX_ERRORS)
 			status.tx_errors++;
-		else
+		else {
 			status.tx_packets++;
+			tx_bytes += tx_ring[tx_clean].length;
+		}
 		tx_clean = (tx_clean + 1) % TX_RING_SIZE;
 		tx_outstanding--;
 	}
@@ -546,6 +550,7 @@ static void ethernet_receive(void)
 		ethernet_publish_lease(state != dhcp_client.state && dhcp_client.state == DHCP_STATE_BOUND);
 		if (result == ERR_OK) {
 			status.rx_packets++;
+			rx_bytes += length;
 			return;
 		}
 		pbuf_free(packet);
@@ -650,6 +655,21 @@ static int ethernet_status(void *data)
 	return 0;
 }
 
+static int ethernet_stats(void *data)
+{
+	struct mario_net_stats *stats = data;
+
+	*stats = (struct mario_net_stats) {
+		.version = MARIO_NET_STATS_VERSION,
+		.flags = status.config.flags,
+		.address = status.config.address,
+		.prefix = status.config.prefix,
+		.rx_bytes = rx_bytes,
+		.tx_bytes = tx_bytes,
+	};
+	return 0;
+}
+
 uid_t sys_geteuid32(void);
 
 int ethernet_ioctl(unsigned int cmd, unsigned long arg)
@@ -657,6 +677,7 @@ int ethernet_ioctl(unsigned int cmd, unsigned long arg)
 	void *user = (void *)arg;
 	struct mario_net_config config;
 	struct mario_net_status result;
+	struct mario_net_stats stats;
 	int error;
 
 	switch (cmd) {
@@ -669,6 +690,16 @@ int ethernet_ioctl(unsigned int cmd, unsigned long arg)
 		error = net_call(ethernet_status, &result);
 		if (!error)
 			memcpy_tofs(user, &result, sizeof(result));
+		return error;
+	case MARIO_NET_GET_STATS:
+		if (verify_area(VERIFY_READ, user, sizeof(uint32_t)) ||
+		    verify_area(VERIFY_WRITE, user, sizeof(stats)))
+			return -EFAULT;
+		if (get_fs_long(user) != MARIO_NET_STATS_VERSION)
+			return -EINVAL;
+		error = net_call_interruptible(ethernet_stats, &stats);
+		if (!error)
+			memcpy_tofs(user, &stats, sizeof(stats));
 		return error;
 	case MARIO_NET_SET:
 		if (sys_geteuid32())

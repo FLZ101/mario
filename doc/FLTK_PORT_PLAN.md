@@ -307,11 +307,12 @@ discard it, including incomplete slots with no payload.
    | `/proc/meminfo`, `/proc/uptime` | Used memory is total minus free; show cache separately and use the first uptime field. Do not infer Linux reclaim or swap data. |
    | `/proc/<pid>/stat`, `/proc/<pid>/comm` | PID, parent, task name/state, and CPU ticks. Key identity and deltas by PID plus start ticks; label CPU as a share of total machine time. Do not rely on placeholder RSS/thread fields or treat `cmdline` as a full argument list. |
    | `/proc/mounts`, `statvfs` | Mount, filesystem, capacity, and available space. Parse known prefix and suffix fields without splitting an unescaped path on spaces. Report unmount races and `statvfs` failures per mount. |
+   | `MARIO_NET_GET_STATS` | Ethernet link state, IPv4 address, and 64-bit receive/transmit totals. Derive rates only across fresh samples from an enabled link with carrier. |
 
 3. Record monotonic sample times and derive rates only across valid pairs.
    Treat PID reuse as a new row and don't carry rates across counter resets
    or stale collection gaps. Leave out per-task memory, load average, and
-   disk/network throughput until the corresponding data is available.
+   disk throughput until the corresponding data is available.
 
 **Exit gate:** `tests/shell/fltk-system-monitor-model.test` asserts exact CPU
 deltas, first/zero/reset samples, task names containing parentheses, task
@@ -321,8 +322,8 @@ failing mount. Live guest snapshots show the expected per-core rows at
 
 ### F10 — System Monitor: live FLTK UI
 
-1. Build `/usr/bin/system-monitor` with Overview, Processes, and Filesystems
-   tabs. Add aggregate and per-core CPU graphs, memory/cache history and
+1. Build `/usr/bin/system-monitor` with Overview, Processes, Filesystems,
+   and Network tabs. Add aggregate and per-core CPU graphs, memory/cache history and
    uptime, a sortable and filterable task table with details, and mount
    capacity bars. Keep task selection by identity as the table reorders;
    don't move it to a new process that reuses the selected PID.

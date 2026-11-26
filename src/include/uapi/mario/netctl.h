@@ -8,6 +8,8 @@
 #define MARIO_NET_VERSION 2U
 #define MARIO_NET_GET 0xc0644e01U
 #define MARIO_NET_SET 0x40144e02U
+#define MARIO_NET_STATS_VERSION 1U
+#define MARIO_NET_GET_STATS 0xc0204e03U
 
 #define MARIO_NET_PRESENT 1U
 #define MARIO_NET_UP 2U
@@ -46,6 +48,15 @@ struct mario_net_status {
 	uint32_t lease_seconds_left;
 	uint32_t dns_generation;
 	uint32_t dns[MARIO_NET_DNS_MAX];
+};
+
+struct mario_net_stats {
+	uint32_t version;
+	uint32_t flags;
+	uint32_t address;
+	uint32_t prefix;
+	uint64_t rx_bytes;
+	uint64_t tx_bytes;
 };
 
 #endif

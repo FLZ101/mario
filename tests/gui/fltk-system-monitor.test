@@ -29,6 +29,8 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-BUTTON: left,up
 SERIAL: await_phase 1
 SERIAL-CHECK: monitor fixture phase=1 accepted
+SERIAL: grep -q '^network rx=2048 tx=4096$' /tmp/monitor.log && echo 'monitor network rates verified'
+SERIAL-CHECK: monitor network rates verified
 # The latest CPU sample is 75% aggregate, 50% CPU 0, and 100% CPU 1.
 GUI-CHECK-RECT: 886 232 3 3 50 109 181
 GUI-CHECK-RECT: 886 209 3 3 232 237 244

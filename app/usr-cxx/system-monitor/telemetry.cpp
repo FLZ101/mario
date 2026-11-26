@@ -7,7 +7,10 @@
 #include <ctime>
 #include <dirent.h>
 #include <fcntl.h>
+#include <mario/netctl.h>
 #include <string_view>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <sys/statvfs.h>
 #include <unistd.h>
 
@@ -217,10 +220,25 @@ std::optional<uint64_t> ProcSource::monotonic_ns()
 	return uint64_t(now.tv_sec) * 1000000000 + now.tv_nsec;
 }
 
+std::optional<Network> ProcSource::network()
+{
+	const int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+	if (fd < 0)
+		return {};
+	mario_net_stats stats{};
+	stats.version = MARIO_NET_STATS_VERSION;
+	const int result = ioctl(fd, MARIO_NET_GET_STATS, &stats);
+	close(fd);
+	if (result < 0)
+		return {};
+	return Network{stats.flags, stats.address, stats.prefix, stats.rx_bytes, stats.tx_bytes, {}, {}};
+}
+
 Snapshot sample(Source &source)
 {
 	Snapshot result;
 	result.monotonic_ns = source.monotonic_ns();
+	result.network = source.network();
 	result.cpu_status = lines(source.read("/proc/stat", proc_limit), [&](std::string_view row) {
 		const auto label = word(row);
 		if (label.substr(0, 3) != "cpu")
@@ -318,6 +336,20 @@ void derive_rates(Snapshot &current, const Snapshot &previous)
 {
 	const bool fresh = current.monotonic_ns && previous.monotonic_ns &&
 		*current.monotonic_ns > *previous.monotonic_ns && *current.monotonic_ns - *previous.monotonic_ns <= stale_ns;
+	if (current.network) {
+		auto &network = *current.network;
+		network.rx_per_second.reset();
+		network.tx_per_second.reset();
+		constexpr uint32_t connected = MARIO_NET_PRESENT | MARIO_NET_UP | MARIO_NET_CARRIER;
+		if (fresh && previous.network && (network.flags & connected) == connected &&
+		    (previous.network->flags & connected) == connected) {
+			const double seconds = (*current.monotonic_ns - *previous.monotonic_ns) / 1e9;
+			if (network.rx_bytes >= previous.network->rx_bytes)
+				network.rx_per_second = (network.rx_bytes - previous.network->rx_bytes) / seconds;
+			if (network.tx_bytes >= previous.network->tx_bytes)
+				network.tx_per_second = (network.tx_bytes - previous.network->tx_bytes) / seconds;
+		}
+	}
 	std::optional<uint64_t> machine;
 	for (auto &cpu : current.cpus) {
 		cpu.busy_percent.reset();

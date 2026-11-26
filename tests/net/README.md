@@ -2,12 +2,16 @@
 
 Run `make net-test SMP=1` and `make net-test SMP=2` to exercise IPv4 both with
 and without QEMU's `e1000` device. The runner places the compiled fixtures on a
-temporary ramdisk. The loopback runner requires a success marker and a zero
-exit status from each fixture. The resolver fixture overrides `/etc/resolv.conf`
+temporary ramdisk and records their C compiler commands in the repository's
+`compile_commands.json`. Set `COMPILE_COMMANDS_JSON` to use another path, or
+set it to an empty value to disable recording. The loopback runner requires a
+success marker and a zero exit status from each fixture. The resolver fixture
+overrides `/etc/resolv.conf`
 only inside the disposable QEMU snapshot and verifies UDP DNS and the
 bundled musl resolver's TCP retry after a truncated reply.
 
-The loopback test covers musl, direct i386 syscalls, and legacy `socketcall`.
+The loopback test covers musl, direct i386 syscalls, legacy `socketcall`,
+and zero Ethernet counters when no NIC is installed.
 IPv4 fragmentation and reassembly are disabled: the 1500-byte MTU allows
 UDP payloads of up to 1472 bytes. Larger datagrams fail with `EMSGSIZE`.
 
@@ -112,3 +116,51 @@ both directions without contacting public servers. Python rejects the private
 CA with the default trust store, and rejects a wrong hostname and an expired
 leaf even with the test CA configured. A separate boot with `RDRAND` disabled
 verifies that the random APIs and OpenSSL fail closed.
+
+## Network tools
+
+- Standalone curl 8.23.0 and GNU Wget 1.25.0 are built in `app/usr` and
+  installed in `/usr/bin`. Both link Mario's OpenSSL statically and use
+  `/etc/ssl/cert.pem` for public roots. The supported download modes are IPv4
+  HTTP and HTTPS. curl builds only those protocols and omits proxy support;
+  Wget's native FTP code is not part of the tested port.
+- Toybox 0.8.9 enables `host`, `nc` (`netcat`), and HTTP-only `toybox wget`.
+  Plain `wget` runs GNU Wget. Toybox TLS stays disabled; use the standalone
+  tools for verified HTTPS. Raw sockets, IPv6, Linux network ioctls, netlink
+  and `/proc/net` are not available, so `ping`, `ip`, `ifconfig`, `route`,
+  `arp` and `netstat` remain disabled. Additional applets such as the FTP,
+  Telnet and time clients and network daemons remain untested and disabled.
+- The sbase UDP TFTP client at `/usr/bin/sbase/tftp` uses `poll()` for
+  deadlines because Mario does not implement `SO_RCVTIMEO`. A local fixture
+  verifies downloading. The pinned ubase has no IPv4 socket utilities to
+  enable.
+- The net-tools 2.10 port reuses the upstream display code with a read-only
+  Mario backend instead of `/proc/net/dev`, `/proc/net/route`, and Linux
+  network ioctls. `ifconfig` shows active interfaces; `ifconfig -a` includes
+  a down `eth0`, and `ifconfig eth0` and `ifconfig lo` select one interface.
+  `netstat -i` shows packet counts, and `route -n` and `netstat -rn` show
+  numeric IPv4 routes. Ethernet routes are shown only when the interface is
+  up, has carrier, and has an address. Loopback counters and route usage
+  counters are unavailable. Configuration still uses `/sbin/netctl.exe`.
+  Socket lists and route/interface changes are rejected. `arp` is not
+  installed because Mario does not expose the neighbor cache.
+
+The tools test uses local fixtures to compare exact HTTP, verified HTTPS,
+and TFTP payloads, and checks DNS failures, a refused connection, an untrusted
+CA, and a wrong hostname. It also checks interface addresses, packet and
+byte counters, and numeric routes after DHCP and static configuration, with
+the interface down, and without a NIC. It does not require public access.
+
+## Network monitors
+
+btop and System Monitor read the versioned `MARIO_NET_GET_STATS` ioctl on an
+IPv4 socket. The network worker samples link state, IPv4 configuration, and
+64-bit Ethernet byte totals together. Totals count accepted receive frames
+and successfully completed transmit frames, using driver lengths without
+the Ethernet checksum. They exclude loopback traffic and are not IP payload
+counts. The original `MARIO_NET_GET` status ABI is unchanged.
+
+The Ethernet fixture checks that both byte totals advance across a UDP
+exchange. The monitor test acquires a DHCP lease over restricted QEMU user
+networking and verifies that btop displays nonzero receive/transmit totals
+and that System Monitor collects the same interface's address and counters.

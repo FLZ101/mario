@@ -32,6 +32,11 @@ template <class Archive> bool record(Archive &io, Memory &memory)
 	return field(io, memory.total_kib, memory.used_kib, memory.cached_kib);
 }
 
+template <class Archive> bool record(Archive &io, Network &network)
+{
+	return field(io, network.flags, network.address, network.prefix, network.rx_bytes, network.tx_bytes);
+}
+
 template <class Archive> bool record(Archive &io, Task &task)
 {
 	return field(io, task.identity.pid, task.identity.start_ticks, task.parent, task.name,
@@ -51,7 +56,7 @@ template <class Archive> bool record(Archive &io, Capacity &capacity)
 
 template <class Archive> bool record(Archive &io, Snapshot &snapshot)
 {
-	return field(io, snapshot.monotonic_ns, snapshot.cpus, snapshot.memory, snapshot.uptime_seconds,
+	return field(io, snapshot.monotonic_ns, snapshot.cpus, snapshot.memory, snapshot.network, snapshot.uptime_seconds,
 		snapshot.tasks, snapshot.mounts, snapshot.cpu_status, snapshot.task_status, snapshot.mount_status);
 }
 

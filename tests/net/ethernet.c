@@ -1,5 +1,12 @@
+/*
+ * ethernet.py builds this helper into a temporary ramdisk as /mnt/ethernet.
+ * Run one mode per invocation inside Mario: config checks the ioctl ABI,
+ * stats reports counters, send/udp exercise datagrams, client/server exchange
+ * a TCP stream, and poweroff checks shutdown with e1000 attached.
+ */
 #include <arpa/inet.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <mario/netctl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +23,7 @@
 	} \
 } while (0)
 
+/* Match the peer's byte pattern and handle short TCP reads and writes. */
 static int transfer(int fd, int send_first, int expect_eof)
 {
 	unsigned char output[1024], input[1024];
@@ -37,6 +45,7 @@ static int transfer(int fd, int send_first, int expect_eof)
 		}
 	}
 	CHECK(shutdown(fd, SHUT_WR) == 0);
+	/* The forwarded-client case does not require a peer EOF. */
 	if (expect_eof)
 		CHECK(read(fd, input, sizeof(input)) == 0);
 	return 0;
@@ -53,9 +62,21 @@ int main(int argc, char **argv)
 		CHECK(reboot(RB_POWER_OFF) == 0);
 		return 1;
 	}
+	if (!strcmp(argv[1], "stats")) {
+		struct mario_net_stats stats = { .version = MARIO_NET_STATS_VERSION };
+		char ip[INET_ADDRSTRLEN];
+
+		CHECK((fd = socket(AF_INET, SOCK_DGRAM, 0)) >= 0);
+		CHECK(ioctl(fd, MARIO_NET_GET_STATS, &stats) == 0);
+		CHECK(inet_ntop(AF_INET, &stats.address, ip, sizeof(ip)));
+		printf("NET_STATS flags=%u address=%s/%u rx=%" PRIu64 " tx=%" PRIu64 "\n",
+			stats.flags, ip, stats.prefix, stats.rx_bytes, stats.tx_bytes);
+		return 0;
+	}
 	if (!strcmp(argv[1], "config")) {
 		struct mario_net_status status = { .config.version = MARIO_NET_VERSION };
 		struct mario_net_config invalid;
+		struct mario_net_stats invalid_stats = { .version = MARIO_NET_STATS_VERSION + 1 };
 
 		CHECK((fd = socket(AF_INET, SOCK_DGRAM, 0)) >= 0);
 		CHECK(ioctl(fd, MARIO_NET_GET, &status) == 0);
@@ -68,6 +89,8 @@ int main(int argc, char **argv)
 		CHECK(ioctl(fd, MARIO_NET_SET, &invalid) == -1 && errno == EINVAL);
 		CHECK(ioctl(fd, MARIO_NET_SET, 0x80000000UL) == -1 && errno == EFAULT);
 		CHECK(ioctl(fd, MARIO_NET_GET, 0x80000000UL) == -1 && errno == EFAULT);
+		CHECK(ioctl(fd, MARIO_NET_GET_STATS, 0x80000000UL) == -1 && errno == EFAULT);
+		CHECK(ioctl(fd, MARIO_NET_GET_STATS, &invalid_stats) == -1 && errno == EINVAL);
 		return 0;
 	}
 	CHECK(argc >= 3);
@@ -83,6 +106,7 @@ int main(int argc, char **argv)
 
 		CHECK((fd = socket(AF_INET, SOCK_DGRAM, 0)) >= 0);
 		CHECK(bind(fd, (void *)&address, sizeof(address)) == 0);
+		/* Let the host peer send only after the socket is bound. */
 		puts("ETH_READY");
 		fflush(stdout);
 		CHECK((length = recvfrom(fd, data, sizeof(data), 0, (void *)&address, &size)) == 10);

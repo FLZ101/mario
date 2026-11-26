@@ -367,6 +367,15 @@ the same fixture where they affect socket behavior and descriptor lifetime.
    (`ifconfig`, `route`, `netstat`, and `arp`) using supported interfaces.
    Only install utilities and modes covered by isolated guest tests; report
    unsupported operations rather than showing empty or misleading output.
+   Mario ships `ifconfig`, `route -n`, `netstat -i`, and `netstat -rn` from
+   net-tools 2.10. Socket lists and `arp` are out of scope because there are
+   no socket or neighbor table APIs; `netctl` owns configuration.
+5. Expose a versioned, read-only Ethernet snapshot with link state, IPv4
+   address, and 64-bit receive/transmit byte totals without changing the
+   existing configuration ABI. Take the snapshot on the network worker.
+   Use it for btop's network panel and System Monitor's Network tab.
+   Verify both consumers with a lease on a restricted QEMU link, and
+   cover no-NIC boots, counter resets, and rates in the test fixtures.
 
 ## Test harness and signoff
 

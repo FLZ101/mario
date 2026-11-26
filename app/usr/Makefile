@@ -55,6 +55,9 @@ include zlib.mk
 include libpng.mk
 include sqlite.mk
 include openssl.mk
+include curl.mk
+include wget.mk
+include nettools.mk
 
 include python.mk
 

@@ -1,3 +1,8 @@
+/*
+ * boot.py runs this as /mnt/resolver with no arguments to test musl against
+ * an in-guest DNS server. dhcp.py passes a name and expected IPv4 address
+ * to test the configured resolver without replacing /etc/resolv.conf.
+ */
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -29,6 +34,7 @@ static void transfer(int fd, void *data, size_t len, int send_data)
 
 static size_t reply(unsigned char *packet, size_t length, int truncated)
 {
+	/* A/IN answer for 192.0.2.42; the name points back to the question at offset 12. */
 	static const unsigned char answer[] = {
 		0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 192, 0, 2, 42,
 	};
@@ -52,6 +58,7 @@ static void serve(int udp, int tcp)
 	ssize_t length;
 	int stream;
 
+	/* Answer the first lookup over UDP; truncate the second to force a TCP retry. */
 	for (int truncated = 0; truncated < 2; truncated++) {
 		address_length = sizeof(source);
 		length = recvfrom(udp, packet, sizeof(packet), 0,
@@ -62,6 +69,7 @@ static void serve(int udp, int tcp)
 	}
 	stream = accept(tcp, NULL, NULL);
 	CHECK(stream >= 0);
+	/* DNS over TCP prefixes each message with its two-byte length. */
 	transfer(stream, prefix, sizeof(prefix), 0);
 	length = (prefix[0] << 8) | prefix[1];
 	CHECK(length >= 17 && length <= sizeof(packet));

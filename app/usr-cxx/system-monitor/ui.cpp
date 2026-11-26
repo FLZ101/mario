@@ -13,9 +13,11 @@
 #include <FL/fl_ask.H>
 #include <FL/fl_draw.H>
 #include <font-icons.h>
+#include <mario/netctl.h>
 #include <mario/process.h>
 
 #include <algorithm>
+#include <arpa/inet.h>
 #include <array>
 #include <cerrno>
 #include <climits>
@@ -236,6 +238,64 @@ private:
 	std::deque<ChartFrame> history_;
 	Memory memory_;
 	std::string cpu_title_ = "CPU utilization (unavailable)", uptime_ = "Uptime: --";
+};
+
+class NetworkPage final : public Fl_Widget {
+public:
+	NetworkPage(int xpos, int ypos, int width, int height)
+		: Fl_Widget(xpos, ypos, width, height, "Network") { }
+
+	void update(const Snapshot &snapshot)
+	{
+		network_ = snapshot.network;
+		redraw();
+	}
+
+private:
+	static std::string bytes(double amount)
+	{
+		constexpr std::array units{"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"};
+		std::size_t unit = 0;
+		while (amount >= 1024 && unit + 1 < units.size()) {
+			amount /= 1024;
+			++unit;
+		}
+		char buffer[48];
+		std::snprintf(buffer, sizeof(buffer), "%.*f %s", unit ? 1 : 0, amount, units[unit]);
+		return buffer;
+	}
+
+	void draw() override
+	{
+		fl_push_clip(x(), y(), w(), h());
+		fl_color(FL_WHITE);
+		fl_rectf(x(), y(), w(), h());
+		const auto row = [this](const std::string &value, int top, Fl_Font font = FL_HELVETICA) {
+			text(value, x() + 12, y() + top, w() - 24, 23, font);
+		};
+		if (!network_) {
+			row("Network statistics unavailable", 8);
+		} else if (network_->flags & MARIO_NET_PROBE_FAILED) {
+			row("Ethernet initialization failed", 8);
+		} else if (!(network_->flags & MARIO_NET_PRESENT)) {
+			row("No Ethernet interface detected", 8);
+		} else {
+			const auto &network = *network_;
+			const char *link = !(network.flags & MARIO_NET_UP) ? "Disabled" :
+				(network.flags & MARIO_NET_CARRIER) ? "Connected" : "No carrier";
+			row(std::string("eth0: ") + link, 8, FL_HELVETICA_BOLD);
+			char address[INET_ADDRSTRLEN];
+			row(network.address && inet_ntop(AF_INET, &network.address, address, sizeof(address)) ?
+				std::string("IPv4: ") + address + "/" + std::to_string(network.prefix) : "IPv4: Not configured", 32);
+			row("Received: " + bytes(network.rx_bytes) + " total, " +
+				(network.rx_per_second ? bytes(*network.rx_per_second) + "/s" : "--"), 62);
+			row("Sent: " + bytes(network.tx_bytes) + " total, " +
+				(network.tx_per_second ? bytes(*network.tx_per_second) + "/s" : "--"), 86);
+		}
+		fl_pop_clip();
+	}
+
+	std::optional<Network> network_;
 };
 
 class Mounts final : public Fl_Widget {
@@ -728,7 +788,7 @@ public:
 		pause_(618, 8, 100, 28, "Pause"), refresh_(728, 8, 100, 28, "Refresh"),
 		tabs_(12, 46, 816, 522), overview_(12, 72, 816, 496, "Overview"),
 		processes_(12, 72, 816, 496, [this] { if (window_.shown()) start(); }),
-		mounts_(12, 72, 816, 496, "Filesystems")
+		mounts_(12, 72, 816, 496, "Filesystems"), network_(12, 72, 816, 496)
 	{
 		tabs_.end();
 		tabs_.value(&overview_);
@@ -781,6 +841,7 @@ private:
 			self.snapshot_ = std::move(*result);
 			self.overview_.update(self.snapshot_);
 			self.mounts_.update(self.snapshot_);
+			self.network_.update(self.snapshot_);
 			self.processes_.update(self.snapshot_);
 			if (self.observer_)
 				self.observer_(self.snapshot_);
@@ -859,6 +920,7 @@ private:
 	ScrollPage<Overview> overview_;
 	Processes processes_;
 	ScrollPage<Mounts> mounts_;
+	NetworkPage network_;
 	bool paused_ = false, failed_ = false;
 };
 

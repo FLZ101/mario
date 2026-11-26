@@ -6,13 +6,11 @@ TOYBOX_SRC_URL	:=https://github.com/landley/toybox/archive/refs/tags/$(TOYBOX_VE
 TOYBOX_INSTALL_DIR	:=$(ROOT)/$(TOYBOX_SRC_DIR)-install
 
 .PHONY build:: build-toybox
-build-toybox: src-toybox
-	CC=$(CC) TOYBOX_SRC_DIR=$(TOYBOX_SRC_DIR) TOYBOX_INSTALL_DIR=$(TOYBOX_INSTALL_DIR) ./build-toybox.sh
+build-toybox: $(TOYBOX_INSTALL_DIR)/bin/toybox
 
-src-toybox: $(TOYBOX_SRC_DIR)/configure
-
-$(TOYBOX_SRC_DIR)/configure: | $(TOYBOX_SRC_FILE)
-	tar xf $(TOYBOX_SRC_FILE)
+$(TOYBOX_INSTALL_DIR)/bin/toybox: $(TOYBOX_SRC_FILE) toybox/.config toybox.patch build-toybox.sh toybox.mk
+	CC=$(CC) TOYBOX_SRC_DIR=$(TOYBOX_SRC_DIR) TOYBOX_SRC_FILE=$(TOYBOX_SRC_FILE) \
+		TOYBOX_INSTALL_DIR=$(TOYBOX_INSTALL_DIR) ./build-toybox.sh
 
 $(TOYBOX_SRC_FILE):
 	wget -c --no-check-certificate $(TOYBOX_SRC_URL) -O $(TOYBOX_SRC_FILE)

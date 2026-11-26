@@ -1,0 +1,129 @@
+--- a/lib/interface.c
++++ b/lib/interface.c
+@@ -87,2 +86,0 @@
+-int procnetdev_vsn = 1;
+-
+@@ -90,0 +89,3 @@
++#ifndef MARIO_NET_TOOLS
++int procnetdev_vsn = 1;
++
+@@ -594,0 +596,2 @@
++#endif
++
+@@ -597,0 +601,14 @@
++#ifdef MARIO_NET_TOOLS
++    if (ptr->mtu)
++        printf("%5d ", ptr->mtu);
++    else
++        printf("%5s ", "-");
++    if (ptr->statistics_valid)
++        printf("%8llu %6s %6lu %-6lu %8llu %6lu %6s %6s ",
++               ptr->stats.rx_packets, "-", ptr->stats.rx_dropped,
++               ptr->stats.rx_fifo_errors, ptr->stats.tx_packets,
++               ptr->stats.tx_errors, "-", "-");
++    else
++        printf("%8s %6s %6s %-6s %8s %6s %6s %6s ",
++               "-", "-", "-", "-", "-", "-", "-", "-");
++#else
+@@ -609,0 +627 @@
++#endif
+@@ -731,0 +750,5 @@
++#ifdef MARIO_NET_TOOLS
++    printf(_("%s: %s"), ptr->name, flags);
++    if (ptr->mtu)
++        printf(_("  mtu %d"), ptr->mtu);
++#else
+@@ -733,0 +757 @@
++#endif
+@@ -919,0 +944,4 @@
++#ifdef MARIO_NET_TOOLS
++        printf(_("RX dropped %lu  overruns %lu\n"),
++               ptr->stats.rx_dropped, ptr->stats.rx_fifo_errors);
++#else
+@@ -922,0 +951 @@
++#endif
+@@ -934,0 +964,3 @@
++#ifdef MARIO_NET_TOOLS
++        printf(_("TX errors %lu\n"), ptr->stats.tx_errors);
++#else
+@@ -938,0 +971 @@
++#endif
+--- a/lib/ether.c
++++ b/lib/ether.c
+@@ -21,0 +22,3 @@
++#ifdef MARIO_NET_TOOLS
++#include <netinet/if_ether.h>
++#else
+@@ -22,0 +26 @@
++#endif
+--- a/lib/inet.c
++++ b/lib/inet.c
+@@ -53,0 +54 @@
++#ifndef h_errno
+@@ -54,0 +56 @@
++#endif
+--- a/lib/inet_gr.c
++++ b/lib/inet_gr.c
+@@ -31,0 +32,35 @@
++
++static void fib_header(int ext)
++{
++    printf(_("Kernel IP routing table\n"));
++
++    if (ext == 1)
++        printf(_("Destination     Gateway         Genmask         "
++                 "Flags Metric Ref    Use Iface\n"));
++    if (ext == 2)
++        printf(_("Destination     Gateway         Genmask         "
++                 "Flags   MSS Window  irtt Iface\n"));
++    if (ext >= 3)
++        printf(_("Destination     Gateway         Genmask         "
++                 "Flags Metric Ref    Use Iface    "
++                 "MSS   Window irtt\n"));
++}
++
++#ifdef MARIO_NET_TOOLS
++void mario_fib_header(void)
++{
++    fib_header(1);
++}
++
++void mario_fib_entry(in_addr_t dest, in_addr_t gateway, in_addr_t mask,
++                     const char *iface)
++{
++    char net_addr[INET_ADDRSTRLEN], gate_addr[INET_ADDRSTRLEN], mask_addr[INET_ADDRSTRLEN];
++
++    inet_ntop(AF_INET, &dest, net_addr, sizeof(net_addr));
++    inet_ntop(AF_INET, &gateway, gate_addr, sizeof(gate_addr));
++    inet_ntop(AF_INET, &mask, mask_addr, sizeof(mask_addr));
++    printf("%-15s %-15s %-15s %-5s %-6s %-2s %7s %s\n",
++           net_addr, gate_addr, mask_addr, gateway ? "UG" : "U", "-", "-", "-", iface);
++}
++#else
+@@ -54,12 +89 @@
+-    printf(_("Kernel IP routing table\n"));
+-
+-    if (ext == 1)
+-	printf(_("Destination     Gateway         Genmask         "
+-		 "Flags Metric Ref    Use Iface\n"));
+-    if (ext == 2)
+-	printf(_("Destination     Gateway         Genmask         "
+-		 "Flags   MSS Window  irtt Iface\n"));
+-    if (ext >= 3)
+-	printf(_("Destination     Gateway         Genmask         "
+-		 "Flags Metric Ref    Use Iface    "
+-		 "MSS   Window irtt\n"));
++    fib_header(ext);
+@@ -457,0 +482 @@
++#endif
+--- a/lib/net-support.h
++++ b/lib/net-support.h
+@@ -34,0 +35,8 @@
++#ifdef MARIO_NET_TOOLS
++#include <netinet/in.h>
++
++void mario_fib_header(void);
++void mario_fib_entry(in_addr_t dest, in_addr_t gateway, in_addr_t mask,
++                     const char *iface);
++#endif
++

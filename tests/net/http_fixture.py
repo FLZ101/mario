@@ -7,6 +7,8 @@ BODY = bytes(range(256)) * 4
 
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
     def setup(self):
         self.request.settimeout(5)
         super().setup()
@@ -25,6 +27,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(len(BODY)))
         self.send_header("X-Mario-Fixture", "net")
+        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(BODY)
 

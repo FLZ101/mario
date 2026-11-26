@@ -785,6 +785,7 @@ void truncate_rd(void)
 		return;
 	sb.free = blocks;
 
+	fseek(rd_file, 0, SEEK_END);
 	new_block();
 	while (blocks < nr_block) {
 		*(uint32_t *)(buffer + MAX_USED) = (blocks + 1) % nr_block;

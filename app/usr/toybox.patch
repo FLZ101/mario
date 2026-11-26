@@ -20,3 +20,12 @@
 @@ -340 +339 @@
 -      else if (!strcmp(arg, "line")) new.c_line = get_arg(&i, NR_LDISCS);
 +      else if (!strcmp(arg, "line")) new.c_line = get_arg(&i, 0);
+--- a/toys/net/host.c
++++ b/toys/net/host.c
+@@ -122,4 +122,3 @@ void host_main(void)
+-    setsockopt(i, SOL_SOCKET, SO_RCVTIMEO, &(struct timeval){ .tv_sec = 5 },
+-      sizeof(struct timeval));
++    struct pollfd ready = { .fd = i, .events = POLLIN };
+     send(i, t2, qlen, 0);
+-    if (16 < (alen = recv(i, abuf, abuf_len, 0))) break;
++    if (xpoll(&ready, 1, 5000) && 16 < (alen = recv(i, abuf, abuf_len, 0))) break;

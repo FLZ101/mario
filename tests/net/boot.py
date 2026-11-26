@@ -1,6 +1,7 @@
 """Verify IPv4 loopback without a NIC."""
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -25,6 +26,10 @@ def stage_fixture(directory, sources=None, files=()):
         sources = {name: Path(__file__).with_name(f"{name}.c") for name in FIXTURES}
     contents = directory / "contents"
     contents.mkdir()
+    compiler_env = os.environ.copy()
+    compiler_env.setdefault(
+        "COMPILE_COMMANDS_JSON", str(ROOT / "compile_commands.json")
+    )
     for source in files:
         shutil.copyfile(source, contents / source.name)
     for fixture, source in sources.items():
@@ -42,6 +47,7 @@ def stage_fixture(directory, sources=None, files=()):
                 source,
             ],
             cwd=ROOT,
+            env=compiler_env,
             check=True,
         )
     fixture = directory / "fixture.img"
@@ -84,7 +90,10 @@ def check_boot(smp, time_wait):
                 else FIXTURES
             )
             for fixture, success in cases.items():
-                send_line(child, f"/mnt/{fixture}; printf '\\nNET_STATUS=%s\\n' $?")
+                mode = " --no-nic" if fixture == "loopback" else ""
+                send_line(
+                    child, f"/mnt/{fixture}{mode}; printf '\\nNET_STATUS=%s\\n' $?"
+                )
                 child.expect(
                     r"(?m)^NET_STATUS=(\d+)\r*\n", timeout=160 if time_wait else 25
                 )

@@ -32,12 +32,19 @@ struct Space {
 	int error = 0;
 };
 
+struct Network {
+	uint32_t flags, address, prefix;
+	uint64_t rx_bytes, tx_bytes;
+	std::optional<double> rx_per_second, tx_per_second;
+};
+
 class Source {
 public:
 	virtual ~Source() = default;
 	virtual Text read(const std::string &path, std::size_t limit) = 0;
 	virtual Pids tasks(std::size_t limit) = 0;
 	virtual Space space(const std::string &path) = 0;
+	virtual std::optional<Network> network() = 0;
 	virtual std::optional<uint64_t> monotonic_ns() = 0;
 };
 
@@ -46,6 +53,7 @@ public:
 	Text read(const std::string &path, std::size_t limit) override;
 	Pids tasks(std::size_t limit) override;
 	Space space(const std::string &path) override;
+	std::optional<Network> network() override;
 	std::optional<uint64_t> monotonic_ns() override;
 };
 
@@ -87,6 +95,7 @@ struct Snapshot {
 	std::optional<uint64_t> monotonic_ns;
 	std::vector<CPU> cpus;
 	Memory memory;
+	std::optional<Network> network;
 	std::optional<double> uptime_seconds;
 	std::vector<Task> tasks;
 	std::vector<Mount> mounts;

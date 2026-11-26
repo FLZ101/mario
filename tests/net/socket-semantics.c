@@ -1,3 +1,8 @@
+/*
+ * boot.py runs this as /mnt/socket-semantics on loopback to test socket ABI,
+ * readiness, and resource limits. The two-minute TIME_WAIT check runs
+ * separately in the time-wait mode.
+ */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
 #include <errno.h>
@@ -95,6 +100,7 @@ static void tcp_semantics(void)
 	CHECK(ready(client, POLLOUT, 2000) == POLLOUT);
 	CHECK(get_option(client, SOL_SOCKET, SO_ERROR) == 0);
 	CHECK(ready(listener, POLLIN, 2000) == POLLIN);
+	/* The first connection fills the backlog, so the second remains pending. */
 	CHECK(connect(pending, (struct sockaddr *)&address, sizeof(address)) == -1 &&
 	      errno == EINPROGRESS);
 	CHECK(connect(pending, (struct sockaddr *)&address, sizeof(address)) == -1 &&
@@ -204,6 +210,7 @@ static void udp_messages(int legacy)
 	CHECK(readv(receiver, rx, 2) == 4 && !memcmp(buffer, "abcd", 4));
 	CHECK(connect(sender, &((struct sockaddr){.sa_family = AF_UNSPEC}), sizeof(sa_family_t)) == 0);
 	CHECK(send(sender, "x", 1, 0) == -1 && errno == EDESTADDRREQ);
+	/* The receive queue holds eight datagrams and drops the ninth. */
 	for (char value = '0'; value <= '8'; value++)
 		CHECK(sendto(sender, &value, 1, 0, (struct sockaddr *)&address, sizeof(address)) == 1);
 	for (char value = '0'; value <= '7'; value++)
@@ -231,6 +238,7 @@ static void *receive(void *data)
 	return NULL;
 }
 
+/* Wait until recv is asleep before closing its fd or sending a signal. */
 static void wait_blocked(struct waiter *waiter)
 {
 	char path[48], status[256];
@@ -280,6 +288,7 @@ static void close_and_interrupt(void)
 	waiter.fd = copy;
 	CHECK(pthread_create(&thread, NULL, receive, &waiter) == 0);
 	wait_blocked(&waiter);
+	/* Reusing the descriptor number must not redirect the blocked recv. */
 	CHECK(close(copy) == 0);
 	replacement = dup2(sender, copy);
 	CHECK(replacement == copy);
@@ -299,6 +308,7 @@ static void close_and_interrupt(void)
 	CHECK(close(waiter.fd) == 0 && close(sender) == 0);
 }
 
+/* Exhaust the blocking I/O slots, then verify that they can be reclaimed. */
 static void io_pressure(void)
 {
 	struct sockaddr_in address = loop_address();
@@ -329,6 +339,7 @@ static void io_pressure(void)
 	CHECK(close(shared) == 0 && close(other) == 0);
 }
 
+/* Exhaust the separate UDP, TCP, and listener control-block pools. */
 static void pcb_pressure(void)
 {
 	struct sockaddr_in address = loop_address();

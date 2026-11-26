@@ -11,14 +11,11 @@ SBASE_SRC_URL	:=https://github.com/michaelforney/sbase/archive/$(SBASE_COMMIT_ID
 SBASE_INSTALL_DIR	:=$(ROOT)/sbase-install
 
 .PHONY build:: build-sbase
-build-sbase: src-sbase
-	CC=$(CC) SBASE_SRC_DIR=$(SBASE_SRC_DIR) SBASE_INSTALL_DIR=$(SBASE_INSTALL_DIR) ./build-sbase.sh
+build-sbase: $(SBASE_INSTALL_DIR)/bin/sbase-box
 
-src-sbase: $(SBASE_SRC_DIR)/README
-
-$(SBASE_SRC_DIR)/README: | $(SBASE_SRC_FILE)
-# 	tar xf $(SBASE_SRC_FILE)
-	unzip $(SBASE_SRC_FILE)
+$(SBASE_INSTALL_DIR)/bin/sbase-box: $(SBASE_SRC_FILE) sbase.patch build-sbase.sh sbase.mk
+	CC=$(CC) SBASE_SRC_DIR=$(SBASE_SRC_DIR) SBASE_SRC_FILE=$(SBASE_SRC_FILE) \
+		SBASE_INSTALL_DIR=$(SBASE_INSTALL_DIR) ./build-sbase.sh
 
 $(SBASE_SRC_FILE):
 	wget -c --no-check-certificate $(SBASE_SRC_URL) -O $(SBASE_SRC_FILE)

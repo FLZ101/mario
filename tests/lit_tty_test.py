@@ -208,10 +208,11 @@ class TtyLitTest:
 
 
 class TmuxSerialSession:
-    def __init__(self, qemu: str, smp: int, index: int):
+    def __init__(self, qemu: str, smp: int, index: int, *, network=("-nic", "none")):
         self.qemu = qemu
         self.smp = smp
         self.index = index
+        self.network = network
         self.tempdir = tempfile.TemporaryDirectory(prefix="mario-tty-")
         self.workdir = Path(self.tempdir.name)
         self.serial_socket = self.workdir / "serial.sock"
@@ -279,6 +280,7 @@ class TmuxSerialSession:
             "-no-reboot",
             "-no-shutdown",
             "-snapshot",
+            *self.network,
         ]
         for index, image in enumerate(HD_IMAGES, start=1):
             command += [
@@ -427,10 +429,10 @@ class TmuxSerialSession:
             self.tempdir.cleanup()
 
 
-def run_test(test: TtyLitTest, qemu: str, smp: int, index: int):
+def run_test(test: TtyLitTest, qemu: str, smp: int, index: int, **session_options):
     started = time.monotonic()
     with kernel_artifacts(test.rebuild_kernel):
-        session = TmuxSerialSession(qemu, smp, index)
+        session = TmuxSerialSession(qemu, smp, index, **session_options)
         timeout = DEFAULT_TIMEOUT
         failures: list[str] = []
         report_panel = ""

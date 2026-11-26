@@ -174,9 +174,12 @@ including when the GTK display is scaled. Curses and existing headless GUI
 tests retain relative PS/2 input. `GUI-MOUSE-POSITION: x,y` opts a GUI fixture
 into GTK-style absolute positioning; do not mix it with `GUI-MOUSE-MOVE`.
 
-Run `btop` in an 80×24 or larger terminal to monitor CPU usage, system memory,
-and processes. The Mario port does not report per-process memory, load averages,
-GPU, network, or disk I/O statistics.
+Run `btop` in an 80×24 or larger terminal to monitor CPU, memory, processes,
+and Ethernet traffic. Press `3` to toggle its network panel if an existing
+configuration hides it. The graphical System Monitor's **Network** tab shows
+the `eth0` link state, IPv4 address, and receive/transmit totals and rates.
+Neither monitor requires an internet connection to report link traffic.
+The btop port does not report per-process memory, load averages, GPU, or disk I/O.
 
 `make run-gtk` and `make debug-gtk` use the separate disks built by
 `make disk-image-gtk`. Put files in `rd/_ramdisk0-gtk/` at their guest-relative
@@ -208,6 +211,13 @@ Python supports HTTPS through OpenSSL and trusts the bundled Mozilla roots
 in `/etc/ssl/cert.pem` by default. Use `SSL_CERT_FILE` to select another trust
 bundle or pass a CA file explicitly for a private endpoint.
 See [Python HTTPS requirements](tests/net/README.md#python-https).
+
+The image includes standalone `curl` and GNU `wget` for IPv4 HTTP and HTTPS.
+They use the same CA bundle; pass `curl --cacert FILE` or
+`wget --ca-certificate=FILE` for a private CA.
+Use `ifconfig`, `route -n`, or `netstat -i` / `netstat -rn` for read-only
+network status. Configure IPv4 with `/sbin/netctl.exe`.
+See [installed network tools](tests/net/README.md#network-tools).
 
 Open a local MP4 in File Manager, or run `mpv FILE.mp4` from the desktop
 terminal. The player accepts one regular file with H.264 video and optional

@@ -144,14 +144,14 @@ def guest(smp, directory, initrd, backend, mac=GUEST_MAC, **qemu_options):
     command = qemu_command(QEMU, smp, **qemu_options)
     monitor = directory / "qmp"
     command[command.index("-initrd") + 1] = str(initrd)
-    command += [
-        "-netdev",
-        backend,
-        "-device",
-        f"e1000,id=ethernet,netdev=wire,mac={mac.hex(':')}",
-        "-qmp",
-        f"unix:{monitor},server=on,wait=off",
-    ]
+    command += ["-qmp", f"unix:{monitor},server=on,wait=off"]
+    if backend is not None:
+        command += [
+            "-netdev",
+            backend,
+            "-device",
+            f"e1000,id=ethernet,netdev=wire,mac={mac.hex(':')}",
+        ]
     child = pexpect.spawn(command[0], command[1:], encoding="latin-1", timeout=30)
     try:
         make_pexpect_raw(child)
@@ -184,6 +184,15 @@ def run(child, command, expected=0):
 
 def status(child):
     return run(child, "/mnt/netctl status")
+
+
+def byte_counts(child):
+    output = run(child, "/mnt/ethernet stats")
+    match = re.search(
+        r"NET_STATS flags=7 address=192\.0\.2\.2/24 rx=(\d+) tx=(\d+)", output
+    )
+    assert match, output
+    return tuple(map(int, match.groups()))
 
 
 def wait_status(child, pattern, timeout=5):
@@ -257,6 +266,7 @@ def raw_link(smp, directory, initrd):
                 reply = wait_frame(connection, lambda frame: is_arp(frame, 2, PEER))
                 assert reply[22:32] == GUEST_MAC + GUEST, reply.hex()
                 ping(connection, 1)
+                before_rx, before_tx = byte_counts(child)
                 start(child, f"/mnt/ethernet udp {PORT}")
                 child.expect(r"(?m)^ETH_READY\r*$", timeout=5)
                 udp = struct.pack("!HHHH", PORT + 1, PORT, 18, 0) + b"local-peer"
@@ -267,6 +277,11 @@ def raw_link(smp, directory, initrd):
                     b"local-peer",
                 )
                 finish(child)
+                after_rx, after_tx = byte_counts(child)
+                assert after_rx - before_rx >= 52 and after_tx - before_tx >= 52, (
+                    (before_rx, before_tx),
+                    (after_rx, after_tx),
+                )
                 for sequence in range(2, 26):
                     ping(connection, sequence)
                 ring_pressure(child, connection)
