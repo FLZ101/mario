@@ -60,9 +60,12 @@ tmux-attach:
 tmux-kill:
 	$(MAKE) -C $(QEMU_DIR) tmux-kill
 
-.PHONY: image-builder-test
+.PHONY: image-builder-test net-test
 
-test: image-builder-test shell-test tty-test gui-test
+test: image-builder-test net-test shell-test tty-test gui-test
+
+net-test:
+	PYTHONPATH=$(ROOT)/tests $(PYTHON) $(ROOT)/tests/net/boot.py --smp $(SMP)
 
 image-builder-test:
 	$(PYTHON) $(ROOT)/tests/test_mkdisk.py

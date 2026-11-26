@@ -99,8 +99,11 @@ OBJS	:=kernel/start.o $(OBJS)
 OBJS	+=kernel/smp_trampoline.o
 
 DEPS	:=$(patsubst %.o,%.d,$(OBJS))
+LWIP_LIB := ../lwip/build/liblwip.a
 
 all: boot/boot.bin kernel/kernel.exe
+
+net/%.o: CFLAGS += -I net/include -I ../lwip/src/include
 
 $(OBJS): | include/build_info.h
 
@@ -125,7 +128,7 @@ clean:
 	@$(NASM) -f bin -l $*.lst -o $@ $<
 	@echo $@
 
-kernel/kernel.exe: $(OBJS)
+kernel/kernel.exe: $(OBJS) $(LWIP_LIB)
 	$(LD) $(LDFLAGS) -o $@ $^
 
 %.o: %.S

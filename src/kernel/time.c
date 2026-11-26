@@ -9,6 +9,7 @@
 #include <bh.h>
 #include <futex.h>
 #include <io.h>
+#include <net/worker.h>
 
 #include <mm/uaccess.h>
 
@@ -204,6 +205,7 @@ int sys_clock_gettime32(clockid_t clockid, struct timespec *tp)
 
 static void PIT_bh(void *unused)
 {
+	net_tick();
 	pcm_service();
 	run_timer_list();
 	futex_run_timeouts();

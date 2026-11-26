@@ -7,11 +7,11 @@ export SHELL
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
-.PHONY: all kernel musl app compiler-rt analyze-kernel \
+.PHONY: all kernel musl app compiler-rt lwip analyze-kernel \
 	selftest-kmalloc selftest-page selftest-stack selftest-ubsan \
 	selftest-fb-write-generation selftest-fb-write-chunks \
 	selftest-fb-transition-race selftest-fbcon-start-failure
-.PHONY: clean-all clean-build clean-src clean-compiler-rt clean-kernel \
+.PHONY: clean-all clean-build clean-src clean-compiler-rt clean-lwip clean-kernel \
 	clean-app clean-app-example clean-app-usr clean-app-usr-src clean-app-usr-cxx-src \
 	clean-musl clean-musl-src
 
@@ -63,6 +63,7 @@ LD	:= $(ROOT)/util/ld
 export LD
 
 COMPILER_RT_MK := $(ROOT)/compiler-rt/compiler-rt.mk
+LWIP_MK := $(ROOT)/lwip/lwip.mk
 
 APP_CC	:= $(ROOT)/util/mario-musl-cc
 APP_CXX	:= $(ROOT)/util/mario-musl-c++
@@ -71,7 +72,10 @@ APP_LD	:= $(ROOT)/util/mario-musl-ld
 compiler-rt:
 	$(PODMAN_RUN) $(MAKE) STACK_PROTECTOR=0 CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld -f $(COMPILER_RT_MK)
 
-kernel: compiler-rt
+lwip:
+	$(PODMAN_RUN) $(MAKE) -f $(LWIP_MK) CC=$(ROOT)/util/mario-cc $(BUILD_MAKE_FLAGS)
+
+kernel: compiler-rt lwip
 	$(PODMAN_RUN) $(MAKE) $(BUILD_MAKE_FLAGS) CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld \
 		AUTO_VAR_INIT=$(AUTO_VAR_INIT) \
 		KMALLOC_DEBUG=$(KMALLOC_DEBUG) \
@@ -79,7 +83,7 @@ kernel: compiler-rt
 		STACK_PROTECTOR=$(STACK_PROTECTOR) \
 		UBSAN=$(UBSAN) -C src
 
-analyze-kernel: compiler-rt
+analyze-kernel: compiler-rt lwip
 	$(PODMAN_RUN) $(MAKE) OPTIMIZE=-O0 CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-ld \
 		AUTO_VAR_INIT=0 KMALLOC_DEBUG=0 PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 \
 		UBSAN=0 ANALYZE=1 -C src
@@ -88,42 +92,42 @@ SELF_TEST_FLAGS := OPTIMIZE=-O0 CC=$(ROOT)/util/mario-cc LD=$(ROOT)/util/mario-l
 
 # Self-test macros change CFLAGS but are not object dependencies, so each
 # target must discard objects compiled for a different kernel configuration.
-selftest-kmalloc: clean-kernel compiler-rt
+selftest-kmalloc: clean-kernel compiler-rt lwip
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=1 \
 		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 UBSAN=0 \
 		KMALLOC_SELF_TEST=1 -C src
 
-selftest-page: clean-kernel compiler-rt
+selftest-page: clean-kernel compiler-rt lwip
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
 		PAGE_ALLOC_DEBUG=1 STACK_PROTECTOR=0 UBSAN=0 \
 		PAGE_ALLOC_SELF_TEST=1 -C src
 
-selftest-stack: clean-kernel compiler-rt
+selftest-stack: clean-kernel compiler-rt lwip
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
 		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=1 UBSAN=0 \
 		STACK_PROTECTOR_SELF_TEST=1 -C src
 
-selftest-ubsan: clean-kernel compiler-rt
+selftest-ubsan: clean-kernel compiler-rt lwip
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
 		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 UBSAN=1 \
 		UBSAN_SELF_TEST=1 -C src
 
-selftest-fb-write-generation: clean-kernel compiler-rt
+selftest-fb-write-generation: clean-kernel compiler-rt lwip
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
 		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 UBSAN=0 \
 		FB_WRITE_GENERATION_SELF_TEST=1 -C src
 
-selftest-fb-write-chunks: clean-kernel compiler-rt
+selftest-fb-write-chunks: clean-kernel compiler-rt lwip
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
 		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 UBSAN=0 \
 		FB_WRITE_CHUNK_SELF_TEST=1 -C src
 
-selftest-fb-transition-race: clean-kernel compiler-rt
+selftest-fb-transition-race: clean-kernel compiler-rt lwip
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
 		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 UBSAN=0 \
 		FB_TRANSITION_RACE_SELF_TEST=1 -C src
 
-selftest-fbcon-start-failure: clean-kernel compiler-rt
+selftest-fbcon-start-failure: clean-kernel compiler-rt lwip
 	$(PODMAN_RUN) $(MAKE) $(SELF_TEST_FLAGS) KMALLOC_DEBUG=0 \
 		PAGE_ALLOC_DEBUG=0 STACK_PROTECTOR=0 UBSAN=0 \
 		FBCON_START_FAILURE_SELF_TEST=1 -C src
@@ -141,7 +145,7 @@ app: musl $(APP_VENV_DIR)/.stamp
 
 clean-all: clean-build clean-src
 
-clean-build: clean-kernel clean-compiler-rt clean-musl clean-app
+clean-build: clean-kernel clean-compiler-rt clean-lwip clean-musl clean-app
 	$(RM) $(COMPILE_COMMANDS_JSON)
 
 clean-app: clean-app-example clean-app-usr
@@ -150,6 +154,9 @@ clean-src: clean-app-usr-src clean-app-usr-cxx-src clean-musl-src
 
 clean-compiler-rt:
 	$(PODMAN_RUN) $(MAKE) $(CLEAN_MAKE_FLAGS) -f $(COMPILER_RT_MK) clean
+
+clean-lwip:
+	$(PODMAN_RUN) $(MAKE) -f $(LWIP_MK) clean
 
 clean-kernel:
 	$(PODMAN_RUN) $(MAKE) $(CLEAN_MAKE_FLAGS) clean -C src

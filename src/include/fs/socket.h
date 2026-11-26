@@ -4,6 +4,7 @@
 #include <fs/fs.h>
 
 #define AF_UNIX 1
+#define AF_INET 2
 #define SOCK_STREAM 1
 #define SOCK_NONBLOCK O_NONBLOCK
 #define SOCK_CLOEXEC O_CLOEXEC

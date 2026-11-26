@@ -61,7 +61,7 @@ clean-containers:
 
 # ------
 
-.PHONY: kernel app analyze-kernel \
+.PHONY: kernel app analyze-kernel lwip \
 	selftest-kmalloc selftest-page selftest-stack selftest-ubsan \
 	selftest-fb-write-generation selftest-fb-write-chunks \
 	selftest-fb-transition-race selftest-fbcon-start-failure
@@ -91,6 +91,9 @@ kernel app:
 
 analyze-kernel:
 	make -f Makefile.build.mk DEBUG=0 OPTIMIZE=-O0 ANALYZE=1 analyze-kernel
+
+lwip:
+	$(MAKE) -f Makefile.build.mk OPTIMIZE=$(OPTIMIZE) $@
 
 selftest-kmalloc selftest-page selftest-stack selftest-ubsan \
 selftest-fb-write-generation selftest-fb-write-chunks \
@@ -127,7 +130,7 @@ clean-disk-image:
 
 # ------
 
-.PHONY: test test-all
+.PHONY: test test-all net-test
 
 SMP ?= 1
 LIT_JOBS ?= 4
@@ -135,6 +138,10 @@ TEST_SMPS ?= 1 2 4 8 16
 
 test: venv disk-image-vbe_1024x768
 	make -f Makefile.run.mk SMP=$(SMP) LIT_JOBS=$(LIT_JOBS) $@
+
+net-test: venv kernel
+	$(MAKE) disk-image-text
+	$(MAKE) -f Makefile.run.mk SMP=$(SMP) net-test
 
 test-all:
 	@set -e; for smp in $(TEST_SMPS); do \

@@ -8,6 +8,7 @@
 #include <futex.h>
 #include <hda.h>
 #include <x87.h>
+#include <net/worker.h>
 
 #define __KERNEL_SYSCALLS__
 #include <unistd.h>
@@ -127,5 +128,6 @@ void mario(struct multiboot_info *m)
 	 * forked first it steals PID 1 from init.exe. */
 	kernel_thread(init, NULL);
 	fbcon_start();
+	net_start();
 	cpu_idle();
 }

@@ -557,6 +557,8 @@ int sys_socket(int domain, int type, int protocol)
 	int base_type = type & ~(SOCK_NONBLOCK | SOCK_CLOEXEC);
 	int err;
 
+	if (domain == AF_INET)
+		return -EAFNOSUPPORT;
 	if (domain != AF_UNIX || base_type != SOCK_STREAM || protocol)
 		return -EOPNOTSUPP;
 	fd = next_fd(0);
