@@ -99,8 +99,16 @@ fail with `ENODEV` if the feature is unavailable; Python normally needs a
 working entropy source even at startup. Mario's QEMU launch targets use
 `-cpu max`; the shell and network runners explicitly enable `RDRAND`.
 
-The HTTPS test checks the guest UTC clock, generates a temporary test CA,
-and checks exact payloads in both directions. Python verifies the explicitly
-supplied CA and rejects a wrong hostname, an untrusted CA, and an expired
-leaf. No public CA bundle is installed. A separate boot with `RDRAND`
-disabled verifies that the random APIs and OpenSSL fail closed.
+Standard and GTK images ship a pinned Mozilla CA bundle at `/etc/ssl/cert.pem`,
+OpenSSL's default certificate file. Python's default HTTPS context loads it
+without configuration. Set `SSL_CERT_FILE` to use another default bundle, or
+pass `cafile` to `ssl.create_default_context()` for a private CA. Keep hostname
+verification enabled. The bundle's source and refresh instructions are in
+[the CA bundle README](../../rd/_ramdisk0/usr/share/doc/ca-certificates/README.md).
+
+The HTTPS test checks the guest UTC clock and that Python loads the packaged
+roots by default. It generates a private test CA and checks exact payloads in
+both directions without contacting public servers. Python rejects the private
+CA with the default trust store, and rejects a wrong hostname and an expired
+leaf even with the test CA configured. A separate boot with `RDRAND` disabled
+verifies that the random APIs and OpenSSL fail closed.

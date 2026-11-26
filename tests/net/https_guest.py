@@ -52,15 +52,18 @@ def check_tls(port, expired_port, host_time):
         assert len(device.read(33)) == 33
     assert len(ssl.RAND_bytes(32)) == 32 and ssl.RAND_status()
     assert hashlib.sha256.__module__ == "_hashlib"
+    paths = ssl.get_default_verify_paths()
+    assert paths.cafile == "/etc/ssl/cert.pem", paths
+    default = ssl.create_default_context()
+    assert default.get_ca_certs(), "bundled CA certificates were not loaded"
     trusted = ssl.create_default_context(cafile="/mnt/ca.pem")
-    untrusted = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     with local_dns({HTTPS_NAME: HTTP_IP, WRONG_NAME: HTTP_IP}) as names:
         with closing(
             HTTPSConnection(HTTPS_NAME, port, timeout=TIMEOUT, context=trusted)
         ) as connection:
             assert_payload(connection)
         reject(WRONG_NAME, port, trusted, 62)
-        reject(HTTPS_NAME, port, untrusted, 20)
+        reject(HTTPS_NAME, port, default, 20)
         reject(HTTPS_NAME, expired_port, trusted, 10)
         assert {HTTPS_NAME, WRONG_NAME} <= set(names), names
 

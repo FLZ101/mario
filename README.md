@@ -204,8 +204,9 @@ to require a particular port or `QEMU_SSH_PORT=` to disable the forward.
 Mario does not ship an SSH server yet.
 See [network setup and limitations](tests/net/README.md#qemu-network-modes-and-dhcp).
 
-Python supports HTTPS through OpenSSL. Mario does not ship a CA bundle;
-provide a trusted CA file explicitly and keep hostname verification enabled.
+Python supports HTTPS through OpenSSL and trusts the bundled Mozilla roots
+in `/etc/ssl/cert.pem` by default. Use `SSL_CERT_FILE` to select another trust
+bundle or pass a CA file explicitly for a private endpoint.
 See [Python HTTPS requirements](tests/net/README.md#python-https).
 
 Open a local MP4 in File Manager, or run `mpv FILE.mp4` from the desktop
