@@ -1,0 +1,41 @@
+{
+  "description": "Mario kernel rules for check_kernel_locks.py",
+  "generic_lock_pattern": "\\b(?:spin_lock_irqsave|spin_lock|ACQUIRE_LOCK)\\s*\\(",
+  "generic_unlock_pattern": "\\b(?:spin_unlock_irqrestore|spin_unlock|RELEASE_LOCK)\\s*\\(",
+  "unsafe_checks": [
+    {
+      "pattern": "\\bmemcpy_(?:tofs|fromfs|fs)\\s*\\(",
+      "message": "user-memory copy inside spinlock region"
+    },
+    {
+      "pattern": "\\b(?:get|put)_fs_long\\s*\\(",
+      "message": "user-memory access inside spinlock region"
+    },
+    {
+      "pattern": "\\bring_buffer_(?:read|write)\\s*\\([^;]*,\\s*1\\s*\\)",
+      "message": "ring_buffer user copy (u=1) inside spinlock region"
+    }
+  ],
+  "locks": [
+    {
+      "name": "tasklist_lock",
+      "lock_pattern": "\\b(?:spin_lock_irqsave|spin_lock|ACQUIRE_LOCK)\\s*\\(\\s*&tasklist_lock\\b",
+      "unlock_pattern": "\\b(?:spin_unlock_irqrestore|spin_unlock|RELEASE_LOCK)\\s*\\(\\s*&tasklist_lock\\b"
+    },
+    {
+      "name": "mm_lock",
+      "lock_pattern": "\\bmm_lock\\s*\\(|\\b(?:spin_lock_irqsave|spin_lock|ACQUIRE_LOCK)\\s*\\([^;]*->mm_lock\\b",
+      "unlock_pattern": "\\bmm_unlock\\s*\\(|\\b(?:spin_unlock_irqrestore|spin_unlock|RELEASE_LOCK)\\s*\\([^;]*->mm_lock\\b"
+    }
+  ],
+  "forbidden_pairs": [
+    {
+      "before": "tasklist_lock",
+      "after": "mm_lock"
+    },
+    {
+      "before": "mm_lock",
+      "after": "tasklist_lock"
+    }
+  ]
+}

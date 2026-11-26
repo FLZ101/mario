@@ -143,6 +143,9 @@ void do_no_page(struct vm_area_struct *vma, unsigned long addr,
 		page = get_zero_page();
 		if (!page)
 			goto fail;
+		/* Count the page only when a new PTE is actually installed. */
+		if (!__pe_present(pt) || __pte_bad(pt))
+			atomic_inc(&vma->vm_mm->resident_pages);
 		*pt = mk_pte(page, vma->vm_page_prot);
 		return;
 	}
@@ -165,6 +168,9 @@ void do_no_page(struct vm_area_struct *vma, unsigned long addr,
 	    !(vma->vm_flags & VM_SHARED))
 		pte_prot &= ~PG_RW;
 
+	/* Count the page only when a new PTE is actually installed. */
+	if (!__pe_present(pt) || __pte_bad(pt))
+		atomic_inc(&vma->vm_mm->resident_pages);
 	*pt = mk_pte(page, pte_prot);
 	return;
 fail:

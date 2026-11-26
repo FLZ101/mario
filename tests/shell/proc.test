@@ -25,6 +25,9 @@ CHECK: proc-meminfo-ok
 
 RUN: cat /proc/self/status
 CHECK-REGEX: Uid:\s+0\s+0\s+0\s+0
+CHECK-REGEX: Name:\s+\S+
+CHECK-REGEX: VmSize:\s+[1-9][0-9]* kB
+CHECK-REGEX: VmRSS:\s+[1-9][0-9]* kB
 
 RUN: cat /proc/1/comm
 CHECK: init.exe

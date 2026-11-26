@@ -1,58 +1,103 @@
 #!/usr/bin/env python3
-"""Flag likely user-memory accesses inside Mario spinlock regions.
+"""Scan kernel C for unsafe-under-spinlock operations and lock-order inversions.
 
-This is intentionally narrow: it only reports patterns that are unsafe while a
-spinlock is held. It does not model nested wait helpers that release their own
-lock, so review blocking calls manually with the SKILL.md guidance.
+All patterns are loaded from a JSON rules file.  The default rules file lives
+next to this script at ../config/default.json, so the scanner itself is
+codebase-independent.  Projects can add their own lock names, lock/unlock
+patterns, forbidden pairs, and unsafe-operation checks.
 """
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
 
-LOCK_RE = re.compile(r"\b(?:spin_lock_irqsave|spin_lock|ACQUIRE_LOCK)\s*\(")
-UNLOCK_RE = re.compile(r"\b(?:spin_unlock_irqrestore|spin_unlock|RELEASE_LOCK)\s*\(")
 
-CHECKS = [
-    (
-        re.compile(r"\bmemcpy_(?:tofs|fromfs|fs)\s*\("),
-        "user-memory copy inside spinlock region",
-    ),
-    (
-        re.compile(r"\b(?:get|put)_fs_long\s*\("),
-        "user-memory access inside spinlock region",
-    ),
-    (
-        re.compile(r"\bring_buffer_(?:read|write)\s*\([^;]*,\s*1\s*\)"),
-        "ring_buffer user copy (u=1) inside spinlock region",
-    ),
-]
+DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "config" / "default.json"
 
 
-def scan_file(path: Path) -> list[tuple[Path, int, str]]:
+def load_rules(path):
+    data = json.loads(path.read_text())
+
+    unsafe_checks = []
+    for item in data.get("unsafe_checks", []):
+        patterns = item.get("patterns", [item.get("pattern")])
+        message = item.get("message", "unsafe operation inside spinlock region")
+        for pattern in patterns:
+            unsafe_checks.append((re.compile(pattern), message))
+
+    generic_lock = re.compile(data["generic_lock_pattern"])
+    generic_unlock = re.compile(data["generic_unlock_pattern"])
+
+    locks = []
+    for item in data.get("locks", []):
+        locks.append(
+            {
+                "name": item["name"],
+                "lock": re.compile(item["lock_pattern"]),
+                "unlock": re.compile(item["unlock_pattern"]),
+            }
+        )
+
+    lock_by_name = {lock["name"]: lock for lock in locks}
+    forbidden_pairs = []
+    for item in data.get("forbidden_pairs", []):
+        before = item["before"]
+        after = item["after"]
+        if before not in lock_by_name or after not in lock_by_name:
+            raise ValueError(f"unknown lock in forbidden_pairs: {before} -> {after}")
+        forbidden_pairs.append((before, after))
+
+    return {
+        "unsafe_checks": unsafe_checks,
+        "generic_lock": generic_lock,
+        "generic_unlock": generic_unlock,
+        "locks": locks,
+        "forbidden_pairs": forbidden_pairs,
+    }
+
+
+def scan_file(path, rules):
     try:
         lines = path.read_text().splitlines()
     except UnicodeDecodeError:
         return []
 
     findings = []
-    depth = 0
+    generic_depth = 0
+    lock_depths = {lock["name"]: 0 for lock in rules["locks"]}
+    lock_by_name = {lock["name"]: lock for lock in rules["locks"]}
 
     for number, line in enumerate(lines, 1):
-        if depth > 0:
-            for pattern, message in CHECKS:
+        spinlock_held = generic_depth > 0 or any(
+            depth > 0 for depth in lock_depths.values()
+        )
+
+        for before, after in rules["forbidden_pairs"]:
+            if lock_depths[before] > 0 and lock_by_name[after]["lock"].search(line):
+                findings.append((path, number, f"{before} -> {after} inversion"))
+
+        if spinlock_held:
+            for pattern, message in rules["unsafe_checks"]:
                 if pattern.search(line):
                     findings.append((path, number, message))
-        depth += len(LOCK_RE.findall(line))
-        depth -= len(UNLOCK_RE.findall(line))
-        if depth < 0:
-            depth = 0
+
+        generic_depth += len(rules["generic_lock"].findall(line))
+        generic_depth -= len(rules["generic_unlock"].findall(line))
+
+        for lock in rules["locks"]:
+            lock_depths[lock["name"]] += 1 if lock["lock"].search(line) else 0
+            lock_depths[lock["name"]] -= 1 if lock["unlock"].search(line) else 0
+
+        generic_depth = max(generic_depth, 0)
+        for name in lock_depths:
+            lock_depths[name] = max(lock_depths[name], 0)
 
     return findings
 
 
-def main() -> int:
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "path",
@@ -60,17 +105,21 @@ def main() -> int:
         default="src",
         help="file or directory to scan (default: src)",
     )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+        help=f"JSON rules file (default: {DEFAULT_CONFIG})",
+    )
     args = parser.parse_args()
 
+    rules = load_rules(args.config)
     root = Path(args.path)
-    if root.is_file():
-        paths = [root]
-    else:
-        paths = sorted(root.rglob("*.c"))
+    paths = [root] if root.is_file() else sorted(root.rglob("*.c"))
 
     found = False
     for path in paths:
-        for file_path, line, message in scan_file(path):
+        for file_path, line, message in scan_file(path, rules):
             print(f"{file_path}:{line}: {message}")
             found = True
 

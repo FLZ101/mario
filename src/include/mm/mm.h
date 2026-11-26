@@ -34,6 +34,18 @@ struct mm_struct {
 	 * shared mm is therefore deferred until the owning process exits.
 	 */
 	atomic_t mm_users;
+	/*
+	 * Number of user pages currently mapped in this address space.  Kept in
+	 * sync with the page-table mappings so /proc can report VmRSS without
+	 * walking (and racing with teardown of) live page tables.
+	 */
+	atomic_t resident_pages;
+	/*
+	 * Number of pages in the user virtual address space described by mmap.
+	 * Maintained atomically with the VMA list so /proc can report VmSize
+	 * without taking mm_lock while already holding the task-list lock.
+	 */
+	atomic_t vm_pages;
 	pde_t *pd;
 	struct vm_area_struct *mmap;
 	struct vm_area_struct *mmap_cache;

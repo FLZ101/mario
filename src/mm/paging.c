@@ -117,18 +117,20 @@ int copy_page_tables(struct task_struct *p)
 	return 0;
 }
 
-static inline void free_one_pte(pte_t *pte)
+static inline void free_one_pte(struct mm_struct *mm, pte_t *pte)
 {
 	if (!*pte)
 		return;
 
-	if (__pe_present(pte)) {
+	if (__pe_present(pte) && !__pte_bad(pte)) {
+		/* This PTE mapped a resident user page. */
+		atomic_dec(&mm->resident_pages);
 		__put_page(PHY_TO_PAGE(*pte));
-		*pte = 0;
 	}
+	*pte = 0;
 }
 
-static void free_one_pde(pde_t *pde)
+static void free_one_pde(struct mm_struct *mm, pde_t *pde)
 {
 	int i;
 	pte_t *pt;
@@ -141,7 +143,7 @@ static void free_one_pde(pde_t *pde)
 	set_pde(pde, 0);
 
 	for (i = 0; i < PTES_PER_PT; i++)
-		free_one_pte(pt + i);
+		free_one_pte(mm, pt + i);
 	free_pt(pt);
 }
 
@@ -159,7 +161,7 @@ void free_page_tables(struct task_struct *p)
 			pd[i] = 0;
 			continue;
 		}
-		free_one_pde(pd + i);
+		free_one_pde(p->mm, pd + i);
 	}
 	free_pd(pd);
 	flush_tlb();
@@ -172,7 +174,7 @@ void clear_page_tables(struct task_struct *p)
 
 	pd = p->mm->pd;
 	for (i = 0; i < __pde_offset(KERNEL_BASE); i++)
-		free_one_pde(pd + i);
+		free_one_pde(p->mm, pd + i);
 	flush_tlb();
 }
 
@@ -221,6 +223,9 @@ int set_page(struct mm_struct *mm, unsigned long page, unsigned long addr)
 		set_pde(pd, mk_pde(pt, _PDE));
 	}
 	pt = pte_offset(__vir(*pd), addr);
+	/* Account the page only when a new PTE is actually installed. */
+	if (!__pe_present(pt) || __pte_bad(pt))
+		atomic_inc(&mm->resident_pages);
 	set_pte(pt, mk_pte(page, _PDE));
 	return 0;
 }

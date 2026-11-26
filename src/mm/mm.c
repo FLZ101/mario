@@ -50,17 +50,6 @@ void merge_mmap(struct mm_struct *mm)
 	mm_unlock(mm, flags);
 }
 
-size_t get_vm_size(struct mm_struct *mm)
-{
-	size_t n = 0;
-	struct vm_area_struct *vma;
-
-	for (vma = mm->mmap ; vma ; vma = vma->vm_next) {
-		n += vma->vm_end - vma->vm_start;
-	}
-	return n;
-}
-
 void verify_vm(struct mm_struct *mm)
 {
 	struct vm_area_struct *vma;
@@ -131,6 +120,8 @@ static void insert_vm_struct_locked(struct mm_struct *mm,
 	}
 	vma->vm_next = mpnt;
 	*p = vma;
+	/* Keep the atomic VmSize counter in sync with the linked VMA list. */
+	atomic_add((vma->vm_end - vma->vm_start) / PAGE_SIZE, &mm->vm_pages);
 
 	verify_vm(mm);
 }
@@ -164,6 +155,8 @@ void exit_mmap(struct task_struct *t)
 	mm_lock(t->mm, &flags);
 	vma = t->mm->mmap;
 	t->mm->mmap = NULL;
+	/* The VMA list is now empty, so the cached VmSize must be too. */
+	atomic_set(&t->mm->vm_pages, 0);
 	mm_unlock(t->mm, flags);
 	while (vma) {
 		next = vma->vm_next;
@@ -296,7 +289,8 @@ void unmap_fixup(struct vm_area_struct *vma, unsigned long addr, unsigned long l
 	vma->vm_inode = NULL;
 }
 
-void unmap_pte_range(pde_t *pd, unsigned long addr, unsigned long len)
+static void unmap_pte_range(struct mm_struct *mm, pde_t *pd,
+			    unsigned long addr, unsigned long len)
 {
 	pte_t *pt;
 	unsigned long end;
@@ -312,6 +306,8 @@ void unmap_pte_range(pde_t *pd, unsigned long addr, unsigned long len)
 		pte_t tmp = *pt;
 		*pt = 0;
 		if (__pe_present(&tmp) && !__pte_bad(&tmp)) {
+			/* Account the unmapped resident page before dropping it. */
+			atomic_dec(&mm->resident_pages);
 			__put_page(PHY_TO_PAGE(tmp));
 		}
 		addr += PAGE_SIZE;
@@ -319,14 +315,15 @@ void unmap_pte_range(pde_t *pd, unsigned long addr, unsigned long len)
 	} while (addr < end);
 }
 
-int unmap_page_range(unsigned long addr, unsigned long len)
+static int unmap_page_range(struct mm_struct *mm, unsigned long addr,
+			    unsigned long len)
 {
 	pde_t *pd;
 	unsigned long end = addr + len;
 
-	pd = pde_offset(current->mm->pd, addr);
+	pd = pde_offset(mm->pd, addr);
 	while (addr < end) {
-		unmap_pte_range(pd, addr, end - addr);
+		unmap_pte_range(mm, pd, addr, end - addr);
 		addr = (addr + PGDIR_SIZE) & PGDIR_MASK;
 		pd++;
 	}
@@ -359,6 +356,13 @@ int do_munmap(unsigned long addr, unsigned long len)
 		// vma overlaps the range
 
 		// remove vma from mm and add it to free list
+		/*
+		 * The VMA is leaving the live list.  unmap_fixup() will re-insert
+		 * any surviving part through insert_vm_struct(), which adds it
+		 * back to vm_pages.
+		 */
+		atomic_sub((vma->vm_end - vma->vm_start) / PAGE_SIZE,
+			   &current->mm->vm_pages);
 		*p = vma->vm_next;
 		vma->vm_next = free;
 		free = vma;
@@ -387,7 +391,7 @@ int do_munmap(unsigned long addr, unsigned long len)
 		kfree(vma);
 	}
 
-	unmap_page_range(addr, len);
+	unmap_page_range(current->mm, addr, len);
 	return 0;
 }
 

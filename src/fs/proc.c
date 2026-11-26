@@ -218,6 +218,8 @@ static int proc_pid_stat_content(pid_t pid, char *buf, size_t size)
 {
 	struct task_struct *task;
 	unsigned long flags;
+	unsigned long vm_pages = 0, rss_pages = 0;
+	unsigned int threads = 0;
 	int n;
 
 	spin_lock_irqsave(&tasklist_lock, flags);
@@ -225,6 +227,18 @@ static int proc_pid_stat_content(pid_t pid, char *buf, size_t size)
 	if (!task) {
 		spin_unlock_irqrestore(&tasklist_lock, flags);
 		return -ENOENT;
+	}
+
+	/* CLONE_THREAD siblings share the group leader's tgid. */
+	for (struct task_struct *p = &init_task; (p = p->next_task) != &init_task; )
+		if (p->tgid == task->tgid)
+			threads++;
+
+	if (task->mm) {
+		/* Both counters are atomic; avoid taking mm_lock under
+		 * tasklist_lock, which would add a new lock-order dependency. */
+		vm_pages = atomic_read(&task->mm->vm_pages);
+		rss_pages = atomic_read(&task->mm->resident_pages);
 	}
 
 	n = sprintkn(buf, size, "%d (%s) %c", task->pid, task->comm,
@@ -236,13 +250,15 @@ static int proc_pid_stat_content(pid_t pid, char *buf, size_t size)
 		      task->tty ? task->tty->dev : 0,
 		      task->tty ? task->tty->pgrp : 0);
 	n += sprintkn(buf + n, size - n,
-		      " %d %d %d %d %d %d 1",
+		      " %d %d %d %d %d %d %u",
 		      (int)task->utime, (int)task->stime,
 		      (int)task->utime_children, (int)task->stime_children,
-		      task->priority, NZERO - task->priority);
+		      task->priority, NZERO - task->priority, threads);
 	n += sprintkn(buf + n, size - n,
-		      " 0 %u 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
-		      (unsigned int)task->start_ticks);
+		      " 0 %u %u %u 0 0 0 0 0 0 0 0 0 0 0 0 0",
+		      (unsigned int)task->start_ticks,
+		      (unsigned int)(vm_pages * PAGE_SIZE),
+		      (unsigned int)rss_pages);
 	n += sprintkn(buf + n, size - n, " %d", task->exit_signal);
 	spin_unlock_irqrestore(&tasklist_lock, flags);
 	n += sprintkn(buf + n, size - n, " 0 0 0 0 0 0 0 0\n");
@@ -496,8 +512,30 @@ static int proc_file_content(unsigned long ino, char *buf, size_t size)
 
 		spin_lock_irqsave(&tasklist_lock, flags);
 		task = proc_find_task_locked(proc_ino_pid(ino));
-		if (task)
-			length = sprintkn(buf, size, "Tgid:\t%d\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n", task->tgid);
+		if (task) {
+			unsigned long vm_pages = 0, rss_pages = 0;
+			unsigned int threads = 0;
+
+			/* CLONE_THREAD siblings share the group leader's tgid. */
+			for (struct task_struct *p = &init_task; (p = p->next_task) != &init_task; )
+				if (p->tgid == task->tgid)
+					threads++;
+			if (task->mm) {
+				/* Both counters are atomic; avoid taking mm_lock
+				 * under tasklist_lock. */
+				vm_pages = atomic_read(&task->mm->vm_pages);
+				rss_pages = atomic_read(&task->mm->resident_pages);
+			}
+			length = sprintkn(buf, size,
+					  "Name:\t%s\nState:\t%c\nTgid:\t%d\nPid:\t%d\nPPid:\t%d\n"
+					  "Uid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n"
+					  "VmSize:\t%u kB\nVmRSS:\t%u kB\nThreads:\t%u\n",
+					  task->comm, proc_task_state(task), task->tgid, task->pid,
+					  task->p_pptr ? task->p_pptr->pid : 0,
+					  (unsigned int)(vm_pages * (PAGE_SIZE / 1024)),
+					  (unsigned int)(rss_pages * (PAGE_SIZE / 1024)),
+					  threads);
+		}
 		spin_unlock_irqrestore(&tasklist_lock, flags);
 		return length;
 	}

@@ -4,6 +4,6 @@ TTY-CHECK: btop version:
 TTY-SEND: /usr/bin/btop; printf 'btop exit: %s\n' "$?"
 TTY-CHECK: Total:
 TTY-CHECK: Cpu%
-TTY-CHECK-REGEX: \d+ +oksh +root +N/A
+TTY-CHECK-REGEX: \d+ +oksh +root +[1-9]\d*(?:\.\d+)?[KMGTPEZYB]
 TTY-SEND-RAW: q
 TTY-CHECK-REGEX: (?m)^btop exit: 0$
