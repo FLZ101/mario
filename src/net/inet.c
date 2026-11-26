@@ -9,11 +9,13 @@
 #include <misc.h>
 
 #include <lwip/netif.h>
+#include <lwip/inet_chksum.h>
 #include <lwip/raw.h>
 #include <lwip/sys.h>
 #include <lwip/tcp.h>
 #include <lwip/timeouts.h>
 #include <lwip/udp.h>
+#include <lwip/prot/icmp.h>
 #include <lwip/prot/ip4.h>
 
 #define INET_RX_PACKETS 8
@@ -765,8 +767,20 @@ static int inet_send_pcb(struct inet_request *request)
 		packet = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
 		if (!packet)
 			return -ENOBUFS;
-		if (length)
+		if (length) {
+			/* Linux ping sockets compute the ICMP checksum for
+			 * SOCK_DGRAM/IPPROTO_ICMP; raw_sendto() below only adds
+			 * the IPv4 header, so do that work here before handing
+			 * the payload to lwIP. */
+			if (socket->type == SOCK_DGRAM &&
+			    length >= sizeof(struct icmp_echo_hdr)) {
+				struct icmp_echo_hdr *icmp = (void *)request->buffer;
+
+				icmp->chksum = 0;
+				icmp->chksum = inet_chksum(request->buffer, length);
+			}
 			pbuf_take(packet, request->buffer, length);
+		}
 		if (request->has_address) {
 			ip_addr_t ip = inet_ip(&request->address);
 
