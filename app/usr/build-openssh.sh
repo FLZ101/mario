@@ -40,7 +40,7 @@ pushd "$build_dir"
 # Makefile actually links with the musl compiler driver instead of the
 # direct ld wrapper.  The compiler driver understands -Wl,... and
 # compiler-only flags; util/mario-musl-ld does not.
-make LD="$CC" -j "${JOBS:-1}" ssh ssh-keygen
-install -Dm755 -t "$OPENSSH_INSTALL_DIR/bin" ssh ssh-keygen
+make LD="$CC" -j "${JOBS:-1}" ssh ssh-keygen scp sftp
+install -Dm755 -t "$OPENSSH_INSTALL_DIR/bin" ssh ssh-keygen scp sftp
 
 popd

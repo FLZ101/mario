@@ -122,6 +122,9 @@ def check_tftp():
 def check_ssh_client():
     version = subprocess.run(["/usr/bin/ssh", "-V"], capture_output=True, timeout=12)
     assert version.returncode == 0 and b"OpenSSH_" in version.stderr, version
+    for client in ("scp", "sftp"):
+        result = subprocess.run([f"/usr/bin/{client}"], capture_output=True, timeout=12)
+        assert result.returncode == 1 and result.stderr.startswith(b"usage: "), result
     settings = check(["/usr/bin/ssh", "-G", "-T", "localhost"]).splitlines()
     assert {b"addressfamily inet", b"ipqos none none", b"tcpkeepalive false"} <= set(
         settings

@@ -4,7 +4,7 @@ OPENSSH_SRC_FILE	:=$(OPENSSH_SRC_DIR).tar.gz
 OPENSSH_SRC_URL		:=https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/$(OPENSSH_SRC_FILE)
 OPENSSH_SRC_SHA256	:=9ae44872090cf2f06b3cf9ff147e7f16f309671340763ed2f99248398ae29d5b
 OPENSSH_INSTALL_DIR	:=$(ROOT)/$(OPENSSH_SRC_DIR)-install
-OPENSSH_CLIENT_BINS	:=$(addprefix $(OPENSSH_INSTALL_DIR)/bin/,ssh ssh-keygen)
+OPENSSH_CLIENT_BINS	:=$(addprefix $(OPENSSH_INSTALL_DIR)/bin/,ssh ssh-keygen scp sftp)
 
 .PHONY build:: build-openssh
 build-openssh: $(OPENSSH_CLIENT_BINS)

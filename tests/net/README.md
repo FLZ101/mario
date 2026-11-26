@@ -163,9 +163,10 @@ the interface down, and without a NIC. It does not require public access.
 
 ## OpenSSH client
 
-The normal and GTK images include OpenSSH Portable 10.6p2 `ssh` and
-`ssh-keygen`. Configure an IPv4 address, then use `ssh user@host` for
-outbound connections. Run `ssh-keygen -t ed25519` to create a key in
+The normal and GTK images include OpenSSH Portable 10.6p2 `ssh`, `scp`,
+`sftp`, and `ssh-keygen`. Configure an IPv4 address, then use
+`ssh user@host`, `scp`, or `sftp` for outbound connections. Run
+`ssh-keygen -t ed25519` to create a key in
 `/root/.ssh`; install only the `.pub` file on the remote server and verify
 its host key before accepting it. MarioFS and ext2 preserve the private
 key's file mode. Do not use FAT for private keys: it cannot store Unix
@@ -176,8 +177,9 @@ ext2 volume and select them with `ssh -i`; the root ramdisk and QEMU snapshot
 writes are temporary. Key generation and connections require the same
 hardware entropy source as HTTPS.
 
-The installed-tools test checks the client settings, generates an Ed25519
-key, and reads it back with `ssh-keygen -y`. Mario does not ship `sshd`:
+The installed-tools test checks the client settings, `scp` and `sftp`
+usage, generates an Ed25519 key, and reads it back with `ssh-keygen -y`.
+Mario does not ship `sshd`:
 OpenSSH's network-facing authentication process must drop to a non-root UID
 and GID, which Mario does not support. QEMU's SSH port forward is not an SSH
 server.
