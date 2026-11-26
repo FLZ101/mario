@@ -64,8 +64,15 @@ Build the kernel and apps (`make kernel app`), then choose `QEMU_NET` for
 
 Use NAT for development testing on a trusted network. Mario does not yet
 have hardened TCP randomness, so don't use this mode for sensitive traffic.
-Check with an HTTP request to a known endpoint rather than relying on
-Internet ping.
+QEMU's user-mode stack can carry ICMP echo traffic, but Linux hosts must let
+QEMU open unprivileged ping sockets. For example:
+
+```sh
+sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
+```
+
+Without that setting, `ping 10.0.2.2` and DNS/UDP/TCP still work, but
+Internet ping replies are not forwarded.
 
 NAT forwards a host loopback port to port 22 at the guest's default DHCP
 address. `QEMU_SSH_PORT=auto` (the default) tries port 2222 and falls back to
@@ -125,12 +132,14 @@ verifies that the random APIs and OpenSSL fail closed.
   `/etc/ssl/cert.pem` for public roots. The supported download modes are IPv4
   HTTP and HTTPS. curl builds only those protocols and omits proxy support;
   Wget's native FTP code is not part of the tested port.
-- Toybox 0.8.9 enables `host`, `nc` (`netcat`), and HTTP-only `toybox wget`.
-  Plain `wget` runs GNU Wget. Toybox TLS stays disabled; use the standalone
-  tools for verified HTTPS. Raw sockets, IPv6, Linux network ioctls, netlink
-  and `/proc/net` are not available, so `ping`, `ip`, `ifconfig`, `route`,
-  `arp` and `netstat` remain disabled. Additional applets such as the FTP,
-  Telnet and time clients and network daemons remain untested and disabled.
+- Toybox 0.8.9 enables `host`, `nc` (`netcat`), `ping`, `traceroute`, and
+  HTTP-only `toybox wget`. Plain `wget` runs GNU Wget. Toybox TLS stays
+  disabled; use the standalone tools for verified HTTPS. Raw sockets are
+  limited to IPv4 ICMP, and IPv6, Linux network ioctls, netlink, and
+  `/proc/net` remain unavailable. `ip` and `arp` are not installed. The
+  net-tools port below provides read-only `ifconfig`, `route -n`, and
+  `netstat -i`. Additional applets such as the FTP, Telnet and time clients
+  and network daemons remain untested and disabled.
 - The sbase UDP TFTP client at `/usr/bin/sbase/tftp` uses `poll()` for
   deadlines because Mario does not implement `SO_RCVTIMEO`. A local fixture
   verifies downloading. The pinned ubase has no IPv4 socket utilities to
