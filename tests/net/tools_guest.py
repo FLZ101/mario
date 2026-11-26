@@ -88,6 +88,7 @@ def check_icmp_tools():
     assert trace.returncode == 0, (trace.returncode, trace.stderr)
     trace = trace.stdout
     assert trace.startswith(b"traceroute to 127.0.0.1"), trace
+    assert b"\n 1 127.0.0.1" in trace, trace
 
 
 def check_tftp():

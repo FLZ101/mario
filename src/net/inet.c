@@ -10,6 +10,7 @@
 
 #include <lwip/netif.h>
 #include <lwip/inet_chksum.h>
+#include <lwip/pbuf.h>
 #include <lwip/raw.h>
 #include <lwip/sys.h>
 #include <lwip/tcp.h>
@@ -307,6 +308,9 @@ static u8_t inet_raw_receive(void *arg, struct raw_pcb *pcb, struct pbuf *packet
 			     const ip_addr_t *ip)
 {
 	struct inet_endpoint *socket = arg;
+	struct pbuf *copy;
+	unsigned int offset = 0;
+	unsigned int length = packet->tot_len;
 
 	if (socket->read_shutdown || socket->rx_count == INET_RX_PACKETS)
 		return 0;
@@ -315,13 +319,21 @@ static u8_t inet_raw_receive(void *arg, struct raw_pcb *pcb, struct pbuf *packet
 	if (socket->type == SOCK_DGRAM) {
 		struct ip_hdr *header = (struct ip_hdr *)packet->payload;
 
-		if (pbuf_remove_header(packet, IPH_HL_BYTES(header))) {
-			pbuf_free(packet);
-			return 1;
-		}
+		offset = IPH_HL_BYTES(header);
+		if (length < offset)
+			return 0;
+		length -= offset;
 	}
-	inet_queue_packet(socket, packet, inet_address(ip, 0));
-	return 1;
+	copy = pbuf_alloc(PBUF_RAW, length, PBUF_RAM);
+	if (!copy)
+		return 0;
+	pbuf_copy_partial(packet, copy->payload, length, offset);
+	/* Do not eat the original pbuf. lwIP stops at the first raw PCB that
+	 * eats an incoming packet, but Linux delivers matching raw packets to
+	 * every raw socket. Queue an independent copy and return zero so the
+	 * packet can continue to other raw sockets and the normal IP stack. */
+	inet_queue_packet(socket, copy, inet_address(ip, 0));
+	return 0;
 }
 
 unsigned int inet_udp_drop_count(void)
