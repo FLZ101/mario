@@ -248,6 +248,8 @@ def copy_rootfs_files(
         "app/usr/net-tools-2.10-install/bin/*": "usr/bin",
         "app/usr/net-tools-2.10/COPYING": "usr/share/doc/net-tools/COPYING",
         "app/usr/openssh-10.6p2-install/bin/*": "usr/bin",
+        "app/usr/openssh-10.6p2-install/sbin/*": "usr/sbin",
+        "app/usr/openssh-10.6p2-install/libexec/*": "usr/libexec",
         "app/usr/openssh-10.6p2/LICENCE": "usr/share/doc/openssh/LICENCE",
         "app/usr/Python-3.13.13-install-mario/bin/python3": "usr/python/bin/python3",
         "app/usr/Python-3.13.13-install-mario/bin/python3.13": "usr/python/bin/python3.13",
@@ -271,6 +273,8 @@ def copy_rootfs_files(
         "proc",
         "sys",
         "tmp",
+        "var/empty",
+        "var/run",
     ):
         (root / rel).mkdir(parents=True, exist_ok=True)
     os.chmod(root / "tmp", 0o1777)

@@ -518,6 +518,77 @@ gid_t sys_getegid32(void)
 	return 0;
 }
 
+static int mario_root_id_allowed(uid_t id)
+{
+	return id == 0;
+}
+
+static int mario_reserved_id_allowed(uid_t id)
+{
+	/* -1 means "leave this real/effective/saved ID unchanged". */
+	return id == 0 || id == (uid_t)-1;
+}
+
+int sys_setuid32(uid_t uid)
+{
+	if (!mario_root_id_allowed(uid))
+		return -EPERM;
+	return 0;
+}
+
+int sys_setgid32(gid_t gid)
+{
+	if (!mario_root_id_allowed(gid))
+		return -EPERM;
+	return 0;
+}
+
+int sys_setresuid32(uid_t ruid, uid_t euid, uid_t suid)
+{
+	if (!mario_reserved_id_allowed(ruid) ||
+	    !mario_reserved_id_allowed(euid) ||
+	    !mario_reserved_id_allowed(suid))
+		return -EPERM;
+	return 0;
+}
+
+int sys_setresgid32(gid_t rgid, gid_t egid, gid_t sgid)
+{
+	if (!mario_reserved_id_allowed(rgid) ||
+	    !mario_reserved_id_allowed(egid) ||
+	    !mario_reserved_id_allowed(sgid))
+		return -EPERM;
+	return 0;
+}
+
+int sys_getresuid32(uid_t *ruid, uid_t *euid, uid_t *suid)
+{
+	uid_t root_id = 0;
+
+	if (verify_area(VERIFY_WRITE, ruid, sizeof(root_id)) ||
+	    verify_area(VERIFY_WRITE, euid, sizeof(root_id)) ||
+	    verify_area(VERIFY_WRITE, suid, sizeof(root_id)))
+		return -EFAULT;
+	memcpy_tofs(ruid, &root_id, sizeof(root_id));
+	memcpy_tofs(euid, &root_id, sizeof(root_id));
+	memcpy_tofs(suid, &root_id, sizeof(root_id));
+	return 0;
+}
+
+int sys_getresgid32(gid_t *rgid, gid_t *egid, gid_t *sgid)
+{
+	gid_t root_id = 0;
+
+	if (verify_area(VERIFY_WRITE, rgid, sizeof(root_id)) ||
+	    verify_area(VERIFY_WRITE, egid, sizeof(root_id)) ||
+	    verify_area(VERIFY_WRITE, sgid, sizeof(root_id)))
+		return -EFAULT;
+	memcpy_tofs(rgid, &root_id, sizeof(root_id));
+	memcpy_tofs(egid, &root_id, sizeof(root_id));
+	memcpy_tofs(sgid, &root_id, sizeof(root_id));
+	return 0;
+}
+
 int sys_getgroups32(int size, gid_t *list)
 {
 	/* No supplementary group support yet; the primary group is already
@@ -525,6 +596,24 @@ int sys_getgroups32(int size, gid_t *list)
 	(void)list;
 	if (size < 0)
 		return -EINVAL;
+	return 0;
+}
+
+int sys_setgroups32(int size, gid_t *list)
+{
+	gid_t gid;
+
+	if (size < 0)
+		return -EINVAL;
+	if (size == 0)
+		return 0;
+	if (verify_area(VERIFY_READ, list, (unsigned long)size * sizeof(gid)))
+		return -EFAULT;
+	for (int i = 0; i < size; i++) {
+		memcpy_fromfs(&gid, list + i, sizeof(gid));
+		if (!mario_root_id_allowed(gid))
+			return -EPERM;
+	}
 	return 0;
 }
 

@@ -5,11 +5,15 @@ OPENSSH_SRC_URL		:=https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/$(OPENSS
 OPENSSH_SRC_SHA256	:=9ae44872090cf2f06b3cf9ff147e7f16f309671340763ed2f99248398ae29d5b
 OPENSSH_INSTALL_DIR	:=$(ROOT)/$(OPENSSH_SRC_DIR)-install
 OPENSSH_CLIENT_BINS	:=$(addprefix $(OPENSSH_INSTALL_DIR)/bin/,ssh ssh-keygen scp sftp)
+OPENSSH_SERVER_BINS	:= \
+	$(OPENSSH_INSTALL_DIR)/sbin/sshd \
+	$(addprefix $(OPENSSH_INSTALL_DIR)/libexec/,sshd-session sshd-auth sftp-server)
+OPENSSH_BINS		:=$(OPENSSH_CLIENT_BINS) $(OPENSSH_SERVER_BINS)
 
 .PHONY build:: build-openssh
-build-openssh: $(OPENSSH_CLIENT_BINS)
+build-openssh: $(OPENSSH_BINS)
 
-$(OPENSSH_CLIENT_BINS) &: $(OPENSSH_SRC_DIR)/configure $(OPENSSL_INSTALL_DIR)/.mario-build \
+$(OPENSSH_BINS) &: $(OPENSSH_SRC_DIR)/configure $(OPENSSL_INSTALL_DIR)/.mario-build \
 		build-openssh.sh openssh.mk zlib.mk | build-zlib
 	CC=$(CC) OPENSSH_SRC_DIR=$(OPENSSH_SRC_DIR) OPENSSH_INSTALL_DIR=$(OPENSSH_INSTALL_DIR) ./build-openssh.sh
 

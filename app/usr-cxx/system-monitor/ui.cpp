@@ -885,13 +885,18 @@ private:
 	{
 		const auto now = ProcSource{}.monotonic_ns();
 		const auto stamp = snapshot_.monotonic_ns;
-		std::string state = "Live";
+		std::string state;
+		auto append = [&](const char *message) {
+			if (!state.empty())
+				state += " | ";
+			state += message;
+		};
 		if (failed_)
-			state += " | Refresh failed";
+			append("Refresh failed");
 		if (!stamp || !now || *stamp > *now)
-			state += " | No timestamped sample";
+			append("No timestamped sample");
 		else if (*now - *stamp > stale_ns)
-			state += " | Stale data";
+			append("Stale data");
 		set_label(health_, state);
 	}
 

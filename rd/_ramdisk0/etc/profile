@@ -15,5 +15,3 @@ export LC_ALL=C
 export LANG=C
 
 export PYTHONDONTWRITEBYTECODE=1
-
-[ -r /etc/mario-network.sh ] && . /etc/mario-network.sh

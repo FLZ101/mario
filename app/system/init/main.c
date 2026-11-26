@@ -155,6 +155,24 @@ static int window_manager_stopped(int status)
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
+static int run_initrc(void)
+{
+    pid_t pid;
+    int status;
+
+    /* Run the early-userspace setup script synchronously. */
+    pid = fork();
+    if (pid == 0) {
+        execl("/bin/oksh", "oksh", "/etc/initrc", NULL);
+        _exit(EXIT_FAILURE);
+    }
+    if (pid < 0)
+        return -1;
+    if (waitpid(pid, &status, 0) < 0)
+        return -1;
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
 static void init_terminate_children(void)
 {
     /* Ask every process except init and the current task to exit. */
@@ -278,11 +296,6 @@ int main(int argc, char *argv[], char *envp[])
         perror("mount debugfs");
         exit(EXIT_FAILURE);
     }
-    if (0 != mount("/dev/hdc5", "/usr", "ext2", 0, NULL)) {
-        perror("mount /dev/hdc5");
-        exit(EXIT_FAILURE);
-    }
-
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = handle_sig;
@@ -298,6 +311,15 @@ int main(int argc, char *argv[], char *envp[])
     HandleErr(signal(SIGHUP, SIG_IGN));
     HandleErr(signal(SIGQUIT, SIG_IGN));
 
+    /* Finish early userspace setup before the first login.  The script
+     * mounts /usr, then brings up networking and image services such as
+     * sshd.  Failing the script is treated like the previous hard-coded
+     * mount failure: the guest has no usable /usr, so stop early.
+     */
+    if (run_initrc() != 0) {
+        fprintf(stderr, "run /etc/initrc failed\n");
+        exit(EXIT_FAILURE);
+    }
     start_window_manager();
     do_getty();
 

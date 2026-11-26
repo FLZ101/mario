@@ -324,7 +324,9 @@ int main(int argc, char **argv)
 {
 	CHECK(argc == 1 || (argc == 2 && strcmp(argv[1], "--no-nic") == 0));
 	check_clock();
-	CHECK(socket(AF_INET, SOCK_RAW, 0) == -1 && errno == ESOCKTNOSUPPORT);
+	/* SOCK_RAW is supported for ICMP ping/traceroute, but protocol 0 is not
+	 * a supported raw protocol. */
+	CHECK(socket(AF_INET, SOCK_RAW, 0) == -1 && errno == EPROTONOSUPPORT);
 	CHECK(socket(AF_INET, SOCK_STREAM, IPPROTO_UDP) == -1 && errno == EPROTONOSUPPORT);
 	CHECK(socket(AF_INET6, SOCK_STREAM, 0) == -1 && errno == EAFNOSUPPORT);
 	tcp_loopback();

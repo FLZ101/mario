@@ -29,6 +29,7 @@ pushd "$build_dir"
 "$source_dir/configure" \
     --build="$(sh "$source_dir/config.guess")" --host=i686-linux-musl \
     --prefix=/usr --sysconfdir=/etc/ssh \
+    --with-privsep-user=root \
     --with-ssl-dir="$OPENSSL_INSTALL_DIR" --with-zlib="$ZLIB_INSTALL_DIR" \
     --disable-pkcs11 --disable-security-key --without-pam --without-libedit \
     --without-pie \
@@ -40,7 +41,9 @@ pushd "$build_dir"
 # Makefile actually links with the musl compiler driver instead of the
 # direct ld wrapper.  The compiler driver understands -Wl,... and
 # compiler-only flags; util/mario-musl-ld does not.
-make LD="$CC" -j "${JOBS:-1}" ssh ssh-keygen scp sftp
+make LD="$CC" -j "${JOBS:-1}" ssh ssh-keygen scp sftp sshd sshd-session sshd-auth sftp-server
 install -Dm755 -t "$OPENSSH_INSTALL_DIR/bin" ssh ssh-keygen scp sftp
+install -Dm755 -t "$OPENSSH_INSTALL_DIR/sbin" sshd
+install -Dm755 -t "$OPENSSH_INSTALL_DIR/libexec" sshd-session sshd-auth sftp-server
 
 popd

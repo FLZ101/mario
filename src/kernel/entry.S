@@ -656,15 +656,15 @@ ENTRY(sys_call_table)
 	.long sys_setreuid32
 	.long sys_setregid32
 	.long sys_getgroups32
-	.long sys_not_exist /* SYS_setgroups32 */
+	.long sys_setgroups32
 	.long sys_not_exist /* SYS_fchown32 */
-	.long sys_not_exist /* SYS_setresuid32 */
-	.long sys_not_exist /* SYS_getresuid32 */
-	.long sys_not_exist /* SYS_setresgid32 */
-	.long sys_not_exist /* SYS_getresgid32 */
+	.long sys_setresuid32
+	.long sys_getresuid32
+	.long sys_setresgid32
+	.long sys_getresgid32
 	.long sys_not_exist /* SYS_chown32 */
-	.long sys_not_exist /* SYS_setuid32 */
-	.long sys_not_exist /* SYS_setgid32 */
+	.long sys_setuid32
+	.long sys_setgid32
 	.long sys_not_exist /* SYS_setfsuid32 */
 	.long sys_not_exist /* SYS_setfsgid32 */
 	.long sys_not_exist /* SYS_pivot_root */

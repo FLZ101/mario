@@ -1,0 +1,28 @@
+# Run once by init after proc, sysfs, and debugfs are mounted.  The script
+# mounts /usr itself so the mount is kept with the rest of early userspace
+# setup instead of being hard-coded in init.  Image-specific overlays can
+# supply /etc/mario-network.sh and customize network setup.
+#
+# init execs this through /bin/oksh without reading /etc/profile, so set the
+# same PATH profile would provide before using commands such as mkdir.
+export PATH=/bin:/usr/bin:/bin/toybox
+
+mount -t ext2 /dev/hdc5 /usr
+
+network_started=
+if [ -r /etc/mario-network.sh ]; then
+	. /etc/mario-network.sh
+	network_started=1
+fi
+
+# sshd needs the host key before it can accept connections.  The key is kept
+# in the temporary root ramdisk, so it is regenerated on each boot.  Only
+# start it after the image's network hook has run; NIC-less test fixtures have
+# no /etc/mario-network.sh and must not have sshd consuming socket resources.
+if [ -n "$network_started" ] && [ -x /usr/sbin/sshd ] &&
+    mkdir /tmp/.mario-sshd-lock 2>/dev/null; then
+    [ -r /etc/ssh/ssh_host_ed25519_key ] ||
+        /usr/bin/ssh-keygen -q -t ed25519 -N '' \
+            -f /etc/ssh/ssh_host_ed25519_key >>/tmp/ssh-keygen.log 2>&1
+    /usr/sbin/sshd -D -e >>/tmp/sshd.log 2>&1 &
+fi

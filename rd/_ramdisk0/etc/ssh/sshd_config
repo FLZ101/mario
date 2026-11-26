@@ -1,0 +1,16 @@
+# Mario single-user SSH server.  Mario does not implement per-process UID or
+# GID switching, so every sshd helper and session continues to run as root.
+# Keep password and keyboard-interactive authentication off: the guest has no
+# usable shadow database, so key authentication is the only supported path.
+Port 22
+AddressFamily inet
+ListenAddress 0.0.0.0
+HostKey /etc/ssh/ssh_host_ed25519_key
+PermitRootLogin yes
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+X11Forwarding no
+PrintMotd no
+Subsystem	sftp	/usr/libexec/sftp-server
