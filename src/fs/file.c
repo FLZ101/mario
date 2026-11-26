@@ -330,7 +330,9 @@ void copy_files(struct task_struct *p)
 
 void copy_fs(struct task_struct *p)
 {
-	*(p->fs) = *(current->fs);
+	p->fs->root = current->fs->root;
+	p->fs->pwd = current->fs->pwd;
+	p->fs->umask = __atomic_load_n(&current->fs->umask, __ATOMIC_RELAXED);
 
 	if (p->fs->pwd)
 		iref(p->fs->pwd);

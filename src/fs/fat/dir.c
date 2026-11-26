@@ -1446,13 +1446,14 @@ static int fat_readdir(struct inode *dir, struct file *file, void *dirent,
 	}
 }
 
-static int fat_create(struct inode *dir, char *name, int len,
+static int fat_create(struct inode *dir, char *name, int len, mode_t mode,
 		      struct inode **res)
 {
 	unsigned long ino;
 	struct inode *inode;
 	int error;
 
+	(void)mode;
 	*res = NULL;
 	if (FAT_SB(dir->i_sb).readonly) {
 		iput(dir);

@@ -133,7 +133,7 @@ struct inode *get_pipe_inode(void)
 		return NULL;
 
 	set_bit(I_Pipe, &i->i_state);
-	i->i_mode = MODE_FIFO;
+	i->i_mode = MODE_FIFO | 0600;
 	i->i_block_size = PAGE_SIZE;
 	return i;
 }
@@ -145,7 +145,7 @@ struct inode *get_socket_inode(void)
 	if (!(i = get_empty_inode()))
 		return NULL;
 	set_bit(I_Socket, &i->i_state);
-	i->i_mode = S_IFSOCK;
+	i->i_mode = S_IFSOCK | 0777;
 	i->i_block_size = PAGE_SIZE;
 	return i;
 }

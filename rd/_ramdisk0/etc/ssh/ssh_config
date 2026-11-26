@@ -1,0 +1,3 @@
+AddressFamily inet
+IPQoS none
+TCPKeepAlive no

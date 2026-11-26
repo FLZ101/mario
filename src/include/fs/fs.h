@@ -88,7 +88,7 @@ int get_nr_mounts(void);
 
 struct inode_operations {
 	int (*lookup)(struct inode *, char *, int, struct inode **);
-	int (*create)(struct inode *, char *, int, struct inode **);
+	int (*create)(struct inode *, char *, int, mode_t, struct inode **);
 	int (*truncate)(struct inode *, int);
 	int (*rmdir)(struct inode *, char *, int);
 	int (*mkdir)(struct inode *, char *, int, int);
@@ -98,7 +98,7 @@ struct inode_operations {
 	int (*mknod)(struct inode *,char *,int,int,int);
 	int (*symlink) (struct inode *,char *,int,char *);
 	int (*readlink) (struct inode *,char *,int);
-	int (*follow_link) (struct inode *,struct inode *,int,struct inode **);
+	int (*follow_link)(struct inode *, struct inode *, int, mode_t, struct inode **);
 };
 
 #define MAX_LINK_COUNT 5
@@ -239,8 +239,14 @@ void fref(struct file *);
 
 struct fs_struct {
 	int count;
+	mode_t umask;
 	struct inode *root, *pwd;
 };
+
+static inline mode_t fs_mask_mode(mode_t mode)
+{
+	return mode & ~__atomic_load_n(&current->fs->umask, __ATOMIC_RELAXED);
+}
 
 struct files_struct {
 	int count;
@@ -257,7 +263,8 @@ int namei_at(int dirfd, const char *pathname, struct inode **res_inode, int foll
 int namei(const char *, struct inode **, int follow);
 int dir_namei(char *pathname, int *namelen, char **name,
 	struct inode *base, struct inode **res_inode);
-int open_namei(char *, int, struct inode **,struct inode *);
+int open_namei(char *, int, mode_t, struct inode **, struct inode *);
+int do_openat(int dirfd, char *filename, int flags, mode_t mode);
 
 int generic_file_mmap(struct inode *, struct file *, struct vm_area_struct *);
 int generic_file_read(struct inode *, struct file *, char *, int);

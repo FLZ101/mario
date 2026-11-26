@@ -18,7 +18,7 @@ extern uint64_t current_time();
  * for the internal routines (i.e. open_namei()/follow_link() etc). 00 is
  * used by symlinks.
  */
-int do_openat(unsigned int dirfd, char *filename, int flags)
+int do_openat(int dirfd, char *filename, int flags, mode_t mode)
 {
 	struct inode *i;
 	struct file *f;
@@ -47,7 +47,8 @@ int do_openat(unsigned int dirfd, char *filename, int flags)
 		put_file(f);
 		return error;
 	}
-	error = open_namei(filename, namei_flags, &i, base_i);
+	mode_t create_mode = flags & O_CREAT ? fs_mask_mode(mode & 0777) : 0;
+	error = open_namei(filename, namei_flags, create_mode, &i, base_i);
 	if (error) {
 		put_file(f);
 		return error;
@@ -72,7 +73,7 @@ int do_openat(unsigned int dirfd, char *filename, int flags)
 	return fd;
 }
 
-int sys_openat(int dirfd, char *pathname, int flags)
+int sys_openat(int dirfd, char *pathname, int flags, mode_t mode)
 {
 	char *tmp;
 	int error;
@@ -80,19 +81,19 @@ int sys_openat(int dirfd, char *pathname, int flags)
 	error = getname(pathname, &tmp);
 	if (error)
 		return error;
-	error = do_openat(dirfd, tmp, flags);
+	error = do_openat(dirfd, tmp, flags, mode);
 	putname(tmp);
 	return error;
 }
 
-int sys_open(char *filename, int flags)
+int sys_open(char *filename, int flags, mode_t mode)
 {
-	return sys_openat(AT_FDCWD, filename, flags);
+	return sys_openat(AT_FDCWD, filename, flags, mode);
 }
 
-int sys_creat(char *pathname)
+int sys_creat(char *pathname, mode_t mode)
 {
-	return sys_open(pathname, O_CREAT | O_WRONLY | O_TRUNC);
+	return sys_open(pathname, O_CREAT | O_WRONLY | O_TRUNC, mode);
 }
 
 int sys_symlinkat(char *target, int newdirfd, char *linkpath)

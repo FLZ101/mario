@@ -535,7 +535,8 @@ gid_t sys_setregid32(void)
 
 mode_t sys_umask(mode_t mask)
 {
-	return 0;
+	return __atomic_exchange_n(&current->fs->umask, mask & 0777,
+				   __ATOMIC_RELAXED);
 }
 
 struct sysinfo {

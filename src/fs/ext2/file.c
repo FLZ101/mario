@@ -441,7 +441,7 @@ static int ext2_readlink(struct inode *inode, char *buf, int count)
 }
 
 static int ext2_follow_link(struct inode *dir, struct inode *inode, int flags,
-			    struct inode **res_inode)
+			    mode_t mode, struct inode **res_inode)
 {
 	char *target;
 	int error;
@@ -482,7 +482,7 @@ static int ext2_follow_link(struct inode *dir, struct inode *inode, int flags,
 
 	iput(inode);
 	current->link_count++;
-	error = open_namei(target, flags, res_inode, dir);
+	error = open_namei(target, flags, mode, res_inode, dir);
 	current->link_count--;
 	kfree(target);
 	return error;

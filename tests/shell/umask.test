@@ -1,0 +1,50 @@
+RUN: /bin/toybox/mount -t ext2 /dev/hdc3 /mnt
+
+RUN: /usr/bin/python <<'EOF'
+import os
+import stat
+import threading
+
+
+def check_mode(path, mode):
+    actual = stat.S_IMODE(os.stat(path).st_mode)
+    assert actual == mode, (path, oct(actual), oct(mode))
+
+
+def create(path, mode, *, dir_fd=None):
+    os.close(os.open(path, os.O_CREAT | os.O_WRONLY, mode, dir_fd=dir_fd))
+
+
+assert os.umask(0o077) == 0o022
+for root in ("/root", "/mnt"):
+    directory = root + "/umask-test"
+    os.mkdir(directory)
+    check_mode(directory, 0o700)
+    fd = os.open(directory, os.O_DIRECTORY)
+    try:
+        create("private", 0o666, dir_fd=fd)
+        check_mode(directory + "/private", 0o600)
+        create("private", 0, dir_fd=fd)
+        check_mode(directory + "/private", 0o600)
+    finally:
+        os.close(fd)
+
+    os.symlink("target", directory + "/link")
+    create(directory + "/link", 0o640)
+    check_mode(directory + "/target", 0o600)
+    create(directory + "/zero", 0)
+    check_mode(directory + "/zero", 0)
+
+pid = os.fork()
+if pid == 0:
+    os._exit(0 if os.umask(0) == 0o077 else 1)
+assert os.waitpid(pid, 0)[1] == 0
+assert os.umask(0o077) == 0o077
+
+thread = threading.Thread(target=os.umask, args=(0o027,))
+thread.start()
+thread.join()
+assert os.umask(0o022) == 0o027
+print("umask-ok")
+EOF
+CHECK: umask-ok

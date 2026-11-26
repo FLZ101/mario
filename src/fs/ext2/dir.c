@@ -1307,7 +1307,7 @@ static void ext2_set_links(struct inode *inode, uint16_t links)
 	set_bit(I_Dirty, &inode->i_state);
 }
 
-static int ext2_create(struct inode *dir, char *name, int len,
+static int ext2_create(struct inode *dir, char *name, int len, mode_t mode,
 		       struct inode **res)
 {
 	uint32_t block;
@@ -1330,7 +1330,7 @@ static int ext2_create(struct inode *dir, char *name, int len,
 		return error;
 	}
 
-	error = ext2_alloc_inode(dir->i_sb, MODE_REG, &ino);
+	error = ext2_alloc_inode(dir->i_sb, MODE_REG | mode, &ino);
 	if (error) {
 		iput(dir);
 		return error;
@@ -1833,7 +1833,7 @@ static int ext2_symlink(struct inode *dir, char *name, int len, char *target)
 		return error;
 	}
 
-	error = ext2_alloc_inode(dir->i_sb, MODE_LNK, &ino);
+	error = ext2_alloc_inode(dir->i_sb, MODE_LNK | 0777, &ino);
 	if (error) {
 		up(&dir->i_sem);
 		iput(dir);

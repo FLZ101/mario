@@ -2,10 +2,13 @@
 
 import re
 import socket
+import stat
 import struct
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from http_fixture import BODY
 from python_guest import HTTP_IP, HTTP_NAME, LOCAL, local_dns
@@ -102,6 +105,21 @@ def check_tftp():
         server.result(timeout=5)
 
 
+def check_ssh_client():
+    version = subprocess.run(["/usr/bin/ssh", "-V"], capture_output=True, timeout=12)
+    assert version.returncode == 0 and b"OpenSSH_" in version.stderr, version
+    settings = check(["/usr/bin/ssh", "-G", "-T", "localhost"]).splitlines()
+    assert {b"addressfamily inet", b"ipqos none none", b"tcpkeepalive false"} <= set(
+        settings
+    ), settings
+    keygen = "/usr/bin/ssh-keygen"
+    with TemporaryDirectory(dir="/root") as directory:
+        key = Path(directory) / "id_ed25519"
+        check([keygen, "-q", "-t", "ed25519", "-N", "", "-f", key])
+        assert stat.S_IMODE(key.stat().st_mode) == 0o600
+        assert check([keygen, "-y", "-f", key]).startswith(b"ssh-ed25519 ")
+
+
 def check_routes(*ethernet, compare_netstat=False):
     routes = check([ROUTE, "-n"])
     if compare_netstat:
@@ -178,6 +196,7 @@ def main(http, tls):
             check_toybox(http)
             assert {*records, MISSING_NAME} <= set(names), names
     check_tftp()
+    check_ssh_client()
     print("NET_TOOLS_OK")
 
 

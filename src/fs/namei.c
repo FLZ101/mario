@@ -111,7 +111,7 @@ int lookup(struct inode *dir, char *name, int len, struct inode **res)
 }
 
 int follow_link(struct inode *dir, struct inode *inode,
-	int flag, struct inode **res_inode)
+	int flag, mode_t mode, struct inode **res_inode)
 {
 	if (!dir || !inode) {
 		iput(dir);
@@ -124,7 +124,7 @@ int follow_link(struct inode *dir, struct inode *inode,
 		*res_inode = inode;
 		return 0;
 	}
-	return inode->i_op->follow_link(dir, inode, flag, res_inode);
+	return inode->i_op->follow_link(dir, inode, flag, mode, res_inode);
 }
 
 /*
@@ -185,7 +185,7 @@ int dir_namei(char *pathname, int *namelen, char **name,
 			iput(base);
 			return error;
 		}
-		error = follow_link(base, inode, 0, &base);
+		error = follow_link(base, inode, 0, 0, &base);
 		if (error)
 			return error;
 	}
@@ -218,7 +218,7 @@ int _namei(char *pathname, struct inode *base, struct inode **res_inode, int fol
 		return error;
 	}
 	if (follow) {
-		error = follow_link(base, inode, 0, &inode);
+		error = follow_link(base, inode, 0, 0, &inode);
 		if (error)
 			return error;
 	} else {
@@ -286,8 +286,8 @@ int namei(const char *pathname, struct inode **res_inode, int follow)
 }
 
 // Note: `base` is eaten
-int open_namei(char *pathname, int flags, struct inode **res_inode,
-	struct inode *base)
+int open_namei(char *pathname, int flags, mode_t mode,
+	struct inode **res_inode, struct inode *base)
 {
 	char *basename;
 	int namelen, error;
@@ -327,7 +327,7 @@ int open_namei(char *pathname, int flags, struct inode **res_inode,
 		goto SHE__;
 	}
 	iref(dir);	/* create eats the dir */
-	error = dir->i_op->create(dir, basename, namelen, res_inode);
+	error = dir->i_op->create(dir, basename, namelen, mode, res_inode);
 	up(&dir->i_sem);
 	iput(dir);
 	return error;
@@ -344,7 +344,7 @@ SHE__:
 			iput(dir);
 			return -ELOOP;
 		}
-		error = follow_link(dir, inode, flags, &inode);
+		error = follow_link(dir, inode, flags, mode, &inode);
 		if (error)
 			return error;
 	} else {
@@ -433,7 +433,7 @@ static int do_mkdir(char *name, struct inode *base, int mode)
 		iput(dir);
 		return -EPERM;
 	}
-	return dir->i_op->mkdir(dir, basename, namelen, mode);
+	return dir->i_op->mkdir(dir, basename, namelen, fs_mask_mode(mode));
 }
 
 int sys_mkdirat(int dirfd, char *pathname, int mode)
@@ -668,7 +668,7 @@ static int do_mknod(char *filename, int mode, dev_t dev)
 		iput(dir);
 		return -EPERM;
 	}
-	return dir->i_op->mknod(dir, basename, namelen, mode, dev);
+	return dir->i_op->mknod(dir, basename, namelen, fs_mask_mode(mode), dev);
 }
 
 int sys_mknod(char *filename, int mode, dev_t dev)

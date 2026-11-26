@@ -16,6 +16,9 @@ CHECK: home=/root
 RUN: echo escaped\ space
 CHECK: escaped space
 
+RUN: /bin/toybox/toybox printf 'empty-arg:<%s><%s>\n' '' tail
+CHECK: empty-arg:<><tail>
+
 # Variables and expansions.
 RUN: shell_name=oksh; echo "shell=$shell_name"
 CHECK: shell=oksh

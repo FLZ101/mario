@@ -669,7 +669,7 @@ static int proc_readlink(struct inode *inode, char *buf, int count)
 }
 
 static int proc_follow_link(struct inode *dir, struct inode *inode,
-			    int flags, struct inode **res_inode)
+			    int flags, mode_t mode, struct inode **res_inode)
 {
 	*res_inode = NULL;
 	if (!dir) {
@@ -701,7 +701,7 @@ static int proc_follow_link(struct inode *dir, struct inode *inode,
 
 	iput(inode);
 	current->link_count++;
-	int error = open_namei(target, flags, res_inode, dir);
+	int error = open_namei(target, flags, mode, res_inode, dir);
 	current->link_count--;
 	return error;
 }

@@ -108,7 +108,7 @@ tail_1:
 }
 
 int mario_follow_link(struct inode *dir, struct inode *inode, int flags,
-	struct inode **res_inode)
+	mode_t mode, struct inode **res_inode)
 {
 	int error;
 	struct buffer_head * bh;
@@ -141,7 +141,7 @@ int mario_follow_link(struct inode *dir, struct inode *inode, int flags,
 	}
 	iput(inode);
 	current->link_count++;
-	error = open_namei(bh->b_data, flags, res_inode, dir);
+	error = open_namei(bh->b_data, flags, mode, res_inode, dir);
 	current->link_count--;
 	brelse(bh);
 	return error;

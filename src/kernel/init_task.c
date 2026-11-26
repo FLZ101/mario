@@ -5,8 +5,7 @@
 #include <fs/fs.h>
 
 static struct fs_struct init_fs = {
-	0,
-	NULL, NULL
+	.umask = 0022,
 };
 
 static struct files_struct init_files = {

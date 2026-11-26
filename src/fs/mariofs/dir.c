@@ -160,7 +160,8 @@ get_entry_done:
 	return 0;
 }
 
-int mario_create(struct inode *dir, char *name, int len, struct inode **res)
+int mario_create(struct inode *dir, char *name, int len, mode_t mode,
+	struct inode **res)
 {
 	int err = 0;
 	struct mario_dir_entry entry = {0};
@@ -171,7 +172,7 @@ int mario_create(struct inode *dir, char *name, int len, struct inode **res)
 	}
 
 	entry.data = MARIO_ZERO_ENTRY;
-	entry.mode = MODE_REG;
+	entry.mode = MODE_REG | mode;
 	entry.size = 0;
 	entry.blocks = 0;
 	strncpy(entry.name, name, len);
@@ -601,7 +602,7 @@ int mario_symlink(struct inode *dir, char *basename, int namelen, char *oldname)
 		error = -EEXIST;
 		goto tail_2;
 	}
-	entry.mode = MODE_LNK;
+	entry.mode = MODE_LNK | 0777;
 	entry.data = MARIO_ZERO_ENTRY;
 	entry.size = 0;
 	entry.blocks = 0;

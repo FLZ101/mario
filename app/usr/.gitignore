@@ -15,6 +15,7 @@
 /libpng-*
 /tmux-*
 /openssl-*
+/openssh-*
 /curl-*
 /wget-*
 /net-tools-*

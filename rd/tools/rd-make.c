@@ -228,7 +228,7 @@ void parse_device_list(void)
 		}
 		validate_device_name(devs[i].name);
 
-		devs[i].mode = t == 'B' ? MODE_BLK : MODE_CHR;
+		devs[i].mode = (t == 'B' ? MODE_BLK : MODE_CHR) | 0777;
 		devs[i].data = MKDEV(major, minor);
 		devs[i].flags = 7;
 

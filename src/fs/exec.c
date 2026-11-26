@@ -32,7 +32,6 @@ struct exec {
 	unsigned long start_code, end_code, start_data, end_data, start_brk, brk;
 };
 
-extern int do_openat(int dirfd, char *filename, int flags);
 
 int open_execat(int dirfd, char *filename)
 {
@@ -40,7 +39,7 @@ int open_execat(int dirfd, char *filename)
 	struct file *file;
 	struct inode *inode;
 
-	fd = do_openat(dirfd, filename, O_RDONLY);
+	fd = do_openat(dirfd, filename, O_RDONLY, 0);
 	if (fd < 0)
 		return fd;
 	file = current->files->fd[fd];
@@ -201,29 +200,26 @@ tail:
  */
 int copy_one_arg(struct exec *exe, char *p, int *n)
 {
-	char *tmp;
+	char *tmp = NULL;
+	const char *source;
 	int len, error = 0;
 	unsigned long a, b, c, d;
 
 	error = getname(p, &tmp);
-	if (error) {
-		if (error == -ENOENT) // p is "". Just ignore
-			return 0;
-
-		if (error != -ENOMEM)
-			error = -EFAULT;
-		return error;
-	}
-	len = strlen(tmp) + 1;
+	if (error && error != -ENOENT)
+		return error == -ENOMEM ? error : -EFAULT;
+	source = tmp ? tmp : "";
+	error = 0;
+	len = strlen(source) + 1;
 	a = exe->arg_p & ~PAGE_MASK;
 	b = (a + PAGE_SIZE) & PAGE_MASK;
 	c = exe->arg_p / PAGE_SIZE;
 	d = exe->arg_page[c] + a;
 	if (a + len >= b) {
 		len -= b - a;
-		memcpy((void *)d, tmp, b - a);
+		memcpy((void *)d, source, b - a);
 		exe->arg_p += b - a;
-		tmp += b - a;
+		source += b - a;
 		if (c == MAX_ARG_PAGES - 1) {
 			error = -E2BIG;
 			goto tail;
@@ -235,12 +231,13 @@ int copy_one_arg(struct exec *exe, char *p, int *n)
 		d = exe->arg_page[c];
 	}
 	if (len) {
-		memcpy((void *)d, tmp, len);
+		memcpy((void *)d, source, len);
 		exe->arg_p += len;
 	}
 	(*n)++;
 tail:
-	putname(tmp);
+	if (tmp)
+		putname(tmp);
 	return error;
 }
 

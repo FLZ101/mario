@@ -219,6 +219,9 @@ Use `ifconfig`, `route -n`, or `netstat -i` / `netstat -rn` for read-only
 network status. Configure IPv4 with `/sbin/netctl.exe`.
 See [installed network tools](tests/net/README.md#network-tools).
 
+The image also includes OpenSSH `ssh` and `ssh-keygen` for outbound IPv4 SSH.
+See [OpenSSH client setup](tests/net/README.md#openssh-client).
+
 Open a local MP4 in File Manager, or run `mpv FILE.mp4` from the desktop
 terminal. The player accepts one regular file with H.264 video and optional
 AAC audio, not URLs or playlists. Use Space to pause, Left/Right to seek, and Q
