@@ -1715,6 +1715,46 @@ static void test_launch_cleanup(void)
 	assert(close(fd) == 0);
 }
 
+/*
+ * Launch a terminal-hosted executable and record its GUI_PROTOCOL_APP_EXIT
+ * status so tests can observe clean child exit without WM-log stdout echoing.
+ */
+static void test_launch_cleanup_wait(void)
+{
+	static const char path[] = "/usr/bin/test/gui-cleanup.exe";
+	uint8_t frame[64] = { 0 };
+	int fd = connect_client();
+	uint32_t window_id = create_window(fd, 1, 64, 48);
+
+	assert(gui_protocol_encode_header(frame, sizeof(frame), GUI_PROTOCOL_LAUNCH_REQUEST,
+		       sizeof(gui_protocol_wire_launch_request) + sizeof(path) - 1) == 0);
+	put32(frame + 8, 1);
+	put16(frame + 12, GUI_PROTOCOL_LAUNCH_EXECUTABLE);
+	put16(frame + 14, sizeof(path) - 1);
+	memcpy(frame + 16, path, sizeof(path) - 1);
+	write_full(fd, frame, 16 + sizeof(path) - 1);
+	read_launch_result(fd, 1, 0);
+	for (;;) {
+		gui_protocol_header header;
+
+		read_full(fd, frame, GUI_PROTOCOL_HEADER_SIZE);
+		assert(gui_protocol_decode_header(frame, GUI_PROTOCOL_HEADER_SIZE, &header) == 0);
+		assert(header.length <= sizeof(frame));
+		read_full(fd, frame + GUI_PROTOCOL_HEADER_SIZE,
+			  header.length - GUI_PROTOCOL_HEADER_SIZE);
+		if (header.type == GUI_PROTOCOL_APP_EXIT) {
+			FILE *exit_file = fopen("/tmp/gui-cleanup.app-exit", "w");
+
+			assert(get32(frame + 8) == window_id);
+			assert(exit_file != NULL);
+			assert(fprintf(exit_file, "%d\n", (int32_t)get32(frame + 12)) > 0);
+			assert(fclose(exit_file) == 0);
+			break;
+		}
+	}
+	assert(close(fd) == 0);
+}
+
 static void test_launch(void)
 {
 	static const char marker[] = "/tmp/mario-wm-launch-marker";
@@ -2117,6 +2157,7 @@ int main(int argc, char **argv)
 		!strcmp(argv[1], "--taskbar-only") || !strcmp(argv[1], "--shortcuts-only") ||
 		!strcmp(argv[1], "--interact-only") || !strcmp(argv[1], "--launch-only") ||
 		!strcmp(argv[1], "--launch-cleanup-only") ||
+		!strcmp(argv[1], "--launch-cleanup-wait") ||
 		!strcmp(argv[1], "--window-state-only") ||
 		!strcmp(argv[1], "--chrome-only") ||
 		!strcmp(argv[1], "--resize-only"))));
@@ -2161,6 +2202,8 @@ int main(int argc, char **argv)
 			puts("wm-client: launch requests handled safely");
 		} else if (!strcmp(argv[1], "--launch-cleanup-only")) {
 			test_launch_cleanup();
+		} else if (!strcmp(argv[1], "--launch-cleanup-wait")) {
+			test_launch_cleanup_wait();
 		} else if (!strcmp(argv[1], "--window-state-only")) {
 			test_window_state();
 		} else if (!strcmp(argv[1], "--chrome-only")) {

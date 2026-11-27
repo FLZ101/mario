@@ -460,8 +460,9 @@ The terminal client:
    the desktop or terminal exits.
 6. The terminal client keeps the master and `mario-wm` socket fds in its
    `poll()` set.
-7. Master bytes are parsed by the VT emulator and written to the terminal
-   window surface.
+7. Master bytes are parsed by the VT emulator and rendered to the terminal
+   window surface without mirroring raw PTY output to the terminal client's
+   own standard output.
 8. Server-delivered key events are translated into escape sequences and written
    to the master.
 9. Server-delivered window resizes send `TIOCSWINSZ` to the retained master and
@@ -617,7 +618,9 @@ Session lifecycle and configuration:
   the server retains ordinary clients plus the last desktop snapshot and
   immediately starts one fresh shell endpoint. Server exit or a killed server
   closes all client windows and returns to the text console. Children inherit
-  no framebuffer, raw-input, listener, or unrelated client fd.
+  no framebuffer, raw-input, listener, or unrelated client fd, and launched
+  ordinary applications bind standard streams to `/dev/null` rather than
+  inheriting `/dev/console` or `/tmp/mario-wm.log`.
 - Desktop appearance uses `$HOME/.config/mario/desktop.conf` (or the XDG/explicit
   override) for font selection and shared colors. See [Desktop Appearance](appearance.md).
   Session commands, panel placement, and application paths remain compiled-in;

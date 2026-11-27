@@ -6,7 +6,7 @@ SERIAL: while test -e /tmp/mario-wm.started && ! grep -q 'mario-desktop: private
 SERIAL-CHECK: mario-desktop: private connection ready
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-SERIAL: /usr/bin/terminal --command 'printf "budget initial\n"; while test ! -e /tmp/gbpaint; do sleep 1; done; printf "budget pressure\n"; touch /tmp/gbready; read value; touch /tmp/gbtyped; sleep 60' >/tmp/gui-budget.terminal.log 2>&1 & echo $! >/tmp/gui-budget.terminal.pid
+SERIAL: /usr/bin/terminal --command 'printf "budget initial\n" | tee -a /tmp/gui-budget.pty; while test ! -e /tmp/gbpaint; do sleep 1; done; printf "budget pressure\n" | tee -a /tmp/gui-budget.pty; touch /tmp/gbready; read value; touch /tmp/gbtyped; sleep 60' >/tmp/gui-budget.terminal.log 2>&1 & echo $! >/tmp/gui-budget.terminal.pid
 SERIAL: while ! grep -q 'terminal: window ready' /tmp/gui-budget.terminal.log && kill -0 $(cat /tmp/gui-budget.terminal.pid) 2>/dev/null; do sleep 1; done; cat /tmp/gui-budget.terminal.log
 SERIAL-CHECK: terminal: window ready
 SERIAL: /usr/bin/test/gui-wm-client.exe --surface-budget >/tmp/gui-budget.client.log 2>&1 & echo $! >/tmp/gui-budget.client.pid
@@ -15,7 +15,7 @@ SERIAL-CHECK: wm-client: overlapping staging ready
 GUI-CHECK-RECT: 500 500 32 32 34 86 136
 SERIAL: touch /tmp/gbpaint
 SERIAL-WAIT-FILE: /tmp/gbready
-SERIAL: while ! grep -q 'budget pressure' /tmp/gui-budget.terminal.log; do sleep 1; done; kill -0 $(cat /tmp/gui-budget.terminal.pid) && cat /tmp/gui-budget.terminal.log
+SERIAL: while ! grep -q 'budget pressure' /tmp/gui-budget.pty 2>/dev/null; do sleep 1; done; kill -0 $(cat /tmp/gui-budget.terminal.pid) && cat /tmp/gui-budget.pty
 SERIAL-CHECK: budget pressure
 TIMEOUT: 60
 SERIAL: old_shell=$(pgrep mario-desktop); kill "$old_shell"; while test -e /tmp/mario-wm.started && test $(grep -c 'private connection ready' /tmp/mario-wm.log) -lt 2; do sleep 1; done; cat /tmp/mario-wm.log; replacement=$(pgrep mario-desktop); test -n "$replacement" && test "$replacement" != "$old_shell" && test $(grep -c 'private connection ready' /tmp/mario-wm.log) -ge 2 && kill -0 $(cat /tmp/gui-budget.terminal.pid) && printf 'surface-budget: shell replaced with staging live\n'

@@ -3211,18 +3211,19 @@ static void test_live_upload_progress(void)
 	uint64_t previous_frame;
 
 	unlink("/tmp/gui-upload.finish");
+	unlink("/tmp/gui-upload.pty");
 	unlink("/tmp/gui-upload.single-paint");
 	unlink("/tmp/gui-upload.single-finish");
 	hold_upload_replies = 1;
 	peer = start_upload_terminal(&server,
-		"printf '\\033[?12l'; trap 'printf \"RESIZE-PROGRESS\\n\"' WINCH; "
-		"printf '%16384s' '' | tr ' ' X; printf 'PTY-PROGRESS\\n'; "
-		"read answer; printf 'KEY-PROGRESS:%s\\n' \"$answer\"; "
+		"printf '\\033[?12l'; trap 'printf \"RESIZE-PROGRESS\\n\" | tee -a /tmp/gui-upload.pty' WINCH; "
+		"{ printf '%16384s' '' | tr ' ' X; printf 'PTY-PROGRESS\\n'; "
+		"read answer; printf 'KEY-PROGRESS:%s\\n' \"$answer\"; } | tee -a /tmp/gui-upload.pty; "
 		"while test ! -e /tmp/gui-upload.finish; do sleep 1; done",
 		"/tmp/gui-upload.term", &listener, &child);
 	assert(peer != NULL);
 	for (unsigned int attempt = 0; held_upload_bytes != sizeof(held_upload_replies) ||
-	     !upload_log_contains("/tmp/gui-upload.term", "PTY-PROGRESS"); attempt++) {
+	     !upload_log_contains("/tmp/gui-upload.pty", "PTY-PROGRESS"); attempt++) {
 		assert(attempt < 20000 && !upload_peer_pump(peer));
 		assert(usleep(1000) == 0);
 	}
@@ -3230,13 +3231,16 @@ static void test_live_upload_progress(void)
 	assert(window != NULL && window->committed == NULL && upload_commits == 0);
 	{
 		struct stat log;
+		struct stat term_log;
 
-		assert(stat("/tmp/gui-upload.term", &log) == 0 && log.st_size > 16384);
+		/* Child PTY output flows to /tmp/gui-upload.pty while terminal stdout stays quiet. */
+		assert(stat("/tmp/gui-upload.pty", &log) == 0 && log.st_size > 16384);
+		assert(stat("/tmp/gui-upload.term", &term_log) == 0 && term_log.st_size < 256);
 	}
 	wm_emit_input(&server, &key);
 	key.key.scancode = 0x1c;
 	wm_emit_input(&server, &key);
-	for (unsigned int attempt = 0; !upload_log_contains("/tmp/gui-upload.term", "KEY-PROGRESS:a"); attempt++) {
+	for (unsigned int attempt = 0; !upload_log_contains("/tmp/gui-upload.pty", "KEY-PROGRESS:a"); attempt++) {
 		assert(attempt < 20000 && !upload_peer_pump(peer));
 		assert(usleep(1000) == 0);
 	}
@@ -3256,7 +3260,7 @@ static void test_live_upload_progress(void)
 	assert(upload_commits == 1 && upload_patch_begins == 1 && window->committed != NULL);
 	assert(window->committed->pixels[0] == 0x00f8fafc);
 	assert(wm_resize_window(&server, window, window->x, window->y, 400, 256) == 1);
-	for (unsigned int attempt = 0; !upload_log_contains("/tmp/gui-upload.term", "RESIZE-PROGRESS"); attempt++) {
+	for (unsigned int attempt = 0; !upload_log_contains("/tmp/gui-upload.pty", "RESIZE-PROGRESS"); attempt++) {
 		assert(attempt < 20000 && !upload_peer_pump(peer));
 		assert(usleep(1000) == 0);
 	}
@@ -3269,6 +3273,7 @@ static void test_live_upload_progress(void)
 	assert(upload_commits == 2 && upload_full_begins == 2 && upload_patch_begins == 1);
 	assert(window->committed != NULL && window->committed->width == 400 && window->committed->height == 256);
 	finish_upload_terminal(&server, peer, listener, child, "/tmp/gui-upload.finish");
+	unlink("/tmp/gui-upload.pty");
 	peer = start_upload_terminal(&server,
 		"printf '\\033[?12l'; while test ! -e /tmp/gui-upload.single-paint; do sleep 1; done; printf A; "
 		"while test ! -e /tmp/gui-upload.single-finish; do sleep 1; done",

@@ -17,7 +17,7 @@ cleanup_wait_gone() {
     done
 }
 cleanup_start() {
-    rm -f /tmp/mario-wm.* /tmp/gui-cleanup.child /tmp/gui-cleanup.exit
+    rm -f /tmp/mario-wm.* /tmp/gui-cleanup.child /tmp/gui-cleanup.exit /tmp/gui-cleanup.app-exit
     /usr/bin/mario-wm --diagnostics >/tmp/mario-wm.log 2>&1 & wm_pid=$!
     attempt=0
     while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do
@@ -77,12 +77,12 @@ GUI-SEND-KEY: f6
 GUI-CHECK-SCREEN: assets/fb-tty.ppm
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-SERIAL: /usr/bin/test/gui-wm-client.exe --launch-cleanup-only
+SERIAL: /usr/bin/test/gui-wm-client.exe --launch-cleanup-wait & launch_wait_pid=$!
 SERIAL: cleanup_child_ready && printf 'gui-cleanup: %s\n' 'inherited descriptors clean'
 SERIAL-CHECK: gui-cleanup: inherited descriptors clean
 # Natural child exit while text owns foreground must close both PTY ends.
 GUI-SEND-KEY: f1
-SERIAL: touch /tmp/gui-cleanup.exit; cleanup_recovered && grep 'terminal: child exit 0' /tmp/mario-wm.log && printf 'gui-cleanup: %s\n' 'child exit reclaimed'
+SERIAL: touch /tmp/gui-cleanup.exit; wait "$launch_wait_pid" && cleanup_recovered && test "$(cat /tmp/gui-cleanup.app-exit)" = 0 && printf 'gui-cleanup: %s\n' 'child exit reclaimed'
 SERIAL-CHECK: gui-cleanup: child exit reclaimed
 GUI-SEND-KEY: f6
 GUI-CHECK-SCREEN: assets/fb-tty.ppm

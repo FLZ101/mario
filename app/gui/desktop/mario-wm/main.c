@@ -3716,6 +3716,25 @@ static void wm_stop_shell(wm_server *server)
 	server->shell_pid = 0;
 }
 
+/*
+ * Ordinary launched apps must not inherit init's /dev/console stdin or the
+ * root-ramdisk /tmp/mario-wm.log stdout/stderr, unlike the mario-desktop shell.
+ */
+static int wm_detach_client_stdio(void)
+{
+	int devnull = open("/dev/null", O_RDWR);
+
+	if (devnull < 0)
+		return -1;
+	if (dup2(devnull, STDIN_FILENO) < 0 ||
+	    dup2(devnull, STDOUT_FILENO) < 0 ||
+	    dup2(devnull, STDERR_FILENO) < 0) {
+		close(devnull);
+		return -1;
+	}
+	return devnull > STDERR_FILENO ? close(devnull) : 0;
+}
+
 static int wm_start_application(const char *path)
 {
 	pid_t pid = fork();
@@ -3724,6 +3743,8 @@ static int wm_start_application(const char *path)
 		return -1;
 	if (pid == 0) {
 		/* Server-owned descriptors are close-on-exec, so clients get no seat access. */
+		if (wm_detach_client_stdio() < 0)
+			_exit(127);
 		execl(path, path, NULL);
 		_exit(127);
 	}
@@ -3756,6 +3777,8 @@ static int wm_start_terminal_command(const uint8_t *path, size_t path_bytes)
 	if (pid < 0)
 		return -1;
 	if (pid == 0) {
+		if (wm_detach_client_stdio() < 0)
+			_exit(127);
 		execl(WM_TERMINAL_PATH, WM_TERMINAL_PATH, "--command", command, NULL);
 		_exit(127);
 	}
@@ -3806,6 +3829,8 @@ static int wm_start_terminal_executable(wm_server *server, const uint8_t *path,
 		return -1;
 	}
 	if (pid == 0) {
+		if (wm_detach_client_stdio() < 0)
+			_exit(127);
 		execl(WM_TERMINAL_PATH, WM_TERMINAL_PATH, "--command", command, NULL);
 		_exit(127);
 	}

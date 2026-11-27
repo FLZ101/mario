@@ -87,8 +87,8 @@ SERIAL: . /tmp/gui-stress-helpers; stress_reclaimed && printf 'gui-stress: %s re
 SERIAL-CHECK: gui-stress: baseline ready
 
 # Cycle 1: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,66
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 57,0
@@ -107,7 +107,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 512 216 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -135,8 +135,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 2: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,82
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 89,0
@@ -155,7 +155,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 544 232 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -183,8 +183,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 3: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,98
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 121,0
@@ -203,7 +203,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 576 248 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -231,8 +231,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 4: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,114
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,0
@@ -253,7 +253,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 608 264 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -281,8 +281,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 5: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,127
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,3
@@ -303,7 +303,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 640 280 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -333,8 +333,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 6: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,127
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,19
@@ -355,7 +355,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 672 296 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -385,8 +385,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 7: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,127
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,35
@@ -407,7 +407,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 704 312 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -437,8 +437,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 8: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,127
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,51
@@ -461,7 +461,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 736 328 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -491,8 +491,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 9: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,127
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,67
@@ -515,7 +515,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 768 344 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -547,8 +547,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 10: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,127
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,83
@@ -571,7 +571,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 800 360 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -603,8 +603,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 11: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,127
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,99
@@ -627,7 +627,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 832 376 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -659,8 +659,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 12: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,127
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,115
@@ -685,7 +685,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 864 392 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -717,8 +717,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 13: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,127
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,127
@@ -743,7 +743,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 896 408 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -777,8 +777,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 14: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,127
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,127
@@ -803,7 +803,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 928 424 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -837,8 +837,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 15: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,127
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,127
@@ -863,7 +863,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 960 440 8 8 17 24 39
 GUI-SEND-KEY: f1
@@ -897,8 +897,8 @@ GUI-WAIT-FRAME:
 GUI-CHECK-SCREEN: assets/desktop-idle.png
 
 # Cycle 16: move, resize, suspend/resume, close, and restore the whole desktop.
-SERIAL: /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
-SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-terminal.log; do sleep 1; done
+SERIAL: rm -f /tmp/gui-stress-winsize; /usr/bin/terminal --command 'exec /usr/bin/test/terminal-winsize.exe /tmp/gui-stress-winsize' >/tmp/gui-stress-terminal.log 2>&1 & terminal_pid=$!
+SERIAL: while ! grep -q 'terminal-winsize: ready' /tmp/gui-stress-winsize 2>/dev/null; do sleep 1; done
 GUI-MOUSE-MOVE: 127,127
 GUI-WAIT-FRAME:
 GUI-MOUSE-MOVE: 127,127
@@ -925,7 +925,7 @@ GUI-MOUSE-BUTTON: left,down
 GUI-MOUSE-MOVE: 64,0
 GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-terminal.log; do sleep 1; done; cat /tmp/gui-stress-terminal.log
+SERIAL: while ! grep -q '^10 44' /tmp/gui-stress-winsize; do sleep 1; done; cat /tmp/gui-stress-winsize
 SERIAL-CHECK: 10 44
 GUI-CHECK-RECT: 992 456 8 8 17 24 39
 GUI-SEND-KEY: f1

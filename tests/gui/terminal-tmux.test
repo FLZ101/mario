@@ -1,10 +1,10 @@
-SERIAL: rm -f /tmp/mario-wm.* /tmp/terminal-tmux.log /tmp/terminal-tmux.pid; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
+SERIAL: rm -f /tmp/mario-wm.* /tmp/terminal-tmux.log /tmp/terminal-tmux.out /tmp/terminal-tmux.pid; /usr/bin/mario-wm >/tmp/mario-wm.log 2>&1 & echo $! >/tmp/mario-wm.pid
 SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
 GUI-SEND-KEY: f8
-SERIAL: /usr/bin/terminal --command 'tmux -V; sleep 70' >/tmp/terminal-tmux.log 2>&1 & echo $! >/tmp/terminal-tmux.pid
+SERIAL: /usr/bin/terminal --command 'tmux -V | tee /tmp/terminal-tmux.out; sleep 70' >/tmp/terminal-tmux.log 2>&1 & echo $! >/tmp/terminal-tmux.pid
 SERIAL: while ! grep -q 'terminal: window ready' /tmp/terminal-tmux.log; do sleep 1; done
-SERIAL: while ! grep -a -q 'tmux 3.8' /tmp/terminal-tmux.log; do sleep 1; done; cat /tmp/terminal-tmux.log; echo
+SERIAL: while ! grep -a -q 'tmux 3.8' /tmp/terminal-tmux.out 2>/dev/null; do sleep 1; done; cat /tmp/terminal-tmux.out; echo
 SERIAL-CHECK: tmux 3.8
 GUI-SEND-KEYS: meta_l,w
 SERIAL: while pgrep terminal >/dev/null; do sleep 1; done

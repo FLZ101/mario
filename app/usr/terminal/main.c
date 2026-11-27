@@ -1107,10 +1107,9 @@ static int terminal_drain_pty(int master, terminal_vt *vt, int *updated)
 		ssize_t count = read(master, buffer, sizeof(buffer));
 
 		if (count > 0) {
+			/* Render PTY bytes on the VT surface without echoing them to stdout. */
 			terminal_vt_feed(vt, buffer, count);
 			*updated = 1;
-			if (write_full(STDOUT_FILENO, buffer, count) < 0)
-				return -1;
 			continue;
 		}
 		if (count == 0 || (count < 0 && errno == EIO))

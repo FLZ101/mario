@@ -1,0 +1,68 @@
+INIT-WM: keep
+GUI-VISUAL-TEST:
+TIMEOUT: 90
+# Verify launcher-started fullscreen terminal detaches stdio and does not fill
+# the root ramdisk (/tmp/mario-wm.log) during sustained ANSI output like btop.
+SERIAL-WAIT-FILE: /tmp/mario-wm.started
+SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.log; do sleep 1; done
+SERIAL: <<SETUP
+set -e
+pgrep mario-wm >/tmp/flood-wm.pid
+pgrep mario-desktop >/tmp/flood-shell.pid
+wc -c </tmp/mario-wm.log >/tmp/flood-log.before
+# Stream ~3 MiB of truecolor ANSI frames, exceeding the 2.5 MiB root ramdisk.
+cat >/tmp/runflood <<'SCRIPT'
+stty size >/tmp/flood.size
+i=0
+while test "$i" -lt 48; do
+    printf '\033[H\033[38;2;46;204;113m\033[48;2;22;33;62m'
+    dd if=/dev/zero bs=4096 count=16 2>/dev/null | tr '\000' '#'
+    printf '\033[0m\n'
+    i=$((i + 1))
+done
+printf '\033[2J\033[HFLOOD-COMPLETE\n'
+touch /tmp/flood.done
+SCRIPT
+SETUP
+GUI-SEND-KEY: f8
+GUI-WAIT-FRAME:
+GUI-CLICK: assets/desktop-default.png,10,747,35,14
+GUI-CLICK: assets/desktop-launcher.png,15,642,84,16
+SERIAL: while ! pgrep -x terminal >/dev/null; do sleep 1; done; pgrep -x terminal >/tmp/flood-terminal.pid
+SERIAL: <<CHECKFDS
+set -e
+term_pid=$(cat /tmp/flood-terminal.pid)
+for fd in 0 1 2; do
+    target=$(readlink "/proc/$term_pid/fd/$fd")
+    test "$target" = '/dev/null'
+done
+printf 'terminal-flood: stdio detached\n'
+CHECKFDS
+SERIAL-CHECK: terminal-flood: stdio detached
+GUI-SEND-KEYS: meta_l,f
+GUI-WAIT-FRAME:
+GUI-CHECK-RECT: 8 748 16 16 17 24 39
+GUI-TYPE: . /tmp/runflood
+SERIAL-WAIT-FILE: /tmp/flood.done
+GUI-WAIT-FRAME:
+SERIAL: <<VERIFY
+set -e
+test -e /tmp/mario-wm.started
+test -e /tmp/mario-wm.ready
+test "$(pgrep mario-wm)" = "$(cat /tmp/flood-wm.pid)"
+test "$(pgrep mario-desktop)" = "$(cat /tmp/flood-shell.pid)"
+test "$(pgrep -x terminal)" = "$(cat /tmp/flood-terminal.pid)"
+test "$(cat /tmp/flood.size)" = '48 128'
+before=$(cat /tmp/flood-log.before)
+after=$(wc -c </tmp/mario-wm.log)
+test "$((after - before))" -lt 1024
+avail=$(df -k / | awk 'NR==2 { print $4 }')
+test "$avail" -gt 256
+printf 'terminal-flood: desktop survived 3MiB ANSI stream\n'
+VERIFY
+SERIAL-CHECK: terminal-flood: desktop survived 3MiB ANSI stream
+GUI-SEND-KEYS: meta_l,w
+SERIAL: while pgrep -x terminal >/dev/null; do sleep 1; done
+GUI-CHECK-SCREEN-RECT: assets/desktop-default.png,10,747,35,14,anywhere
+SERIAL: kill -TERM "$(cat /tmp/flood-wm.pid)"; while test -e /tmp/mario-wm.started; do sleep 1; done
+EXIT:

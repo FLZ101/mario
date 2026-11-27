@@ -54,14 +54,20 @@ SERIAL-WAIT-FILE: /tmp/guivimdone
 SERIAL: grep -qx 'gui smoke edit' /tmp/guivim && grep -qx 'gui smoke base' /tmp/guivim && printf 'terminal-apps: %s\n' 'vim saved edit'
 SERIAL-CHECK: terminal-apps: vim saved edit
 GUI-TYPE: . /tmp/runtop
-SERIAL: while ! pgrep -x top >/dev/null || ! grep -q '%cpu' /tmp/terminal-apps.log || ! grep -q 'PID USER' /tmp/terminal-apps.log; do sleep 1; done; printf 'terminal-apps: %s\n' 'top rendered'
+SERIAL: while ! pgrep -x top >/dev/null; do sleep 1; done; printf 'terminal-apps: %s\n' 'top started'
+SERIAL-CHECK: terminal-apps: top started
+# Match top's rendered header crop and less's first/last rows directly on screen.
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,355,146,62,12,anywhere
+SERIAL: pgrep -x top >/dev/null && printf 'terminal-apps: %s\n' 'top rendered'
 SERIAL-CHECK: terminal-apps: top rendered
 GUI-SEND-KEY: q
 SERIAL-WAIT-FILE: /tmp/guitopdone
 GUI-TYPE: . /tmp/runless
-SERIAL: while ! pgrep -x less >/dev/null || ! grep -q 'less smoke line 1' /tmp/terminal-apps.log; do sleep 1; done
+SERIAL: while ! pgrep -x less >/dev/null; do sleep 1; done
+GUI-CHECK-SCREEN-RECT: assets/terminal-less-top.png,144,112,144,16,anywhere
 GUI-SEND-KEYS: shift,g
-SERIAL: while ! grep -q 'less smoke line 80' /tmp/terminal-apps.log; do sleep 1; done; printf 'terminal-apps: %s\n' 'less reached end'
+GUI-CHECK-SCREEN-RECT: assets/terminal-less-end.png,144,240,144,16,anywhere
+SERIAL: pgrep -x less >/dev/null && printf 'terminal-apps: %s\n' 'less reached end'
 SERIAL-CHECK: terminal-apps: less reached end
 GUI-SEND-KEY: q
 SERIAL-WAIT-FILE: /tmp/guilessdone
