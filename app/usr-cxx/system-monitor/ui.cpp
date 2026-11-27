@@ -794,17 +794,16 @@ class Monitor {
 public:
 	Monitor(Sampler sampler, SampleObserver observer)
 		: sampler_(std::move(sampler)), observer_(std::move(observer)),
-		window_(92, 78, 840, 580, "System Monitor"), health_(12, 8, 816, 28),
-		tabs_(12, 46, 816, 522), overview_(12, 72, 816, 496, "Overview"),
-		processes_(12, 72, 816, 496, [this] { if (window_.shown()) start(); }),
-		mounts_(12, 72, 816, 496, "Filesystems"), network_(12, 72, 816, 496)
+		window_(92, 78, 840, 580, "System Monitor"),
+		tabs_(12, 8, 816, 564), overview_(12, 34, 816, 534, "Overview"),
+		processes_(12, 34, 816, 534, [this] { if (window_.shown()) start(); }),
+		mounts_(12, 34, 816, 534, "Filesystems"), network_(12, 34, 816, 534)
 	{
 		tabs_.end();
 		tabs_.value(&overview_);
 		window_.end();
 		window_.resizable(tabs_);
 		window_.size_range(660, 380);
-		health_.align(left_label);
 		window_.callback([](Fl_Widget *, void *data) { static_cast<Monitor *>(data)->close(); }, this);
 		processes_.update(snapshot_);
 		window_.show();
@@ -819,7 +818,6 @@ private:
 	{
 		auto &self = *static_cast<Monitor *>(data);
 		self.start();
-		self.update_health();
 		Fl::repeat_timeout(1, tick, data);
 	}
 
@@ -850,8 +848,6 @@ private:
 			if (self.observer_)
 				self.observer_(self.snapshot_);
 		}
-		self.failed_ = !result;
-		self.update_health();
 	}
 
 	void start()
@@ -860,10 +856,7 @@ private:
 			return;
 		if (worker_.start(sampler_)) {
 			Fl::add_fd(worker_.fd(), FL_READ, pipe_ready, this);
-		} else {
-			failed_ = true;
 		}
-		update_health();
 	}
 
 	void stop()
@@ -881,37 +874,16 @@ private:
 		window_.hide();
 	}
 
-	void update_health()
-	{
-		const auto now = ProcSource{}.monotonic_ns();
-		const auto stamp = snapshot_.monotonic_ns;
-		std::string state;
-		auto append = [&](const char *message) {
-			if (!state.empty())
-				state += " | ";
-			state += message;
-		};
-		if (failed_)
-			append("Refresh failed");
-		if (!stamp || !now || *stamp > *now)
-			append("No timestamped sample");
-		else if (*now - *stamp > stale_ns)
-			append("Stale data");
-		set_label(health_, state);
-	}
-
 	Sampler sampler_;
 	SampleObserver observer_;
 	Snapshot snapshot_;
 	SampleWorker worker_;
 	Fl_Double_Window window_;
-	Fl_Box health_;
 	Fl_Tabs tabs_;
 	ScrollPage<Overview> overview_;
 	Processes processes_;
 	ScrollPage<Mounts> mounts_;
 	NetworkPage network_;
-	bool failed_ = false;
 };
 
 }
