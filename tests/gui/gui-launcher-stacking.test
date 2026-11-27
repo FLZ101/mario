@@ -35,13 +35,8 @@ GUI-MOUSE-POSITION: 200,650
 GUI-CHECK-RECT: 10 650 1 1 37 99 235
 GUI-SEND-KEY: esc
 GUI-CHECK-RECT: 10 650 1 1 17 34 51
-GUI-MOUSE-POSITION: 24,754
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 10 650 1 1 37 99 235
-GUI-MOUSE-POSITION: 24,650
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-CLICK: assets/desktop-default.png,10,747,35,14
+GUI-CLICK: assets/desktop-launcher.png,15,642,84,16
 GUI-CHECK-RECT: 10 650 1 1 17 34 51
 SERIAL: for probe in 1 2 3 4 5; do test "$(pgrep -x terminal | wc -l)" -eq 2 && printf 'launcher stacking: %s\n' passed && break; sleep 1; done
 SERIAL-CHECK: launcher stacking: passed

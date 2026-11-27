@@ -18,9 +18,14 @@ Directives:
   GUI-MOUSE-POSITION: x,y
   GUI-MOUSE-BUTTON: left,down
   GUI-MOUSE-WHEEL: up
+  GUI-POINT: golden.ppm,x,y,width,height[,dx,dy]
+  GUI-CLICK: golden.ppm,x,y,width,height[,dx,dy]
+  GUI-RIGHT-CLICK: golden.ppm,x,y,width,height[,dx,dy]
   GUI-CHECK-SCREEN: golden.ppm
   GUI-CHECK-RECT: x y width height red green blue
+  GUI-CHECK-RECT: anywhere width height red green blue
   GUI-CHECK-SCREEN-RECT: golden.ppm,x,y,width,height
+  GUI-CHECK-SCREEN-RECT: golden.ppm,x,y,width,height,anywhere
   GUI-CHECK-DIFFERENT: golden.ppm
   GUI-CHECK-MATCH: golden.ppm
   GUI-VISUAL-TEST:
@@ -41,16 +46,24 @@ SKIP requires a nonempty reason and reports the fixture as skipped without
 booting QEMU or rebuilding artifacts. Use --run-skipped to run it explicitly.
 
 GUI-CHECK-* comparisons retry for at most five seconds after the screen-settle
-delay, even when TIMEOUT is longer. Shorter TIMEOUT values also shorten these
-checks; serial commands and application/frame readiness waits retain TIMEOUT.
+delay, or less if TIMEOUT is shorter. Image-based pointer actions use the
+same retry limit, without the screen-settle delay. Serial commands and
+application/frame readiness waits retain TIMEOUT.
+The anywhere forms require an exact match anywhere on the guest screen. For
+GUI-CHECK-SCREEN-RECT, x and y still select the crop in the reference image.
 
 Boot-prompt timeouts retain the screen, serial output, QMP status and per-CPU
 registers under tmp/gui-failures before QEMU is terminated. Diagnostic capture
 has a separate five-second total budget; the boot-prompt limit remains 30s.
 
 GUI-MOUSE-POSITION enables the same absolute virtual mouse used by run-gtk;
-coordinates are guest pixels. It cannot be mixed with GUI-MOUSE-MOVE. Other
-fixtures retain relative PS/2 input with VMPort disabled.
+coordinates are guest pixels. GUI-POINT, GUI-CLICK and GUI-RIGHT-CLICK also
+use absolute input, but locate a unique reference crop anywhere on screen.
+They target its center or the given offset from the match's top-left.
+GUI-CLICK parks the pointer in the top-left corner afterward; GUI-RIGHT-CLICK
+leaves it in place for context menus. Use GUI-POINT before gestures or hover.
+Absolute input cannot be mixed with GUI-MOUSE-MOVE. Other fixtures retain
+relative PS/2 input with VMPort disabled.
 """
 
 from __future__ import annotations
@@ -62,7 +75,7 @@ import re
 import socket
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -91,6 +104,12 @@ FRAME_COUNTER_PATH = "/tmp/mario-wm.frame"
 FRAME_PRESENT_BEGIN = "__MARIO_GUI_FRAME_BEGIN__"
 FRAME_PRESENT_END = "__MARIO_GUI_FRAME_END__"
 FRAME_MISSING = "__MARIO_GUI_FRAME_MISSING__"
+IMAGE_POINTER_ACTIONS = {
+    "GUI-POINT": "point",
+    "GUI-CLICK": "click",
+    "GUI-RIGHT-CLICK": "right-click",
+}
+ABSOLUTE_MOUSE_ACTIONS = {"mouse-position", *IMAGE_POINTER_ACTIONS.values()}
 
 
 class GuiTestError(RuntimeError):
@@ -113,10 +132,13 @@ def parse_visual_asset(test: Path, value: str, directive: str) -> Path:
 
 def parse_visual_geometry(
     test: Path, value: str, directive: str
-) -> tuple[Path, int, int, int, int]:
+) -> tuple[Path, int, int, int, int, bool]:
     """Parse a golden image plus an in-bounds pixel rectangle."""
 
     fields = [field.strip() for field in value.split(",")]
+    anywhere = fields[-1] == "anywhere"
+    if anywhere:
+        fields.pop()
     if len(fields) != 5:
         raise GuiTestError(f"{test}: invalid {directive}")
     asset = parse_visual_asset(test, fields[0], directive)
@@ -134,7 +156,25 @@ def parse_visual_geometry(
             or y + height > image.height
         ):
             raise GuiTestError(f"{test}: invalid {directive}")
-    return asset, x, y, width, height
+    return asset, x, y, width, height, anywhere
+
+
+def parse_pointer_target(
+    test: Path, value: str, directive: str
+) -> tuple[Path, int, int, int, int, int, int]:
+    fields = value.split(",")
+    if len(fields) not in (5, 7):
+        raise GuiTestError(f"{test}: invalid {directive}")
+    asset, x, y, width, height, _ = parse_visual_geometry(
+        test, ",".join(fields[:5]), directive
+    )
+    dx, dy = width // 2, height // 2
+    if len(fields) == 7:
+        try:
+            dx, dy = (int(field) for field in fields[5:])
+        except ValueError as exc:
+            raise GuiTestError(f"{test}: invalid {directive}") from exc
+    return asset, x, y, width, height, dx, dy
 
 
 @dataclass
@@ -279,18 +319,30 @@ class GuiTest:
                 if direction not in {"up", "down"}:
                     raise GuiTestError(f"{self.path}: invalid GUI-MOUSE-WHEEL")
                 self.actions.append(("mouse-wheel", direction))
+            elif ":" in line and line.split(":", 1)[0] in IMAGE_POINTER_ACTIONS:
+                directive, _, value = line.partition(":")
+                self.actions.append(
+                    (
+                        IMAGE_POINTER_ACTIONS[directive],
+                        parse_pointer_target(self.path, value, directive),
+                    )
+                )
             elif line.startswith("GUI-CHECK-SCREEN:"):
                 golden = parse_visual_asset(
                     self.path, line.split(":", 1)[1], "GUI-CHECK-SCREEN"
                 )
                 self.actions.append(("screen", golden))
             elif line.startswith("GUI-CHECK-RECT:"):
+                fields = line.split(":", 1)[1].split()
+                anywhere = fields[:1] == ["anywhere"]
+                if anywhere:
+                    fields = fields[1:]
                 try:
-                    values = tuple(
-                        int(value) for value in line.split(":", 1)[1].split()
-                    )
+                    values = tuple(int(value) for value in fields)
                 except ValueError as exc:
                     raise GuiTestError(f"{self.path}: invalid GUI-CHECK-RECT") from exc
+                if anywhere:
+                    values = (None, None, *values)
                 if (
                     len(values) != 7
                     or values[2] <= 0
@@ -372,9 +424,9 @@ class GuiTest:
                 "send-keys",
                 "type",
                 "mouse-move",
-                "mouse-position",
                 "mouse-button",
                 "mouse-wheel",
+                *ABSOLUTE_MOUSE_ACTIONS,
                 "wait-frame",
                 "screen",
                 "rect",
@@ -388,9 +440,10 @@ class GuiTest:
                     f"{self.path}: EXPECT-HALT tests may only use SERIAL-CHECK"
                 )
         mouse_actions = {action for action, _ in self.actions}
-        if {"mouse-move", "mouse-position"} <= mouse_actions:
+        if "mouse-move" in mouse_actions and mouse_actions & ABSOLUTE_MOUSE_ACTIONS:
             raise GuiTestError(
-                f"{self.path}: GUI-MOUSE-MOVE cannot be mixed with GUI-MOUSE-POSITION"
+                f"{self.path}: GUI-MOUSE-MOVE cannot be mixed with "
+                "absolute pointer actions"
             )
         return self
 
@@ -643,15 +696,98 @@ def wait_for_screen(qmp: Qmp, golden: Path, timeout: float) -> bool:
     return False
 
 
+def find_screen_rects(
+    screen: Image.Image, expected: Image.Image
+) -> Iterator[tuple[int, int]]:
+    """Find exact RGB crops without wrapping across rows or splitting pixels."""
+
+    width, height = expected.size
+    if width > screen.width or height > screen.height:
+        return
+
+    stride = screen.width * 3
+    row_size = width * 3
+    pattern = expected.tobytes()
+    rows = tuple(
+        pattern[offset : offset + row_size]
+        for offset in range(0, len(pattern), row_size)
+    )
+    anchor = max(range(height), key=lambda index: len(set(rows[index])))
+    pixels = screen.tobytes()
+    other_rows = tuple(
+        (index * stride, rows[index])
+        for index in reversed(range(height))
+        if index != anchor
+    )
+    for top in range(0, (screen.height - height + 1) * stride, stride):
+        row_start = top + anchor * stride
+        row_end = row_start + stride
+        match = pixels.find(rows[anchor], row_start, row_end)
+        while match != -1:
+            offset = match - row_start
+            if offset % 3 == 0 and all(
+                pixels.startswith(row, top + offset + row_offset)
+                for row_offset, row in other_rows
+            ):
+                yield offset // 3, top // stride
+            match = pixels.find(rows[anchor], match + 1, row_end)
+
+
+def screen_contains_rect(screen: Image.Image, expected: Image.Image) -> bool:
+    return next(find_screen_rects(screen, expected), None) is not None
+
+
+def wait_for_pointer_target(
+    qmp: Qmp,
+    target: tuple[Path, int, int, int, int, int, int],
+    timeout: float,
+    directive: str = "GUI-CLICK",
+) -> tuple[int, int]:
+    golden, x, y, width, height, dx, dy = target
+    with Image.open(golden) as image:
+        expected = image.convert("RGB").crop((x, y, x + width, y + height))
+    deadline = time.monotonic() + timeout
+    reason = "no match"
+    while time.monotonic() < deadline:
+        screen = dump_screen(qmp)
+        matches = find_screen_rects(screen, expected)
+        match = next(matches, None)
+        if match is None:
+            reason = "no match"
+        elif next(matches, None) is not None:
+            reason = "multiple matches"
+        else:
+            left, top = match
+            target_x, target_y = left + dx, top + dy
+            if 0 <= target_x < screen.width and 0 <= target_y < screen.height:
+                return target_x, target_y
+            raise GuiTestError(
+                f"{directive} point {(target_x, target_y)} is outside the screen"
+            )
+        time.sleep(KEY_DELAY)
+    raise GuiTestError(
+        f"{directive} timed out after {timeout:.1f}s ({reason}): {target}"
+    )
+
+
 def wait_for_solid_rect(
-    qmp: Qmp, rect: tuple[int, int, int, int, int, int, int], timeout: float
+    qmp: Qmp,
+    rect: tuple[int | None, int | None, int, int, int, int, int],
+    timeout: float,
 ) -> bool:
     x, y, width, height, red, green, blue = rect
     expected = (red, green, blue)
+    pattern = None
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         image = dump_screen(qmp)
-        if (
+        if x is None or y is None:
+            if width <= image.width and height <= image.height:
+                if pattern is None:
+                    pattern = Image.new("RGB", (width, height), expected)
+                if screen_contains_rect(image, pattern):
+                    return True
+        elif (
             x >= 0
             and y >= 0
             and x + width <= image.width
@@ -685,15 +821,18 @@ def wait_for_screen_match(qmp: Qmp, golden: Path, timeout: float, equal: bool) -
 
 
 def wait_for_screen_rect(
-    qmp: Qmp, check: tuple[Path, int, int, int, int], timeout: float
+    qmp: Qmp, check: tuple[Path, int, int, int, int, bool], timeout: float
 ) -> bool:
-    golden, x, y, width, height = check
+    golden, x, y, width, height, anywhere = check
     with Image.open(golden) as image:
         expected = image.convert("RGB").crop((x, y, x + width, y + height))
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         current = dump_screen(qmp)
-        if (
+        if anywhere:
+            if screen_contains_rect(current, expected):
+                return True
+        elif (
             x + width <= current.width
             and y + height <= current.height
             and ImageChops.difference(
@@ -786,6 +925,17 @@ def send_mouse_wheel(qmp: Qmp, direction: str) -> None:
             ]
         },
     )
+
+
+def send_click(qmp: Qmp, x: int, y: int, button: str = "left") -> None:
+    send_mouse_position(qmp, x, y)
+    time.sleep(KEY_DELAY)
+    send_mouse_button(qmp, button, True)
+    time.sleep(KEY_DELAY)
+    send_mouse_button(qmp, button, False)
+    if button == "left":
+        time.sleep(KEY_DELAY)
+        send_mouse_position(qmp, 0, 0)
 
 
 def run_serial_script(
@@ -930,7 +1080,9 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
         qemu,
         qmp_path,
         smp,
-        absolute_mouse=any(action == "mouse-position" for action, _ in test.actions),
+        absolute_mouse=any(
+            action in ABSOLUTE_MOUSE_ACTIONS for action, _ in test.actions
+        ),
     )
     child = pexpect.spawn(
         command[0],
@@ -1024,6 +1176,22 @@ def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str
                 if track_frames:
                     frame_baseline = snapshot_guest_frame_counter(child, timeout)
                 send_mouse_wheel(qmp, value)
+            elif action in IMAGE_POINTER_ACTIONS.values():
+                try:
+                    position = wait_for_pointer_target(
+                        qmp, value, visual_timeout, f"GUI-{action.upper()}"
+                    )
+                except GuiTestError as exc:
+                    visual_failure = True
+                    failures.append(f"action {action_index}: {exc}")
+                    break
+                if track_frames:
+                    frame_baseline = snapshot_guest_frame_counter(child, timeout)
+                if action == "point":
+                    send_mouse_position(qmp, *position)
+                else:
+                    button = "right" if action == "right-click" else "left"
+                    send_click(qmp, *position, button=button)
             elif action == "wait-frame":
                 if frame_baseline is None:
                     raise GuiTestError(

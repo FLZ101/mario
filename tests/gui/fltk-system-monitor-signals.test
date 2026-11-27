@@ -9,45 +9,28 @@ SERIAL: /usr/bin/test/fltk-system-monitor.exe end-target & end_pid=$!; /usr/bin/
 SERIAL: for attempt in 1 2 3 4 5; do if grep -qx monitor-end /proc/$end_pid/comm && grep -qx monitor-force /proc/$force_pid/comm; then printf 'monitor signals: targets %s\n' ready; break; fi; sleep 1; done
 SERIAL-CHECK: monitor signals: targets ready
 SERIAL: (/usr/bin/system-monitor; echo $? >/tmp/monitor-exit) >/tmp/monitor.log 2>&1 &
-GUI-CHECK-RECT: 320 206 8 8 232 237 244
-GUI-MOUSE-POSITION: 229,137
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-MOUSE-POSITION: 205,171
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-CLICK: assets/fltk-system-monitor-signals.png,190,129,77,16
+GUI-CLICK: assets/fltk-system-monitor-signals.png,117,163,47,17,88,8
 GUI-TYPE: monitor
-GUI-MOUSE-POSITION: 280,230
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 365 225 8 8 188 217 251
-GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-signals.png,614,574,296,26
+# Include the table header so the click waits for monitor-end to be the first result.
+GUI-CLICK: assets/fltk-system-monitor-signal-end-target.png,193,159,90,44,45,33
+GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-signals.png,614,574,296,26,anywhere
 # Return defaults to Cancel and leaves the process alive.
-GUI-MOUSE-POSITION: 686,587
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-CLICK: assets/fltk-system-monitor-signals.png,622,579,125,14
 GUI-WAIT-FRAME:
 GUI-SEND-KEY: ret
 SERIAL: grep -qx monitor-end /proc/$end_pid/comm && printf 'monitor signals: %s\n' 'cancel kept target alive'
 SERIAL-CHECK: monitor signals: cancel kept target alive
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-CLICK: assets/fltk-system-monitor-signals.png,622,579,125,14
 GUI-WAIT-FRAME:
 GUI-SEND-KEYS: alt,e
 SERIAL: wait "$end_pid"; status=$?; test "$status" -eq 143 && printf 'monitor signals: %s\n' 'ended selected process'
 SERIAL-CHECK: monitor signals: ended selected process
-GUI-MOUSE-POSITION: 205,171
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-CLICK: assets/fltk-system-monitor-signals.png,117,163,47,17,88,8
 GUI-SEND-KEYS: ctrl,a
 GUI-TYPE: force
-GUI-MOUSE-POSITION: 280,230
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 365 225 8 8 188 217 251
-GUI-MOUSE-POSITION: 838,587
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-CLICK: assets/fltk-system-monitor-signal-force-target.png,193,159,98,44,49,33
+GUI-CLICK: assets/fltk-system-monitor-signals.png,774,579,122,14
 GUI-WAIT-FRAME:
 GUI-SEND-KEYS: alt,k
 SERIAL: wait "$force_pid"; status=$?; test "$status" -eq 137 && printf 'monitor signals: %s\n' 'force-killed selected process'

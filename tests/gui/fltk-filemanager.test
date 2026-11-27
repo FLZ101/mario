@@ -6,101 +6,56 @@ SERIAL: for attempt in 1 2 3 4 5; do grep -q 'mario-desktop: private connection 
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
 SERIAL: (HOME='/tmp/fm home' /usr/bin/filemanager '/tmp/fm start'; printf '%d\n' "$?" >/tmp/filemanager.exit) >/tmp/filemanager.log 2>&1 &
-GUI-CHECK-RECT: 370 272 8 8 246 248 251
 # Navigate a spaced directory name, back up, and give a second tab its own location.
-GUI-MOUSE-POSITION: 315,279
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 370 272 8 8 188 217 251
+GUI-CLICK: assets/fltk-filemanager-context.png,215,270,96,18
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-bookmark.png,503,111,96,18,anywhere
 GUI-SEND-KEYS: ctrl,ret
-GUI-CHECK-RECT: 370 272 8 8 255 255 255
-GUI-MOUSE-POSITION: 78,123
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 370 272 8 8 246 248 251
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-bookmark.png,212,168,170,22,anywhere
+GUI-SEND-KEYS: alt,left
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-start-directory.png,215,248,87,18,anywhere
 GUI-SEND-KEYS: ctrl,t
-GUI-MOUSE-POSITION: 286,123
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 370 272 8 8 255 255 255
-GUI-MOUSE-POSITION: 247,155
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 370 272 8 8 246 248 251
+GUI-SEND-KEYS: alt,home
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-home-tab.png,212,168,173,22,anywhere
+GUI-CLICK: assets/fltk-filemanager-context.png,213,143,63,21
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-start-directory.png,215,248,87,18,anywhere
 # Turn on dual panes and navigate only the right pane.
-GUI-MOUSE-POSITION: 944,122
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-MOUSE-POSITION: 650,279
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-SEND-KEYS: ctrl,backslash
+GUI-CLICK: assets/fltk-filemanager-right-pane.png,585,270,115,18
 GUI-SEND-KEYS: ctrl,ret
 GUI-SEND-KEYS: ctrl,d
 SERIAL: grep -Fx 'bookmark=2f746d702f666d2073746172742f73756220666f6c646572' '/tmp/fm home/.config/mario/filemanager.conf' && printf 'filemanager: bookmark %s\n' saved; cat /tmp/filemanager.log
 SERIAL-CHECK: filemanager: bookmark saved
-GUI-MOUSE-POSITION: 341,256
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-MOUSE-POSITION: 990,135
-# Use the full screenshot for context, but compare only the relevant regions.
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,57,108,909,28
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,76,167,44,56
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,278,140,84,27
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,212,168,751,23
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,212,223,751,22
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,213,246,282,44
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,592,246,282,44
+GUI-CLICK: assets/fltk-filemanager-start-directory.png,215,248,87,18
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,213,171,523,16,anywhere
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-context.png,215,248,87,18,anywhere
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager.png,585,248,130,18,anywhere
 # Right-click an unselected BMP in the other pane and open it through the menu.
-GUI-MOUSE-POSITION: 650,256
-GUI-MOUSE-BUTTON: right,down
-GUI-MOUSE-BUTTON: right,up
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-context.png,651,257,170,169
-GUI-CHECK-RECT: 615 264 22 4 188 217 251
-GUI-MOUSE-POSITION: 701,267
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-RIGHT-CLICK: assets/fltk-filemanager.png,585,248,130,18
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-context.png,655,298,124,43,anywhere
+GUI-CLICK: assets/fltk-filemanager-context.png,663,260,32,14
 SERIAL: for attempt in 1 2 3 4 5; do grep -q 'imageviewer: window ready' /tmp/filemanager.log && break; sleep 1; done; cat /tmp/filemanager.log
 SERIAL-CHECK: imageviewer: window ready
-GUI-CHECK-RECT: 200 120 8 8 239 68 68
+GUI-CHECK-SCREEN-RECT: assets/imageviewer-bmp-native.png,216,152,16,16,anywhere
 GUI-SEND-KEYS: meta_l,w
 SERIAL: for attempt in 1 2 3 4 5; do pgrep -x imageviewer >/dev/null || break; sleep 1; done; if ! pgrep -x imageviewer >/dev/null; then printf 'filemanager: viewer %s\n' reaped; fi
 SERIAL-CHECK: filemanager: viewer reaped
 # Restart from Home, then navigate to the persisted bookmark through the tree.
-GUI-MOUSE-POSITION: 966,68
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-SEND-KEYS: meta_l,w
 SERIAL-WAIT-FILE: /tmp/filemanager.exit
 SERIAL: printf 'filemanager: browser exit %s\n' "$(cat /tmp/filemanager.exit)"; cat /tmp/filemanager.log
 SERIAL-CHECK: filemanager: browser exit 0
 SERIAL: (HOME='/tmp/fm home' /usr/bin/filemanager; printf '%d\n' "$?" >/tmp/filemanager-restart.exit) >/tmp/filemanager-restart.log 2>&1 &
-GUI-CHECK-RECT: 374 272 8 8 255 255 255
-GUI-MOUSE-POSITION: 135,192
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-bookmark.png,213,247,188,20
+GUI-CLICK: assets/fltk-filemanager-context.png,101,184,97,17
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-bookmark.png,215,248,123,18,anywhere
 # Browse to a newly mounted filesystem and its child, without a Volumes list.
 SERIAL: mkdir /.fm-vfs && mount -t ext2 /dev/hdc3 /.fm-vfs && mkdir '/.fm-vfs/00 tree child' && cp /usr/share/mario-tests/gui/checker-64.bmp '/.fm-vfs/00 tree child/image with spaces.bmp' && printf 'filemanager: VFS fixture %s\n' ready
 SERIAL-CHECK: filemanager: VFS fixture ready
-GUI-MOUSE-POSITION: 286,123
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 374 272 8 8 255 255 255
-GUI-MOUSE-POSITION: 82,213
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-tree.png,124,224,52,11
-GUI-MOUSE-POSITION: 94,232
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-MOUSE-POSITION: 990,135
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-tree.png,78,203,120,58
-GUI-MOUSE-POSITION: 167,250
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-bookmark.png,213,247,188,20
-GUI-MOUSE-POSITION: 966,68
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-SEND-KEYS: alt,home
+GUI-CLICK: assets/fltk-filemanager-bookmark.png,75,205,48,16,7,8
+GUI-CLICK: assets/fltk-filemanager-tree-mount.png,90,225,78,16,4,8
+GUI-CLICK: assets/fltk-filemanager-tree.png,128,242,67,16
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-bookmark.png,215,248,123,18,anywhere
+GUI-SEND-KEYS: meta_l,w
 SERIAL-WAIT-FILE: /tmp/filemanager-restart.exit
 SERIAL: code=$(cat /tmp/filemanager-restart.exit); printf 'filemanager: restarted browser exit %s\n' "$code"; cat /tmp/filemanager-restart.log; if test "$code" != 0; then dmesg | tail -30; fi
 SERIAL-CHECK: filemanager: restarted browser exit 0

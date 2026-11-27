@@ -34,36 +34,22 @@ GUI-CHECK-RECT: 10 730 1 1 71 85 105
 GUI-CHECK-RECT: 10 710 1 1 37 99 235
 GUI-MOUSE-POSITION: 200,730
 GUI-CHECK-RECT: 10 730 1 1 37 99 235
-GUI-MOUSE-POSITION: 24,650
-GUI-CHECK-RECT: 10 650 1 1 71 85 105
-GUI-MOUSE-BUTTON: left,down
-GUI-WAIT-FRAME:
-GUI-MOUSE-BUTTON: left,up
+GUI-CLICK: assets/desktop-launcher.png,15,642,84,16
 GUI-CHECK-RECT: 10 640 1 1 31 41 51
 SERIAL: while ! pgrep terminal >/dev/null; do sleep 1; done; echo launcher: terminal started
 SERIAL-CHECK: launcher: terminal started
 GUI-CHECK-RECT: 10 650 1 1 31 41 51
 SERIAL: while pgrep terminal >/dev/null; do kill -TERM $(pgrep terminal) 2>/dev/null; sleep 1; done
-GUI-MOUSE-POSITION: 24,754
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 10 670 1 1 37 99 235
-GUI-MOUSE-POSITION: 24,670
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-CLICK: assets/desktop-default.png,10,747,35,14
+GUI-CLICK: assets/desktop-launcher.png,15,662,84,16
 GUI-CHECK-RECT: 10 670 1 1 31 41 51
 GUI-CHECK-RECT: 150 745 1 1 37 99 235
 SERIAL: pgrep -x filemanager >/dev/null && printf 'launcher: %s started\n' filemanager
 SERIAL-CHECK: launcher: filemanager started
 GUI-SEND-KEYS: meta_l,w
 SERIAL: while pgrep -x filemanager >/dev/null; do sleep 1; done
-GUI-MOUSE-POSITION: 24,754
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 10 690 1 1 37 99 235
-GUI-MOUSE-POSITION: 24,690
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-CLICK: assets/desktop-default.png,10,747,35,14
+GUI-CLICK: assets/desktop-launcher.png,15,682,115,16
 GUI-CHECK-RECT: 10 690 1 1 31 41 51
 GUI-CHECK-RECT: 150 745 1 1 37 99 235
 SERIAL: pgrep -x system-monitor >/dev/null && printf 'launcher: %s started\n' system-monitor

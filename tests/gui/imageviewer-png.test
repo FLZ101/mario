@@ -12,7 +12,7 @@ SERIAL-CHECK: imageviewer: window ready
 # "window ready" is printed before the WM composes the commit, so wait for a
 # completed frame before sampling the screen.
 GUI-WAIT-FRAME:
-GUI-CHECK-RECT: 224 160 1 1 255 255 255
+GUI-CHECK-SCREEN-RECT: assets/imageviewer-png-alpha.png,208,148,32,24,anywhere
 GUI-SEND-KEYS: meta_l,w
 SERIAL: while pgrep imageviewer >/dev/null; do sleep 1; done
 SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done

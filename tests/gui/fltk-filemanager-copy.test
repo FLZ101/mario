@@ -6,47 +6,37 @@ SERIAL: for attempt in 1 2 3 4 5; do grep -q 'mario-desktop: private connection 
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
 SERIAL: (HOME=/tmp/fm-copy/home /usr/bin/filemanager /tmp/fm-copy/src; printf '%d\n' "$?" >/tmp/filemanager.exit) >/tmp/filemanager.log 2>&1 &
-GUI-CHECK-RECT: 370 272 8 8 246 248 251
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-copy-source.png,214,170,154,18,anywhere
 # Split the view, then navigate only the right pane to the destination.
-GUI-MOUSE-POSITION: 944,122
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-MOUSE-POSITION: 650,301
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-SEND-KEYS: ctrl,backslash
+GUI-CLICK: assets/fltk-filemanager-copy-source.png,585,292,54,18
 GUI-SEND-KEYS: ctrl,ret
-GUI-CHECK-RECT: 650 272 8 8 255 255 255
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-copy-conflict.png,594,170,174,18,anywhere
 # Right-click one of two selected rows to copy both, then paste into empty space in the other pane.
-GUI-MOUSE-POSITION: 315,256
+GUI-POINT: assets/fltk-filemanager-copy-source.png,205,248,70,19,110,8
 GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-POSITION: 315,279
+GUI-POINT: assets/fltk-filemanager-copy-source.png,205,270,70,19,110,8
 GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 410 250 6 6 188 217 251
-GUI-CHECK-RECT: 410 272 6 6 188 217 251
-GUI-MOUSE-POSITION: 315,256
-GUI-MOUSE-BUTTON: right,down
-GUI-WAIT-FRAME:
-GUI-MOUSE-BUTTON: right,up
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-copy-conflict.png,215,248,62,40,anywhere
+GUI-RIGHT-CLICK: assets/fltk-filemanager-copy-conflict.png,215,248,62,40,104,8
 GUI-SEND-KEY: c
-GUI-MOUSE-POSITION: 650,340
-GUI-MOUSE-BUTTON: right,down
-GUI-WAIT-FRAME:
-GUI-MOUSE-BUTTON: right,up
+GUI-RIGHT-CLICK: assets/fltk-filemanager-copy-selection.png,594,170,174,18,57,170
 GUI-SEND-KEY: p
 SERIAL: for attempt in 1 2 3 4 5; do pgrep -x fm-copy-worker >/tmp/fm-worker.pid && break; sleep 1; done; test -s /tmp/fm-worker.pid && printf 'filemanager copy: %s\n' 'helper awaits conflict decision'
 SERIAL-CHECK: filemanager copy: helper awaits conflict decision
-GUI-MOUSE-POSITION: 838,616
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-copy-conflict.png,797,606,86,20,anywhere
+# The conflict controls are reachable from the pane by keyboard.
+GUI-SEND-KEY: tab
+GUI-SEND-KEY: tab
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-copy-keep-both.png,797,606,86,20,anywhere
+GUI-SEND-KEY: spc
 SERIAL: child=$(cat /tmp/fm-worker.pid); for attempt in 1 2 3 4 5; do test ! -e /proc/$child && break; sleep 1; done; test ! -e /proc/$child && cmp /tmp/fm-copy/src/a.txt '/tmp/fm-copy/src/dst/a (copy 1).txt' && cmp /tmp/fm-copy/src/b.txt /tmp/fm-copy/src/dst/b.txt && test "$(cat /tmp/fm-copy/src/dst/a.txt)" = incumbent && printf 'filemanager copy: %s\n' 'both files copied and helper reaped'
 SERIAL-CHECK: filemanager copy: both files copied and helper reaped
 # Start a second paste and cancel it through the close confirmation while blocked on a conflict.
 GUI-SEND-KEYS: ctrl,v
 SERIAL: for attempt in 1 2 3 4 5; do pgrep -x fm-copy-worker >/tmp/fm-worker.pid && break; sleep 1; done; test -s /tmp/fm-worker.pid && printf 'filemanager copy: %s\n' 'second helper awaits conflict decision'
 SERIAL-CHECK: filemanager copy: second helper awaits conflict decision
-GUI-MOUSE-POSITION: 966,68
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-SEND-KEYS: meta_l,w
 GUI-WAIT-FRAME:
 GUI-SEND-KEYS: alt,c
 SERIAL: for attempt in 1 2 3 4 5; do test -e /tmp/filemanager.exit && break; sleep 1; done; child=$(cat /tmp/fm-worker.pid); test "$(cat /tmp/filemanager.exit)" = 0 && test ! -e /proc/$child && test ! -e '/tmp/fm-copy/src/dst/a (copy 2).txt' && test ! -e '/tmp/fm-copy/src/dst/b (copy 1).txt' && printf 'filemanager copy: %s\n' 'browser closed and cancelled helper reaped'

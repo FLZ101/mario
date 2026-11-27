@@ -25,6 +25,7 @@ TTY-CHECK: PANE_ONE
 TTY-CHECK: PANE_TWO
 TTY-CHECK: PANE_THREE
 TTY-CHECK-NOT: server exited unexpectedly
+# The separators and relative pane layout are part of the assertion.
 TTY-CHECK-PANEL: tmux-1.txt
 TTY-SEND: tmux resize-pane -x 20 -y 5 && tmux display-message -p '#{pane_height} #{pane_width}' && echo TMUX-RESIZE-OK
 TTY-CHECK: 5 20

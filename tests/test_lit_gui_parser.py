@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import call, patch
+from unittest.mock import Mock, call, patch
 
 from PIL import Image
 
@@ -22,7 +22,12 @@ from lit_gui_test import (
     _run_test_locked,
     parse_frame_probe,
     retain_visual_failure_diagnostics,
+    screen_contains_rect,
+    send_click,
+    wait_for_pointer_target,
     wait_for_frame_advance,
+    wait_for_screen_rect,
+    wait_for_solid_rect,
 )
 
 
@@ -75,6 +80,153 @@ class GuiDirectiveParserTests(unittest.TestCase):
             with self.subTest(geometry=geometry):
                 with self.assertRaises(GuiTestError):
                     self.parse(f"GUI-CHECK-SCREEN-RECT: golden.ppm,{geometry}")
+
+    def test_rejects_invalid_anywhere_rectangles(self) -> None:
+        for directive in (
+            "GUI-CHECK-RECT: anywhere 1 1 1 2",
+            "GUI-CHECK-RECT: anywhere 0 1 1 2 3",
+            "GUI-CHECK-RECT: anywhere 1 1 256 2 3",
+            "GUI-CHECK-SCREEN-RECT: golden.ppm,3,2,2,1,anywhere",
+            "GUI-CHECK-SCREEN-RECT: golden.ppm,0,0,1,1,elsewhere",
+        ):
+            with self.subTest(directive=directive):
+                with self.assertRaises(GuiTestError):
+                    self.parse(directive)
+
+    def test_checks_relocated_rectangles(self) -> None:
+        solid = Image.new("RGB", (2, 2), (1, 2, 3))
+        crop = solid.copy()
+        crop.putdata(((1, 2, 3), (4, 5, 6), (7, 8, 9), (10, 11, 12)))
+        reference = Image.new("RGB", (4, 3))
+        reference.paste(crop, (1, 1))
+        reference.save(self.path / "golden.ppm")
+        for check, fixed, anywhere, pattern in (
+            (
+                wait_for_solid_rect,
+                "GUI-CHECK-RECT: 1 1 2 2 1 2 3",
+                "GUI-CHECK-RECT: anywhere 2 2 1 2 3",
+                solid,
+            ),
+            (
+                wait_for_screen_rect,
+                "GUI-CHECK-SCREEN-RECT: golden.ppm,1,1,2,2",
+                "GUI-CHECK-SCREEN-RECT: golden.ppm,1,1,2,2,anywhere",
+                crop,
+            ),
+        ):
+            with self.subTest(directive=anywhere):
+                fixed_value = self.parse(fixed).actions[0][1]
+                anywhere_value = self.parse(anywhere).actions[0][1]
+                screen = Image.new("RGB", (5, 4))
+                screen.paste(pattern, (3, 2))
+                partial = screen.copy()
+                partial.putpixel((4, 3), (0, 0, 0))
+                qmp = Mock()
+                with (
+                    patch("lit_gui_test.dump_screen", side_effect=(partial, screen)),
+                    patch("lit_gui_test.time.sleep") as sleep,
+                ):
+                    self.assertTrue(check(qmp, anywhere_value, 1))
+                    sleep.assert_called_once()
+                with (
+                    patch("lit_gui_test.dump_screen", return_value=screen),
+                    patch("lit_gui_test.time.monotonic", side_effect=(0, 0, 1)),
+                    patch("lit_gui_test.time.sleep"),
+                ):
+                    self.assertFalse(check(qmp, fixed_value, 1))
+
+    def test_rect_search_requires_pixel_alignment_and_screen_bounds(self) -> None:
+        screen = Image.new("RGB", (2, 2))
+        screen.putdata(((0, 0, 0), (1, 2, 3), (4, 5, 6), (0, 0, 0)))
+        wrapping = Image.new("RGB", (2, 1))
+        wrapping.putdata(((1, 2, 3), (4, 5, 6)))
+        unaligned = Image.new("RGB", (1, 1), (0, 1, 2))
+        oversized = Image.new("RGB", (1, 3))
+        for pattern in (wrapping, unaligned, oversized):
+            self.assertFalse(screen_contains_rect(screen, pattern))
+        self.assertTrue(screen_contains_rect(screen, screen))
+
+    def test_click_targets_a_unique_relocated_crop(self) -> None:
+        asset = self.path / "golden.ppm"
+        target = self.parse("GUI-CLICK: golden.ppm,1,1,2,2,-1,0").actions[0][1]
+        self.assertEqual(target, (asset, 1, 1, 2, 2, -1, 0))
+        self.assertEqual(
+            self.parse("GUI-CLICK: golden.ppm,1,1,2,2").actions[0][1],
+            (asset, 1, 1, 2, 2, 1, 1),
+        )
+        screen = Image.new("RGB", (6, 4))
+        screen.paste((1, 2, 3), (3, 1, 5, 3))
+        ambiguous = screen.copy()
+        ambiguous.paste((1, 2, 3), (0, 0, 2, 2))
+        with (
+            patch("lit_gui_test.dump_screen", side_effect=(ambiguous, screen)),
+            patch("lit_gui_test.time.sleep") as sleep,
+        ):
+            self.assertEqual(wait_for_pointer_target(Mock(), target, 1), (2, 1))
+            sleep.assert_called_once()
+        with (
+            patch("lit_gui_test.dump_screen", return_value=ambiguous),
+            patch("lit_gui_test.time.monotonic", side_effect=(0, 0, 1)),
+            patch("lit_gui_test.time.sleep"),
+        ):
+            with self.assertRaisesRegex(GuiTestError, "multiple matches"):
+                wait_for_pointer_target(Mock(), target, 1)
+
+    def test_rejects_invalid_click_directives(self) -> None:
+        for directive in (
+            "GUI-CLICK: golden.ppm,0,0,2,2,1",
+            "GUI-CLICK: golden.ppm,0,0,2,2,1,wrong",
+            "GUI-CLICK: golden.ppm,0,0,3,4",
+            "GUI-MOUSE-MOVE: 1,1\nGUI-CLICK: golden.ppm,0,0,1,1",
+            "EXPECT-HALT: halted\nGUI-CLICK: golden.ppm,0,0,1,1",
+            "GUI-MOUSE-MOVE: 1,1\nGUI-POINT: golden.ppm,0,0,1,1",
+            "GUI-RIGHT-CLICK: golden.ppm,0,0,1,1,bad,9",
+        ):
+            with self.subTest(directive=directive), self.assertRaises(GuiTestError):
+                self.parse(directive)
+
+    def test_parses_point_and_right_click(self) -> None:
+        for directive, action in (
+            ("GUI-POINT", "point"),
+            ("GUI-RIGHT-CLICK", "right-click"),
+        ):
+            with self.subTest(directive=directive):
+                self.assertEqual(
+                    self.parse(f"{directive}: golden.ppm,0,0,2,2").actions,
+                    [(action, (self.path / "golden.ppm", 0, 0, 2, 2, 1, 1))],
+                )
+
+    def test_click_moves_presses_releases_and_parks(self) -> None:
+        qmp = Mock()
+        events = Mock()
+        with (
+            patch("lit_gui_test.send_mouse_position", events.move),
+            patch("lit_gui_test.send_mouse_button", events.button),
+            patch("lit_gui_test.time.sleep"),
+        ):
+            send_click(qmp, 9, 6)
+        self.assertEqual(
+            events.mock_calls,
+            [
+                call.move(qmp, 9, 6),
+                call.button(qmp, "left", True),
+                call.button(qmp, "left", False),
+                call.move(qmp, 0, 0),
+            ],
+        )
+
+    def test_right_click_leaves_pointer_at_context_menu(self) -> None:
+        qmp = Mock()
+        with (
+            patch("lit_gui_test.send_mouse_position") as move,
+            patch("lit_gui_test.send_mouse_button") as button,
+            patch("lit_gui_test.time.sleep"),
+        ):
+            send_click(qmp, 9, 6, button="right")
+        move.assert_called_once_with(qmp, 9, 6)
+        self.assertEqual(
+            button.call_args_list, [call(qmp, "right", True), call(qmp, "right", False)]
+        )
 
     def test_rejects_visual_marker_arguments(self) -> None:
         with self.assertRaises(GuiTestError):

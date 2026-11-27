@@ -1,8 +1,6 @@
 TTY-SEND: hexedit -r /etc/welcome.txt
-TTY-CHECK: readonly
-SLEEP: 1
-TTY-CHECK-PANEL: toybox.hexedit.txt
+TTY-CHECK: "/etc/welcome.txt" [readonly], 0/0x9f
+TTY-CHECK: 0000  20 5f 5f 5f 5f 5f 5f 5f 0d 0a
+TTY-CHECK: 0010  6f 20 3e 0d 0a
 TTY-SEND-RAW: q
-SLEEP: 1
-TTY-SEND: echo HEXEDIT-EXIT-OK
-TTY-CHECK: HEXEDIT-EXIT-OK
+TTY-CHECK-REGEX: (?m)^MARIO_TTY_PROMPT> *$

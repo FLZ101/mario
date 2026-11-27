@@ -332,11 +332,10 @@ failing mount. Live guest snapshots show the expected per-core rows at
    shows matching tasks with their ancestors without changing folded state.
 2. Schedule one sample per second with FLTK timers and a 120-sample ring.
    Collect outside painting and keep I/O off the UI path; allow one refresh
-   in flight and skip ticks while it runs. Add pause and manual refresh,
-   mark unavailable or stale data, and redraw only changed regions. On
-   close, unregister timers and fd callbacks and stop and reap the worker.
-   Pause/Resume, Refresh, and Tree use glyphs from the bundled Nerd Font
-   alongside their text labels.
+   in flight and skip ticks while it runs. Mark unavailable data and
+   redraw only changed regions. On close, unregister timers and fd callbacks
+   and stop and reap the worker.
+   Tree uses a glyph from the bundled Nerd Font alongside its text label.
 3. Select a process and choose **End Process…** (`SIGTERM`) or **Force
    Kill…** (`SIGKILL`). Both show an icon and confirm the name and PID, with
    Cancel as the default. Init, the monitor and its sampler, individual
@@ -346,14 +345,14 @@ failing mount. Live guest snapshots show the expected per-core rows at
    lock before delivering either signal to the leader. A default fatal
    disposition stops the thread group, not child processes in the tree.
 
-**Exit gate:** `tests/gui/fltk-system-monitor.test` uses a test-only snapshot
-source to verify graph pixels, sorting, and selection across refreshes.
+**Exit gate:** `tests/gui/fltk-system-monitor.test` feeds deterministic
+snapshots to the automatic sampler to verify graph pixels, network rates,
+sorting, selection across refreshes, and sampler shutdown.
 `tests/gui/fltk-system-monitor-tree.test` covers hierarchy, branch folding,
 filtering, parent PID reuse, and control icon rendering with a deterministic
 snapshot.
-`tests/gui/fltk-system-monitor-live.test` checks a guest workload appearing,
-accumulating CPU time, and exiting, plus refresh after a mount change. Check
-per-core rows at both SMP settings and verify pause and close stop sampling.
+`tests/net/monitors.test` verifies that the collector reads live network
+telemetry from the guest.
 The `fltk-system-monitor-signals.test` shell and GUI fixtures verify checked
 identity, thread-group teardown, both buttons, and cancel-by-default.
 
@@ -435,10 +434,11 @@ For release validation, pass the required `fltk-*` test paths to
 `SHELL_TEST_CASES` and `GUI_TEST_CASES` and repeat with `SMP=2`. Keep D1 out
 of the default suite unless the port is installed. Use bounded serial
 readiness checks and bounded `GUI-CHECK-SCREEN`/`GUI-CHECK-SCREEN-RECT` waits
-in `GUI-VISUAL-TEST` fixtures. Use absolute pointer coordinates and stable
-pixel regions; pair screenshots with assertions against filesystem data,
-telemetry, or process state rather than treating a matching screenshot as
-proof that an operation completed.
+in `GUI-VISUAL-TEST` fixtures. Use `GUI-CLICK` to locate controls by a unique
+reference crop and `GUI-CHECK-SCREEN-RECT` with `anywhere` to check just the
+relevant feature. Prefer raw pointer coordinates only when location or mouse
+behavior is part of the test. Pair screenshots with assertions against
+filesystem data, telemetry, or process state to verify operations completed.
 
 ## Upstream References
 

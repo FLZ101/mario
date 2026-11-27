@@ -27,18 +27,31 @@ test pattern or an AI-generated image.
   The image is included as informational GUI test material. NASA does not
   endorse Mario.
 
-`desktop-wallpaper-real.test` compares the whole 1024 × 768 framebuffer,
-including the panel and pointer, rather than checking a few flat-color pixels.
-It verifies launcher and terminal overlays, exact background restoration after
-both close, and cached rendering after removing the configured image path and switching
-between text and graphics modes. No network access is needed to run the test.
+`desktop-wallpaper-real.test` compares small, distinctive patches of the scaled
+wallpaper beneath the launcher and terminal. It verifies background restoration
+after each overlay closes and cached rendering after removing the configured
+image path and switching between text and graphics modes. The wallpaper patches
+are checked at fixed positions to verify placement. No network access is needed.
 The guest loads the image through a temporary symlink, which is removed to
 test caching without copying the large photograph into the small root ramdisk.
 
-To generate the host-only reference `desktop-wallpaper-blue-marble.png`, crop
-160 pixels from each side of the source, then sample
-`(floor(x * 25 / 16), floor(y * 25 / 16))` from that 1600 × 1200 crop to
-cover 1024 × 768. Copy the bottom 28 rows from `desktop-default.png`, which
-includes the panel and the pointer at `(0, 752)`, outside the launcher button.
-Reference SHA-256:
-`318280881c40a9077c2508dec08d9689c9d446584d70626cc42f41c0990e16d9`.
+`desktop-wallpaper-blue-marble.png` is a QEMU screenshot of the desktop
+after it renders the wallpaper fixture.
+
+## Screen References
+
+Save each image reference from a single screenshot of the relevant state.
+Reuse a screenshot for multiple features when it contains them; do not
+assemble crops from different screenshots into a mosaic. Use the smallest
+exact rectangle that distinguishes the feature or state being tested.
+`GUI-CHECK-SCREEN-RECT: asset,x,y,w,h,anywhere` finds that crop at any screen
+position. Keep a fixed rectangle or full frame when placement, occlusion,
+damage, or VT restoration is the behavior under test.
+Use solid-color `anywhere` checks only for distinctive probe colors, not
+for fills that might also appear in unrelated controls.
+
+`GUI-CLICK` and `GUI-RIGHT-CLICK` find a unique crop before clicking it.
+`GUI-POINT` locates a control before a hover or drag. In these directives,
+the coordinates are in the reference screenshot, not the live framebuffer.
+Exclude pointer pixels, clocks, and other live data from the selected
+rectangle unless the test is specifically checking them.

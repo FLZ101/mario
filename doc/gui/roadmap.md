@@ -1085,9 +1085,9 @@ Change:
 - `app/gui/libmario-ui/src/image.c`: BMP/PNG decode to `gui_surface`.
   Enforce BMP file-length/dimension checks and libpng user limits before any
   image allocation; decode PNG rows incrementally into the bounded downscaler.
-- `rd/copy_files.py`: install `tests/gui/assets/` under
-  `/usr/share/mario-tests/gui`, so guest tests can copy its
-  immutable fixture tree to `/tmp/gui-fixtures/` before every mutation.
+- `rd/copy_files.py`: install the image fixtures from `tests/gui/assets/`
+  under `/usr/share/mario-tests/gui`. File-manager tests create their own
+  writable fixtures in the guest.
 - `app/usr/imageviewer/`: a small `mario-wm` protocol client that decodes one
   BMP/PNG path from `argv` and renders it fit-to-window; it never opens raw
   seat or framebuffer devices.

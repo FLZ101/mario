@@ -5,6 +5,8 @@ SERIAL-WAIT-FILE: /tmp/mario-wm.started
 SERIAL: for attempt in 1 2 3 4 5; do grep -q 'private connection ready' /tmp/mario-wm.log && break; sleep 1; done
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
+# Feed exactly one snapshot per phase to the automatic sampler.
+SERIAL: /usr/bin/sbase/mkfifo /tmp/monitor-phase
 SERIAL: (/usr/bin/test/fltk-system-monitor.exe fixture; echo $? >/tmp/monitor-exit) >/tmp/monitor.log 2>&1 &
 SERIAL: <<MONITOR
 cat >/tmp/monitor-helpers <<'HELPERS'
@@ -17,70 +19,41 @@ await_phase() {
 }
 HELPERS
 MONITOR
-SERIAL: . /tmp/monitor-helpers; await_phase 0
+SERIAL: . /tmp/monitor-helpers; echo 0 >/tmp/monitor-phase; await_phase 0
 SERIAL-CHECK: monitor fixture phase=0 accepted
-# Pause automatic sampling, publish new counters, and refresh exactly once.
-GUI-MOUSE-POSITION: 755,98
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-SERIAL: echo 1 >/tmp/monitor-phase
-GUI-MOUSE-POSITION: 870,98
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-SERIAL: await_phase 1
+SERIAL: echo 1 >/tmp/monitor-phase; await_phase 1
 SERIAL-CHECK: monitor fixture phase=1 accepted
 SERIAL: grep -q '^network rx=2048 tx=4096$' /tmp/monitor.log && echo 'monitor network rates verified'
 SERIAL-CHECK: monitor network rates verified
-# The latest CPU sample is 75% aggregate, 50% CPU 0, and 100% CPU 1.
-GUI-CHECK-RECT: 886 232 3 3 50 109 181
-GUI-CHECK-RECT: 886 209 3 3 232 237 244
-GUI-CHECK-RECT: 886 305 3 3 50 109 181
-GUI-CHECK-RECT: 886 340 3 3 50 109 181
-GUI-CHECK-RECT: 886 461 3 3 29 128 113
-GUI-CHECK-RECT: 886 449 3 1 135 79 160
-# PID 11 starts in the first row. Sorting by name moves the selection to row two.
-GUI-MOUSE-POSITION: 229,137
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-MOUSE-POSITION: 280,230
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 365 225 8 8 188 217 251
-GUI-MOUSE-POSITION: 278,205
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 365 225 8 8 255 255 255
-GUI-CHECK-RECT: 365 250 8 8 188 217 251
-# Filtering temporarily moves the same selection to row one.
-GUI-MOUSE-POSITION: 205,171
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+# The newest column in the CPU, memory, and cache charts shows the fixture sample.
+GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-charts.png,881,164,10,264,anywhere
+# Open Processes, select zulu (PID 11), and sort by Name.
+GUI-CLICK: assets/fltk-system-monitor-signals.png,190,129,77,16
+GUI-CLICK: assets/fltk-system-monitor-processes.png,193,185,40,17
+GUI-CLICK: assets/fltk-system-monitor-signals.png,192,199,49,17
+GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-process-selected.png,114,156,144,76,anywhere
+# Filtering leaves zulu visible and selected.
+GUI-CLICK: assets/fltk-system-monitor-signals.png,117,163,47,17,88,8
 GUI-SEND-KEY: z
-GUI-CHECK-RECT: 365 225 8 8 188 217 251
+GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-process-filtered.png,114,156,144,53,anywhere
 GUI-SEND-KEY: backspace
-GUI-CHECK-RECT: 365 250 8 8 188 217 251
-# Refresh once with the same identity, then again after a different task reuses PID 11.
-SERIAL: echo 2 >/tmp/monitor-phase
-GUI-MOUSE-POSITION: 870,98
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-SERIAL: await_phase 2
+# Sample the same identity, then sample a different task reusing PID 11.
+SERIAL: echo 2 >/tmp/monitor-phase; await_phase 2
 SERIAL-CHECK: monitor fixture phase=2 accepted
-GUI-CHECK-RECT: 365 250 8 8 188 217 251
-SERIAL: echo 3 >/tmp/monitor-phase
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-SERIAL: await_phase 3
+GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-process-selected.png,114,156,144,76,anywhere
+SERIAL: echo 3 >/tmp/monitor-phase; await_phase 3
 SERIAL-CHECK: monitor fixture phase=3 accepted
-GUI-CHECK-RECT: 365 225 8 8 255 255 255
-GUI-CHECK-RECT: 365 250 8 8 246 248 251
-GUI-MOUSE-POSITION: 323,137
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 650 219 8 5 29 128 113
-GUI-CHECK-RECT: 870 219 8 5 232 237 244
+GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-process-reused.png,114,156,144,76,anywhere
+# Check the free-space label and bar on Filesystems.
+GUI-CLICK: assets/fltk-system-monitor-signals.png,276,130,92,16
+GUI-CHECK-SCREEN-RECT: assets/fltk-system-monitor-filesystems.png,503,153,389,38,anywhere
+# The next sample blocks on the FIFO; closing must reap that worker.
+SERIAL: while ! sampler=$(pgrep -x monitor-sampler); do sleep 1; done; test -d "/proc/$sampler" && test "$(grep -c '^sample=' /tmp/monitor.log)" -eq 4 && printf 'monitor fixture: %s\n' 'one pending sample'
+SERIAL-CHECK: monitor fixture: one pending sample
 GUI-SEND-KEYS: meta_l,w
 SERIAL-WAIT-FILE: /tmp/monitor-exit
+SERIAL: test ! -e "/proc/$sampler" && printf 'monitor fixture: %s\n' 'sampler reaped'
+SERIAL-CHECK: monitor fixture: sampler reaped
 SERIAL: printf 'monitor fixture exit=%s\n' "$(cat /tmp/monitor-exit)"; kill -TERM $(cat /tmp/mario-wm.pid)
 SERIAL-CHECK: monitor fixture exit=0
 EXIT:

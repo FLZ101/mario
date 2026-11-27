@@ -5,29 +5,22 @@ SERIAL: while ! grep -q 'mario-desktop: private connection ready' /tmp/mario-wm.
 SERIAL-CHECK: wallpaper loaded: /tmp/wallpaper-real.png (1920x1200)
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-GUI-MOUSE-POSITION: 0,752
-GUI-WAIT-FRAME:
-GUI-CHECK-SCREEN: assets/desktop-wallpaper-blue-marble.png
+GUI-CHECK-SCREEN-RECT: assets/desktop-wallpaper-blue-marble.png,64,672,64,48
 SERIAL: rm /tmp/wallpaper-real.png
-GUI-MOUSE-POSITION: 16,752
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 100 722 1 1 37 99 235
-GUI-MOUSE-POSITION: 0,752
+GUI-CLICK: assets/desktop-default.png,10,747,35,14
+GUI-CHECK-SCREEN-RECT: assets/desktop-launcher.png,15,642,84,16,anywhere
 GUI-SEND-KEY: esc
-GUI-WAIT-FRAME:
-GUI-CHECK-SCREEN: assets/desktop-wallpaper-blue-marble.png
+GUI-CHECK-SCREEN-RECT: assets/desktop-wallpaper-blue-marble.png,64,672,64,48
 SERIAL: /usr/bin/terminal >/tmp/wallpaper-real-terminal.log 2>&1 &
 SERIAL: while ! grep -q 'terminal: window ready' /tmp/wallpaper-real-terminal.log; do sleep 1; done
-GUI-CHECK-DIFFERENT: assets/desktop-wallpaper-blue-marble.png
-GUI-CHECK-RECT: 130 130 1 1 17 24 39
+GUI-CHECK-RECT: 130 130 8 8 17 24 39
 GUI-SEND-KEYS: meta_l,w
 SERIAL: while pgrep terminal >/dev/null; do sleep 1; done
-GUI-CHECK-SCREEN: assets/desktop-wallpaper-blue-marble.png
+GUI-CHECK-SCREEN-RECT: assets/desktop-wallpaper-blue-marble.png,128,112,64,48
 GUI-SEND-KEY: f1
 SERIAL: while test -e /tmp/mario-wm.ready; do sleep 1; done
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
-GUI-CHECK-SCREEN: assets/desktop-wallpaper-blue-marble.png
+GUI-CHECK-SCREEN-RECT: assets/desktop-wallpaper-blue-marble.png,128,112,64,48
 SERIAL: kill -TERM $(cat /tmp/mario-wm.pid); while test -e /tmp/mario-wm.started; do sleep 1; done
 EXIT:

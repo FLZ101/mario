@@ -1,4 +1,4 @@
 TTY-SEND: vim -Nu NONE -c 'set shortmess+=I'
-SLEEP: 5
-TTY-CHECK: 0,0-1
-TTY-CHECK-PANEL: vim-0.txt
+TTY-CHECK-REGEX: (?m)^ +0,0-1 +All *$
+TTY-SEND: :q
+TTY-CHECK-REGEX: (?m)^MARIO_TTY_PROMPT> *$

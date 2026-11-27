@@ -1,5 +1,4 @@
 TTY-SEND: vim /etc/welcome.txt
-SLEEP: 5
 TTY-CHECK: _______
 TTY-SEND: :vsplit
 TTY-SEND: :split
@@ -11,5 +10,6 @@ TTY-SEND-RAW: G
 TTY-SEND-RAW: o
 TTY-SEND: the lazy dog
 TTY-SEND-RAW: \x1b
+# This fixture verifies the split layout, not just the edited text.
 SLEEP: 1
 TTY-CHECK-PANEL: vim-1.txt

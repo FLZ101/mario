@@ -6,42 +6,29 @@ SERIAL: for attempt in 1 2 3 4 5; do grep -q 'mario-desktop: private connection 
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
 SERIAL: (HOME=/tmp/fm-trash-ui/home /usr/bin/filemanager /tmp/fm-trash-ui/files; printf '%d\n' "$?" >/tmp/filemanager.exit) >/tmp/filemanager.log 2>&1 &
-GUI-CHECK-RECT: 410 272 6 6 246 248 251
-GUI-MOUSE-POSITION: 315,256
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 445 250 6 6 188 217 251
+GUI-CLICK: assets/fltk-filemanager-mutations-list.png,215,248,81,18
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-mutations-note-selected.png,215,248,81,18,anywhere
 GUI-SEND-KEY: delete
 SERIAL: for attempt in 1 2 3 4 5; do test ! -f /tmp/fm-trash-ui/files/note.txt && ! pgrep -x fm-copy-worker && break; sleep 1; done; test ! -e /tmp/fm-trash-ui/files/note.txt && test "$(cat /.mario-trash/item-*/item)" = 'round trip' && test "$(cat /.mario-trash/item-*/original)" = /tmp/fm-trash-ui/files/note.txt && printf 'filemanager mutations: %s\n' 'original moved to volume trash'
 SERIAL-CHECK: filemanager mutations: original moved to volume trash
 GUI-SEND-KEYS: ctrl,shift,t
-GUI-CHECK-RECT: 410 272 6 6 246 248 251
-GUI-MOUSE-POSITION: 315,256
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 445 250 6 6 188 217 251
+GUI-CLICK: assets/fltk-filemanager-trash-list.png,215,248,55,18
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-trash-selected.png,215,248,55,18,anywhere
 GUI-SEND-KEYS: ctrl,shift,r
 GUI-WAIT-FRAME:
 GUI-SEND-KEYS: alt,r
 SERIAL: for attempt in 1 2 3 4 5; do test -f /tmp/fm-trash-ui/files/note.txt && ! pgrep -x fm-copy-worker && break; sleep 1; done; test "$(cat /tmp/fm-trash-ui/files/note.txt)" = 'round trip' && test ! -e /.mario-trash/item-*/item && printf 'filemanager mutations: %s\n' 'original restored and slot removed'
 SERIAL-CHECK: filemanager mutations: original restored and slot removed
-GUI-MOUSE-POSITION: 79,122
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 410 272 6 6 246 248 251
-GUI-MOUSE-POSITION: 315,256
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 410 250 6 6 188 217 251
+GUI-SEND-KEYS: alt,left
+GUI-CLICK: assets/fltk-filemanager-mutations-list.png,215,248,81,18
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-mutations-note-selected.png,215,248,81,18,anywhere
 GUI-SEND-KEYS: shift,delete
 GUI-WAIT-FRAME:
 GUI-SEND-KEY: ret
 SERIAL: test "$(cat /tmp/fm-trash-ui/files/note.txt)" = 'round trip' && test ! -e /.mario-trash/item-*/item && printf 'filemanager mutations: %s\n' 'permanent delete declined'
 SERIAL-CHECK: filemanager mutations: permanent delete declined
-GUI-MOUSE-POSITION: 315,278
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 410 272 6 6 188 217 251
+GUI-CLICK: assets/fltk-filemanager-mutations-list.png,215,270,91,18
+GUI-CHECK-SCREEN-RECT: assets/fltk-filemanager-mutations-remove-selected.png,215,270,91,18,anywhere
 GUI-SEND-KEYS: shift,delete
 GUI-WAIT-FRAME:
 GUI-SEND-KEYS: alt,d

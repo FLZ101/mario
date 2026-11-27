@@ -6,54 +6,42 @@ SERIAL: for attempt in 1 2 3 4 5; do grep -q 'mario-desktop: private connection 
 GUI-SEND-KEY: f8
 GUI-WAIT-FRAME:
 SERIAL: (cd '/tmp/fltk fixtures' && exec /usr/bin/test/fltk-editor.exe) >/tmp/fltk-editor.log 2>&1 & echo $! >/tmp/fltk-editor.pid
-GUI-CHECK-RECT: 180 130 8 8 255 255 255
 # Open through the stock File menu with the keyboard, then select the spaced filename by pointer.
-GUI-MOUSE-POSITION: 149,110
+GUI-POINT: assets/fltk-editor.png,135,99,29,18,14,11
 GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 180 130 8 8 192 192 192
+GUI-CHECK-SCREEN-RECT: assets/fltk-editor-file-menu.png,134,122,40,16,anywhere
 GUI-SEND-KEY: down
 GUI-SEND-KEY: down
 GUI-SEND-KEY: ret
-GUI-CHECK-RECT: 165 144 4 4 192 192 192
-GUI-MOUSE-POSITION: 215,186
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-MOUSE-POSITION: 500,467
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 165 144 4 4 255 255 255
+GUI-CLICK: assets/fltk-editor-open-chooser.png,172,179,85,16
+GUI-CLICK: assets/fltk-editor-chooser-selection.png,573,458,59,18,-73,9
 # Copy and paste inside the editor, then save by selecting the menu item with the pointer.
-GUI-MOUSE-POSITION: 139,132
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-CLICK: assets/fltk-editor-opened-file.png,132,124,35,15
 GUI-SEND-KEY: home
 GUI-SEND-KEYS: shift,end
 GUI-SEND-KEYS: ctrl,c
 GUI-SEND-KEY: end
 GUI-SEND-KEY: spc
 GUI-SEND-KEYS: ctrl,v
-GUI-MOUSE-POSITION: 149,110
+GUI-POINT: assets/fltk-editor.png,135,99,29,18,14,11
 GUI-MOUSE-BUTTON: left,down
+GUI-WAIT-FRAME:
 GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 180 130 8 8 192 192 192
-GUI-MOUSE-POSITION: 181,177
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-MOUSE-POSITION: 300,75
-GUI-CHECK-SCREEN-RECT: assets/fltk-editor.png,132,125,81,16
+GUI-CLICK: assets/fltk-editor-file-menu.png,132,164,47,19
+GUI-CHECK-SCREEN-RECT: assets/fltk-editor.png,132,125,81,16,anywhere
 SERIAL: printf 'demo demo\n' >/tmp/fltk-editor.expected; cmp '/tmp/fltk fixtures/test file.txt' /tmp/fltk-editor.expected && echo 'fltk-editor: saved exact bytes'
 SERIAL-CHECK: fltk-editor: saved exact bytes
 # Cancel the chooser, then close the non-modal Replace window and keep editing focus.
 GUI-SEND-KEYS: ctrl,o
-GUI-CHECK-RECT: 250 469 4 4 192 192 192
+GUI-CHECK-SCREEN-RECT: assets/fltk-editor-chooser-selection.png,573,458,59,18,anywhere
 GUI-SEND-KEY: esc
-GUI-CHECK-RECT: 250 469 4 4 255 255 255
+GUI-CHECK-SCREEN-RECT: assets/fltk-editor.png,132,125,81,16,anywhere
 GUI-SEND-KEYS: ctrl,r
-GUI-CHECK-RECT: 233 195 4 4 192 192 192
+GUI-CHECK-SCREEN-RECT: assets/fltk-editor-replace-dialog.png,253,187,64,16,anywhere
 GUI-SEND-KEYS: meta_l,w
-GUI-CHECK-RECT: 233 195 4 4 255 255 255
-GUI-CHECK-SCREEN-RECT: assets/fltk-editor.png,132,125,81,16
+GUI-CHECK-SCREEN-RECT: assets/fltk-editor.png,132,125,81,16,anywhere
 GUI-SEND-KEYS: meta_l,w
 SERIAL: wait $(cat /tmp/fltk-editor.pid) && echo 'fltk-editor: clean exit'; cat /tmp/fltk-editor.log
 SERIAL-CHECK: fltk-editor: clean exit

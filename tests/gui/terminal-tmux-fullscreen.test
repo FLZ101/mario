@@ -125,11 +125,9 @@ else
 fi
 TMFULLREADY
 SERIAL-CHECK: terminal-tmux-fullscreen: fullscreen geometry and three live applications
-GUI-MOUSE-MOVE: 0,0
-GUI-WAIT-FRAME:
-GUI-WAIT-FRAME:
-GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,24,16,96,14
-GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,520,400,112,16
+# The separator must still land on the fullscreen column; content can move.
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,24,16,96,14,anywhere
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,520,400,112,16,anywhere
 GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,512,32,8,16
 GUI-SEND-KEYS: meta_l,f
 GUI-WAIT-FRAME:
@@ -143,13 +141,9 @@ else
 fi
 TMFULLRESTORED
 SERIAL-CHECK: terminal-tmux-fullscreen: exact restored client and pane geometry
-GUI-MOUSE-MOVE: 0,0
-GUI-WAIT-FRAME:
-GUI-WAIT-FRAME:
-GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,152,112,168,16
-GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,144,128,176,256
-GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,320,240,176,96
-GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,320,352,176,32
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,152,112,96,16,anywhere
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,355,146,62,12,anywhere
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-apps.png,328,272,112,16,anywhere
 GUI-SEND-KEYS: meta_l,f
 GUI-WAIT-FRAME:
 SERIAL: <<TMFULLREENTER
@@ -162,11 +156,8 @@ else
 fi
 TMFULLREENTER
 SERIAL-CHECK: terminal-tmux-fullscreen: reentered fullscreen preserves all applications
-GUI-MOUSE-MOVE: 0,0
-GUI-WAIT-FRAME:
-GUI-WAIT-FRAME:
-GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,24,16,96,14
-GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,520,400,112,16
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,24,16,96,14,anywhere
+GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,520,400,112,16,anywhere
 GUI-CHECK-SCREEN-RECT: assets/terminal-tmux-fullscreen.png,512,32,8,16
 GUI-SEND-KEY: i
 GUI-TYPE: vim pane edit

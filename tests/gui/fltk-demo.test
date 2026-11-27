@@ -8,33 +8,30 @@ GUI-WAIT-FRAME:
 SERIAL: terminal --command 'touch /tmp/fltk-demo.terminal-ready; exec /bin/oksh' >/tmp/fltk-demo.terminal-log 2>&1 & echo $! >/tmp/fltk-demo.terminal-pid
 SERIAL-WAIT-FILE: /tmp/fltk-demo.terminal-ready
 SERIAL: /usr/bin/test/fltk-demo.exe >/tmp/fltk-demo.log 2>&1 & echo $! >/tmp/fltk-demo.pid
-GUI-CHECK-RECT: 744 100 8 8 0 0 255
-GUI-MOUSE-POSITION: 516,109
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 744 100 8 8 0 255 0
-GUI-MOUSE-POSITION: 516,150
-GUI-MOUSE-BUTTON: left,down
-GUI-MOUSE-BUTTON: left,up
+GUI-CHECK-SCREEN-RECT: assets/fltk-demo-ready.png,738,93,28,28,anywhere
+GUI-CLICK: assets/fltk-demo-ready.png,527,99,38,16
+GUI-CHECK-SCREEN-RECT: assets/fltk-demo-clicked.png,738,93,28,28,anywhere
+# The entry field is directly below the Click button.
+GUI-CLICK: assets/fltk-demo-ready.png,527,99,38,16,19,49
 GUI-SEND-KEY: a
 GUI-SEND-KEY: x
 GUI-SEND-KEY: left
 GUI-SEND-KEY: delete
 GUI-SEND-KEY: b
 GUI-SEND-KEYS: shift,c
-GUI-CHECK-RECT: 744 100 8 8 255 255 0
-GUI-MOUSE-POSITION: 516,109
+GUI-CHECK-SCREEN-RECT: assets/fltk-demo-edited.png,738,93,28,28,anywhere
+GUI-POINT: assets/fltk-demo-ready.png,527,99,38,16
 GUI-MOUSE-BUTTON: left,down
-GUI-CHECK-RECT: 744 100 8 8 255 0 0
+GUI-CHECK-SCREEN-RECT: assets/fltk-demo-pressed.png,738,93,28,28,anywhere
 GUI-SEND-KEYS: alt,tab
 GUI-MOUSE-BUTTON: left,up
-GUI-CHECK-RECT: 744 100 8 8 0 255 255
-GUI-MOUSE-POSITION: 516,210
+GUI-CHECK-SCREEN-RECT: assets/fltk-demo-cancelled.png,738,93,28,28,anywhere
+GUI-POINT: assets/fltk-demo-ready.png,495,189,140,16,45,24
 GUI-MOUSE-WHEEL: down
-GUI-CHECK-RECT: 744 100 8 8 255 0 255
+GUI-CHECK-SCREEN-RECT: assets/fltk-demo-scrolled.png,738,93,28,28,anywhere
 GUI-SEND-KEYS: alt,tab
 GUI-SEND-KEYS: meta_l,w
-GUI-CHECK-RECT: 744 100 8 8 255 255 255
+GUI-CHECK-SCREEN-RECT: assets/fltk-demo-close-requested.png,738,93,28,28,anywhere
 GUI-SEND-KEYS: meta_l,w
 SERIAL: wait $(cat /tmp/fltk-demo.pid); cat /tmp/fltk-demo.log
 SERIAL-CHECK: fltk-demo: input, reset, timers, fd callbacks and close verified
