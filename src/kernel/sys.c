@@ -685,6 +685,13 @@ int sys_not_exist(struct trap_frame tr)
 	case SYS_setfsgid32:
 		return 0;
 	case SYS_mremap:
+	/*
+	 * Intentionally unimplemented without warning: OpenSSH, OpenSSL, and
+	 * Python's mimalloc probe madvise(MADV_DONTDUMP / MADV_FREE /
+	 * MADV_DONTNEED) opportunistically, and returning 0 without discarding
+	 * pages would violate MADV_DONTNEED's zero-fill contract.
+	 */
+	case SYS_madvise:
 		return -ENOSYS;
 	default:
 		pr_warn("Not implemented: %d\n", tr.eax);
