@@ -121,6 +121,26 @@ std::optional<Task> parse_task(std::string_view text, int pid)
 	return task;
 }
 
+// Filter out kernel pseudo-filesystems that carry no storage capacity.
+bool is_pseudo_mount(const Mount &mount)
+{
+	constexpr std::array types{
+		std::string_view{"autofs"}, std::string_view{"bpf"}, std::string_view{"cgroup"},
+		std::string_view{"cgroup2"}, std::string_view{"configfs"}, std::string_view{"debugfs"},
+		std::string_view{"devpts"}, std::string_view{"devtmpfs"}, std::string_view{"efivarfs"},
+		std::string_view{"fusectl"}, std::string_view{"hugetlbfs"}, std::string_view{"mqueue"},
+		std::string_view{"nsfs"}, std::string_view{"proc"}, std::string_view{"procfs"},
+		std::string_view{"pstore"}, std::string_view{"ramfs"}, std::string_view{"securityfs"},
+		std::string_view{"sockfs"}, std::string_view{"sysfs"}, std::string_view{"tracefs"}};
+	return std::find(types.begin(), types.end(), mount.filesystem) != types.end();
+}
+
+bool same_mount(const Mount &left, const Mount &right)
+{
+	return left.path == right.path && left.source == right.source &&
+	       left.filesystem == right.filesystem && left.options == right.options;
+}
+
 std::optional<Mount> parse_mount(std::string_view line)
 {
 	const auto source = word(line);
@@ -312,23 +332,26 @@ Snapshot sample(Source &source)
 		auto mount = parse_mount(row);
 		if (!mount)
 			return false;
+		if (is_pseudo_mount(*mount))
+			return true;
 		mount->space = source.space(mount->path);
 		result.mounts.push_back(std::move(*mount));
 		return true;
 	});
 	if (!result.mounts.empty()) {
+		// Re-read and compare only non-pseudo mounts so pseudo-fs churn does not mark real mounts stale.
 		const auto checked = source.read("/proc/mounts", proc_limit);
-		if (checked.bytes != mounts.bytes || checked.status != mounts.status) {
-			std::vector<Mount> live;
-			lines(checked, [&](std::string_view row) {
-				auto mount = parse_mount(row);
-				if (mount) live.push_back(std::move(*mount));
-				return bool(mount);
-			});
+		std::vector<Mount> live;
+		const auto checked_status = lines(checked, [&](std::string_view row) {
+			auto mount = parse_mount(row);
+			if (mount && !is_pseudo_mount(*mount)) live.push_back(std::move(*mount));
+			return bool(mount);
+		});
+		if (checked_status != result.mount_status ||
+		    !std::equal(result.mounts.begin(), result.mounts.end(), live.begin(), live.end(), same_mount)) {
 			for (auto &mount : result.mounts) {
 				const bool unchanged = std::any_of(live.begin(), live.end(), [&](const Mount &row) {
-					return row.path == mount.path && row.source == mount.source &&
-					       row.filesystem == mount.filesystem && row.options == mount.options;
+					return same_mount(row, mount);
 				});
 				if (!unchanged)
 					mount.space = {{}, ESTALE};

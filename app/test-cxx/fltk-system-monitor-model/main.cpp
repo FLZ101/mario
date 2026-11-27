@@ -21,12 +21,18 @@ public:
 	std::optional<Network> counters;
 	uint64_t now = 1000000000;
 	bool unmount = false;
+	bool pseudo_unmount = false;
 	int mount_reads = 0;
+	int space_queries = 0;
 
 	Text read(const std::string &path, std::size_t limit) override
 	{
 		if (path == "/proc/mounts" && ++mount_reads == 2 && unmount)
 			return {"mariofs / mariofs rw 0 0\n", Status::complete};
+		if (path == "/proc/mounts" && mount_reads == 2 && pseudo_unmount)
+			return {"mariofs / mariofs rw 0 0\n"
+				"/dev/hda1 /ram/a volume with spaces ext2 ro 0 0\n"
+				"/dev/hdb1 /ram/missing vfat rw 0 0\n", Status::complete};
 		const auto found = files.find(path);
 		if (found == files.end())
 			return {};
@@ -44,6 +50,9 @@ public:
 	}
 	Space space(const std::string &path) override
 	{
+		++space_queries;
+		// Pseudo-filesystems must be skipped before statvfs queries.
+		assert(path != "/proc" && path != "/sys" && path != "/sys/kernel/debug");
 		if (path == "/ram/missing")
 			return {{}, ENOENT};
 		return {Capacity{800, 300}, 0};
@@ -73,8 +82,11 @@ void deterministic()
 	source.file("/proc/meminfo", "MemTotal: 256 kB\nMemFree: 192 kB\nCached: malformed kB\n");
 	source.file("/proc/uptime", "42.125 4.0\n");
 	source.file("/proc/mounts", "mariofs / mariofs rw 0 0\n"
+				    "proc /proc proc rw 0 0\n"
+				    "sysfs /sys sysfs rw 0 0\n"
+				    "debugfs /sys/kernel/debug debugfs rw 0 0\n"
 				    "/dev/hda1 /ram/a volume with spaces ext2 ro 0 0\n"
-				    "none /ram/missing proc rw 0 0\n");
+				    "/dev/hdb1 /ram/missing vfat rw 0 0\n");
 	source.pids = {42, 51, 55};
 	source.task(42, "a (name) )", 1, 1, 2);
 	source.task(51, "old", 1, 1, 2);
@@ -93,6 +105,7 @@ void deterministic()
 	assert(base.mounts.size() == 3 && base.mounts[1].path == "/ram/a volume with spaces" &&
 	       base.mounts[1].options == "ro" && base.mounts[1].space.capacity->available_bytes == 300);
 	assert(base.mounts[2].space.error == ENOENT && !base.mounts[2].space.capacity);
+	assert(source.space_queries == 3);
 
 	source.file("/proc/stat", "cpu 24 0 11 165\ncpu0 5 0 4 31\n");
 	source.pids = {42, 51, 59};
@@ -111,10 +124,15 @@ void deterministic()
 	assert(next.tasks[1].identity.start_ticks == 44 && next.tasks[1].name == "new");
 
 	source.now += 1000000000;
+	// Disappearing pseudo-mounts between /proc/mounts reads must not taint real mounts.
+	source.pseudo_unmount = true;
+	source.mount_reads = 0;
 	auto zero = sample(source);
 	derive_rates(zero, next);
 	assert(!zero.cpus[0].busy_percent && !zero.tasks[0].machine_percent);
 	assert(zero.network->rx_per_second == 0 && zero.network->tx_per_second == 0);
+	assert(zero.mount_status == Status::complete && zero.mounts.size() == 3);
+	source.pseudo_unmount = false;
 
 	source.file("/proc/stat", "cpu 1 0 12 180\ncpu0 8 0 5 40\n");
 	source.file("/proc/uptime", "nan\n");
@@ -158,6 +176,12 @@ int main(int argc, char **argv)
 	}
 	assert(live.monotonic_ns && live.uptime_seconds && live.memory.total_kib && live.memory.used_kib &&
 	       live.memory.cached_kib && !live.mounts.empty());
+	assert(std::none_of(live.mounts.begin(), live.mounts.end(), [](const monitor::Mount &mount) {
+		return mount.filesystem == "proc" || mount.filesystem == "sysfs" || mount.filesystem == "debugfs";
+	}));
+	assert(std::all_of(live.mounts.begin(), live.mounts.end(), [](const monitor::Mount &mount) {
+		return mount.space.capacity && mount.space.capacity->total_bytes > 0;
+	}));
 	assert(live.cpu_status == monitor::Status::complete && !live.cpus.empty() && live.cpus[0].core == -1);
 	const std::size_t cores = live.cpus.size() - 1;
 	assert(cores > 0 && cores == std::strtoul(argv[1], nullptr, 10));

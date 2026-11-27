@@ -306,7 +306,7 @@ discard it, including incomplete slots with no payload.
    | `/proc/stat` | Aggregate and online CPU rows. Compute busy share from user/system/idle deltas; initial samples, resets, and zero-total intervals have no rate. |
    | `/proc/meminfo`, `/proc/uptime` | Used memory is total minus free; show cache separately and use the first uptime field. Do not infer Linux reclaim or swap data. |
    | `/proc/<pid>/stat`, `/proc/<pid>/comm` | PID, parent, task name/state, and CPU ticks. Key identity and deltas by PID plus start ticks; label CPU as a share of total machine time. Do not rely on placeholder RSS/thread fields or treat `cmdline` as a full argument list. |
-   | `/proc/mounts`, `statvfs` | Mount, filesystem, capacity, and available space. Parse known prefix and suffix fields without splitting an unescaped path on spaces. Report unmount races and `statvfs` failures per mount. |
+   | `/proc/mounts`, `statvfs` | Storage mount, filesystem, capacity, and available space (skipping pseudo-filesystems such as `proc`, `sysfs`, and `debugfs`). Parse known prefix and suffix fields without splitting an unescaped path on spaces. Report unmount races and `statvfs` failures per mount. |
    | `MARIO_NET_GET_STATS` | Ethernet link state, IPv4 address, and 64-bit receive/transmit totals. Derive rates only across fresh samples from an enabled link with carrier. |
 
 3. Record monotonic sample times and derive rates only across valid pairs.
