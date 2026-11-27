@@ -4,6 +4,7 @@
 #include <misc.h>
 #include <irq.h>
 #include <panic.h>
+#include <sched.h>
 #include <smp.h>
 #include <futex.h>
 #include <hda.h>
@@ -62,20 +63,21 @@ void init(void *arg)
 	hang("Fail to start init.exe: %d", errno);
 }
 
-void idle(void)
+static void cpu_idle(void)
 {
-	cli();
-	if (!current->need_resched)
-		safe_halt();
-	else
-		sti();
-}
-
-void cpu_idle(void)
-{
-	while (1) {
-		while (!current->need_resched)
-			idle();
+	for (;;) {
+		/*
+		 * Keep interrupts disabled from the need_resched check until
+		 * safe_halt() enables them and halts with sti; hlt. Otherwise
+		 * a wakeup could arrive after the check but before the halt.
+		 */
+		cli();
+		if (current->need_resched) {
+			sti();
+			schedule();
+		} else {
+			safe_halt();
+		}
 	}
 }
 
@@ -107,12 +109,7 @@ void mario(struct multiboot_info *m)
 	chrdev_init();
 	fs_init();
 
-	/*
-	 * Initialise the per-CPU scheduler state before interrupts are enabled.
-	 * The PIT starts ticking at time_init(); once sti() runs a timer IRQ can
-	 * call schedule() through ret_common, and that path must never observe an
-	 * uninitialised runqueue.  It is also required before APs may schedule.
-	 */
+	/* Initialise runqueues before enabling interrupts or starting APs. */
 	sched_init_smp();
 	futex_init();
 

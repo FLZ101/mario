@@ -100,14 +100,12 @@ landing inside the small `get_buffer()` critical section.
 
 ## Fix
 
-Change `ret_common` in `src/kernel/entry.S` so ordinary kernel-mode returns
-do not reschedule. Rescheduling on kernel-mode return is only allowed for
-the idle task, which is always safe to switch away from:
+`ret_common` in `src/kernel/entry.S` only reschedules on a user-mode return:
 
 ```asm
 	GET_CURRENT(%ebx)
 	testl $3, CS(%esp)
-	jz 5f
+	jz 3f
 	movl need_resched(%ebx), %ecx
 	testl %ecx, %ecx
 	je 2f
@@ -116,23 +114,16 @@ the idle task, which is always safe to switch away from:
 	popl %ebx
 2:
 	...
-5:
-	cmpl $init_task_union, %ebx
-	jne 3f
-	movl need_resched(%ebx), %ecx
-	testl %ecx, %ecx
-	je 3f
-	pushl %ebx
-	call schedule
-	popl %ebx
 3:
 	RESTORE_ALL
 ```
 
-Normal tasks still reschedule when returning to user mode. Kernel code that
-wants to yield does so at an explicit sleep/yield point where it is prepared
-to drop any locks; it no longer gets unexpectedly switched out in the middle
-of an arbitrary interrupt return.
+The bootstrap task doubles as the boot CPU's idle task, but it can hold locks
+while creating the first kernel threads. Treating it as safe to switch away
+from during boot can strand `file_lock` and prevent the serial shell from
+starting. Interrupts request rescheduling as before; `cpu_idle()` in
+`src/kernel/mario.c` schedules explicitly after bootstrap finishes. Other
+kernel code yields only at explicit sleep or yield points.
 
 ## Verification
 

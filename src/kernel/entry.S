@@ -168,13 +168,15 @@ ret_common:
 	popfl
 1:
 	GET_CURRENT(%ebx)
-	/* Do not reschedule a normal kernel-mode task in the middle of an
-	 * interrupt return.  Kernel code can hold spinlocks while interrupts
-	 * are enabled; switching away there would leave the lock owned by a
-	 * task that is no longer running.  Only the idle task may be
-	 * rescheduled on a kernel-mode return. */
+	/*
+	 * Kernel code can hold spinlocks with interrupts enabled. The boot CPU's
+	 * idle task is also the bootstrap task, which holds file_lock while
+	 * creating kernel threads. If a timer switches away from it there, the
+	 * next task can spin on that lock and prevent bootstrap from resuming.
+	 * Leave kernel-mode rescheduling to explicit calls such as cpu_idle().
+	 */
 	testl $3, CS(%esp)
-	jz 5f
+	jz 3f
 	movl need_resched(%ebx), %ecx
 	testl %ecx, %ecx
 	je 2f
@@ -192,16 +194,6 @@ ret_common:
 	pushl %ecx
 	call do_signal
 	addl $8, %esp
-	jmp 3f
-5:
-	cmpl $init_task_union, %ebx
-	jne 3f
-	movl need_resched(%ebx), %ecx
-	testl %ecx, %ecx
-	je 3f
-	pushl %ebx
-	call schedule
-	popl %ebx
 3:
 	RESTORE_ALL
 
