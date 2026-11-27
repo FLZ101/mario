@@ -46,6 +46,7 @@ struct mm_struct {
 	 * without taking mm_lock while already holding the task-list lock.
 	 */
 	atomic_t vm_pages;
+	int dumpable;
 	pde_t *pd;
 	struct vm_area_struct *mmap;
 	struct vm_area_struct *mmap_cache;

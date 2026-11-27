@@ -15,14 +15,15 @@ if [ -r /etc/mario-network.sh ]; then
 	network_started=1
 fi
 
-# sshd needs the host key before it can accept connections.  The key is kept
-# in the temporary root ramdisk, so it is regenerated on each boot.  Only
-# start it after the image's network hook has run; NIC-less test fixtures have
-# no /etc/mario-network.sh and must not have sshd consuming socket resources.
+# Image builds generate /etc/ssh/ssh_host_ed25519_key once in rd/.ssh-host/ and
+# embed it in the root ramdisk, so ssh-keygen only runs if a custom image
+# omitted the host key.  Only start sshd after the image's network hook has run;
+# NIC-less test fixtures have no /etc/mario-network.sh and must not have sshd
+# consuming socket resources.
 if [ -n "$network_started" ] && [ -x /usr/sbin/sshd ] &&
     mkdir /tmp/.mario-sshd-lock 2>/dev/null; then
     [ -r /etc/ssh/ssh_host_ed25519_key ] ||
         /usr/bin/ssh-keygen -q -t ed25519 -N '' \
             -f /etc/ssh/ssh_host_ed25519_key >>/tmp/ssh-keygen.log 2>&1
-    /usr/sbin/sshd -D -e >>/tmp/sshd.log 2>&1 &
+    /usr/sbin/sshd -D -e </dev/null >>/tmp/sshd.log 2>&1 &
 fi

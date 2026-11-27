@@ -15,6 +15,7 @@ static struct files_struct init_files = {
 };
 
 static struct mm_struct init_mm = {
+	dumpable:	1,
 	mmap:		NULL,
 	pd:		swapper_pg_dir,
 };

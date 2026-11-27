@@ -78,8 +78,17 @@ NAT forwards a host loopback port to port 22 at the guest's default DHCP
 address. `QEMU_SSH_PORT=auto` (the default) tries port 2222 and falls back to
 an OS-assigned port if it is busy. The launcher prints the bound address and
 port at startup. Set `QEMU_SSH_PORT=2223` to require a particular port or
-`QEMU_SSH_PORT=` to disable the forward. SSH login requires a guest SSH
-server, which Mario does not yet ship.
+`QEMU_SSH_PORT=` to disable the forward. On images with `/etc/mario-network.sh`
+(such as `make run-gtk`), `/etc/initrc` starts `/usr/sbin/sshd` on port 22 using
+`/etc/ssh/ssh_host_ed25519_key`, which `rd/make-rd0.py` generates once in the
+git-ignored `rd/.ssh-host/` directory when missing so the guest host key stays
+stable across boots and rebuilds (`ssh-keygen` only runs at boot if a custom
+image omitted the key). Building the GTK image
+(`make disk-image-gtk` / `make run-gtk`) automatically installs any public keys
+from the invoking user's `~/.ssh/*.pub` and `~/.ssh/authorized_keys` into
+`/root/.ssh/authorized_keys` (`0700` / `0600`); set
+`MARIO_SSH_AUTHORIZED_KEYS=/path/to/key.pub` (`:`-separated) to choose explicit
+public-key files or `MARIO_SSH_AUTHORIZED_KEYS=` to skip installing host keys.
 
 GTK boots start the commands below automatically from their rootfs overlay.
 On other images, run `/sbin/netctl.exe dhcp start`, then check
@@ -161,10 +170,11 @@ CA, and a wrong hostname. It also checks interface addresses, packet and
 byte counters, and numeric routes after DHCP and static configuration, with
 the interface down, and without a NIC. It does not require public access.
 
-## OpenSSH client
+## OpenSSH
 
 The normal and GTK images include OpenSSH Portable 10.6p2 `ssh`, `scp`,
-`sftp`, and `ssh-keygen`. Configure an IPv4 address, then use
+`sftp`, `ssh-keygen`, `sshd`, `sshd-session`, `sshd-auth`, and `sftp-server`.
+Configure an IPv4 address, then use
 `ssh user@host`, `scp`, or `sftp` for outbound connections. Run
 `ssh-keygen -t ed25519` to create a key in
 `/root/.ssh`; install only the `.pub` file on the remote server and verify
@@ -179,10 +189,12 @@ hardware entropy source as HTTPS.
 
 The installed-tools test checks the client settings, `scp` and `sftp`
 usage, generates an Ed25519 key, and reads it back with `ssh-keygen -y`.
-Mario does not ship `sshd`:
-OpenSSH's network-facing authentication process must drop to a non-root UID
-and GID, which Mario does not support. QEMU's SSH port forward is not an SSH
-server.
+`tests/net/ssh.py` boots a restricted QEMU guest with loopback `hostfwd` and
+`guestfwd` on port 22, runs `/etc/initrc` to start `sshd` with the image's
+persisted Ed25519 host key, and verifies `root` public-key command and
+interactive PTY
+logins, strict host-key and unauthorized-key rejections, and `scp` / `sftp`
+transfers without requiring an OpenSSH client on the CI host.
 
 ## Network monitors
 

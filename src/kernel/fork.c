@@ -134,6 +134,13 @@ int do_fork(struct trap_frame *tr, int vfork)
 	p->exit_signal = SIGCHLD; // !!!
 	p->it_real_value = p->it_virt_value = p->it_prof_value = 0;
 	p->it_real_incr = p->it_virt_incr = p->it_prof_incr = 0;
+	/*
+	 * *p = *current copied the parent's real_timer.list pointers.  Reset
+	 * the child's timer link so setitimer(ITIMER_REAL) in the child cannot
+	 * unlink the parent's active timer or corrupt timer_head.
+	 */
+	init_timer(&p->real_timer);
+	p->real_timer.fun = it_real_fun;
 	p->real_timer.data = (unsigned long)p;
 
 	p->stime = p->utime = p->stime_children = p->utime_children = 0;
@@ -281,6 +288,8 @@ int do_clone(struct trap_frame *tr, unsigned long flags,
 	p->exit_signal = (flags & CLONE_THREAD) ? 0 : SIGCHLD;
 	p->it_real_value = p->it_virt_value = p->it_prof_value = 0;
 	p->it_real_incr = p->it_virt_incr = p->it_prof_incr = 0;
+	init_timer(&p->real_timer);
+	p->real_timer.fun = it_real_fun;
 	p->real_timer.data = (unsigned long)p;
 
 	p->stime = p->utime = p->stime_children = p->utime_children = 0;

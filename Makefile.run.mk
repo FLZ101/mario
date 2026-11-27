@@ -75,6 +75,7 @@ net-test:
 	PYTHONPATH=$(ROOT)/tests $(PYTHON) $(ROOT)/tests/net/python_net.py --smp $(SMP)
 	PYTHONPATH=$(ROOT)/tests $(PYTHON) $(ROOT)/tests/net/https.py --smp $(SMP)
 	PYTHONPATH=$(ROOT)/tests $(PYTHON) $(ROOT)/tests/net/tools.py --smp $(SMP)
+	PYTHONPATH=$(ROOT)/tests $(PYTHON) $(ROOT)/tests/net/ssh.py --smp $(SMP)
 	PYTHONPATH=$(ROOT)/tests $(PYTHON) $(ROOT)/tests/net/monitors.py --smp $(SMP)
 
 image-builder-test:

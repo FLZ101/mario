@@ -11,6 +11,8 @@
 #include <syscall.h>
 #include <uapi/mario/process.h>
 
+#define PR_GET_DUMPABLE 3
+#define PR_SET_DUMPABLE 4
 #define PR_SET_NAME 15
 #define PR_GET_NAME 16
 
@@ -25,6 +27,20 @@ int sys_prctl(int option, unsigned long arg2, unsigned long arg3,
 	char name[sizeof(current->comm)];
 
 	switch (option) {
+	/*
+	 * musl's variadic prctl(op, ...) unconditionally forwards four
+	 * unsigned long arguments to SYS_prctl, so shorter calls such as
+	 * prctl(PR_SET_DUMPABLE, 0) leave arg3..arg5 uninitialized.
+	 */
+	case PR_GET_DUMPABLE:
+		return current->mm ? current->mm->dumpable : 0;
+	case PR_SET_DUMPABLE:
+		if (arg2 != 0 && arg2 != 1)
+			return -EINVAL;
+		if (!current->mm)
+			return -EINVAL;
+		current->mm->dumpable = (int)arg2;
+		return 0;
 	case PR_SET_NAME:
 		if (verify_area(VERIFY_READ, (void *)arg2, sizeof(name)))
 			return -EFAULT;

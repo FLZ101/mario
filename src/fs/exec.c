@@ -484,6 +484,7 @@ int do_exec(struct exec *exe, int fd, struct trap_frame *tr)
 	/* no turning back */
 	flush_old_exec(exe, tr);
 
+	current->mm->dumpable = 1;
 	current->mm->start_code = exe->start_code;
 	current->mm->end_code = exe->end_code;
 	current->mm->start_data = exe->start_data;

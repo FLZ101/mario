@@ -285,6 +285,14 @@ void do_exit(long code)
 	}
 
 	/*
+	 * Cancel any pending ITIMER_REAL before task exit so an uncancelled
+	 * alarm cannot remain linked in timer_head after free_task_struct()
+	 * releases or poisons the task page.
+	 */
+	current->it_real_incr = 0;
+	del_timer(&current->real_timer);
+
+	/*
 	 * Publish thread death before releasing the address space.  For a
 	 * process leader this address may live in the process mm that
 	 * free_page_tables() is about to unmap, so writing it after page-table

@@ -44,6 +44,15 @@ CHECK-REGEX: /proc/[0-9]+
 RUN: readlink /proc/self/fd/0
 CHECK: /dev/ttyS0
 
+RUN: readlink /proc/self/fd/0 </dev/null
+CHECK: /dev/null
+
+RUN: readlink /proc/self/fd/0 </dev/urandom
+CHECK: /dev/urandom
+
+RUN: /usr/bin/python -c 'import os, pty; m, s = pty.openpty(); print(os.readlink(f"/proc/self/fd/{m}"), os.readlink(f"/proc/self/fd/{s}"), os.ttyname(s)); os.close(m); os.close(s)'
+CHECK-REGEX: (?m)^/dev/ptmx (/dev/pts/[0-9]+) \1$
+
 RUN: ls /proc
 CHECK: mounts
 CHECK: self

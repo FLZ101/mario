@@ -631,6 +631,20 @@ static int proc_link_target(unsigned long ino, char *buf, size_t size)
 		unsigned int major = MAJOR(dev);
 		unsigned int minor = MINOR(dev);
 
+		if (major == MEM_MAJOR) {
+			if (minor == MEM_MINOR_ZERO)
+				return sprintkn(buf, size, "/dev/zero");
+			if (minor == MEM_MINOR_NULL)
+				return sprintkn(buf, size, "/dev/null");
+			if (minor == MEM_MINOR_FULL)
+				return sprintkn(buf, size, "/dev/full");
+			if (minor == MEM_MINOR_URANDOM)
+				return sprintkn(buf, size, "/dev/urandom");
+			if (minor == MEM_MINOR_RANDOM)
+				return sprintkn(buf, size, "/dev/random");
+			if (minor == MEM_MINOR_KMSG)
+				return sprintkn(buf, size, "/dev/kmsg");
+		}
 		if (major == TTY_MAJOR) {
 			if (minor == TTY_MINOR)
 				return sprintkn(buf, size, "/dev/tty");
@@ -646,6 +660,13 @@ static int proc_link_target(unsigned long ino, char *buf, size_t size)
 			    minor < SERIAL_MINOR_0 + NUM_SERIAL)
 				return sprintkn(buf, size, "/dev/ttyS%d",
 						minor - SERIAL_MINOR_0);
+		}
+		if (major == PTY_MAJOR) {
+			if (minor == PTMX_MINOR)
+				return sprintkn(buf, size, "/dev/ptmx");
+			if (minor < NR_PTYS)
+				return sprintkn(buf, size, "/dev/pts/%u",
+						minor);
 		}
 	}
 

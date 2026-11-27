@@ -304,5 +304,41 @@ int sys_nanosleep(struct timespec *req, struct timespec *rem)
 
 int sys_clock_nanosleep_time32(clockid_t clockid, int flags, struct timespec *req, struct timespec *rem)
 {
-	return sys_nanosleep(req, rem);
+	struct timespec target;
+	struct timespec64 now;
+	long long delta_sec;
+	long delta_nsec;
+	unsigned long expire;
+	int error;
+
+	if (flags & ~TIMER_ABSTIME)
+		return -EINVAL;
+	error = clock_gettime_kernel(clockid, &now);
+	if (error)
+		return error;
+	if (!(flags & TIMER_ABSTIME))
+		return sys_nanosleep(req, rem);
+
+	error = verify_area(VERIFY_READ, req, sizeof(*req));
+	if (error)
+		return error;
+	memcpy_fromfs(&target, req, sizeof(target));
+	if (target.tv_nsec >= 1000000000L || target.tv_nsec < 0 ||
+	    target.tv_sec < 0)
+		return -EINVAL;
+
+	delta_sec = (long long)target.tv_sec - (long long)now.tv_sec;
+	delta_nsec = target.tv_nsec - now.tv_nsec;
+	if (delta_nsec < 0) {
+		delta_sec -= 1;
+		delta_nsec += 1000000000L;
+	}
+	if (delta_sec < 0 || (delta_sec == 0 && delta_nsec <= 0))
+		return 0;
+
+	target.tv_sec = delta_sec > (MAX_JIFFY_OFFSET / HZ) ?
+		(long)(MAX_JIFFY_OFFSET / HZ) : (long)delta_sec;
+	target.tv_nsec = delta_nsec;
+	expire = timespec_to_jiffies(&target) + 1;
+	return schedule_timeout(expire) ? -EINTR : 0;
 }

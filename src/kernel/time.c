@@ -174,6 +174,11 @@ static int do_clock_gettime64(clockid_t clockid, struct timespec64 *tp)
 	return 0;
 }
 
+int clock_gettime_kernel(clockid_t clockid, struct timespec64 *tp)
+{
+	return do_clock_gettime64(clockid, tp);
+}
+
 uint64_t current_time()
 {
 	struct timespec64 t;

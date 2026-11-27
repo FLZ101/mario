@@ -206,7 +206,12 @@ NAT forwards a host loopback port to guest port 22. `QEMU_SSH_PORT=auto` (the
 default) uses port 2222 if available or another free port and prints the result
 at startup. Set `QEMU_SSH_PORT=2223` to require a particular port or
 `QEMU_SSH_PORT=` to disable the forward.
-Mario does not ship an SSH server yet.
+GTK image builds (`make disk-image-gtk`, `make run-gtk`, `make debug-gtk`)
+automatically copy your host `~/.ssh/*.pub` (and `~/.ssh/authorized_keys` if
+present) into `/root/.ssh/authorized_keys`, and GTK boots start `sshd` on port
+22 so `ssh -p 2222 root@127.0.0.1` works out of the box once you have a host
+keypair (override with `MARIO_SSH_AUTHORIZED_KEYS=/path/to/key.pub` or disable
+with `MARIO_SSH_AUTHORIZED_KEYS=`).
 See [network setup and limitations](tests/net/README.md#qemu-network-modes-and-dhcp).
 
 Python supports HTTPS through OpenSSL and trusts the bundled Mozilla roots
@@ -221,9 +226,9 @@ Use `ifconfig`, `route -n`, or `netstat -i` / `netstat -rn` for read-only
 network status. Configure IPv4 with `/sbin/netctl.exe`.
 See [installed network tools](tests/net/README.md#network-tools).
 
-The image also includes OpenSSH `ssh`, `scp`, `sftp`, and `ssh-keygen` for
-outbound IPv4 SSH and SFTP.
-See [OpenSSH client setup](tests/net/README.md#openssh-client).
+The image also includes OpenSSH `ssh`, `scp`, `sftp`, `ssh-keygen`, `sshd`,
+and `sftp-server` for IPv4 SSH and SFTP.
+See [OpenSSH setup](tests/net/README.md#openssh).
 
 Open a local MP4 in File Manager, or run `mpv FILE.mp4` from the desktop
 terminal. The player accepts one regular file with H.264 video and optional

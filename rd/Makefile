@@ -27,9 +27,7 @@ rd-explorer.exe: tools/rd-explorer.c tools/mariofs.h
 rd0: $(TOOLS) device_list make-rd0.py copy_files.py $(shell $(PYTHON) make-rd0.py --deps)
 	$(PYTHON) make-rd0.py
 
-gtk_overlay_stamp := ramdisk0-gtk-deps/$(shell \
-	if test -d _ramdisk0-gtk; then find _ramdisk0-gtk -printf '%C@ %p\0'; fi \
-	| LC_ALL=C sort -z | sha256sum | cut -d' ' -f1)
+gtk_overlay_stamp := ramdisk0-gtk-deps/$(shell $(PYTHON) make-rd0.py --gtk-stamp)
 
 $(gtk_overlay_stamp):
 	mkdir -p $(@D)

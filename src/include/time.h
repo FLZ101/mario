@@ -63,7 +63,10 @@ struct itimerval64 {
 #define CLOCK_SGI_CYCLE         10
 #define CLOCK_TAI               11
 
+#define TIMER_ABSTIME           1
+
 extern volatile long jiffies;
+int clock_gettime_kernel(clockid_t clockid, struct timespec64 *tp);
 
 #define	ITIMER_REAL	0
 #define	ITIMER_VIRTUAL	1
