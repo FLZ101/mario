@@ -1,5 +1,5 @@
 {
-  "description": "Mario kernel rules for check_kernel_locks.py",
+  "description": "Mario source and test rules for check_code.py and check_kernel_locks.py",
   "generic_lock_pattern": "\\b(?:spin_lock_irqsave|spin_lock|ACQUIRE_LOCK)\\s*\\(",
   "generic_unlock_pattern": "\\b(?:spin_unlock_irqrestore|spin_unlock|RELEASE_LOCK)\\s*\\(",
   "unsafe_checks": [
@@ -37,5 +37,41 @@
       "before": "mm_lock",
       "after": "tasklist_lock"
     }
+  ],
+  "app_exclude_dir_patterns": [
+    "^app/usr/(?:ncurses|oksh|toybox|sbase|ubase|vim|nano|less|readline|zlib|freetype|sqlite|Python|libevent|libpng|tmux|openssl|openssh|curl|wget|net-tools)-",
+    "^app/usr-cxx/(?:btop|fltk)-[0-9]",
+    "^app/usr/cxx/(?:build|install|downloads|[a-zA-Z0-9_]+-[0-9])",
+    "^app/usr/video/(?:build|install|FFmpeg|mpv)"
+  ],
+  "app_unit_test_prefixes": [
+    "app/test/",
+    "app/test-cxx/"
+  ],
+  "gui_test_apps": [
+    "/usr/bin/terminal",
+    "/usr/bin/filemanager",
+    "/usr/bin/system-monitor",
+    "/usr/bin/imageviewer",
+    "/usr/bin/fltk-editor",
+    "fltk-demo.exe",
+    "fltk-editor.exe",
+    "fltk-filemanager",
+    "fltk-system-monitor",
+    "fltk-window.exe"
+  ],
+  "gui_launcher_assets": [
+    "desktop-launcher",
+    "desktop-appearance-launcher"
+  ],
+  "gui_test_vt_keys": [
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5",
+    "f6",
+    "f7",
+    "f8"
   ]
 }

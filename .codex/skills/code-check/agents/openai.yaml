@@ -1,0 +1,3 @@
+interface:
+  display_name: "Mario Code Check"
+  short_description: "Check kernel locks/user-copies, GUI/IPC socket invariants, and test races"

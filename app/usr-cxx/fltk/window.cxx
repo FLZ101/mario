@@ -165,11 +165,17 @@ public:
 	{
 		if (width <= 0 || height <= 0 || !input_ || (fd_ = connect_wm()) < 0)
 			return false;
+		// AF_UNIX sockets default to one page; expand SO_SNDBUF after connect()
+		// so 16 KiB batch upload chunks do not fragment across 4 KiB writes.
+		const int send_buffer = GUI_SURFACE_UPLOAD_BATCH_BYTES;
+		batch_ = setsockopt(fd_, SOL_SOCKET, SO_SNDBUF, &send_buffer, sizeof(send_buffer)) == 0;
 		width_ = width;
 		height_ = height;
 		title(name);
 		Fl::add_timeout(5, startup_timeout, this);
-		return true;
+		// Send the initial handshake burst immediately instead of waiting for poll().
+		flush_output();
+		return fd_ >= 0;
 	}
 
 	void disconnect()
@@ -219,6 +225,17 @@ public:
 		watch();
 	}
 
+	void flush_output()
+	{
+		if (fd_ < 0)
+			return;
+		// Keep the peer alive across fail()/disconnect() on write error.
+		auto self = shared_from_this();
+		if (!self->write_messages())
+			self->fail();
+		self->watch();
+	}
+
 private:
 	enum class Startup { hello, capabilities, create, wait, ready };
 	Window_Driver *driver_;
@@ -240,7 +257,7 @@ private:
 	std::string title_;
 	gui_protocol_wire_window_move move_{};
 	bool title_pending_ = false, move_pending_ = false, resize_pending_ = false;
-	bool patch_ = false, retry_ = false, button_changes_ = false;
+	bool batch_ = false, patch_ = false, retry_ = false, button_changes_ = false;
 	unsigned failures_ = 0;
 	gui_rect dirty_{};
 	Pixels pixels_, snapshot_;
@@ -285,9 +302,9 @@ private:
 
 	static void retry_upload(void *context)
 	{
-		auto &peer = *static_cast<Window_Peer *>(context);
-		peer.retry_ = false;
-		peer.watch();
+		auto peer = static_cast<Window_Peer *>(context)->shared_from_this();
+		peer->retry_ = false;
+		peer->flush_output();
 	}
 
 	void fail()
@@ -370,15 +387,23 @@ private:
 
 	bool write_messages()
 	{
-		if (!prepare_output() || gui_surface_upload_write(&upload_, write_socket, this) < 0)
-			return false;
-		if (upload_.completed) {
-			if (!retry_ && upload_.completed_configure == configure_)
-				base_ = upload_.completed_serial;
-			upload_.completed = 0;
+		// Drain back-to-back startup/control frames or start a follow-up patch
+		// dirtied during an upload without waiting for another poll() wakeup.
+		for (unsigned pass = 0; pass < 4; ++pass) {
+			if (!prepare_output() || gui_surface_upload_write(&upload_, write_socket, this) < 0)
+				return false;
+			if (upload_.completed) {
+				if (!retry_ && upload_.completed_configure == configure_)
+					base_ = upload_.completed_serial;
+				upload_.completed = 0;
+			}
+			if (!upload_.active)
+				snapshot_.reset();
+			if (upload_.frame_bytes || !(startup_ < Startup::wait ||
+			    (startup_ == Startup::ready &&
+			     (move_pending_ || resize_pending_ || title_pending_ || can_upload()))))
+				break;
 		}
-		if (!upload_.active)
-			snapshot_.reset();
 		return true;
 	}
 
@@ -596,7 +621,8 @@ private:
 				return false;
 			patch_ = (reply.capabilities_le & GUI_PROTOCOL_CAP_SURFACE_PATCH) != 0;
 			button_changes_ = (reply.capabilities_le & GUI_PROTOCOL_CAP_BUTTON_CHANGES) != 0;
-			upload_.batch = patch_;
+			// Enable 16 KiB/64 KiB batching only when the expanded send buffer is active.
+			upload_.batch = patch_ && batch_;
 			return true;
 		}
 		case GUI_PROTOCOL_WINDOW_CREATE_REPLY: {
@@ -771,6 +797,8 @@ void Window_Driver::flush()
 	}
 	pWindow->Fl_Window::flush();
 	peer_->changed(damage);
+	// Push freshly drawn damage onto the nonblocking socket before sleeping in wait().
+	peer_->flush_output();
 }
 
 void Window_Driver::resize(int position_x, int position_y, int width, int height)

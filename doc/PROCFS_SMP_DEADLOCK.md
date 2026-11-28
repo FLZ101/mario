@@ -69,7 +69,7 @@ atomic counters while holding `tasklist_lock`. The
 
 ## Validation
 
-- `python3 .codex/skills/kernel-code-check/scripts/check_kernel_locks.py src`
+- `python3 .codex/skills/code-check/scripts/check_kernel_locks.py src`
 - `make kernel`
 - `tests/shell/proc.test` with `SMP=8`
 - `tests/tty/btop.test` with `SMP=8`

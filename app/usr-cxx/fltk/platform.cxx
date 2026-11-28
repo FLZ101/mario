@@ -201,8 +201,15 @@ public:
 			return result;
 		}
 		Fl::flush();
-		Fl_Timeout::elapse_timeouts();
-		return poll_watches(Fl::idle ? 0 : Fl_Timeout::time_to_wait(seconds), true);
+		// A draw() callback inside Fl::flush() may arm Fl::idle; poll with zero
+		// timeout instead of sleeping until the next timer expires.
+		if (Fl::idle) {
+			seconds = 0;
+		} else {
+			Fl_Timeout::elapse_timeouts();
+			seconds = Fl_Timeout::time_to_wait(seconds);
+		}
+		return poll_watches(seconds, true);
 	}
 };
 

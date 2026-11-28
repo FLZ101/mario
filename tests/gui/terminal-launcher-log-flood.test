@@ -29,6 +29,9 @@ GUI-WAIT-FRAME:
 GUI-CLICK: assets/desktop-default.png,10,747,35,14
 GUI-CLICK: assets/desktop-launcher.png,15,642,84,16
 SERIAL: while ! pgrep -x terminal >/dev/null; do sleep 1; done; pgrep -x terminal >/tmp/flood-terminal.pid
+# Wait until terminal creates, focuses, and presents its window before Super+F;
+# pgrep can succeed while terminal is still loading fonts and mario-desktop owns focus.
+GUI-CHECK-RECT: anywhere 64 64 17 24 39
 SERIAL: <<CHECKFDS
 set -e
 term_pid=$(cat /tmp/flood-terminal.pid)

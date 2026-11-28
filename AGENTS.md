@@ -1,23 +1,32 @@
 # Repository Agent Instructions
 
-## Kernel code review
+## Code and test review
 
-When reviewing, modifying, or reasoning about kernel code under `src/`, read and
-follow the kernel safety skill at:
+When reviewing, modifying, or reasoning about kernel code under `src/`,
+userspace GUI/IPC code under `app/`, or guest test fixtures under `tests/`, read
+and follow the code-check skill at:
 
-- `.codex/skills/kernel-code-check/SKILL.md`
+- `.codex/skills/code-check/SKILL.md`
 
-Pay particular attention to user-memory copies, blocking calls, and ring-buffer
-`u=1` operations inside spinlock/irqsave regions.
+Pay particular attention to:
 
-Before committing changes under `src/`, run:
+- `src/`: user-memory copies, blocking calls, ring-buffer `u=1` operations, and
+  configured lock-order inversions inside spinlock/irqsave regions.
+- `app/`: `gui_surface_upload.batch` requiring `SO_SNDBUF` expansion after
+  `connect()`/`socketpair()`, immediate nonblocking socket flushes, and
+  detaching compositor-launched client stdio from `/tmp/mario-wm.log`.
+- `tests/`: waiting for window/surface readiness (not `pgrep` alone) after
+  desktop-launcher or background GUI app spawns before injecting keyboard
+  shortcuts/typing, and isolating writable paths under `/tmp`.
+
+Before committing changes under `src/`, `app/`, or `tests/`, run:
 
 ```sh
-python3 .codex/skills/kernel-code-check/scripts/check_kernel_locks.py src
-make kernel
+python3 .codex/skills/code-check/scripts/check_code.py src app tests
 ```
 
-Fix scanner findings and build failures before committing.
+Also rebuild the affected targets (for example `make kernel` or `make app`) and
+fix any scanner findings or build failures before committing.
 
 ## Build and QEMU test workflow
 
