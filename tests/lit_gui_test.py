@@ -83,7 +83,11 @@ from pathlib import Path
 import pexpect
 from PIL import Image, ImageChops
 
-from lit_kernel import kernel_artifacts, validate_rebuild_kernel
+from lit_kernel import (
+    kernel_artifacts,
+    rebuild_kernel_batch,
+    validate_rebuild_kernel,
+)
 from lit_skip import parse_skip_reason
 from pexpect_utils import make_pexpect_raw, send_line, send_text
 
@@ -1065,9 +1069,22 @@ while test -e /tmp/mario-wm.started; do sleep 1; done
     )
 
 
-def run_test(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
+def run_test(
+    test: GuiTest,
+    qemu: str,
+    index: int,
+    smp: int,
+    elapsed_out: list[float] | None = None,
+) -> list[str]:
     with kernel_artifacts(test.rebuild_kernel, "disk-image-vbe_1024x768"):
-        return _run_test_locked(test, qemu, index, smp)
+        # Time only the QEMU run inside kernel_artifacts() so lock waits and
+        # REBUILD-KERNEL build/restore steps are excluded from [elapsed].
+        started = time.monotonic()
+        try:
+            return _run_test_locked(test, qemu, index, smp)
+        finally:
+            if elapsed_out is not None:
+                elapsed_out.append(time.monotonic() - started)
 
 
 def _run_test_locked(test: GuiTest, qemu: str, index: int, smp: int) -> list[str]:
@@ -1312,31 +1329,59 @@ def main() -> None:
 
     def execute(item: tuple[int, GuiTest]):
         index, test = item
+        # Measure only guest execution inside kernel_artifacts() so LOCK_EX/LOCK_SH
+        # queueing and REBUILD-KERNEL make steps do not inflate fixture time.
+        elapsed_box: list[float] = []
         started = time.monotonic()
         try:
-            failures = run_test(test, args.qemu, index, args.smp)
-            return test, time.monotonic() - started, failures, None
+            failures = run_test(test, args.qemu, index, args.smp, elapsed_box)
+            elapsed = elapsed_box[0] if elapsed_box else time.monotonic() - started
+            return test, elapsed, failures, None
         except Exception as exc:
-            return test, time.monotonic() - started, [], exc
+            elapsed = elapsed_box[0] if elapsed_box else time.monotonic() - started
+            return test, elapsed, [], exc
 
-    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        for test, elapsed, failures, error in (
-            future.result()
-            for future in as_completed(
-                [pool.submit(execute, item) for item in enumerate(runnable)]
-            )
-        ):
-            name = test.path.relative_to(ROOT)
-            if error is not None:
-                print(f"FAIL: {name} [{elapsed:.2f}s]\n{error}", flush=True)
-                failed = True
-            elif failures:
-                print(f"FAIL: {name} [{elapsed:.2f}s]", flush=True)
-                for failure in failures:
-                    print(failure, flush=True)
-                failed = True
-            else:
-                print(f"PASS: {name} [{elapsed:.2f}s]", flush=True)
+    def report_result(
+        test: GuiTest,
+        elapsed: float,
+        failures: list[str],
+        error: Exception | None,
+    ) -> None:
+        nonlocal failed
+        name = test.path.relative_to(ROOT)
+        if error is not None:
+            print(f"FAIL: {name} [{elapsed:.2f}s]\n{error}", flush=True)
+            failed = True
+        elif failures:
+            print(f"FAIL: {name} [{elapsed:.2f}s]", flush=True)
+            for failure in failures:
+                print(failure, flush=True)
+            failed = True
+        else:
+            print(f"PASS: {name} [{elapsed:.2f}s]", flush=True)
+
+    # Run ordinary shared-kernel fixtures across all worker threads first, then
+    # run exclusive REBUILD-KERNEL fixtures in one serial batch at the end so
+    # workers never block on LOCK_EX and normal artifacts are restored once.
+    indexed = list(enumerate(runnable))
+    ordinary = [item for item in indexed if item[1].rebuild_kernel is None]
+    rebuilds = [item for item in indexed if item[1].rebuild_kernel is not None]
+
+    if ordinary:
+        with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            for result in (
+                future.result()
+                for future in as_completed(
+                    [pool.submit(execute, item) for item in ordinary]
+                )
+            ):
+                report_result(*result)
+
+    if rebuilds:
+        with rebuild_kernel_batch("disk-image-vbe_1024x768"):
+            for item in rebuilds:
+                report_result(*execute(item))
+
     if failed:
         raise SystemExit(1)
 

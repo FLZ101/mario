@@ -7,6 +7,7 @@ import hashlib
 import os
 import subprocess
 import tempfile
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
@@ -30,6 +31,11 @@ ROOT = Path(__file__).resolve().parent.parent
 #      ordinary kernel (and normal boot image) before it releases the
 #      exclusive lock.  A following normal test therefore waits and can only
 #      boot restored artifacts.
+#   4. When a runner executes multiple REBUILD-KERNEL fixtures in one batch
+#      (after all ordinary fixtures finish), ``rebuild_kernel_batch`` holds the
+#      writer gate and exclusive artifact lock across the batch and restores
+#      the ordinary kernel/image once at batch exit instead of after every
+#      individual self-test.
 #
 # This prevents cross-test artifact contamination; it does not replace each
 # normal test's CHECK/TTY-CHECK/GUI-CHECK assertions.  Guest writes are also
@@ -47,6 +53,11 @@ REBUILD_KERNEL_TARGETS = frozenset(
         "selftest-fbcon-start-failure",
     }
 )
+
+# Thread-local state tracking whether the calling thread already owns an active
+# rebuild_kernel_batch() lock and whether any selftest build has replaced the
+# normal kernel artifacts during that batch.
+_BATCH_STATE = threading.local()
 
 
 class KernelBuildError(RuntimeError):
@@ -68,6 +79,16 @@ def _lock_path() -> Path:
     return (
         Path(tempfile.gettempdir())
         / f"mario-kernel-artifacts-{os.getuid()}-{identity}.lock"
+    )
+
+
+def _gate_lock_path() -> Path:
+    # Separate turnstile lockfile used to prevent Linux flock(LOCK_SH) reader
+    # preference from starving a waiting LOCK_EX REBUILD-KERNEL writer.
+    identity = hashlib.sha256(str(ROOT).encode()).hexdigest()[:16]
+    return (
+        Path(tempfile.gettempdir())
+        / f"mario-kernel-artifacts-{os.getuid()}-{identity}.gate.lock"
     )
 
 
@@ -106,6 +127,49 @@ def _restore_kernel(disk_image_target: str | None) -> None:
 
 
 @contextmanager
+def rebuild_kernel_batch(
+    disk_image_target: str | None = None,
+) -> Generator[None, None, None]:
+    """Hold exclusive artifact access across a batch of REBUILD-KERNEL tests.
+
+    Holding the writer gate first prevents new ``LOCK_SH`` readers in other
+    processes from starving this batch while active readers drain.  Normal
+    kernel and disk-image artifacts are restored once when the batch exits if
+    at least one self-test build started.
+    """
+
+    if getattr(_BATCH_STATE, "active", False):
+        yield
+        return
+
+    with _gate_lock_path().open("a+") as gate_file, _lock_path().open(
+        "a+"
+    ) as lock_file:
+        # Block new shared-lock readers at the gate first, then wait for any
+        # already-running QEMU guests to release LOCK_SH on the artifact lock.
+        fcntl.flock(gate_file.fileno(), fcntl.LOCK_EX)
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            _BATCH_STATE.active = True
+            _BATCH_STATE.dirty = False
+            try:
+                yield
+            finally:
+                dirty = getattr(_BATCH_STATE, "dirty", False)
+                _BATCH_STATE.active = False
+                _BATCH_STATE.dirty = False
+                try:
+                    # Restore the ordinary kernel and disk image once at the
+                    # end of the batch before allowing waiting readers in.
+                    if dirty:
+                        _restore_kernel(disk_image_target)
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        finally:
+            fcntl.flock(gate_file.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
 def kernel_artifacts(
     rebuild_target: str | None, disk_image_target: str | None = None
 ) -> Generator[None, None, None]:
@@ -116,20 +180,33 @@ def kernel_artifacts(
     kernel, and always restores the ordinary kernel before releasing it.
     """
 
-    with _lock_path().open("a+") as lock_file:
-        fcntl.flock(
-            lock_file.fileno(), fcntl.LOCK_EX if rebuild_target else fcntl.LOCK_SH
-        )
+    if rebuild_target and getattr(_BATCH_STATE, "active", False):
+        # Mark artifacts dirty before invoking make, since selftest targets
+        # depend on clean-kernel and remove the ordinary kernel immediately.
+        _BATCH_STATE.dirty = True
+        _build_kernel(rebuild_target, disk_image_target)
+        yield
+        return
+
+    if rebuild_target:
+        with rebuild_kernel_batch(disk_image_target):
+            _BATCH_STATE.dirty = True
+            _build_kernel(rebuild_target, disk_image_target)
+            yield
+        return
+
+    # Briefly pass through the writer gate before taking LOCK_SH so an active
+    # or queued REBUILD-KERNEL writer in another process is never starved by
+    # overlapping shared-lock readers.
+    with _gate_lock_path().open("a+") as gate_file, _lock_path().open(
+        "a+"
+    ) as lock_file:
+        fcntl.flock(gate_file.fileno(), fcntl.LOCK_EX)
         try:
-            if rebuild_target:
-                try:
-                    _build_kernel(rebuild_target, disk_image_target)
-                    yield
-                finally:
-                    # A failed self-test build may have already removed the
-                    # normal kernel, so restore before other tests unlock it.
-                    _restore_kernel(disk_image_target)
-            else:
-                yield
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_SH)
+        finally:
+            fcntl.flock(gate_file.fileno(), fcntl.LOCK_UN)
+        try:
+            yield
         finally:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)

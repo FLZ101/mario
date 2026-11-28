@@ -46,7 +46,11 @@ except ImportError:
     sys.exit(2)
 
 from pexpect_utils import make_pexpect_raw, send_line, send_text
-from lit_kernel import kernel_artifacts, validate_rebuild_kernel
+from lit_kernel import (
+    kernel_artifacts,
+    rebuild_kernel_batch,
+    validate_rebuild_kernel,
+)
 from lit_skip import parse_skip_reason
 
 
@@ -362,11 +366,18 @@ def start_qemu(qemu, realtime=False, smp=1, expect_halt=None):
     return child, []
 
 
-def run_lit_test(test, qemu, realtime=False, smp=1):
+def run_lit_test(test, qemu, realtime=False, smp=1, elapsed_out=None):
     # Start a fresh QEMU for this test so an SMP configuration from one case
     # cannot leak into the next case.
     with kernel_artifacts(test.rebuild_kernel):
-        return _run_lit_test_locked(test, qemu, realtime, smp)
+        # Time only the QEMU run inside kernel_artifacts() so lock waits and
+        # REBUILD-KERNEL build/restore steps are excluded from [elapsed].
+        started = time.monotonic()
+        try:
+            return _run_lit_test_locked(test, qemu, realtime, smp)
+        finally:
+            if elapsed_out is not None:
+                elapsed_out.append(time.monotonic() - started)
 
 
 def _run_lit_test_locked(test, qemu, realtime, smp):
@@ -470,20 +481,25 @@ def skipped_reason(test, missing_hd_images, smp, run_skipped=False):
 
 def run_one(test, qemu, smp, realtime):
     name = os.path.relpath(test.path, ROOT)
+    # Measure guest runtime inside kernel_artifacts() rather than lock wait /
+    # REBUILD-KERNEL build time, and freeze elapsed before future completion.
+    elapsed_box = []
     started = time.monotonic()
     try:
         failures, text, report_start = run_lit_test(
-            test, qemu, realtime=realtime, smp=smp
+            test, qemu, realtime=realtime, smp=smp, elapsed_out=elapsed_box
         )
+        elapsed = elapsed_box[0] if elapsed_box else time.monotonic() - started
     except PexpectTimeout as exc:
-        return name, started, None, exc, None, None
+        elapsed = elapsed_box[0] if elapsed_box else time.monotonic() - started
+        return name, elapsed, None, exc, None, None
     except Exception as exc:
-        return name, started, None, exc, None, None
-    return name, started, failures, None, text, report_start
+        elapsed = elapsed_box[0] if elapsed_box else time.monotonic() - started
+        return name, elapsed, None, exc, None, None
+    return name, elapsed, failures, None, text, report_start
 
 
-def report_one(name, started, failures, error, text, report_start, verbose):
-    elapsed = time.monotonic() - started
+def report_one(name, elapsed, failures, error, text, report_start, verbose):
     if error is not None:
         print(f"FAIL: {name} [{elapsed:.2f}s]", flush=True)
         print(error, flush=True)
@@ -602,15 +618,26 @@ def main():
     def execute(test):
         return run_one(test, args.qemu, args.smp, realtime)
 
-    if args.jobs == 1:
-        results = map(execute, runnable)
-        for result in results:
-            failed = report_one(*result, args.verbose) or failed
-    else:
-        with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-            futures = [pool.submit(execute, test) for test in runnable]
-            for future in as_completed(futures):
-                failed = report_one(*future.result(), args.verbose) or failed
+    # Run ordinary shared-kernel fixtures across all worker threads first, then
+    # execute exclusive REBUILD-KERNEL fixtures in one batch at the end so
+    # workers never park on LOCK_EX and normal artifacts are restored once.
+    ordinary = [test for test in runnable if test.rebuild_kernel is None]
+    rebuilds = [test for test in runnable if test.rebuild_kernel is not None]
+
+    if ordinary:
+        if args.jobs == 1:
+            for result in map(execute, ordinary):
+                failed = report_one(*result, args.verbose) or failed
+        else:
+            with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+                futures = [pool.submit(execute, test) for test in ordinary]
+                for future in as_completed(futures):
+                    failed = report_one(*future.result(), args.verbose) or failed
+
+    if rebuilds:
+        with rebuild_kernel_batch():
+            for test in rebuilds:
+                failed = report_one(*execute(test), args.verbose) or failed
 
     if failed:
         sys.exit(1)

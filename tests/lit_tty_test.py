@@ -48,7 +48,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lit_kernel import kernel_artifacts, validate_rebuild_kernel
+from lit_kernel import (
+    kernel_artifacts,
+    rebuild_kernel_batch,
+    validate_rebuild_kernel,
+)
 from lit_skip import parse_skip_reason
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -430,8 +434,10 @@ class TmuxSerialSession:
 
 
 def run_test(test: TtyLitTest, qemu: str, smp: int, index: int, **session_options):
-    started = time.monotonic()
+    # Start timing inside kernel_artifacts() so exclusive/shared lock waits and
+    # REBUILD-KERNEL build/restore steps are excluded from fixture duration.
     with kernel_artifacts(test.rebuild_kernel):
+        started = time.monotonic()
         session = TmuxSerialSession(qemu, smp, index, **session_options)
         timeout = DEFAULT_TIMEOUT
         failures: list[str] = []
@@ -490,7 +496,8 @@ def run_test(test: TtyLitTest, qemu: str, smp: int, index: int, **session_option
         finally:
             diagnostics = session.qemu_diagnostics()
             session.close()
-    return time.monotonic() - started, failures, report_panel, diagnostics
+        elapsed = time.monotonic() - started
+    return elapsed, failures, report_panel, diagnostics
 
 
 def discover(paths: list[str]) -> list[TtyLitTest]:
@@ -551,31 +558,73 @@ def main() -> int:
         print(f"SKIP: {os.path.relpath(test.path, ROOT)} [{reason}]", flush=True)
 
     failed = 0
-    with ThreadPoolExecutor(max_workers=args.jobs) as executor:
-        futures = {
-            executor.submit(run_test, test, args.qemu, args.smp, index): test
-            for index, test in enumerate(runnable)
-        }
-        for future in as_completed(futures):
-            test = futures[future]
-            name = test.path.relative_to(ROOT)
-            try:
-                elapsed, failures, panel, diagnostics = future.result()
-            except Exception as error:
-                failed += 1
-                print(f"FAIL: {name} [{time.monotonic():.2f}s]\n{error}")
-                continue
-            if failures:
-                failed += 1
-                print(f"FAIL: {name} [{elapsed:.2f}s]")
-                for failure in failures:
-                    print(failure)
-                if panel:
-                    print(f"Last panel:\n{panel}")
-                if diagnostics:
-                    print(diagnostics)
-            else:
-                print(f"PASS: {name} [{elapsed:.2f}s]")
+
+    def report_tty_result(
+        test: TtyLitTest,
+        elapsed: float,
+        failures: list[str],
+        panel: str,
+        diagnostics: str,
+    ) -> None:
+        nonlocal failed
+        name = test.path.relative_to(ROOT)
+        if failures:
+            failed += 1
+            print(f"FAIL: {name} [{elapsed:.2f}s]")
+            for failure in failures:
+                print(failure)
+            if panel:
+                print(f"Last panel:\n{panel}")
+            if diagnostics:
+                print(diagnostics)
+        else:
+            print(f"PASS: {name} [{elapsed:.2f}s]")
+
+    # Run ordinary shared-kernel fixtures across all worker threads first, then
+    # execute exclusive REBUILD-KERNEL fixtures in one trailing batch so
+    # workers never park on LOCK_EX and normal artifacts are restored once.
+    indexed = list(enumerate(runnable))
+    ordinary = [item for item in indexed if item[1].rebuild_kernel is None]
+    rebuilds = [item for item in indexed if item[1].rebuild_kernel is not None]
+
+    if ordinary:
+        with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+            futures = {
+                executor.submit(run_test, test, args.qemu, args.smp, index): (
+                    test,
+                    time.monotonic(),
+                )
+                for index, test in ordinary
+            }
+            for future in as_completed(futures):
+                test, submitted = futures[future]
+                name = test.path.relative_to(ROOT)
+                try:
+                    elapsed, failures, panel, diagnostics = future.result()
+                except Exception as error:
+                    failed += 1
+                    print(
+                        f"FAIL: {name} [{time.monotonic() - submitted:.2f}s]\n{error}"
+                    )
+                    continue
+                report_tty_result(test, elapsed, failures, panel, diagnostics)
+
+    if rebuilds:
+        with rebuild_kernel_batch():
+            for index, test in rebuilds:
+                name = test.path.relative_to(ROOT)
+                submitted = time.monotonic()
+                try:
+                    elapsed, failures, panel, diagnostics = run_test(
+                        test, args.qemu, args.smp, index
+                    )
+                except Exception as error:
+                    failed += 1
+                    print(
+                        f"FAIL: {name} [{time.monotonic() - submitted:.2f}s]\n{error}"
+                    )
+                    continue
+                report_tty_result(test, elapsed, failures, panel, diagnostics)
 
     return 1 if failed else 0
 
